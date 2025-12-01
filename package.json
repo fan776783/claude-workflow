@@ -1,0 +1,43 @@
+{
+  "name": "@pic/claude-workflow",
+  "version": "1.0.1",
+  "description": "Claude Code 工作流工具包 - 自动安装 commands、agents、docs 到 ~/.claude",
+  "bin": {
+    "claude-workflow": "./bin/claude-workflow.js"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "prepublishOnly": "node scripts/validate.js",
+    "release": "./scripts/release.sh",
+    "release:patch": "./scripts/release.sh patch",
+    "release:minor": "./scripts/release.sh minor",
+    "release:major": "./scripts/release.sh major"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "scripts/",
+    "templates/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "http://your-registry-host:4873"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "fs-extra": "^11.2.0",
+    "semver": "^7.6.3"
+  },
+  "keywords": [
+    "claude",
+    "workflow",
+    "cli",
+    "automation"
+  ],
+  "author": "PIC Team",
+  "license": "MIT"
+}
