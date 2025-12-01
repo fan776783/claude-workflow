@@ -1,0 +1,847 @@
+---
+description: 执行工作流下一步 - 自动识别并执行当前应完成的步骤
+allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), Task(*), AskUserQuestion(*), mcp__codex__codex(*), TodoWrite(*)
+---
+
+# 智能工作流执行
+
+自动读取任务记忆，识别当前步骤，执行并更新进度。
+
+## 🔍 执行流程
+
+### Step 1：查找并读取任务记忆
+
+#### 1.1 生成项目唯一标识
+
+```typescript
+// 基于当前工作目录生成项目 ID
+function getProjectId(): string {
+  const cwd = process.cwd(); // 例如：/Users/ws/dev/super-agent-web
+  const hash = crypto.createHash('md5')
+    .update(cwd)
+    .digest('hex')
+    .substring(0, 12); // 取前12位，例如：a1b2c3d4e5f6
+  return hash;
+}
+
+// 获取用户级工作流记忆路径
+function getWorkflowMemoryPath(): string {
+  const projectId = getProjectId();
+  const workflowDir = path.join(
+    os.homedir(),
+    '.claude/workflows',
+    projectId
+  );
+  return path.join(workflowDir, 'workflow-memory.json');
+}
+
+// 示例：~/.claude/workflows/a1b2c3d4e5f6/workflow-memory.json
+```
+
+#### 1.2 查找任务记忆（多种方式，智能兜底）
+
+```typescript
+const currentProjectPath = process.cwd();
+let memoryPath: string | null = null;
+let storageType: 'user-deterministic' | 'user-meta' | 'project' | null = null;
+
+// 方式1：用户级路径 - 基于确定性哈希（推荐，新方案）
+const deterministicPath = getWorkflowMemoryPath();
+// 例如：~/.claude/workflows/064bbaef59e4/workflow-memory.json
+
+if (fileExists(deterministicPath)) {
+  memoryPath = deterministicPath;
+  storageType = 'user-deterministic';
+  console.log(`✅ 发现用户级工作流记忆（确定性路径）`);
+  console.log(`📂 路径：${deterministicPath}\n`);
+}
+
+// 方式2：用户级路径 - 通过元数据文件搜索（兼容随机ID方案）
+if (!memoryPath) {
+  const workflowsDir = path.join(os.homedir(), '.claude/workflows');
+
+  if (fs.existsSync(workflowsDir)) {
+    const dirs = fs.readdirSync(workflowsDir);
+
+    for (const dir of dirs) {
+      const metaPath = path.join(workflowsDir, dir, 'project-meta.json');
+
+      if (fs.existsSync(metaPath)) {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+
+        // 匹配项目路径
+        if (meta.project_path === currentProjectPath) {
+          const candidatePath = path.join(workflowsDir, dir, 'workflow-memory.json');
+
+          if (fs.existsSync(candidatePath)) {
+            const workflowMemory = JSON.parse(fs.readFileSync(candidatePath, 'utf-8'));
+
+            // 只使用 in_progress 状态的工作流
+            if (workflowMemory.status === 'in_progress') {
+              memoryPath = candidatePath;
+              storageType = 'user-meta';
+              console.log(`✅ 发现用户级工作流记忆（通过元数据匹配）`);
+              console.log(`📂 路径：${candidatePath}`);
+              console.log(`📋 项目 ID：${dir}\n`);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// 方式3：项目级路径（旧方案，向后兼容）
+if (!memoryPath) {
+  const projectLevelPath = '.claude/workflow-memory.json';
+
+  if (fileExists(projectLevelPath)) {
+    memoryPath = projectLevelPath;
+    storageType = 'project';
+    console.log(`⚠️ 发现项目级工作流记忆（旧方案）`);
+    console.log(`📂 路径：${projectLevelPath}`);
+    console.log(`💡 建议迁移到用户级目录以避免 Git 冲突\n`);
+  }
+}
+
+// 未找到任何工作流记忆
+if (!memoryPath) {
+  console.log(`❌ 未发现工作流任务记忆！\n`);
+  console.log(`当前项目：${currentProjectPath}`);
+  console.log(`项目 ID（确定性）：${getProjectId()}`);
+  console.log(`预期路径：${deterministicPath}\n`);
+  console.log(`请先使用以下命令之一初始化工作流：`);
+  console.log(`  /workflow-start "功能需求描述"`);
+  console.log(`  /workflow-quick-dev "功能需求描述"`);
+  console.log(`  /workflow-fix-bug "Bug 描述"`);
+  throw new Error('工作流任务记忆不存在');
+}
+
+// 读取工作流记忆
+const memory = JSON.parse(readFile(memoryPath));
+```
+
+**存储路径说明**：
+
+**工作流状态**（用户级，避免 Git 冲突）：
+- ✅ **推荐**：`~/.claude/workflows/{project_id}/workflow-memory.json`
+  - 基于当前工作目录自动生成项目ID
+  - 完全避免 Git 冲突
+  - 多人协作无冲突
+- ⚠️ **旧方案**：`.claude/workflow-memory.json`（向后兼容）
+
+**文档产物**（项目级，便于团队共享）：
+- 上下文摘要：`.claude/context-summary-{task_name}.md`
+- 验证报告：`.claude/verification-report-{task_name}.md`
+- 技术方案：`.claude/tech-design/{task_name}.md`
+- 操作日志：`.claude/operations-log-{task_name}.md`
+
+**项目识别机制**：
+```typescript
+// 示例
+当前工作目录：/Users/ws/dev/super-agent-web
+项目 ID（MD5前12位）：b8e3f9a12c45
+用户级路径：~/.claude/workflows/b8e3f9a12c45/workflow-memory.json
+```
+
+---
+
+### Step 2：找到当前步骤
+
+```typescript
+// 找到第一个状态为 pending 或 in_progress 的步骤
+const currentStep = memory.steps.find(step =>
+  step.status === 'pending' || step.status === 'in_progress'
+);
+
+if (!currentStep) {
+  // 所有步骤都已完成
+  return completeWorkflow(memory);
+}
+
+// 检查依赖是否满足
+if (currentStep.depends_on && currentStep.depends_on.length > 0) {
+  for (const depId of currentStep.depends_on) {
+    const depStep = memory.steps.find(s => s.id === depId);
+    if (depStep.status !== 'completed') {
+      throw new Error(`步骤 ${currentStep.id} 依赖步骤 ${depId} 未完成`);
+    }
+  }
+}
+
+// 检查是否是质量关卡
+const isQualityGate = currentStep.quality_gate === true;
+const threshold = currentStep.threshold || 80;
+```
+
+---
+
+### Step 3：显示当前进度
+
+```markdown
+📍 **工作流进度**：{{current_step_id}} / {{total_steps}}（{{percentage}}）
+
+**当前步骤**：{{currentStep.name}}
+**所属阶段**：{{currentStep.phase}}
+**预计耗时**：{{currentStep.estimated_time}}
+**描述**：{{currentStep.description}}
+
+{{if isQualityGate}}
+⚠️ **这是质量关卡**：此步骤评分需 ≥ {{threshold}}，否则无法继续
+{{endif}}
+
+---
+```
+
+---
+
+### Step 4：根据 action 类型执行
+
+```typescript
+// 标记步骤为 in_progress
+currentStep.status = 'in_progress';
+currentStep.started_at = new Date().toISOString();
+saveMemory(memory);
+
+// 根据 action 类型执行相应操作
+switch (currentStep.action) {
+  case 'context_load':
+    await executeContextLoad(memory, currentStep);
+    break;
+
+  case 'analyze_requirements':
+    await executeAnalyzeRequirements(memory, currentStep);
+    break;
+
+  case 'ask_user':
+    await executeAskUser(memory, currentStep);
+    break;
+
+  case 'explore_code':
+    await executeExploreCode(memory, currentStep);
+    break;
+
+  case 'architect_review':
+    await executeArchitectReview(memory, currentStep);
+    break;
+
+  case 'specialized_analysis':
+    await executeSpecializedAnalysis(memory, currentStep);
+    break;
+
+  case 'write_tech_design':
+    await writeTechDesign(memory, currentStep);
+    break;
+
+  case 'codex_review_design':
+    await codexReviewDesign(memory, currentStep);
+    break;
+
+  case 'optimize_design':
+    await optimizeDesign(memory, currentStep);
+    break;
+
+  case 'code':
+    await executeCode(memory, currentStep);
+    break;
+
+  case 'write_tests':
+    await executeWriteTests(memory, currentStep);
+    break;
+
+  case 'run_tests':
+    await executeRunTests(memory, currentStep);
+    break;
+
+  case 'codex_review_code':
+    await codexReviewCode(memory, currentStep);
+    break;
+
+  case 'specialized_review':
+    await executeSpecializedReview(memory, currentStep);
+    break;
+
+  case 'analyze_performance':
+    await executeAnalyzePerformance(memory, currentStep);
+    break;
+
+  case 'write_verification_report':
+    await writeVerificationReport(memory, currentStep);
+    break;
+
+  case 'write_docs':
+  case 'write_api_docs':
+  case 'write_usage_docs':
+  case 'update_tech_design':
+    await executeWriteDocs(memory, currentStep);
+    break;
+
+  case 'commit':
+    await executeCommit(memory, currentStep);
+    break;
+
+  case 'write_summary':
+    await writeWorkflowSummary(memory, currentStep);
+    break;
+
+  default:
+    throw new Error(`未知的 action 类型：${currentStep.action}`);
+}
+```
+
+---
+
+### Step 5：处理质量关卡
+
+```typescript
+if (isQualityGate) {
+  const score = currentStep.actual_score;
+
+  if (score === undefined || score === null) {
+    throw new Error('质量关卡步骤必须设置 actual_score');
+  }
+
+  if (score < threshold) {
+    // 质量关卡未通过
+    currentStep.status = 'failed';
+    currentStep.failed_at = new Date().toISOString();
+    currentStep.failure_reason = `评分 ${score} 低于阈值 ${threshold}`;
+    saveMemory(memory);
+
+    return showQualityGateFailure(memory, currentStep, score, threshold);
+  }
+
+  // 质量关卡通过
+  const gateKey = Object.keys(memory.quality_gates).find(
+    key => memory.quality_gates[key].step_id === currentStep.id
+  );
+  if (gateKey) {
+    memory.quality_gates[gateKey].actual_score = score;
+    memory.quality_gates[gateKey].passed = true;
+  }
+}
+```
+
+---
+
+### Step 6：更新步骤状态
+
+```typescript
+currentStep.status = 'completed';
+currentStep.completed_at = new Date().toISOString();
+
+// 更新任务记忆
+memory.current_step_id = currentStep.id + 1;
+memory.updated_at = new Date().toISOString();
+
+saveMemory(memory);
+```
+
+---
+
+### Step 7：显示完成信息并提示下一步
+
+```markdown
+✅ **步骤完成**：{{currentStep.name}}
+
+{{if currentStep.output_artifacts}}
+📦 **产出物**：
+{{for artifact in currentStep.output_artifacts}}
+- {{artifact}}
+{{endfor}}
+{{endif}}
+
+{{if isQualityGate}}
+🎯 **质量评分**：{{score}} / 100（阈值：{{threshold}}）
+✅ 质量关卡通过！
+{{endif}}
+
+---
+
+## 📊 总体进度
+
+{{progressBar}}
+
+**已完成**：{{completed_count}} / {{total_steps}}
+**剩余步骤**：{{remaining_count}}
+**预计剩余时间**：{{estimated_remaining_time}}
+
+---
+
+{{if hasNextStep}}
+## 🚀 下一步
+
+**步骤 {{nextStep.id}}**：{{nextStep.name}}
+**阶段**：{{nextStep.phase}}
+**预计耗时**：{{nextStep.estimated_time}}
+
+{{if shouldSwitchDialog}}
+💡 **建议**：下一步是关键步骤，建议在新对话窗口中执行，避免上下文消耗。
+
+在新对话中执行：
+\```bash
+/workflow-execute
+\```
+{{else}}
+继续执行：
+\```bash
+/workflow-execute
+\```
+{{endif}}
+
+{{else}}
+## 🎉 工作流已完成！
+
+**任务名称**：{{memory.task_name}}
+**总耗时**：{{total_time}}
+**最终评分**：{{final_score}} / 100
+
+📦 **交付产物**：
+{{for artifact in memory.artifacts}}
+- {{artifact.name}}：{{artifact.path}}
+{{endfor}}
+
+查看工作流总结：
+\```bash
+cat {{memory.artifacts.workflow_summary}}
+\```
+{{endif}}
+```
+
+---
+
+## 🔧 Action 执行细节
+
+### context_load
+
+```typescript
+async function executeContextLoad(memory, step) {
+  // 调用 /context-load
+  const result = await executeCommand(`/context-load "${memory.task_description}"`);
+
+  // 上下文摘要存储在项目目录中
+  const summaryPath = `.claude/context-summary-${sanitize(memory.task_name)}.md`;
+
+  // 更新产出物
+  step.output_artifacts = [summaryPath];
+  memory.artifacts.context_summary = summaryPath;
+}
+```
+
+**说明**：产出文档存储在项目目录 `.claude/` 中，便于团队共享和版本控制。
+
+### analyze_requirements
+
+```typescript
+async function executeAnalyzeRequirements(memory, step) {
+  // 调用 /analyze-requirements
+  await executeCommand('/analyze-requirements');
+
+  // 将分析结果记录到 memory
+  // 用户可能会提供功能点清单、依赖关系等信息
+  // 这些信息应该追加到 memory.steps 或 memory.decisions
+}
+```
+
+### ask_user
+
+```typescript
+async function executeAskUser(memory, step) {
+  // 检查是否有歧义
+  const hasAmbiguity = checkAmbiguity(memory);
+
+  if (!hasAmbiguity) {
+    // 跳过此步骤
+    step.status = 'skipped';
+    step.skipped_reason = '无歧义，无需用户确认';
+    return;
+  }
+
+  // 使用 AskUserQuestion 工具确认
+  const questions = prepareQuestions(memory);
+  const answers = await AskUserQuestion({ questions });
+
+  // 将决策记录到 memory.decisions
+  memory.decisions.push({
+    step_id: step.id,
+    timestamp: new Date().toISOString(),
+    questions,
+    answers
+  });
+}
+```
+
+### explore_code
+
+```typescript
+async function executeExploreCode(memory, step) {
+  // 调用 /explore-code
+  const topic = extractExploreTopic(memory);
+  await executeCommand(`/explore-code 探索 ${topic} 的实现模式`);
+}
+```
+
+### codex_review_design
+
+```typescript
+async function codexReviewDesign(memory, step) {
+  const techDesignPath = memory.artifacts.tech_design;
+
+  if (!techDesignPath || !fileExists(techDesignPath)) {
+    throw new Error('技术方案文档不存在，无法进行 Codex 审查');
+  }
+
+  const result = await mcp__codex__codex({
+    PROMPT: `请审查技术方案文档：${techDesignPath}
+
+请重点关注：
+1. 需求拆解是否完整
+2. 架构设计是否合理
+3. 实施计划是否可行
+4. 风险评估是否充分
+5. 验收标准是否明确
+6. 可复用组件的选择是否恰当
+
+请提供：
+- 综合评分（0-100分）
+- 优点和不足
+- 改进建议
+- 是否建议开始实施
+
+以 Markdown 格式输出审查意见。`,
+    cd: process.cwd(),  // 自动使用当前工作目录
+    sandbox: "read-only"
+  });
+
+  // 提取评分
+  const score = extractScore(result);
+  step.actual_score = score;
+
+  // 保存 SESSION_ID 供后续使用
+  memory.codex_session_id = result.session_id;
+
+  // 将审查意见追加到技术方案文档
+  appendToFile(techDesignPath, `\n\n## Codex 审查意见\n\n${result.output}`);
+
+  // 如果评分低，给出建议
+  if (score < 80) {
+    step.suggestions = extractSuggestions(result);
+  }
+}
+```
+
+### codex_review_code
+
+```typescript
+async function codexReviewCode(memory, step) {
+  const techDesignPath = memory.artifacts.tech_design;
+  const modifiedFiles = memory.implementation?.files_modified || [];
+
+  const result = await mcp__codex__codex({
+    PROMPT: `请审查代码实现：
+
+**技术方案**：${techDesignPath}
+**修改的文件**：
+${modifiedFiles.join('\n')}
+
+请重点关注：
+1. 代码实现是否符合技术方案
+2. 是否正确使用可复用组件
+3. 错误处理是否完善
+4. 代码质量（可读性、可维护性）
+5. 是否遵循项目代码规范
+6. 是否存在潜在的 bug 或安全隐患
+7. 测试覆盖是否充分
+
+请提供：
+- 代码质量评分（0-100分）
+- 发现的问题和改进建议`,
+    cd: process.cwd(),  // 自动使用当前工作目录
+    sandbox: "read-only",
+    SESSION_ID: memory.codex_session_id  // 复用会话
+  });
+
+  const score = extractScore(result);
+  step.actual_score = score;
+
+  // 生成验证报告（存储在项目目录）
+  const reportPath = `.claude/verification-report-${sanitize(memory.task_name)}.md`;
+  writeFile(reportPath, `# Codex 代码审查\n\n${result.output}`);
+  memory.artifacts.verification_report = reportPath;
+}
+```
+
+### executeCode
+
+```typescript
+async function executeCode(memory, step) {
+  // 读取技术方案，提取实施计划
+  const techDesign = readFile(memory.artifacts.tech_design);
+  const implementationPlan = extractImplementationPlan(techDesign);
+
+  // 创建 TODO 清单
+  TodoWrite({
+    todos: implementationPlan.map(task => ({
+      content: task.description,
+      status: 'pending',
+      activeForm: `实施${task.description}中`
+    }))
+  });
+
+  // 提示用户按技术方案实施
+  console.log(`
+请按照技术方案的实施计划进行开发：
+
+${implementationPlan.map((task, i) => `${i + 1}. ${task.description}`).join('\n')}
+
+**开发原则**：
+- 严格按照技术方案执行
+- 复用识别的组件和工具
+- 遵循项目代码规范
+- 保持小步提交
+- 实时更新 TODO 清单
+
+完成后，记录修改的文件列表到 workflow-memory.json 的 implementation 字段。
+`);
+
+  // 等待用户确认完成
+  // 这一步需要用户手动编码，执行完成后再次调用 /workflow-execute
+}
+```
+
+---
+
+## 🎯 质量关卡处理
+
+### 质量关卡失败
+
+```markdown
+❌ **质量关卡未通过**
+
+**步骤**：{{step.name}}
+**评分**：{{score}} / 100
+**阈值**：{{threshold}}
+**差距**：{{threshold - score}} 分
+
+---
+
+## 📋 Codex 建议
+
+{{step.suggestions}}
+
+---
+
+## 🔧 下一步操作
+
+1. 根据 Codex 建议优化{{phase}}
+2. 手动修改相关文件
+3. 重新执行质量检查：
+   \```bash
+   /workflow-retry-step
+   \```
+
+或者，如果认为当前评分已足够，可以：
+1. 手动编辑 `.claude/workflow-memory.json`
+2. 修改步骤 {{step.id}} 的 `actual_score` 为 {{threshold}} 以上
+3. 继续执行：`/workflow-execute`
+
+⚠️ **警告**：降低质量标准可能导致后续问题，请谨慎操作。
+```
+
+---
+
+## 💡 执行示例
+
+### 示例1：执行上下文加载
+
+```
+📍 工作流进度：1 / 13（8%）
+
+**当前步骤**：加载项目上下文
+**所属阶段**：analyze
+**预计耗时**：5分钟
+**描述**：快速了解相关代码结构，识别技术栈和架构约束
+
+---
+
+[执行 /context-load "多租户权限管理系统"]
+
+---
+
+✅ 步骤完成：加载项目上下文
+
+📦 产出物：
+- .claude/context-summary-multi-tenant-permission.md
+
+---
+
+## 📊 总体进度
+
+[████░░░░░░░░] 1 / 13
+
+**已完成**：1 / 13
+**剩余步骤**：12
+**预计剩余时间**：约 1.5 天
+
+---
+
+## 🚀 下一步
+
+**步骤 2**：深度需求分析
+**阶段**：analyze
+**预计耗时**：10分钟
+
+继续执行：
+\```bash
+/workflow-execute
+\```
+```
+
+### 示例2：Codex 方案审查（质量关卡）
+
+```
+📍 工作流进度：8 / 13（62%）
+
+**当前步骤**：Codex 方案审查
+**所属阶段**：design
+**预计耗时**：10分钟
+**描述**：使用 Codex 审查技术方案的完整性、合理性和可行性
+
+⚠️ **这是质量关卡**：此步骤评分需 ≥ 80，否则无法继续
+
+---
+
+[调用 mcp__codex__codex 审查技术方案]
+
+Codex 审查结果：
+
+## Codex 审查意见
+
+**审查时间**：2025-01-19 11:30:00
+**综合评分**：85/100
+
+### 优点
+- ✅ 架构设计清晰，使用中间件模式注入租户上下文
+- ✅ 可复用组件选择恰当
+- ✅ 风险评估较为充分
+
+### 不足与建议
+- ⚠️ 缺少租户切换的权限验证
+- ⚠️ 性能测试计划不够具体
+
+### 实施建议
+1. 补充租户切换的权限验证逻辑
+2. 完善性能测试计划
+
+**建议开始实施**：是（优化后）
+
+---
+
+✅ 步骤完成：Codex 方案审查
+
+🎯 质量评分：85 / 100（阈值：80）
+✅ 质量关卡通过！
+
+📦 产出物：
+- Codex 审查意见已追加到 .claude/tech-design/multi-tenant-permission.md
+
+---
+
+## 📊 总体进度
+
+[████████░░░░] 8 / 13
+
+**已完成**：8 / 13
+**剩余步骤**：5
+**预计剩余时间**：约 4 小时
+
+---
+
+## 🚀 下一步
+
+**步骤 9**：实现核心功能模块
+**阶段**：implement
+**预计耗时**：2 小时
+
+💡 建议：下一步是开发实施阶段，建议在新对话窗口中执行。
+
+在新对话中执行：
+\```bash
+/workflow-execute
+\```
+```
+
+### 示例3：质量关卡失败
+
+```
+📍 工作流进度：8 / 13（62%）
+
+**当前步骤**：Codex 方案审查
+**所属阶段**：design
+**预计耗时**：10分钟
+
+⚠️ **这是质量关卡**：此步骤评分需 ≥ 80
+
+---
+
+[调用 Codex 审查]
+
+---
+
+❌ 质量关卡未通过
+
+**步骤**：Codex 方案审查
+**评分**：72 / 100
+**阈值**：80
+**差距**：8 分
+
+---
+
+## 📋 Codex 建议
+
+### 主要问题
+1. 缺少数据迁移方案
+2. 权限验证逻辑不完整
+3. 性能影响未充分评估
+
+### 改进建议
+1. 补充现有数据如何迁移到多租户架构的详细方案
+2. 完善权限验证中间件的实现细节
+3. 增加性能测试计划和预期指标
+
+---
+
+## 🔧 下一步操作
+
+1. 根据 Codex 建议优化技术方案文档
+2. 重新执行质量检查：
+   \```bash
+   /workflow-retry-step
+   \```
+
+或者手动调整评分（不推荐）：
+1. 编辑 `.claude/workflow-memory.json`
+2. 修改步骤 8 的 `actual_score` 为 80 以上
+3. 继续执行：`/workflow-execute`
+```
+
+---
+
+## 🔄 相关命令
+
+```bash
+# 重试当前步骤
+/workflow-retry-step
+
+# 跳过当前步骤（慎用）
+/workflow-skip-step
+
+# 查看状态
+/workflow-status
+
+# 查看任务记忆（新路径）
+# 工作流状态存储在：~/.claude/workflows/[project_id]/workflow-memory.json
+# 文档产物存储在：.claude/（上下文摘要、验证报告等）
+# 可以使用 /workflow-status 命令查看
+```

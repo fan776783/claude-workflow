@@ -1,0 +1,26 @@
+# CLAUDE.md
+
+本文件为 Claude Code 在本仓库中进行开发时提供操作指南。
+
+## 项目概述
+
+[项目描述]
+
+## 技术栈
+
+[技术栈说明]
+
+## 开发规范
+
+[开发规范]
+
+## 工作流
+
+本项目使用 Claude Workflow Toolkit 提供的通用工作流：
+
+- `/workflow-start` - 智能工作流（自动规划）
+- `/workflow-quick-dev` - 快速功能开发
+- `/workflow-fix-bug` - Bug 修复工作流
+- `/workflow-ui-restore` - UI 还原工作流
+
+详见：`~/.claude/commands/agents.md`
