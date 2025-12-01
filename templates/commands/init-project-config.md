@@ -499,6 +499,13 @@ cat > "$CONFIG_PATH" <<EOF
     }
   },
 
+  "backend": {
+    "docDir": ".claude/docs",
+    "fasjSpecPath": "",
+    "xqSpecPath": "",
+    "enableCodexReview": true
+  },
+
   "metadata": {
     "version": "1.0.0",
     "generatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",

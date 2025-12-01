@@ -285,6 +285,32 @@ switch (currentStep.action) {
     await writeWorkflowSummary(memory, currentStep);
     break;
 
+  // ========== 后端工作流专用 Action ==========
+
+  case 'backend_generate_xq':
+    await backendGenerateXq(memory, currentStep);
+    break;
+
+  case 'backend_review_xq':
+    await backendReviewXq(memory, currentStep);
+    break;
+
+  case 'backend_generate_fasj':
+    await backendGenerateFasj(memory, currentStep);
+    break;
+
+  case 'backend_refine_fasj':
+    await backendRefineFasj(memory, currentStep);
+    break;
+
+  case 'backend_plan_implementation':
+    await backendPlanImplementation(memory, currentStep);
+    break;
+
+  case 'backend_self_verify':
+    await backendSelfVerify(memory, currentStep);
+    break;
+
   default:
     throw new Error(`未知的 action 类型：${currentStep.action}`);
 }
@@ -844,4 +870,298 @@ Codex 审查结果：
 # 工作流状态存储在：~/.claude/workflows/[project_id]/workflow-memory.json
 # 文档产物存储在：.claude/（上下文摘要、验证报告等）
 # 可以使用 /workflow-status 命令查看
+```
+
+---
+
+## 🔧 后端工作流 Action 执行细节
+
+### backend_generate_xq
+
+**已在 `/workflow-backend-start` 中完成**。此 action 通常不会在 `/workflow-execute` 中触发。
+
+### backend_review_xq
+
+```typescript
+async function backendReviewXq(memory, step) {
+  const xqPath = memory.source_docs?.xq || memory.artifacts?.requirement_analysis;
+
+  if (!xqPath || !fileExists(xqPath)) {
+    throw new Error(`需求分析文档不存在：${xqPath}`);
+  }
+
+  console.log(`
+📄 需求分析文档审查
+
+**文档路径**：${xqPath}
+
+请完成以下审查工作：
+
+1. **阅读文档**：
+   \`\`\`bash
+   cat ${xqPath}
+   \`\`\`
+
+2. **检查清单**：
+   - [ ] 所有 PRD 功能点都有对应的 FR
+   - [ ] In Scope 和 Out of Scope 边界清晰
+   - [ ] 核心用例路径完整
+   - [ ] 非功能需求有具体指标
+   - [ ] 验收标准可测试
+
+3. **如需修改**：
+   - 直接编辑 ${xqPath}
+   - 补充遗漏的需求点
+   - 修正不准确的理解
+
+4. **审查完成后**：
+   执行 \`/workflow-execute\` 继续
+  `);
+
+  // 标记为等待用户确认
+  step.awaiting_user_confirmation = true;
+
+  // 如果启用了 Codex 审查
+  const config = loadProjectConfig();
+  if (config.backend?.enableCodexReview) {
+    const codexResult = await mcp__codex__codex({
+      PROMPT: `请审查这份后端需求分析文档，检查：
+1. 需求是否完整覆盖 PRD
+2. 边界是否清晰
+3. 用例是否完整
+4. 是否有遗漏的风险点
+
+文档内容：
+${readFile(xqPath)}
+
+请指出问题并给出改进建议。`,
+      cd: process.cwd(),
+      sandbox: "read-only",
+      SESSION_ID: memory.codex_session_id
+    });
+
+    // 追加 Codex 审查意见到文档
+    appendToXqDocument(xqPath, codexResult.agent_messages);
+  }
+}
+```
+
+### backend_generate_fasj
+
+```typescript
+async function backendGenerateFasj(memory, step) {
+  const config = loadProjectConfig();
+  const xqPath = memory.source_docs?.xq;
+  const fasjSpecPath = config.backend?.fasjSpecPath;
+
+  if (!xqPath || !fileExists(xqPath)) {
+    throw new Error(`需求分析文档不存在：${xqPath}`);
+  }
+
+  if (!fasjSpecPath || !fileExists(fasjSpecPath)) {
+    throw new Error(`方案设计规范不存在：${fasjSpecPath}`);
+  }
+
+  const xqContent = readFile(xqPath);
+  const specContent = readFile(fasjSpecPath);
+  const baseName = extractBaseName(memory.source_docs?.prd);
+  const fasjPath = `${config.backend?.docDir || '.claude/docs'}/${baseName}-fasj.md`;
+
+  // 与 Codex 协作生成方案
+  const codexResult = await mcp__codex__codex({
+    PROMPT: `请根据以下需求分析文档和方案设计规范，生成后端技术方案文档。
+
+## 需求分析文档（xq.md）
+${xqContent}
+
+## 方案设计规范
+${specContent}
+
+请严格按照规范结构生成技术方案，重点关注：
+1. 数据模型设计（实体、表结构、索引）
+2. 接口设计（API 契约、请求响应结构）
+3. 非功能设计（性能、安全、可观测性）
+4. 实施计划（具体任务、依赖、里程碑）
+
+输出完整的 Markdown 格式技术方案文档。`,
+    cd: process.cwd(),
+    sandbox: "read-only",
+    SESSION_ID: memory.codex_session_id
+  });
+
+  // 保存 fasj.md
+  ensureDir(path.dirname(fasjPath));
+  writeFile(fasjPath, codexResult.agent_messages);
+
+  // 更新 memory
+  memory.source_docs.fasj = fasjPath;
+  memory.artifacts.tech_design = fasjPath;
+  step.output_artifacts = [fasjPath];
+
+  console.log(`
+✅ 方案设计文档已生成：${fasjPath}
+
+📋 文档结构：
+  - 设计目标与原则
+  - 架构与边界
+  - 模块与职责划分
+  - 数据模型设计
+  - 接口设计（API 契约）
+  - 非功能设计
+  - 实施计划
+
+⏸️ **工作流已暂停** - 请审查方案设计文档
+
+审查完成后执行：\`/workflow-execute\`
+  `);
+}
+```
+
+### backend_refine_fasj
+
+```typescript
+async function backendRefineFasj(memory, step) {
+  const fasjPath = memory.source_docs?.fasj || memory.artifacts?.tech_design;
+
+  if (!fasjPath || !fileExists(fasjPath)) {
+    throw new Error(`方案设计文档不存在：${fasjPath}`);
+  }
+
+  console.log(`
+📄 方案设计文档修订
+
+**文档路径**：${fasjPath}
+
+请根据 Codex 审查意见完成修订：
+
+1. **查看审查意见**：
+   文档末尾的"Codex 审查记录"部分
+
+2. **重点修订项**：
+   - 数据模型设计是否合理
+   - 接口设计是否完整
+   - 非功能设计是否到位
+   - 实施计划是否可行
+
+3. **修订完成后**：
+   执行 \`/workflow-execute\` 继续
+  `);
+}
+```
+
+### backend_plan_implementation
+
+```typescript
+async function backendPlanImplementation(memory, step) {
+  const fasjPath = memory.source_docs?.fasj || memory.artifacts?.tech_design;
+
+  if (!fasjPath || !fileExists(fasjPath)) {
+    throw new Error(`方案设计文档不存在：${fasjPath}`);
+  }
+
+  const fasjContent = readFile(fasjPath);
+
+  // 从 fasj.md 提取实施计划
+  const implementationPlan = extractImplementationPlan(fasjContent);
+
+  // 创建 TODO 清单
+  TodoWrite({
+    todos: implementationPlan.map(task => ({
+      content: task.name,
+      status: 'pending',
+      activeForm: `实施 ${task.name}`
+    }))
+  });
+
+  // 更新 memory
+  memory.implementation = {
+    plan: implementationPlan,
+    files_modified: []
+  };
+
+  console.log(`
+✅ 实施计划已生成
+
+📋 **任务清单**（共 ${implementationPlan.length} 项）：
+
+${implementationPlan.map((task, i) =>
+  `${i + 1}. ${task.name}\n   依赖：${task.depends || '无'}\n   预计：${task.estimate || '待定'}`
+).join('\n\n')}
+
+---
+
+**开发原则**：
+- 严格按照技术方案执行
+- 复用已识别的组件和工具
+- 遵循项目代码规范
+- 保持小步提交
+- 实时更新 TODO 清单
+
+🚀 执行 \`/workflow-execute\` 开始开发
+  `);
+}
+```
+
+### backend_self_verify
+
+```typescript
+async function backendSelfVerify(memory, step) {
+  const fasjPath = memory.source_docs?.fasj || memory.artifacts?.tech_design;
+  const modifiedFiles = memory.implementation?.files_modified || [];
+  const baseName = extractBaseName(memory.source_docs?.prd);
+
+  console.log(`
+🔍 后端自测与验证
+
+**技术方案**：${fasjPath}
+**修改文件**：${modifiedFiles.length} 个
+
+请完成以下验证工作：
+
+1. **单元测试**：
+   \`\`\`bash
+   npm run test
+   \`\`\`
+
+2. **类型检查**：
+   \`\`\`bash
+   npm run type-check
+   \`\`\`
+
+3. **接口测试**：
+   根据 fasj.md 中的接口设计进行测试
+
+4. **验收场景**：
+   对照 xq.md 中的验收标准逐项验证
+
+---
+  `);
+
+  // 生成验证报告
+  const reportPath = `.claude/verification-report-${baseName}.md`;
+  const reportContent = `# 验证报告 - ${baseName}
+
+## 生成时间
+${new Date().toISOString()}
+
+## 修改文件
+${modifiedFiles.map(f => `- ${f}`).join('\n') || '（待补充）'}
+
+## 测试结果
+（待补充）
+
+## 验收状态
+（待补充）
+`;
+
+  writeFile(reportPath, reportContent);
+  memory.artifacts.verification_report = reportPath;
+  step.output_artifacts = [reportPath];
+
+  console.log(`
+📄 验证报告模板已创建：${reportPath}
+
+请补充测试结果和验收状态，然后执行 \`/workflow-execute\` 继续
+  `);
+}
 ```
