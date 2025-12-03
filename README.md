@@ -5,12 +5,11 @@ Claude Code 工作流工具包 - 提供标准化的工作流命令、Agent 定�
 ## 安装
 
 ```bash
-
 # 全局安装（推荐）
-npm install -g @pic/claude-workflow
+npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
 
 # 或作为开发依赖
-npm install -D @pic/claude-workflow
+npm install -D @pic/claude-workflow --registry http://your-registry-host:4873
 ```
 
 安装后会自动将工作流文件复制到 `~/.claude/` 目录。
@@ -66,7 +65,7 @@ claude-workflow doctor
 ## 升级
 
 ```bash
-npm update -g @pic/claude-workflow
+npm update -g @pic/claude-workflow --registry http://your-registry-host:4873
 ```
 
 升级时会自动：

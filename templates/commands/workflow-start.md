@@ -365,7 +365,8 @@ mcp__mcp-router__sequentialthinking({
       "phase": "implement",
       "name": "实现功能点1",
       "action": "code",
-      "estimated_time": "1小时"
+      "estimated_time": "1小时",
+      "context_policy": "fresh"
     },
     {
       "id": 8,
@@ -388,7 +389,8 @@ mcp__mcp-router__sequentialthinking({
       "action": "codex_review_code",
       "estimated_time": "10分钟",
       "quality_gate": true,
-      "threshold": 80
+      "threshold": 80,
+      "context_policy": "auto"
     },
     {
       "id": 11,
@@ -440,7 +442,8 @@ mcp__mcp-router__sequentialthinking({
       "phase": "analyze",
       "name": "用户确认",
       "action": "ask_user",
-      "condition": "has_ambiguity"
+      "condition": "has_ambiguity",
+      "context_needs_chat": true
     },
     {
       "id": 4,
@@ -493,7 +496,8 @@ mcp__mcp-router__sequentialthinking({
       "phase": "implement",
       "name": "实现核心功能模块",
       "action": "code",
-      "sub_tasks": "从技术方案提取"
+      "sub_tasks": "从技术方案提取",
+      "context_policy": "fresh"
     },
     {
       "id": 11,
@@ -513,7 +517,8 @@ mcp__mcp-router__sequentialthinking({
       "name": "Codex 代码审查",
       "action": "codex_review_code",
       "quality_gate": true,
-      "threshold": 80
+      "threshold": 80,
+      "context_policy": "fresh"
     },
     {
       "id": 14,
@@ -544,7 +549,8 @@ mcp__mcp-router__sequentialthinking({
       "id": 18,
       "phase": "deliver",
       "name": "更新技术方案文档",
-      "action": "update_tech_design"
+      "action": "update_tech_design",
+      "context_policy": "fresh"
     },
     {
       "id": 19,
@@ -584,8 +590,8 @@ mcp__mcp-router__sequentialthinking({
   "task_description": "实现多租户权限管理系统，支持租户隔离和 RBAC 权限模型",
   "complexity": "complex",
   "estimated_time": "> 2天",
-  "started_at": "2025-01-19 10:00:00",
-  "updated_at": "2025-01-19 10:00:00",
+  "started_at": "2025-01-19T10:00:00Z",
+  "updated_at": "2025-01-19T10:00:00Z",
   "current_step_id": 1,
   "total_steps": 22,
   "status": "in_progress",
@@ -613,8 +619,56 @@ mcp__mcp-router__sequentialthinking({
       "depends_on": [1],
       "output_artifacts": ["需求分析结果记录到 workflow-memory.json"]
     },
+    {
+      "id": 10,
+      "phase": "implement",
+      "name": "实现核心功能模块",
+      "description": "按技术方案实施编码",
+      "action": "code",
+      "status": "pending",
+      "estimated_time": "2小时",
+      "depends_on": [9],
+      "context_policy": "fresh",
+      "output_artifacts": ["修改的代码文件"]
+    }
     // ... 更多步骤
   ],
+
+  "requirements": {
+    "summary": "实现多租户权限管理系统，支持租户隔离和基于 RBAC 的权限模型",
+    "acceptanceCriteria": [
+      "用户只能访问所属租户的数据",
+      "支持 RBAC 权限模型（用户-角色-权限）",
+      "超级管理员可以跨租户管理"
+    ],
+    "nonFunctional": [
+      "权限检查响应时间 < 50ms",
+      "支持 1000+ 并发用户"
+    ],
+    "openQuestions": [],
+    "businessContext": [
+      "SaaS 平台需要支持多个企业客户独立使用",
+      "不同租户的数据必须完全隔离"
+    ]
+  },
+
+  "userPreferences": {
+    "libraries": {
+      "avoid": [],
+      "prefer": []
+    },
+    "codingStyleOverrides": {},
+    "communication": {
+      "explanationLevel": "medium",
+      "language": "zh-CN"
+    }
+  },
+
+  "domainContext": {
+    "businessGoals": [],
+    "glossary": [],
+    "constraints": []
+  },
 
   "artifacts": {
     "context_summary": null,
@@ -640,9 +694,35 @@ mcp__mcp-router__sequentialthinking({
     }
   },
 
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "D-001",
+      "title": "使用中间件模式注入租户上下文",
+      "summary": "在请求级别注入租户信息，所有下游服务自动获取",
+      "rationale": ["符合现有架构模式", "减少代码侵入"],
+      "status": "accepted",
+      "madeAtStep": "design",
+      "timestamp": "2025-01-19T11:00:00Z"
+    }
+  ],
 
-  "issues": []
+  "issues": [
+    {
+      "id": "I-001",
+      "title": "现有 User 表缺少 tenant_id 字段",
+      "description": "需要数据库迁移",
+      "impact": "中",
+      "status": "open",
+      "workaround": "",
+      "foundAtStep": "analyze",
+      "timestamp": "2025-01-19T10:30:00Z"
+    }
+  ],
+
+  "meta": {
+    "version": 2,
+    "lastUpdatedAt": "2025-01-19T11:30:00Z"
+  }
 }
 ```
 

@@ -408,7 +408,8 @@ cat > "$CONFIG_PATH" <<EOF
     "name": "$(basename "$(pwd)")",
     "type": "$PROJECT_TYPE",
     "rootDir": "$(pwd)",
-    "description": ""
+    "description": "",
+    "ownerTeam": ""
   },
 
   "structure": {
@@ -489,6 +490,13 @@ cat > "$CONFIG_PATH" <<EOF
     }
   },
 
+  "domain": {
+    "businessContext": [],
+    "keyScenarios": [],
+    "personas": [],
+    "glossary": []
+  },
+
   "conventions": {
     "language": "zh-CN",
     "pathAlias": "@/",
@@ -496,6 +504,32 @@ cat > "$CONFIG_PATH" <<EOF
       "linter": "eslint",
       "formatter": "prettier",
       "typeChecker": "typescript"
+    },
+    "preferences": {
+      "bannedLibraries": [],
+      "preferredLibraries": {},
+      "testing": {
+        "snapshotUsage": "minimal",
+        "coverageTarget": 0.8
+      },
+      "ux": {
+        "designSystem": null,
+        "accessibilityLevel": "WCAG 2.1 AA"
+      }
+    }
+  },
+
+  "decisions": [],
+
+  "workflowDefaults": {
+    "autoClearMode": "ask",
+    "defaultContextPolicyByPhase": {
+      "analyze": "inherit",
+      "design": "inherit",
+      "implement": "auto",
+      "test": "auto",
+      "verify": "auto",
+      "deliver": "auto"
     }
   },
 
@@ -507,7 +541,7 @@ cat > "$CONFIG_PATH" <<EOF
   },
 
   "metadata": {
-    "version": "1.0.0",
+    "version": "2.0.0",
     "generatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
     "lastUpdated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
     "autoDetected": true
