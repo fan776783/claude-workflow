@@ -120,7 +120,124 @@ if (!memoryPath) {
 
 // 读取工作流记忆
 const memory = JSON.parse(readFile(memoryPath));
+
+// 读取项目配置（用于恢复上下文）
+const projectConfigPath = '.claude/config/project-config.json';
+const projectConfig = fileExists(projectConfigPath)
+  ? JSON.parse(readFile(projectConfigPath))
+  : null;
 ```
+
+---
+
+### Step 1.5：上下文恢复（清理后自动执行）⭐ NEW
+
+**当检测到上下文被清理后，自动从持久化文件恢复关键信息**：
+
+```typescript
+/**
+ * 恢复上下文摘要
+ * 在 /clear 后执行时，输出关键信息帮助 AI 快速恢复任务理解
+ */
+function restoreContextSummary(memory: WorkflowMemory, config: ProjectConfig | null): void {
+  console.log(`
+📋 **上下文恢复**
+
+---
+
+## 📌 任务概要
+
+**任务名称**：${memory.task_name}
+**任务描述**：${memory.task_description}
+**复杂度**：${memory.complexity}
+**当前进度**：${memory.current_step_id} / ${memory.total_steps}
+
+---
+
+## 🎯 需求理解
+
+**摘要**：${memory.requirements?.summary || '（未记录）'}
+
+**验收标准**：
+${(memory.requirements?.acceptanceCriteria || []).map(c => `- ${c}`).join('\n') || '（未记录）'}
+
+**业务背景**：
+${(memory.requirements?.businessContext || []).map(c => `- ${c}`).join('\n') || '（未记录）'}
+
+---
+
+## ⚙️ 用户偏好
+
+**禁止使用的库**：${memory.userPreferences?.libraries?.avoid?.join(', ') || '无'}
+**首选库**：${memory.userPreferences?.libraries?.prefer?.join(', ') || '无'}
+**代码风格覆盖**：${Object.keys(memory.userPreferences?.codingStyleOverrides || {}).length > 0
+    ? JSON.stringify(memory.userPreferences.codingStyleOverrides)
+    : '无'}
+
+---
+
+## 📝 关键决策
+
+${(memory.decisions || []).filter(d => d.status === 'accepted').map(d =>
+  `- **${d.title}**：${d.summary}`
+).join('\n') || '（无已确认决策）'}
+
+---
+
+## ⚠️ 待解决问题
+
+${(memory.issues || []).filter(i => i.status === 'open').map(i =>
+  `- **${i.title}**：${i.description}`
+).join('\n') || '（无待解决问题）'}
+
+---
+
+## 📦 已生成产物
+
+${Object.entries(memory.artifacts || {})
+  .filter(([_, v]) => v)
+  .map(([k, v]) => `- ${k}: ${v}`)
+  .join('\n') || '（暂无产物）'}
+
+---
+  `);
+
+  // 如果有项目配置，也输出关键信息
+  if (config) {
+    const prefs = config.conventions?.preferences;
+    if (prefs?.bannedLibraries?.length > 0 || Object.keys(prefs?.preferredLibraries || {}).length > 0) {
+      console.log(`
+## 🏗️ 项目级约定
+
+**禁止库**：${prefs.bannedLibraries?.join(', ') || '无'}
+**首选库**：${JSON.stringify(prefs.preferredLibraries || {})}
+
+---
+      `);
+    }
+  }
+}
+
+// 检测是否需要恢复上下文（首次执行或清理后）
+// 通过检查 memory 中的 last_context_restored_at 字段
+const needsContextRestore =
+  !memory.last_context_restored_at ||
+  memory.clear_context_prompted_for; // 如果刚提示过清理，说明可能已清理
+
+if (needsContextRestore && memory.requirements?.summary) {
+  restoreContextSummary(memory, projectConfig);
+  memory.last_context_restored_at = new Date().toISOString();
+  saveMemory(memory);
+}
+```
+
+**上下文恢复时机**：
+
+| 场景 | 行为 |
+|-----|------|
+| 首次执行步骤 | 输出完整上下文摘要 |
+| `/clear` 后继续 | 自动恢复关键信息 |
+| 同一对话连续执行 | 跳过恢复（避免重复输出） |
 
 **存储路径说明**：
 
@@ -173,6 +290,186 @@ if (currentStep.depends_on && currentStep.depends_on.length > 0) {
 // 检查是否是质量关卡
 const isQualityGate = currentStep.quality_gate === true;
 const threshold = currentStep.threshold || 80;
+```
+
+---
+
+### Step 2.5：智能上下文清理检测 ⭐ NEW
+
+**在执行步骤前，检测是否需要清理上下文**：
+
+```typescript
+// 获取前一个已完成的步骤
+const previousStep = memory.steps
+  .filter(s => s.status === 'completed')
+  .sort((a, b) => b.id - a.id)[0];
+
+// 检测是否需要清理上下文
+const clearLevel = shouldClearContext(currentStep, previousStep, memory);
+
+// 构建 memory key（包含 workflow 启动时间戳，确保不同 run 独立）
+const clearPromptKey = `${memory.started_at}_${currentStep.id}`;
+
+if (clearLevel === 'required') {
+  // 强建议：检测是否已经提示过（避免重复打断）
+  const alreadyPrompted = memory.clear_context_prompted_for === clearPromptKey;
+
+  if (!alreadyPrompted) {
+    // 记录已提示
+    memory.clear_context_prompted_for = clearPromptKey;
+    saveMemory(memory);
+
+    // 输出清理建议并中断执行
+    return showContextClearSuggestion(currentStep, previousStep, 'required');
+  }
+  // 如果已提示过，用户选择继续，则不再拦截
+} else if (clearLevel === 'suggested') {
+  // 软建议：仅提示，不中断执行
+  const alreadySuggested = memory.clear_context_suggested_for === clearPromptKey;
+
+  if (!alreadySuggested) {
+    memory.clear_context_suggested_for = clearPromptKey;
+    saveMemory(memory);
+
+    // 显示软建议提示（不中断）
+    showContextClearSuggestion(currentStep, previousStep, 'suggested');
+    // 继续执行，不 return
+  }
+}
+
+/**
+ * 判断是否需要清理上下文
+ *
+ * 返回值：
+ * - 'required': 强烈建议清理（触发 detect & halt）
+ * - 'suggested': 软建议清理（仅提示，不中断）
+ * - 'none': 不需要清理
+ */
+function shouldClearContext(
+  currentStep: WorkflowStep,
+  previousStep: WorkflowStep | null,
+  memory: WorkflowMemory
+): 'required' | 'suggested' | 'none' {
+  // 1. 显式声明需要对话上下文 → 禁止清理
+  if (currentStep.context_needs_chat === true) return 'none';
+
+  // 2. 显式策略优先
+  if (currentStep.context_policy === 'fresh') return 'required';
+  if (currentStep.context_policy === 'inherit') return 'none';
+
+  // 3. auto 或未设置 → 启发式判定
+  const policy = currentStep.context_policy ?? 'auto';
+
+  if (policy === 'auto') {
+    const analysisPhases = ['analyze', 'design'];
+    const executionPhases = ['implement', 'test', 'verify', 'deliver'];
+
+    // Phase 变化：从分析/设计 → 实现/测试/验证（强建议）
+    if (previousStep &&
+        analysisPhases.includes(previousStep.phase) &&
+        executionPhases.includes(currentStep.phase)) {
+      return 'required';
+    }
+
+    // 长时间间隔：超过 30 分钟未执行（软建议，仅在执行类阶段）
+    if (previousStep?.completed_at &&
+        executionPhases.includes(currentStep.phase)) {
+      const lastCompleted = new Date(previousStep.completed_at);
+      const now = new Date();
+      const minutesSinceLastStep = (now.getTime() - lastCompleted.getTime()) / 60000;
+      if (minutesSinceLastStep > 30) {
+        return 'suggested';  // 软建议，不中断执行
+      }
+    }
+  }
+
+  return 'none';
+}
+
+/**
+ * 显示上下文清理建议
+ *
+ * @param level - 'required' 强建议（中断执行）, 'suggested' 软建议（不中断）
+ */
+function showContextClearSuggestion(
+  currentStep: WorkflowStep,
+  previousStep: WorkflowStep | null,
+  level: 'required' | 'suggested'
+): void {
+  // 判断原因
+  let reason: string;
+  if (currentStep.context_policy === 'fresh') {
+    reason = '当前步骤标记为需要干净上下文';
+  } else if (previousStep) {
+    const analysisPhases = ['analyze', 'design'];
+    const executionPhases = ['implement', 'test', 'verify', 'deliver'];
+
+    if (analysisPhases.includes(previousStep.phase) &&
+        executionPhases.includes(currentStep.phase)) {
+      reason = `从「${previousStep.phase}」阶段切换到「${currentStep.phase}」阶段`;
+    } else {
+      reason = `距离上次执行已超过 30 分钟`;
+    }
+  } else {
+    reason = '当前步骤适合在干净上下文中执行';
+  }
+
+  if (level === 'required') {
+    // 强建议：中断执行
+    console.log(`
+🧹 **建议清理上下文**
+
+**原因**：${reason}
+**当前步骤**：${currentStep.name}（${currentStep.phase} 阶段）
+
+---
+
+为获得最佳效果，建议执行以下操作：
+
+1️⃣ 执行 \`/clear\` 清空当前对话上下文
+2️⃣ 再次执行 \`/workflow-execute\` 继续工作流
+
+---
+
+💡 **说明**：
+- 清理上下文可释放 token 空间，让 AI 更专注于当前任务
+- 前序步骤的产出已保存到文件，不会丢失
+- 如果选择不清理，再次执行 \`/workflow-execute\` 即可继续（本提示不再出现）
+
+⚠️ 如果当前对话中有重要的未保存信息，请先手动保存后再清理。
+    `);
+  } else {
+    // 软建议：仅提示，不中断
+    console.log(`
+💡 **提示**：${reason}，建议考虑执行 \`/clear\` 清理上下文。
+
+继续执行当前步骤...
+    `);
+  }
+}
+```
+
+**Step 定义中的新字段**：
+
+```typescript
+interface WorkflowStep {
+  // ... 现有字段
+
+  /**
+   * 上下文策略（可选）
+   * - 'inherit': 继承当前上下文（默认）
+   * - 'fresh': 建议在干净上下文中执行
+   * - 'auto': 自动检测（基于 phase 变化等）
+   */
+  context_policy?: 'inherit' | 'fresh' | 'auto';
+
+  /**
+   * 是否需要对话历史（可选）
+   * - true: 该步骤强依赖之前的对话内容，禁止建议清理
+   * - false/undefined: 可以考虑清理
+   */
+  context_needs_chat?: boolean;
+}
 ```
 
 ---
@@ -437,6 +734,207 @@ cat {{memory.artifacts.workflow_summary}}
 
 ---
 
+## 🧰 Memory 更新 Helper Functions ⭐ NEW
+
+**用途**: 在关键步骤中保持 workflow-memory.json 的关键字段同步更新,确保上下文恢复时信息完整。
+
+### 核心 Helpers
+
+```typescript
+/**
+ * 更新需求理解
+ * 调用时机: analyze_requirements, ask_user
+ */
+function updateRequirements(
+  memory: WorkflowMemory,
+  updates: Partial<{
+    summary: string;
+    acceptanceCriteria: string[];
+    nonFunctional: string[];
+    businessContext: string[];
+    openQuestions: string[];
+  }>
+): void {
+  memory.requirements = {
+    ...memory.requirements,
+    ...updates
+  };
+  memory.meta.lastUpdatedAt = new Date().toISOString();
+  saveMemory(memory);
+}
+
+/**
+ * 添加关键决策
+ * 调用时机: ask_user, codex_review_design, optimize_design
+ */
+function addDecision(
+  memory: WorkflowMemory,
+  decision: {
+    title: string;
+    summary: string;
+    rationale?: string[];
+    status?: 'proposed' | 'accepted' | 'rejected';
+    madeAtStep: string;
+  }
+): void {
+  const id = `D-${String(memory.decisions.length + 1).padStart(3, '0')}`;
+
+  memory.decisions.push({
+    id,
+    ...decision,
+    status: decision.status || 'accepted',
+    timestamp: new Date().toISOString()
+  });
+
+  memory.meta.lastUpdatedAt = new Date().toISOString();
+  saveMemory(memory);
+}
+
+/**
+ * 添加发现的问题
+ * 调用时机: explore_code, codex_review_design, codex_review_code
+ */
+function addIssue(
+  memory: WorkflowMemory,
+  issue: {
+    title: string;
+    description: string;
+    impact: '高' | '中' | '低';
+    status?: 'open' | 'resolved' | 'ignored';
+    workaround?: string;
+    foundAtStep: string;
+  }
+): void {
+  const id = `I-${String(memory.issues.length + 1).padStart(3, '0')}`;
+
+  memory.issues.push({
+    id,
+    ...issue,
+    status: issue.status || 'open',
+    workaround: issue.workaround || '',
+    timestamp: new Date().toISOString()
+  });
+
+  memory.meta.lastUpdatedAt = new Date().toISOString();
+  saveMemory(memory);
+}
+
+/**
+ * 更新用户偏好
+ * 调用时机: ask_user, explore_code
+ */
+function updateUserPreferences(
+  memory: WorkflowMemory,
+  updates: {
+    avoidLibraries?: string[];
+    preferLibraries?: string[];
+    codingStyleOverrides?: Record<string, any>;
+  }
+): void {
+  if (updates.avoidLibraries) {
+    memory.userPreferences.libraries.avoid = [
+      ...new Set([...memory.userPreferences.libraries.avoid, ...updates.avoidLibraries])
+    ];
+  }
+
+  if (updates.preferLibraries) {
+    memory.userPreferences.libraries.prefer = [
+      ...new Set([...memory.userPreferences.libraries.prefer, ...updates.preferLibraries])
+    ];
+  }
+
+  if (updates.codingStyleOverrides) {
+    memory.userPreferences.codingStyleOverrides = {
+      ...memory.userPreferences.codingStyleOverrides,
+      ...updates.codingStyleOverrides
+    };
+  }
+
+  memory.meta.lastUpdatedAt = new Date().toISOString();
+  saveMemory(memory);
+}
+
+/**
+ * 更新领域上下文
+ * 调用时机: analyze_requirements, explore_code
+ */
+function updateDomainContext(
+  memory: WorkflowMemory,
+  updates: {
+    businessGoals?: string[];
+    glossary?: Array<{ term: string; definition: string }>;
+    constraints?: string[];
+  }
+): void {
+  if (updates.businessGoals) {
+    memory.domainContext.businessGoals = [
+      ...memory.domainContext.businessGoals,
+      ...updates.businessGoals
+    ];
+  }
+
+  if (updates.glossary) {
+    memory.domainContext.glossary = [
+      ...memory.domainContext.glossary,
+      ...updates.glossary
+    ];
+  }
+
+  if (updates.constraints) {
+    memory.domainContext.constraints = [
+      ...memory.domainContext.constraints,
+      ...updates.constraints
+    ];
+  }
+
+  memory.meta.lastUpdatedAt = new Date().toISOString();
+  saveMemory(memory);
+}
+
+/**
+ * 解决已记录的问题
+ * 调用时机: optimize_design, executeCode
+ */
+function resolveIssue(
+  memory: WorkflowMemory,
+  issueId: string,
+  resolution: {
+    status: 'resolved' | 'ignored';
+    workaround?: string;
+  }
+): void {
+  const issue = memory.issues.find(i => i.id === issueId);
+
+  if (issue) {
+    issue.status = resolution.status;
+    if (resolution.workaround) {
+      issue.workaround = resolution.workaround;
+    }
+
+    memory.meta.lastUpdatedAt = new Date().toISOString();
+    saveMemory(memory);
+  }
+}
+```
+
+### 使用约定
+
+| Action | 应调用的 Helpers | 说明 |
+|--------|----------------|------|
+| `analyze_requirements` | `updateRequirements()`, `updateDomainContext()` | 分析用户需求时更新需求理解和领域上下文 |
+| `ask_user` | `updateRequirements()`, `addDecision()`, `updateUserPreferences()` | 用户回答问题后记录决策和偏好 |
+| `explore_code` | `updateDomainContext()`, `addIssue()` | 探索代码时发现的领域知识和潜在问题 |
+| `codex_review_design` | `addIssue()`, `addDecision()` | Codex 审查方案时发现的问题和建议的改进决策 |
+| `optimize_design` | `addDecision()`, `resolveIssue()` | 优化方案时的决策和问题解决 |
+| `codex_review_code` | `addIssue()` | Codex 代码审查时发现的问题 |
+
+**注意**: 这些 helpers 是**可选的辅助工具**,不是强制要求。在实施步骤时:
+- ✅ 有明确信息需要保存时调用
+- ❌ 不要为了调用而调用
+- ✅ 保持 memory 数据的准确性和相关性
+
+---
+
 ## 🔧 Action 执行细节
 
 ### context_load
@@ -464,9 +962,44 @@ async function executeAnalyzeRequirements(memory, step) {
   // 调用 /analyze-requirements
   await executeCommand('/analyze-requirements');
 
-  // 将分析结果记录到 memory
-  // 用户可能会提供功能点清单、依赖关系等信息
-  // 这些信息应该追加到 memory.steps 或 memory.decisions
+  // ⭐ Memory 更新指南：
+  // 在需求分析过程中,应根据实际情况调用以下 helpers:
+
+  // 1. 补充或完善需求理解
+  if (发现了新的验收标准或非功能需求) {
+    updateRequirements(memory, {
+      acceptanceCriteria: ['新发现的验收标准'],
+      nonFunctional: ['性能要求', '安全要求等'],
+      businessContext: ['业务背景补充']
+    });
+  }
+
+  // 2. 记录领域知识
+  if (识别到业务目标或术语) {
+    updateDomainContext(memory, {
+      businessGoals: ['具体的业务目标'],
+      glossary: [
+        { term: '专业术语', definition: '定义' }
+      ],
+      constraints: ['技术或业务约束']
+    });
+  }
+
+  // 示例：
+  // updateRequirements(memory, {
+  //   acceptanceCriteria: [
+  //     '用户只能访问所属租户的数据',
+  //     '超级管理员可以跨租户管理'
+  //   ],
+  //   nonFunctional: ['权限检查响应时间 < 50ms']
+  // });
+  //
+  // updateDomainContext(memory, {
+  //   glossary: [
+  //     { term: 'Tenant', definition: '租户,代表一个独立的组织或企业客户' },
+  //     { term: 'RBAC', definition: 'Role-Based Access Control,基于角色的访问控制' }
+  //   ]
+  // });
 }
 ```
 
@@ -488,13 +1021,49 @@ async function executeAskUser(memory, step) {
   const questions = prepareQuestions(memory);
   const answers = await AskUserQuestion({ questions });
 
-  // 将决策记录到 memory.decisions
-  memory.decisions.push({
-    step_id: step.id,
-    timestamp: new Date().toISOString(),
-    questions,
-    answers
-  });
+  // ⭐ Memory 更新指南：
+  // 根据用户回答的内容,应该调用相应的 helpers:
+
+  // 1. 记录用户的关键决策
+  if (用户做出了架构或实现方案的选择) {
+    addDecision(memory, {
+      title: '决策标题',
+      summary: '用户选择了 XXX 方案',
+      rationale: ['选择理由1', '选择理由2'],
+      madeAtStep: step.phase
+    });
+  }
+
+  // 2. 更新用户偏好(如库选择、代码风格等)
+  if (用户表达了库或工具偏好) {
+    updateUserPreferences(memory, {
+      avoidLibraries: ['用户不想用的库'],
+      preferLibraries: ['用户偏好的库']
+    });
+  }
+
+  // 3. 补充需求细节
+  if (用户澄清了需求细节) {
+    updateRequirements(memory, {
+      acceptanceCriteria: ['补充的验收标准'],
+      openQuestions: [] // 清空已回答的问题
+    });
+  }
+
+  // 示例：
+  // 假设用户选择了使用 JWT 认证
+  // addDecision(memory, {
+  //   title: '使用 JWT 进行身份认证',
+  //   summary: '用户确认使用 JWT token 而不是 session',
+  //   rationale: ['无状态,易于扩展', '前后端分离友好'],
+  //   madeAtStep: 'design'
+  // });
+  //
+  // 假设用户表示不想使用某个库
+  // updateUserPreferences(memory, {
+  //   avoidLibraries: ['passport.js'],
+  //   preferLibraries: ['jsonwebtoken']
+  // });
 }
 ```
 
@@ -505,6 +1074,46 @@ async function executeExploreCode(memory, step) {
   // 调用 /explore-code
   const topic = extractExploreTopic(memory);
   await executeCommand(`/explore-code 探索 ${topic} 的实现模式`);
+
+  // ⭐ Memory 更新指南：
+  // 在探索代码库的过程中,应根据发现记录相关信息:
+
+  // 1. 记录发现的问题或风险
+  if (发现了潜在问题或技术债务) {
+    addIssue(memory, {
+      title: '问题标题',
+      description: '详细描述',
+      impact: '高' | '中' | '低',
+      foundAtStep: step.phase
+    });
+  }
+
+  // 2. 更新领域知识(架构模式、专业术语等)
+  if (识别到架构约束或领域术语) {
+    updateDomainContext(memory, {
+      constraints: ['发现的架构约束'],
+      glossary: [
+        { term: '领域术语', definition: '在代码中的含义' }
+      ]
+    });
+  }
+
+  // 示例：
+  // 发现现有认证系统使用了自定义中间件
+  // updateDomainContext(memory, {
+  //   constraints: ['现有认证使用 custom-auth 中间件,需保持兼容'],
+  //   glossary: [
+  //     { term: 'AuthContext', definition: '全局认证上下文,通过 middleware 注入' }
+  //   ]
+  // });
+  //
+  // 发现了一个潜在问题
+  // addIssue(memory, {
+  //   title: '现有 User 表缺少 tenant_id 字段',
+  //   description: '需要添加数据库迁移脚本',
+  //   impact: '中',
+  //   foundAtStep: 'analyze'
+  // });
 }
 ```
 
@@ -549,6 +1158,51 @@ async function codexReviewDesign(memory, step) {
 
   // 将审查意见追加到技术方案文档
   appendToFile(techDesignPath, `\n\n## Codex 审查意见\n\n${result.output}`);
+
+  // ⭐ Memory 更新指南：
+  // 根据 Codex 审查结果记录问题和建议:
+
+  // 1. 记录 Codex 发现的问题
+  if (score < 80 && result.output.includes('问题') || result.output.includes('不足')) {
+    // 从审查意见中提取问题
+    const issues = extractIssuesFromReview(result.output);
+    issues.forEach(issue => {
+      addIssue(memory, {
+        title: issue.title,
+        description: issue.description,
+        impact: '中',
+        foundAtStep: 'design'
+      });
+    });
+  }
+
+  // 2. 如果 Codex 建议优化方案,记录为决策
+  if (result.output.includes('建议') && score >= 70) {
+    const suggestions = extractSuggestions(result);
+    if (suggestions.length > 0) {
+      addDecision(memory, {
+        title: 'Codex 审查优化建议',
+        summary: suggestions.join('; '),
+        status: 'proposed',
+        madeAtStep: 'design'
+      });
+    }
+  }
+
+  // 示例：
+  // addIssue(memory, {
+  //   title: '缺少租户切换的权限验证',
+  //   description: 'Codex 指出超级管理员切换租户时缺少权限验证逻辑',
+  //   impact: '中',
+  //   foundAtStep: 'design'
+  // });
+  //
+  // addDecision(memory, {
+  //   title: '补充性能测试计划',
+  //   summary: 'Codex 建议明确权限检查的性能测试指标',
+  //   status: 'proposed',
+  //   madeAtStep: 'design'
+  // });
 
   // 如果评分低，给出建议
   if (score < 80) {
@@ -595,6 +1249,40 @@ ${modifiedFiles.join('\n')}
   const reportPath = `.claude/verification-report-${sanitize(memory.task_name)}.md`;
   writeFile(reportPath, `# Codex 代码审查\n\n${result.output}`);
   memory.artifacts.verification_report = reportPath;
+
+  // ⭐ Memory 更新指南：
+  // 根据代码审查结果记录发现的问题:
+
+  // 1. 记录代码质量问题
+  if (score < 80) {
+    // 从审查意见中提取问题
+    const codeIssues = extractIssuesFromReview(result.output);
+    codeIssues.forEach(issue => {
+      addIssue(memory, {
+        title: issue.title,
+        description: issue.description,
+        impact: issue.severity === 'critical' ? '高' : '中',
+        foundAtStep: 'verify'
+      });
+    });
+  }
+
+  // 示例：
+  // 如果 Codex 发现了安全漏洞
+  // addIssue(memory, {
+  //   title: '权限检查存在绕过风险',
+  //   description: 'Codex 发现 checkPermission 函数在某些边界条件下可能被绕过',
+  //   impact: '高',
+  //   foundAtStep: 'verify'
+  // });
+  //
+  // 如果发现代码风格问题
+  // addIssue(memory, {
+  //   title: '缺少错误处理',
+  //   description: '数据库查询未包裹 try-catch,可能导致未捕获的异常',
+  //   impact: '中',
+  //   foundAtStep: 'verify'
+  // });
 }
 ```
 
