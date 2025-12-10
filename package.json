@@ -1,6 +1,6 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Claude Code 工作流工具包 - 自动安装 commands、agents、docs 到 ~/.claude",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
