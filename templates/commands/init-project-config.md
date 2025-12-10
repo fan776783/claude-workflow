@@ -64,7 +64,19 @@ fi
 
 ### 步骤 2：自动检测项目信息
 
-#### 2.1 检测项目类型
+#### 2.1 生成项目 ID
+
+```bash
+echo "🔍 生成项目标识..."
+
+# 基于项目路径生成唯一 ID（与 workflow-start 保持一致）
+PROJECT_PATH="$(pwd)"
+PROJECT_ID=$(echo -n "$PROJECT_PATH" | md5 | cut -c1-12)
+echo "  ✅ 项目 ID: $PROJECT_ID"
+echo "  📍 项目路径: $PROJECT_PATH"
+```
+
+#### 2.2 检测项目类型
 
 ```bash
 echo "🔍 检测项目类型..."
@@ -79,7 +91,7 @@ else
 fi
 ```
 
-#### 2.2 检测包管理器
+#### 2.3 检测包管理器
 
 ```bash
 echo "🔍 检测包管理器..."
@@ -99,7 +111,7 @@ else
 fi
 ```
 
-#### 2.3 检测构建工具
+#### 2.4 检测构建工具
 
 ```bash
 echo "🔍 检测构建工具..."
@@ -122,7 +134,7 @@ else
 fi
 ```
 
-#### 2.4 检测框架
+#### 2.5 检测框架
 
 ```bash
 echo "🔍 检测框架..."
@@ -160,7 +172,7 @@ if [ ${#FRAMEWORKS[@]} -eq 0 ]; then
 fi
 ```
 
-#### 2.5 检测目录结构
+#### 2.6 检测目录结构
 
 ```bash
 echo "🔍 检测目录结构..."
@@ -196,7 +208,7 @@ else
 fi
 ```
 
-#### 2.6 检测状态管理
+#### 2.7 检测状态管理
 
 ```bash
 echo "🔍 检测状态管理..."
@@ -227,7 +239,7 @@ else
 fi
 ```
 
-#### 2.7 检测国际化
+#### 2.8 检测国际化
 
 ```bash
 echo "🔍 检测国际化..."
@@ -268,7 +280,7 @@ elif [ -d "src/locales" ]; then
 fi
 ```
 
-#### 2.8 检测微前端
+#### 2.9 检测微前端
 
 ```bash
 echo "🔍 检测微前端..."
@@ -306,7 +318,7 @@ if [ "$MICRO_ENABLED" = "true" ] && [ ${#APPS_LIST[@]} -gt 1 ]; then
 fi
 ```
 
-#### 2.9 检测自定义路径
+#### 2.10 检测自定义路径
 
 ```bash
 echo "🔍 检测自定义路径..."
@@ -356,7 +368,7 @@ else
 fi
 ```
 
-#### 2.10 检测可观测性
+#### 2.11 检测可观测性
 
 ```bash
 echo "🔍 检测可观测性..."
@@ -405,6 +417,7 @@ cat > "$CONFIG_PATH" <<EOF
   "\$comment": "Claude Code 项目配置文件 - 自动生成于 $(date -u +"%Y-%m-%d %H:%M:%S UTC")",
 
   "project": {
+    "id": "$PROJECT_ID",
     "name": "$(basename "$(pwd)")",
     "type": "$PROJECT_TYPE",
     "rootDir": "$(pwd)",
@@ -561,7 +574,12 @@ echo ""
 echo "📊 检测结果摘要："
 echo ""
 cat "$CONFIG_PATH" | jq '{
-  project: .project,
+  project: {
+    id: .project.id,
+    name: .project.name,
+    type: .project.type,
+    rootDir: .project.rootDir
+  },
   tech: {
     packageManager: .tech.packageManager,
     buildTool: .tech.buildTool,
@@ -572,6 +590,8 @@ cat "$CONFIG_PATH" | jq '{
   microFrontend: .microFrontend,
   customPaths: .customPaths
 }'
+echo ""
+echo "🔗 工作流存储目录: ~/.claude/workflows/$PROJECT_ID/"
 ```
 
 ---

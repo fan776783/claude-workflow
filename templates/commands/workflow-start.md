@@ -20,9 +20,12 @@ allowed-tools: Task(*), Read(*), Write(*), mcp__mcp-router__sequentialthinking(*
 
 ## 🎯 执行流程
 
-### Step -1：项目初始化检查（前置条件）⭐
+### Step -1：项目配置检查（强制前置条件）🚨
 
-**目标**: 确保项目已初始化 Claude Workflow 配置，如果未初始化则引导执行 `/init-project-config`
+**目标**: 确保项目已初始化且包含有效的 `project.id`，否则**强制终止并要求执行** `/init-project-config`
+
+> ⚠️ **重要**：没有 `project-config.json` 或缺少 `project.id` 时，工作流**无法启动**。
+> 这是为了确保工作流目录（`~/.claude/workflows/{project.id}/`）能正确关联到项目。
 
 **执行逻辑**:
 
@@ -32,86 +35,106 @@ console.log(`🔍 检查项目配置...\n`);
 const cwd = process.cwd();
 const configPath = path.join(cwd, '.claude/config/project-config.json');
 
+// 检查配置文件是否存在
 if (!fs.existsSync(configPath)) {
   console.log(`
-⚠️ 检测到项目未初始化
+🚨 项目配置不存在，无法启动工作流
 
 📋 当前项目: ${path.basename(cwd)}
 📍 项目路径: ${cwd}
 
-🔧 需要创建 Claude Workflow 配置文件
-  `);
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // 询问是否初始化
-  const answer = await AskUserQuestion({
-    questions: [{
-      question: "项目配置文件不存在，是否执行初始化？",
-      header: "项目初始化",
-      multiSelect: false,
-      options: [
-        {
-          label: "执行初始化（推荐）",
-          description: "执行 /init-project-config 自动检测并生成完整配置"
-        },
-        {
-          label: "取消",
-          description: "取消当前工作流"
-        }
-      ]
-    }]
-  });
-
-  const choice = answer.answers["项目初始化"];
-
-  if (choice === "执行初始化（推荐）") {
-    console.log(`
-🚀 请执行以下命令初始化项目：
+🔧 请先执行初始化命令：
 
    /init-project-config
 
 初始化完成后，重新执行：
 
    /workflow-start "你的需求描述"
-    `);
-    // 终止当前工作流，让用户先执行初始化
-    return;
-  } else {
-    console.log(`\n❌ 工作流已取消\n`);
-    return;
-  }
-} else {
-  console.log(`✅ 项目配置已存在: ${configPath}\n`);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  `);
+  // 强制终止，不提供跳过选项
+  return;
 }
+
+// 检查配置文件是否包含 project.id
+let projectConfig;
+try {
+  projectConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+} catch (e) {
+  console.log(`
+🚨 项目配置文件损坏，无法解析
+
+📍 文件路径: ${configPath}
+❌ 错误信息: ${e.message}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 请重新执行初始化命令：
+
+   /init-project-config
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  `);
+  return;
+}
+
+// 检查 project.id 是否存在
+if (!projectConfig.project?.id) {
+  console.log(`
+🚨 项目配置缺少 project.id，无法关联工作流目录
+
+📍 配置文件: ${configPath}
+⚠️ 这可能是旧版本的配置文件
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 请重新执行初始化命令以更新配置：
+
+   /init-project-config
+
+初始化会自动生成 project.id 并关联工作流目录。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  `);
+  return;
+}
+
+// 配置有效，显示项目信息
+const projectId = projectConfig.project.id;
+const projectName = projectConfig.project.name;
+const workflowDir = path.join(os.homedir(), '.claude/workflows', projectId);
+
+console.log(`✅ 项目配置有效
+
+📋 项目名称: ${projectName}
+🆔 项目 ID: ${projectId}
+📁 工作流目录: ${workflowDir}
+`);
 ```
 
 **说明**:
-- ✅ **前置检查**: 在工作流开始前确保配置文件存在
-- ✅ **引导初始化**: 缺少配置时引导执行 `/init-project-config`
-- ✅ **完整检测**: `/init-project-config` 提供更全面的项目检测（微前端、可观测性等）
-- ✅ **向后兼容**: 已初始化的项目直接跳过
+- 🚨 **强制检查**: 配置文件不存在或无效时，**直接终止**，不提供跳过选项
+- 🆔 **ID 校验**: 必须包含 `project.id`，用于关联工作流存储目录
+- 🔗 **目录关联**: `project.id` 决定工作流存储在 `~/.claude/workflows/{project.id}/`
+- 📦 **旧配置兼容**: 检测到旧配置（无 ID）时，提示重新初始化
 
 ---
 
 ### Step 0：检测现有任务并保护（必须）⚠️
 
-#### 0.1 项目识别（自动）⭐ NEW
+#### 0.1 获取工作流目录
 
-**基于当前工作目录（cwd）自动识别项目**：
+**从已验证的配置中读取 project.id**（Step -1 已确保配置有效）：
 
 ```typescript
-// 获取项目唯一标识（基于当前工作目录 hash）
-function getProjectId(): string {
-  const cwd = process.cwd(); // 例如：/Users/ws/dev/skymediafrontend
-  const hash = crypto.createHash('md5')
-    .update(cwd)
-    .digest('hex')
-    .substring(0, 12); // 例如：a1b2c3d4e5f6
-  return hash;
-}
+// 此时 projectConfig 已在 Step -1 中加载并验证
+const projectId = projectConfig.project.id;
 
 // 获取用户级工作流路径
 function getWorkflowMemoryPath(): string {
-  const projectId = getProjectId();
   const workflowDir = path.join(
     os.homedir(),
     '.claude/workflows',
@@ -122,12 +145,14 @@ function getWorkflowMemoryPath(): string {
   if (!fs.existsSync(workflowDir)) {
     fs.mkdirSync(workflowDir, { recursive: true });
 
-    // 保存项目元数据
-    saveProjectMeta(projectId, {
-      path: process.cwd(),
-      name: path.basename(process.cwd()),
-      createdAt: new Date().toISOString()
-    });
+    // 保存项目元数据（便于反向查找）
+    const metaPath = path.join(workflowDir, 'project-meta.json');
+    fs.writeFileSync(metaPath, JSON.stringify({
+      project_id: projectId,
+      project_path: process.cwd(),
+      project_name: projectConfig.project.name,
+      created_at: new Date().toISOString()
+    }, null, 2));
   }
 
   return path.join(workflowDir, 'workflow-memory.json');
@@ -139,10 +164,11 @@ const memoryPath = getWorkflowMemoryPath();
 ```
 
 **优点**：
-- ✅ 完全自动化 - 用户无需任何配置
+- ✅ 配置驱动 - 项目 ID 来自 `project-config.json`，确保一致性
 - ✅ 天然隔离 - 每个开发者独立管理
 - ✅ 无 Git 冲突 - 工作流状态不在项目目录
 - ✅ 多项目支持 - 自动切换不同项目的状态
+- ✅ 可追溯 - `project-meta.json` 记录项目路径，便于反向查找
 
 #### 0.2 向后兼容检查（可选）
 

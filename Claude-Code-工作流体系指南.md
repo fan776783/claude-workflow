@@ -2,9 +2,9 @@
 
 > 基于 Claude Code 的智能化开发工作流体系
 
-**文档版本**：v3.1.0
-**最后更新**：2025-12-01
-**包版本**：@pic/claude-workflow v1.0.2
+**文档版本**：v3.2.0
+**最后更新**：2025-12-04
+**包版本**：@pic/claude-workflow v1.0.3
 
 ---
 
@@ -14,11 +14,17 @@
 - [2. 工作流安装与配置](#2-工作流安装与配置)
 - [3. 智能工作流](#3-智能工作流)
 - [4. 其他工作流](#4-其他工作流)
-- [5. 专项分析命令](#5-专项分析命令)
+  - [4.1 快速开发工作流](#41-快速开发工作流workflow-quick-dev)
+  - [4.2 UI 还原工作流](#42-ui-还原工作流workflow-ui-restore)
+  - [4.3 后端工作流](#43-后端工作流workflow-backend-start)
+- [5. 智能分析命令](#5-智能分析命令)
 - [6. 审查命令](#6-审查命令)
 - [7. 典型场景实战](#7-典型场景实战)
 - [8. 最佳实践](#8-最佳实践)
 - [9. 常见问题](#9-常见问题)
+- [附录 A：命令速查表](#附录-a命令速查表)
+- [附录 B：Agent 定义](#附录-bagent-定义)
+- [附录 C：快速入门](#附录-c快速入门)
 
 ---
 
@@ -74,24 +80,27 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│核心工作流 (5个) │  │ CLI 工具         │  │  专项分析 (6个) │
+│核心工作流 (8个) │  │ CLI 工具         │  │  分析审查 (3个) │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • workflow-start│  │ • status 状态   │  │ • performance   │
-│ • quick-dev     │  │ • sync 同步     │  │ • deps          │
-│ • fix-bug       │  │ • init 初始化   │  │ • route         │
-│ • ui-restore    │  │ • doctor 诊断   │  │ • store等       │
+│ • workflow-start│  │ • status 状态   │  │ • /analyze      │
+│ • workflow-exec │  │ • sync 同步     │  │ • /diff-review  │
+│ • quick-dev     │  │ • init 初始化   │  │ • /write-tests  │
+│ • fix-bug       │  │ • doctor 诊断   │  │                 │
+│ • ui-restore    │  │                 │  │                 │
 │ • backend-start │  │                 │  │                 │
+│ • status/retry  │  │                 │  │                 │
+│ • skip-step     │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  基础工具链      │  │  MCP 双模型协作  │  │  文档输出       │
+│  Agent 定义(3个)│  │  MCP 双模型协作  │  │  文档输出       │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • context-load  │  │ • Gemini (前端) │  │ • 任务记忆       │
-│ • explore-code  │  │ • Codex (后端)  │  │ • 技术方案      │
-│ • codex-analyze │  │ • Figma MCP     │  │ • 验证报告      │
-│ • write-tests   │  │ • BK-MCP        │  │ • 工作流总结     │
+│ • vitest-tester │  │ • Gemini (前端) │  │ • 任务记忆       │
+│ • senior-arch   │  │ • Codex (后端)  │  │ • 技术方案      │
+│ • requirements  │  │ • Figma MCP     │  │ • 验证报告      │
+│   -analyst      │  │ • BK-MCP        │  │ • 工作流总结     │
 │                 │  │ • Context7      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
@@ -105,10 +114,13 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 | **智能工作流** ⭐⭐⭐ | `/workflow-start`, `/workflow-execute` | 自动规划和执行（推荐） |
 | **后端工作流** | `/workflow-backend-start` | PRD → 需求分析 → 方案设计 → 执行 |
 | **其他工作流** | `/workflow-quick-dev`, `/workflow-fix-bug`, `/workflow-ui-restore` | 快速开发、Bug修复、UI还原 |
+| **工作流辅助** | `/workflow-status`, `/workflow-retry-step`, `/workflow-skip-step` | 状态查看、重试、跳过 |
 | **CLI 工具** | `claude-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
 | **专项分析** | `/analyze` | 智能分析（自动识别场景） |
 | **审查** | `/diff-review` | 基于 git diff 的代码审查 |
 | **测试** | `/write-tests` | 调用 Vitest 测试专家编写测试 |
+| **项目配置** | `/init-project-config` | 自动检测项目结构和技术栈 |
+| **帮助** | `/agents` | 查看所有可用 Agent 命令 |
 
 ---
 
@@ -181,8 +193,8 @@ claude-workflow doctor
 
 ```
 ~/.claude/
-├── commands/              # 14 个工作流命令
-├── agents/                # 3 个 Agent 定义
+├── commands/              # 14 个斜杠命令
+├── agents/                # 3 个 Agent 定义（vitest-tester, senior-code-architect, requirements-analyst）
 ├── docs/                  # 6 个技术文档
 ├── utils/                 # 工具函数
 ├── workflows/             # 工作流状态（按项目隔离，使用后自动创建）
@@ -790,28 +802,48 @@ rm .claude/workflow-memory-backup-1737123456789.json
 **适用场景**：
 - ✅ 功能需求明确，无需复杂需求分析
 - ✅ 开发周期 < 1天
-- ✅ 代码变更 < 300 行
+- ✅ 代码变更 < 500 行
 - ✅ 已有类似实现可参考
+
+**不适用场景**：
+- ❌ 复杂的架构设计需求
+- ❌ 跨多个应用的大型功能
+- ❌ 需要详细需求拆解
 
 #### 3步快速流程
 
 ```
-第1步：快速上下文加载
-  └─ /context-load "功能描述"
+第1步：快速上下文加载（必须）
+  ├─ /context-load "功能描述"
+  └─ 用户确认（发现歧义时）
 
-第2步：探索与实现
-  ├─ 探索现有实现（/explore-code）
+第2步：探索与实现（核心）
+  ├─ 探索现有实现（/explore-code，推荐）
   └─ 快速实现（直接编码）
 
-第3步：快速验证
-  ├─ 功能测试
+第3步：快速验证（必须）
+  ├─ 功能测试（手动或自动）
   └─ 代码质量检查（可选）
 ```
 
 **使用示例**：
 ```bash
 /workflow-quick-dev "添加导出为 PDF 的按钮"
+/workflow-quick-dev "实现文件导出为 PDF"
+/workflow-quick-dev "添加快捷键支持"
 ```
+
+**与完整开发流程的区别**：
+
+| 维度 | 快速开发工作流 | 完整开发流程 |
+|------|---------------|-------------|
+| 需求分析 | 跳过（需求明确） | /analyze-requirements |
+| 上下文加载 | ✅ 必须 | ✅ 必须 |
+| 代码探索 | 可选（推荐） | 必须 |
+| 架构评估 | 跳过 | /architect-review |
+| 实现 | 直接编码 | 详细设计 → 编码 |
+| 测试 | 简化（核心场景） | 完整测试覆盖 |
+| 审查 | 可选（单项） | 必须（多维度） |
 
 ---
 
@@ -820,35 +852,45 @@ rm .claude/workflow-memory-backup-1737123456789.json
 **适用场景**：
 - ✅ 有明确的 Figma 设计稿
 - ✅ 需要高保真还原设计
-- ✅ 需要响应式适配
+- ✅ 注重组件复用和代码质量
 
-#### 5步 UI 还原流程
+**关键特性**：
+- 🎨 自动提取 Figma 设计规范
+- 🤖 **Gemini 生成前端代码原型**（前端设计的代码基点）
+- 📐 智能识别可复用组件
+- ✅ Codex 自动化质量验证
+
+#### 3步 UI 还原流程
 
 ```
-第1步：获取 Figma 设计上下文
-  ├─ get_design_context（颜色、间距、字体）
-  └─ get_screenshot（设计截图）
+第1步：收集设计信息（自动化）
+  ├─ Figma MCP 获取设计上下文（颜色、间距、字体）
+  ├─ 获取设计截图
+  └─ 加载项目 UI 上下文
 
-第2步：分析设计规范
+第2步：生成实现（Gemini Gate）⭐
+  ├─ 向 Gemini 索要 UI 代码原型（必须）
+  └─ 基于 Gemini 原型完善代码
 
-第3步：加载项目 UI 上下文
-
-第4步：实现 UI 组件
-  ├─ 组件结构设计
-  ├─ Tailwind CSS 实现
-  ├─ 响应式适配
-  └─ 交互状态实现
-
-第5步：质量验证
-  ├─ 视觉还原度检查
-  ├─ /review-ui
-  └─ 响应式测试
+第3步：质量验证（Codex Review）
+  ├─ Codex 代码审查
+  └─ 生成验证报告
 ```
 
 **使用示例**：
 ```bash
-/workflow-ui-restore "https://www.figma.com/file/xxxxx"
+# 新建组件
+/workflow-ui-restore "https://figma.com/file/xxx?node-id=123:456" "src/components/UserProfile.tsx"
+
+# 修改现有组件
+/workflow-ui-restore "node-id=789:012" "apps/agent/src/components/ProfileCard.tsx" "更新头像样式"
 ```
+
+**重要原则**：
+- ✅ **Gemini 优先**：UI 代码必须先从 Gemini 获取原型
+- ✅ **Gemini 32k 限制**：注意上下文长度，仅传入 UI 相关信息
+- ✅ **Codex Review**：编码后必须使用 Codex 执行 review
+- ❌ 禁止跳过 Gemini 直接编写 UI 代码
 
 ---
 
@@ -894,6 +936,24 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
   10. 完善文档并总结
 ```
 
+**文档结构**：
+
+**xq.md（需求分析文档）**：
+- 元信息、背景与业务目标
+- 范围与边界（In Scope / Out of Scope）
+- 角色与主体、关键业务流程
+- 功能需求拆解（FR-01, FR-02, ...）
+- 非功能需求、数据与接口线索
+- 风险、依赖与假设、验收标准
+
+**fasj.md（方案设计文档）**：
+- 设计目标与原则、架构与边界
+- 模块与职责划分
+- 数据模型设计（领域模型、持久化模型）
+- 接口设计（API 契约、请求响应结构）
+- 非功能设计、数据迁移与兼容性
+- 实施计划（工作项列表、里程碑）
+
 **使用示例**：
 ```bash
 # 启动后端工作流
@@ -906,30 +966,82 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
 /workflow-execute
 ```
 
+**配置要求**：
+- 需要在 `project-config.json` 中配置 `backend.fasjSpecPath`（方案设计规范路径）
+- 首次使用时会自动询问配置方式
+
 ---
 
-## 5. 专项分析命令
+## 5. 智能分析命令
 
-| 命令 | 核心功能 | 典型场景 |
-|------|---------|---------|
-| `/analyze-performance` ⭐ | Bundle体积、加载性能、运行时性能 | 性能优化、体积控制 |
-| `/analyze-deps` ⭐ | Monorepo依赖、版本冲突、安全漏洞 | 依赖升级、安全审计 |
-| `/analyze-route` ⭐ | 路由配置、微前端同步、懒加载 | 路由优化、微前端调试 |
-| `/analyze-store` ⭐ | Pinia/Zustand架构、性能问题 | 状态优化、跨应用同步 |
-| `/analyze-i18n` | next-intl/vue-i18n、翻译完整性 | 国际化审查、翻译补全 |
-| `/analyze-requirements` | 需求拆解、依赖关系、风险评估 | 复杂需求分析 |
+### 5.1 统一入口：`/analyze`
+
+`/analyze` 是智能分析的统一入口，根据用户描述自动识别场景并执行相应分析策略。
+
+**使用方式**：
+```bash
+/analyze "描述你想分析的内容"
+```
+
+**场景自动识别**：
+
+| 输入示例 | 识别场景 | 执行策略 |
+|----------|----------|----------|
+| `/analyze "项目上下文"` | 上下文加载 | 生成结构化上下文摘要 |
+| `/analyze "用户登录在哪"` | 代码探索 | 搜索文件和代码片段 |
+| `/analyze "这个 bug 的原因"` | 深度分析 | Codex 深度分析报告 |
+| `/analyze "性能瓶颈"` | 性能分析 | Bundle 体积 + 运行时性能 |
+| `/analyze "依赖安全漏洞"` | 依赖分析 | 依赖图 + 安全审计 |
+| `/analyze "路由配置"` | 路由分析 | 路由结构 + 懒加载检查 |
+| `/analyze "状态管理"` | 状态分析 | Store 架构 + 性能问题 |
+| `/analyze "翻译完整性"` | 国际化分析 | 翻译键完整性报告 |
+| `/analyze "这个需求怎么拆"` | 需求分析 | 功能点 + 风险评估 |
+
+**触发关键词**：
+
+| 场景 | 触发关键词 |
+|------|-----------|
+| 上下文加载 | 上下文、context、项目结构、代码库概览 |
+| 代码探索 | 在哪、怎么实现、找到、定位、搜索 |
+| 深度分析 | 分析、问题、原因、为什么、设计 |
+| 性能分析 | 性能、Bundle、体积、加载、优化 |
+| 依赖分析 | 依赖、漏洞、安全、版本、冲突 |
+| 路由分析 | 路由、route、导航、懒加载 |
+| 状态分析 | 状态、store、Pinia、Zustand、Redux |
+| 国际化分析 | 国际化、i18n、翻译、多语言 |
+| 需求分析 | 需求、拆解、功能点、工作量 |
 
 ---
 
 ## 6. 审查命令
 
-| 命令 | 核心功能 | 典型场景 |
-|------|---------|---------|
-| `/architect-review` | 专家级代码审查、架构建议 | 代码重构、架构决策 |
-| `/review-tracking` ⭐ | 埋点完整性、规范性、数据质量 | 新功能上线前 |
-| `/review-observability` ⭐ | Sentry配置、性能监控、日志系统 | 监控优化、错误排查 |
-| `/review-ui` | 组件设计、Props设计、Tailwind规范 | UI组件开发、设计评审 |
-| `/review-api` | API规范、错误处理、安全性 | API集成、安全审计 |
+### 6.1 Diff 审查：`/diff-review`
+
+基于 git diff 的通用代码审查，支持多种变更来源。
+
+**使用方式**：
+
+| 参数 | 来源 | 示例 |
+|------|------|------|
+| (默认) | 未暂存变更 | `/diff-review` |
+| `--staged` | 已暂存变更 | `/diff-review --staged` |
+| `--all` | 全部未提交 | `/diff-review --all` |
+| `--branch <base>` | 对比分支 | `/diff-review --branch main` |
+
+**输出格式**：结构化 Markdown（Summary + Findings），包含：
+- 优先级（P0-P3）
+- 置信度（0.00-1.00）
+- 行范围
+- 修复建议
+
+**优先级定义**：
+
+| 级别 | 含义 | 标准 |
+|------|------|------|
+| P0 | 紧急阻塞 | 阻塞发布/运营，不依赖任何输入假设的普遍问题 |
+| P1 | 紧急 | 应在下个周期处理 |
+| P2 | 正常 | 最终需要修复 |
+| P3 | 低优先级 | 有则更好 |
 
 ---
 
@@ -982,7 +1094,32 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
 # 🎉 完成！总耗时 < 45分钟
 ```
 
-### 7.4 场景D：查看进度并继续
+### 7.4 场景D：Bug 修复（Bug 修复工作流）
+
+**任务**：修复用户头像上传失败问题
+
+```bash
+# 带工作项编号（自动获取缺陷信息并流转状态）
+/workflow-fix-bug "p328_600"
+# ✅ 自动获取蓝鲸工作项详情
+# ✅ 流转状态到"处理中"
+# ✅ 6步标准化流程执行
+# ✅ 强制回归测试
+# ✅ 流转状态到"待验证"
+
+# 无工作项编号（普通 Bug 修复）
+/workflow-fix-bug "用户头像上传失败"
+```
+
+**6步标准化流程**：
+1. 缺陷信息获取（可选，BK-MCP）
+2. Bug 重现与信息收集
+3. 快速定位（/analyze 轻量级）
+4. 深度分析（Codex 重量级）
+5. 修复实现
+6. 回归测试与质量验证（强制）
+
+### 7.5 场景E：查看进度并继续
 
 ```bash
 # 在新对话中
@@ -999,15 +1136,33 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
 ### 8.1 工作流选择
 
 ```
-有Figma设计稿？
-  └─ 是 → /workflow-ui-restore
+Bug 修复？
+  └─ 是 → /workflow-fix-bug（支持 BK-MCP 集成）
 
-简单功能（< 300行，< 1天）？
+有 Figma 设计稿？
+  └─ 是 → /workflow-ui-restore（Gemini + Codex）
+
+有 PRD 文档的后端开发？
+  └─ 是 → /workflow-backend-start（PRD → xq.md → fasj.md）
+
+简单功能（< 500行，< 1天）？
   └─ 是 → /workflow-quick-dev
 
 复杂功能或不确定复杂度？
-  └─ /workflow-start（自动适配）
+  └─ /workflow-start（自动适配 5-22 步）
 ```
+
+**工作流选择表**：
+
+| 任务类型 | 任务复杂度 | 需求明确度 | 推荐工作流 |
+|---------|-----------|-----------|-----------|
+| 新功能开发 | 复杂（>500行） | - | `/workflow-start` ⭐⭐⭐ |
+| 新功能开发 | 中等（300-500行） | - | `/workflow-start` 或 `/workflow-quick-dev` |
+| 新功能开发 | 简单（<300行） | 明确 | `/workflow-quick-dev` |
+| 新功能开发 | 简单（<300行） | 不明确 | `/workflow-start` |
+| Bug 修复 | - | - | `/workflow-fix-bug` ⭐ |
+| UI 还原 | - | - | `/workflow-ui-restore` |
+| 后端开发（有PRD） | - | - | `/workflow-backend-start` |
 
 ### 8.2 新对话执行模式
 
@@ -1121,31 +1276,80 @@ cp .claude/workflow-memory-backup-{时间戳}.json \
 | 命令 | 简介 | 优先级 |
 |------|------|-------|
 | **智能工作流** |||
-| `/workflow-start` | 启动智能工作流 | ⭐⭐⭐ |
+| `/workflow-start "需求"` | 启动智能工作流，自动规划5-22步 | ⭐⭐⭐ |
 | `/workflow-execute` | 执行下一步（重复调用） | ⭐⭐⭐ |
-| `/workflow-status` | 查看当前状态 | ⭐⭐ |
-| `/workflow-retry-step` | 重试当前步骤 | ⭐ |
+| `/workflow-status` | 查看当前状态和进度 | ⭐⭐ |
+| `/workflow-retry-step` | 重试当前步骤（质量关卡失败后） | ⭐ |
 | `/workflow-skip-step` | 跳过当前步骤（慎用） | |
 | **其他工作流** |||
-| `/workflow-quick-dev` | 快速开发工作流（3步） | ⭐ |
-| `/workflow-ui-restore` | UI 还原工作流（5步） | ⭐ |
-| `/workflow-fix-bug` | Bug 修复工作流 | ⭐ |
-| `/workflow-backend-start` | 后端工作流（PRD→设计→执行） | ⭐ |
+| `/workflow-quick-dev "功能"` | 快速开发工作流（3步） | ⭐ |
+| `/workflow-ui-restore "Figma URL" "路径"` | UI 还原工作流（Gemini + Codex） | ⭐ |
+| `/workflow-fix-bug "描述或工单号"` | Bug 修复工作流（6步，支持 BK-MCP） | ⭐ |
+| `/workflow-backend-start "PRD路径"` | 后端工作流（PRD→xq.md→fasj.md→执行） | ⭐ |
 | **CLI 工具** |||
 | `claude-workflow status` | 查看安装状态 | ⭐ |
-| `claude-workflow sync` | 同步模板 | ⭐ |
+| `claude-workflow sync` | 同步模板到 ~/.claude | ⭐ |
+| `claude-workflow sync -f` | 强制覆盖所有文件 | |
 | `claude-workflow init` | 初始化项目配置 | ⭐ |
 | `claude-workflow doctor` | 诊断配置问题 | |
 | **分析与审查** |||
-| `/analyze` | 智能分析（自动识别场景） | ⭐ |
-| `/diff-review` | 基于 git diff 的代码审查 | ⭐ |
-| `/write-tests` | 调用 Vitest 测试专家编写测试 | |
-| `/init-project-config` | 初始化项目配置 | |
-| `/agents` | 查看所有可用 Agent 命令 | |
+| `/analyze "描述"` | 智能分析（自动识别场景） | ⭐⭐ |
+| `/diff-review` | 审查未提交代码变更 | ⭐ |
+| `/diff-review --staged` | 审查已暂存变更 | ⭐ |
+| `/diff-review --branch main` | 审查整个分支 | ⭐ |
+| **测试与配置** |||
+| `/write-tests` | 调用 Vitest 测试专家编写测试 | ⭐ |
+| `/init-project-config` | 自动检测项目结构和技术栈 | ⭐ |
+| `/agents` | 查看所有可用 Agent 命令和使用指南 | |
 
 ---
 
-## 附录 B：快速入门
+## 附录 B：Agent 定义
+
+项目包含 3 个专业 Agent：
+
+| Agent | 专长 | 使用场景 |
+|-------|------|---------|
+| **vitest-tester** | Vitest 测试框架 | 编写单元测试、集成测试、调试失败测试、提高覆盖率 |
+| **senior-code-architect** | 代码架构和框架指导 | 代码审查、架构决策、框架最佳实践、性能优化 |
+| **requirements-analyst** | 需求分析和拆解 | 分析复杂需求、识别功能点、依赖关系、风险评估 |
+
+### vitest-tester
+
+**核心专长**：
+- 单元测试：为函数、类、组件编写独立测试
+- 集成测试：测试多个模块间的交互
+- Mock 策略：设计和实现 mock、stub、spy
+- 异步测试：正确处理 Promise、async/await
+- 覆盖率优化：识别未覆盖的代码路径
+
+**调用方式**：通过 `/write-tests` 命令自动调用
+
+### senior-code-architect
+
+**核心专长**：
+- 框架精通：React、Vue、Node.js、Element Plus 等
+- 包管理：pnpm、npm、yarn 最佳实践
+- 架构设计：系统架构、微服务、领域驱动设计
+- 性能优化：代码性能分析和优化策略
+- 最新技术：通过 exa MCP 获取最新框架文档
+
+**调用方式**：通过 Task 工具调用 `subagent_type=senior-code-architect`
+
+### requirements-analyst
+
+**核心专长**：
+- 需求识别：从用户描述中提取核心需求和隐含需求
+- 需求分解：将高层次需求拆解为具体功能点
+- 需求分类：区分功能性和非功能性需求
+- 依赖分析：识别需求间的依赖关系和实现顺序
+- 风险识别：识别技术风险和实现难点
+
+**调用方式**：通过 Task 工具调用 `subagent_type=requirements-analyst`
+
+---
+
+## 附录 C：快速入门
 
 ### 安装
 
