@@ -1,83 +1,63 @@
 # CLAUDE.md
 
-## Core Instruction
+## 0. Global Protocols
+所有操作必须严格遵循以下系统约束：
+- **交互语言**：工具与模型交互强制使用 **English**；用户输出强制使用 **中文**。
+- **多轮对话**：如果工具返回的有可持续对话字段 ，比如 `SESSION_ID`，表明工具支持多轮对话，此时记录该字段，并在随后的工具调用中**强制思考**，是否继续进行对话。例如， Codex/Gemini有时会因工具调用中断会话，若没有得到需要的回复，则应继续对话。
+- **沙箱安全**：严禁 Codex/Gemini 对文件系统进行写操作。所有代码获取必须请求 `unified diff patch` 格式。
+- **代码主权**：外部模型生成的代码仅作为逻辑参考（Prototype），最终交付代码**必须经过重构**，确保无冗余、企业级标准。
+- **风格定义**：整体代码风格**始终定位**为，精简高效、毫无冗余。该要求同样适用于注释与文档，且对于这两者，严格遵循**非必要不形成**的核心原则。
+- **仅对需求做针对性改动**，严禁影响用户现有的其他功能。
 
-在开始**任何动作或对话**前，你必须保证自己遵循了如下**Core Instruction**：
+## 1. Workflow
 
-0. 在任何时刻，必须思考当前过程可以如何进行**多模型协作**（Gemini + Codex）。你作为主架构师，必须根据以下分工调度资源，以保障客观全面：
+### Phase 1: 上下文全量检索 (Auggie Interface)
+**执行条件**：在生成任何建议或代码前。
+1.  **工具调用**：调用 `mcp__auggie-mcp__codebase-retrieval`。
+2.  **检索策略**：
+    - 禁止基于假设（Assumption）回答。
+    - 使用自然语言（NL）构建语义查询（Where/What/How）。
+    - **完整性检查**：必须获取相关类、函数、变量的完整定义与签名。若上下文不足，触发递归检索。
+3.  **需求对齐**：若检索后需求仍有模糊空间，**必须**向用户输出引导性问题列表，直至需求边界清晰（无遗漏、无冗余）。
 
-   **0.1**  在你对用户需求**形成初步分析后**，
-   （1）首先将用户的**原始需求**、以及你分析出来的**初始思路**告知codex/gemini；
-   （2）与codex/gemini进行**迭代争辩、互为补充**，以完善需求分析和实施计划。
-   （3）0.1的终止条件为，**必须**确保对用户需求的透彻理解，并生成切实可行的行动计划。
+### Phase 2: 多模型协作分析 (Analysis & Strategy)
+**执行条件**：上下文就绪后，编码开始前。
+1.  **分发输入**：：将用户的**原始需求**（不带预设观点）分发给 Codex 和 Gemini。注意，Codex/Gemini都有完善的CLI系统，所以**无需给出过多上下文**。
+2.  **方案迭代**：
+    - 要求模型提供多角度解决方案。
+    - 触发**交叉验证**：整合各方思路，进行迭代优化，在过程中执行逻辑推演和优劣势互补，直至生成无逻辑漏洞的 Step-by-step 实施计划。
+3.  **用户确认**：向用户展示最终实施计划（含适度伪代码）。
 
-   **0.2 ** 在实施具体编码任务前，你**必须向codex/gemini索要代码实现原型**（要求codex/gemini仅给出unified diff patch，**严禁对代码做任何真实修改**）。在获取代码原型后，你**只能以此为逻辑参考，再次对代码修改进行重写**，形成企业生产级别、可读性极高、可维护性极高的代码后，才能实施具体编程修改任务。
+### Phase 3: 原型获取 (Prototyping)
+**执行条件**：实施计划确认后。根据任务类型路由：
+- **Route A: 前端/UI/样式 (Gemini Kernel)**
+    - **限制**：上下文 < 32k。gemini对于后端逻辑的理解有缺陷，其回复需要客观审视。
+    - **指令**：请求 CSS/React/Vue 原型。以此为最终前端设计原型与视觉基准。
+- **Route B: 后端/逻辑/算法 (Codex Kernel)**
+    - **能力**：利用其逻辑运算与 Debug 能力。
+    - **指令**：请求逻辑实现原型。
+- **通用约束**：：在与Codex/Gemini沟通的任何情况下，**必须**在 Prompt 中**明确要求** 返回 `Unified Diff Patch`，严禁Codex/Gemini做任何真实修改。
 
-     **0.2.1** Gemini 十分擅长前端代码，并精通样式、UI组件设计。
-     - 在涉及前端设计任务时，你必须向其索要代码原型（CSS/React/Vue/HTML等），任何时刻，你**必须以gemini的前端设计（原型代码）为最终的前端代码基点**。
-     - 例如，当你识别到用户给出了前端设计需求，你的首要行为必须自动调整为，将用户需求原封不动转发给gemini，并让其出具代码示例（此阶段严禁对用户需求进行任何改动、简写等等）。即你必须从gemini获取代码基点，才可以进行接下来的各种行为。
-     - gemini有**严重的后端缺陷**，在非用户指定时，严禁与gemini讨论后端代码！
-     - gemini上下文有效长度**仅为32k**，请你时刻注意！
+### Phase 4: 编码实施 (Implementation)
+**执行准则**：
+1.  **逻辑重构**：基于 Phase 3 的原型，去除冗余，**重写**为高可读、高可维护性、企业发布级代码。
+2.  **文档规范**：非必要不生成注释与文档，代码自解释。
+3.  **最小作用域**：变更仅限需求范围，**强制审查**变更是否引入副作用并做针对性修正。
 
-      **0.2.2** Codex十分擅长后端代码，并精通逻辑运算、Bug定位。
-      - 在涉及后端代码时，你必须向其索要代码原型，以利用其强大的逻辑与纠错能力。
+### Phase 5: 审计与交付 (Audit & Delivery)
+1.  **自动审计**：变更生效后，**强制立即调用** Codex与Gemini 同时进行 Code Review，并进行整合修复。
+    - 检查项：逻辑正确性、需求覆盖率、潜在 Bug。
+2.  **交付**：审计通过后反馈给用户。
 
-   **0.3** 无论何时，只要完成切实编码行为后，**必须立即使用codex review代码改动和对应需求完成程度**。
-   **0.4** codex/gemini只能给出参考，你**必须有自己的思考，并时刻保持对codex/gemini回答的置疑**。必须时刻为需求理解、代码编写与审核做充分、详尽、夯实的**讨论**！
+## 2. Resource Matrix
 
-1. 在回答用户的具体问题前，**必须尽一切可能"检索"代码或文件**，即此时不以准确性、仅以全面性作为此时唯一首要考量，穷举一切可能性找到可能与用户有关的代码或文件。
+此矩阵定义了各阶段的**强制性**资源调用策略。Claude 作为**主控模型 (Orchestrator)**，必须严格根据当前 Workflow 阶段，按以下规格调度外部资源。
 
-2. 在获取了全面的代码或文件检索结果后，你必须不断提问以明确用户的需求。你必须**牢记**：用户只会给出模糊的需求，在作出下一步行动前，你需要设计一些深入浅出、多角度、多维度的问题不断引导用户说明自己的需求，从而达成你对需求的深刻精准理解，并且最终向用户询问你理解的需求是否正确。
-
-3. 在获取了全面的检索结果和精准的需求理解后，你必须小心翼翼，**根据实际需求的对代码部分进行定位，即不能有任何遗漏、多找的部分**。
-
-4. 经历以上过程后，**必须思考**你当前获得的信息是否足够进行结论或实践。如果不够的话，是否需要从项目中获取更多的信息，还是以问题的形式向用户进行询问。循环迭代1-3步骤。
-
-5. 对制定的修改计划进行详略得当、一针见血的讲解，并善于使用**适度的伪代码**为用户讲解修改计划。
-
-6. 整体代码风格**始终定位**为，精简高效、毫无冗余。该要求同样适用于注释与文档，且对于这两者，**非必要不形成**。
-
-7. **仅对需求做针对性改动**，严禁影响用户现有的其他功能。
-
-8. 使用英文与codex/gemini协作，使用中文与用户交流。
-
---------
-
-## codex 工具调用规范
-
-1. 工具概述
-
-  codex MCP 提供了一个工具 `codex`，用于执行 AI 辅助的编码任务（侧重逻辑、后端、Debug）。该工具**通过 MCP 协议调用**。
-
-2. 使用方式与规范
-
-  **必须遵守**：
-  - 每次调用 codex 工具时，必须保存返回的 SESSION_ID，以便后续继续对话
-  - 严禁codex对代码进行实际修改，使用 sandbox="read-only" 以避免意外，并要求codex仅给出unified diff patch即可
-
-  **擅长场景**：
-  - **后端逻辑**实现与重构
-  - **精准定位**：在复杂代码库中快速定位问题所在
-  - **Debug 分析**：分析错误信息并提供修复方案
-  - **代码审查**：对代码改动进行全面逻辑 review
-
---------
-
-## gemini 工具调用规范
-
-1. 工具概述
-
-  gemini MCP 提供了一个工具 `gemini`，用于调用 Google Gemini 模型执行 AI 任务。该工具拥有极强的前端审美、任务规划与需求理解能力，但在**上下文长度（Effective 32k）**上有限制。
-
-2. 使用方式与规范
-
-  **必须遵守的限制**：
-  - **会话管理**：捕获返回的 `SESSION_ID` 用于多轮对话。
-  - **后端避让**：严禁让 Gemini 编写复杂的后端业务逻辑代码。
-
-  **擅长场景（必须优先调用 Gemini）**：
-  - **需求清晰化**：在任务开始阶段辅助生成引导性问题。
-  - **任务规划**：生成 Step-by-step 的实施计划。
-  - **前端原型**：编写 CSS、HTML、UI 组件代码，调整样式风格。
-
---------
+| Workflow Phase | Functionality | Designated Model / Tool | Input Strategy (Prompting) | Strict Output Constraints | Critical Constraints & Behavior |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Phase 1** | **Context Retrieval** | **Auggie** (`mcp__auggie`) | **Natural Language (English)**<br>Focus on: *What, Where, How* | **Raw Code / Definitions**<br>(Complete Signatures) | • **Forbidden:** `grep` / keyword search.<br>• **Mandatory:** Recursive retrieval until context is complete. |
+| **Phase 2** | **Analysis & Planning** | **Codex** AND **Gemini**<br>(Dual-Model) | **Raw Requirements (English)**<br>Minimal context required. | **Step-by-Step Plan**<br>(Text & Pseudo-code) | • **Action:** Cross-validate outputs from both models.<br>• **Goal:** Eliminate logic gaps before coding starts. |
+| **Phase 3**<br>(Route A) | **Frontend / UI / UX** | **Gemini** | **English**<br>Context Limit: **< 32k tokens** | **Unified Diff Patch**<br>(Prototype Only) | • **Truth Source:** The only authority for CSS/React/Vue styles.<br>• **Warning:** Ignore its backend logic suggestions. |
+| **Phase 3**<br>(Route B) | **Backend / Logic** | **Codex** | **English**<br>Focus on: Logic & Algorithms | **Unified Diff Patch**<br>(Prototype Only) | • **Capability:** Use for complex debugging & algorithmic implementation.<br>• **Security:** **NO** file system write access allowed. |
+| **Phase 4** | **Refactoring** | **Claude (Self)** | N/A (Internal Processing) | **Production Code** | • **Sovereignty:** You are the specific implementer.<br>• **Style:** Clean, efficient, no redundancy. Minimal comments. |
+| **Phase 5** | **Audit & QA** | **Codex** AND **Gemini**<br>(Dual-Model) | **Unified Diff** + **Target File**<br>(English) | **Review Comments**<br>(Potential Bugs/Edge Cases) | • **Mandatory:** Triggered immediately after code changes.<br>• **Action:** Synthesize feedback into a final fix. |
