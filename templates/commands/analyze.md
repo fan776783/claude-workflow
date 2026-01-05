@@ -1,138 +1,132 @@
 ---
-description: 智能分析 - 根据描述自动识别场景并执行相应分析
-allowed-tools: Task(subagent_type=Explore), Task(subagent_type=senior-code-architect), mcp__codex__codex, Read(*), Write(*), Grep(*), Glob(*), Bash(git *), Bash(pnpm *), Bash(npm *)
+description: 双模型技术分析（Codex + Gemini 并行），交叉验证后综合见解
+allowed-tools: mcp__auggie-mcp__codebase-retrieval, Bash(codeagent-wrapper *), Read(*), Grep(*), Glob(*), TaskOutput
 examples:
-  - /analyze "项目上下文"
-    生成结构化上下文摘要
-  - /analyze "性能瓶颈"
-    分析 Bundle 体积和运行时性能
-  - /analyze "用户登录功能在哪"
-    探索代码定位实现位置
+  - /analyze "这个架构设计合理吗"
+  - /analyze "性能瓶颈在哪里"
   - /analyze "这个需求怎么拆解"
-    分析和拆解复杂需求
 ---
 
-# 智能分析
+# 双模型智能分析
 
-根据用户描述自动识别场景，执行相应的分析策略。
+## Usage
 
-## 场景识别
+`/analyze <QUESTION_OR_TASK>`
 
-根据用户输入的关键词和意图，自动匹配以下场景：
+## Context
 
-| 场景 | 触发关键词 | 执行策略 |
-|------|-----------|----------|
-| **上下文加载** | 上下文、context、项目结构、代码库概览 | 生成结构化上下文摘要文件 |
-| **代码探索** | 在哪、怎么实现、找到、定位、搜索 | 快速搜索文件和代码片段 |
-| **深度分析** | 分析、问题、原因、为什么、设计 | Codex 深度分析报告 |
-| **性能分析** | 性能、Bundle、体积、加载、优化 | 分析构建产物和运行时性能 |
-| **依赖分析** | 依赖、漏洞、安全、版本、冲突 | 依赖关系图和安全审计 |
-| **路由分析** | 路由、route、导航、懒加载 | 路由配置和微前端同步分析 |
-| **状态分析** | 状态、store、Pinia、Zustand、Redux | 状态管理架构分析 |
-| **国际化分析** | 国际化、i18n、翻译、多语言 | 翻译完整性和架构分析 |
-| **需求分析** | 需求、拆解、功能点、工作量 | 需求拆解和风险评估 |
+- 分析任务: $ARGUMENTS
+- 此命令触发双模型分析，**不产生代码变更**
+- Codex 和 Gemini 提供不同视角进行交叉验证
 
-## 执行流程
+## Your Role
 
-1. **意图识别**：分析用户输入，匹配最相关的场景
-2. **策略选择**：根据场景选择对应的分析工具和方法
-3. **执行分析**：调用相应的 agent 或工具执行分析
-4. **输出报告**：生成结构化的分析报告
+你是**分析协调员**，负责编排多模型研究：
+1. **Auggie** – 代码库上下文检索
+2. **Codex** – 后端/逻辑/架构分析
+3. **Gemini** – 前端/UI/UX 分析
+4. **Claude (Self)** – 综合洞察
 
-## 场景详情
+## Process
 
-### 上下文加载
-- **目标**：快速建立项目认知
-- **输出**：`.claude/context-summary-{task}.md`
-- **内容**：项目结构、技术栈、核心模块、关键文件
+### Step 1: 上下文检索
 
-### 代码探索
-- **目标**：定位具体实现位置
-- **方法**：Glob 文件搜索 + Grep 内容搜索
-- **输出**：文件路径、行号、代码片段
+1. 调用 `mcp__auggie-mcp__codebase-retrieval` 理解相关代码
+2. 识别关键文件、模式和架构
 
-### 深度分析
-- **目标**：复杂问题的根因分析
-- **方法**：Codex agent 深度分析
-- **输出**：问题分析、设计建议、潜在风险
+### Step 2: 并行分析
 
-### 性能分析
-- **目标**：识别性能瓶颈
-- **检查项**：
-  - Bundle 体积分析（chunk 大小、重复依赖）
-  - 加载性能（懒加载、代码分割）
-  - 运行时性能（渲染、内存）
-- **输出**：性能报告 + 优化建议
+**使用 `run_in_background: true` 并行调用 Codex 和 Gemini**
 
-### 依赖分析
-- **目标**：依赖健康度检查
-- **检查项**：
-  - 依赖关系图
-  - 版本冲突检测
-  - 安全漏洞扫描（`pnpm audit`）
-  - 重复依赖识别
-- **输出**：依赖报告 + 升级建议
+在单个消息中同时发送两个 Bash 工具调用：
 
-### 路由分析
-- **目标**：路由配置审查
-- **检查项**：
-  - 路由结构和层级
-  - 懒加载配置
-  - 微前端路由同步（如适用）
-  - 权限路由守卫
-- **输出**：路由结构图 + 优化建议
+```bash
+# Codex 分析（后台执行）
+codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
+<ROLE>
+You are a senior technical analyst specializing in architecture evaluation,
+solution design, and strategic technical decisions.
 
-### 状态分析
-- **目标**：状态管理架构审查
-- **检查项**：
-  - Store 结构和模块划分
-  - 状态持久化
-  - 跨应用状态共享（微前端场景）
-  - 性能问题（不必要的重渲染）
-- **输出**：状态架构图 + 优化建议
+CRITICAL CONSTRAINTS:
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured analysis report
+- NEVER execute actual modifications
+</ROLE>
 
-### 国际化分析
-- **目标**：多语言完整性检查
-- **检查项**：
-  - 翻译键完整性
-  - 缺失翻译识别
-  - i18n 框架使用规范
-- **输出**：翻译完整性报告 + 缺失列表
+<TASK>
+Analyze: <用户问题>
 
-### 需求分析
-- **目标**：需求拆解和评估
-- **输出**：
-  - 功能点列表
-  - 依赖关系
-  - 风险评估
-  - 工作量估算
+Context:
+<从 Step 1 获取的相关代码和架构信息>
+</TASK>
 
-## 输出格式
+OUTPUT: Detailed technical analysis with recommendations.
+EOF
+```
+
+```bash
+# Gemini 分析（后台执行）
+codeagent-wrapper --backend gemini - $PROJECT_DIR <<'EOF'
+<ROLE>
+You are a senior UI/UX analyst specializing in design systems,
+user experience evaluation, and frontend architecture decisions.
+
+CRITICAL CONSTRAINTS:
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured analysis report
+- NEVER execute actual modifications
+- Context Limit: < 32k tokens
+</ROLE>
+
+<TASK>
+Analyze: <用户问题>
+
+Context:
+<从 Step 1 获取的相关代码和设计信息>
+</TASK>
+
+OUTPUT: Detailed design analysis with recommendations.
+EOF
+```
+
+### Step 3: 交叉验证
+
+使用 `TaskOutput` 获取两个任务的结果，然后：
+1. 比较两个模型的视角
+2. 识别共识和分歧点
+3. 客观评估权衡取舍
+
+### Step 4: 综合输出
+
+整合两个视角，生成统一分析报告。
+
+## Output Format
 
 ```markdown
 # 分析报告
 
-## 场景
-<识别到的场景类型>
-
 ## 分析目标
 <用户输入的描述>
 
-## 分析结果
+## 上下文概览
+<相关代码库元素>
 
-<根据场景类型输出对应的结构化内容>
+## Codex 视角（技术/逻辑）
+<后端架构、性能、安全性分析>
+
+## Gemini 视角（UI/UX）
+<前端设计、用户体验分析>
+
+## 综合洞察
+<整合两个视角的关键发现和权衡>
 
 ## 建议
-
-<可操作的改进建议>
+<可操作的下一步>
 ```
 
-## 多场景处理
+## Notes
 
-如果用户描述涉及多个场景，按以下优先级依次执行：
-1. 上下文加载（如果是新任务）
-2. 代码探索（定位相关代码）
-3. 专项分析（性能/依赖/路由等）
-4. 深度分析（综合问题分析）
-
-**工作目录**：当前项目目录（自动识别 `process.cwd()`）
+- 此命令仅用于分析，**不产生代码变更**
+- **必须使用 `run_in_background: true` 实现并行执行**
+- Codex 擅长后端/逻辑，Gemini 擅长前端/设计
+- 使用 HEREDOC 语法 (`<<'EOF'`) 避免 shell 转义问题

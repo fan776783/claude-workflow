@@ -366,6 +366,44 @@ elif [ -d "src/components" ]; then
 else
   UI="null"
 fi
+
+# 静态资源目录
+echo "🔍 检测静态资源目录..."
+if [ -d "public/assets" ]; then
+  ASSETS_DIR="public/assets"
+  echo "  ✅ 静态资源: public/assets"
+elif [ -d "public/images" ]; then
+  ASSETS_DIR="public/images"
+  echo "  ✅ 静态资源: public/images"
+elif [ -d "src/assets" ]; then
+  ASSETS_DIR="src/assets"
+  echo "  ✅ 静态资源: src/assets"
+elif [ -d "assets" ]; then
+  ASSETS_DIR="assets"
+  echo "  ✅ 静态资源: assets"
+elif [ -d "static" ]; then
+  ASSETS_DIR="static"
+  echo "  ✅ 静态资源: static"
+elif [ -d "public" ]; then
+  ASSETS_DIR="public"
+  echo "  ✅ 静态资源: public"
+else
+  # Monorepo 项目检测
+  FOUND_ASSETS=""
+  for app_dir in apps/*/public/assets apps/*/src/assets; do
+    if [ -d "$app_dir" ]; then
+      FOUND_ASSETS="$app_dir"
+      break
+    fi
+  done
+  if [ -n "$FOUND_ASSETS" ]; then
+    ASSETS_DIR="$FOUND_ASSETS"
+    echo "  ✅ 静态资源: $ASSETS_DIR"
+  else
+    ASSETS_DIR="public/assets"
+    echo "  ⚠️  未检测到静态资源目录，使用默认: public/assets"
+  fi
+fi
 ```
 
 #### 2.11 检测可观测性
@@ -471,6 +509,7 @@ cat > "$CONFIG_PATH" <<EOF
     "tracking": "$TRACKING",
     "api": "$API",
     "ui": "$UI",
+    "assets": "$ASSETS_DIR",
     "store": "null",
     "utils": "null"
   },
