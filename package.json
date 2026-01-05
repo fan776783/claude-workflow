@@ -19,7 +19,8 @@
     "lib/",
     "scripts/",
     "templates/",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "registry": "http://your-registry-host:4873"
