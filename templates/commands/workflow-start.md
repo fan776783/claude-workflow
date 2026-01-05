@@ -606,6 +606,63 @@ mcp__mcp-router__sequentialthinking({
 }
 ```
 
+---
+
+### 🛑 Hard Stop: 方案确认（必须）
+
+**在创建任务记忆文件前，必须展示执行计划并等待用户确认。**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 **执行计划已生成**
+
+**任务名称**: ${task_name}
+**复杂度**: ${complexity}
+**预估时间**: ${estimated_time}
+**总步骤数**: ${total_steps}
+
+## 执行阶段
+
+### 分析阶段 (Analyze)
+${analyzeSteps.map(s => `- [ ] ${s.name}`).join('\n')}
+
+### 设计阶段 (Design)
+${designSteps.map(s => `- [ ] ${s.name}`).join('\n')}
+
+### 实现阶段 (Implement)
+${implementSteps.map(s => `- [ ] ${s.name}`).join('\n')}
+
+### 验证阶段 (Verify)
+${verifySteps.map(s => `- [ ] ${s.name}`).join('\n')}
+
+### 交付阶段 (Deliver)
+${deliverSteps.map(s => `- [ ] ${s.name}`).join('\n')}
+
+## 质量门控
+${qualityGates.map(g => `- ${g.name}: 阈值 ${g.threshold}%`).join('\n')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## **是否继续执行此方案？(Y/N)**
+
+⚠️ **Hard Stop** - 工作流已暂停，等待您的确认。
+
+请回复：
+- **Y** 或 **是** - 确认方案，开始执行
+- **N** 或 **否** - 终止并修改方案
+
+[立即终止回复，禁止继续执行任何操作]
+```
+
+**说明**：
+- 🛑 **强制确认**：必须等待用户明确回复 Y 才能继续
+- 📋 **信息完整**：展示所有阶段、步骤、质量门控
+- ⚠️ **可调整**：用户可以在确认前要求修改方案
+- 🔄 **可重新生成**：用户可以选择 N 重新分析需求
+
+---
+
 ### Step 3：创建任务记忆文件
 
 **文件路径**：`.claude/workflow-memory.json`

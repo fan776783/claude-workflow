@@ -198,11 +198,23 @@ mcp__figma-mcp__get_screenshot({
 **核心原则**：Gemini 擅长前端代码和 UI 组件设计，必须从 Gemini 获取代码基点后才能进行后续操作。
 
 ```typescript
-// 调用 Gemini MCP 获取前端代码原型
-mcp__gemini__gemini({
-  PROMPT: `
+// 使用 codeagent-wrapper CLI 调用 Gemini（后台运行）
+const geminiResult = await Bash({
+  command: `codeagent-wrapper --backend gemini - ${process.cwd()} <<'EOF'
+<ROLE>
+# Gemini Role: Frontend Developer
+> For: /workflow-ui-restore UI code generation
+
 You are a senior frontend developer specializing in React/Vue UI components.
 
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Complete component code (not diff/patch)
+- Focus: Visual fidelity, responsive design, accessibility
+- Context limit: < 32k tokens
+</ROLE>
+
+<TASK>
 ## Task
 Generate a production-ready UI component based on the Figma design specifications below.
 
@@ -227,13 +239,15 @@ ${设计上下文摘要}
 5. Full TypeScript type definitions
 6. Semantic HTML with accessibility support
 7. Cover all interaction states: hover, active, focus, disabled
+</TASK>
 
-## Output Format
-Return the complete component code ready for production use.
-`,
-  sandbox: false,
-  return_all_messages: false
-})
+OUTPUT: Return the complete component code ready for production use.
+EOF`,
+  run_in_background: true
+});
+
+// 使用 TaskOutput 获取结果
+const geminiOutput = await TaskOutput({ task_id: geminiResult.task_id, block: true });
 ```
 
 **⚠️ Gemini 使用注意**：
@@ -285,9 +299,33 @@ if (文件存在) {
 #### 3.1 Codex 代码审查
 
 ```typescript
-// 使用 Codex review 代码改动
-mcp__codex__codex({
-  PROMPT: `
+// 使用 codeagent-wrapper CLI 调用 Codex（后台运行）
+const codexResult = await Bash({
+  command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+<ROLE>
+# Codex Role: UI Code Reviewer
+> For: /workflow-ui-restore quality verification
+
+You are a senior frontend code reviewer specializing in UI component quality.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured review with scores
+- Focus: Visual fidelity, code quality, accessibility
+
+## Scoring Format
+UI REVIEW REPORT
+================
+Visual Fidelity: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Responsive Design: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Component Reuse: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
+
+<TASK>
 审查以下 UI 组件实现：
 
 ## 文件路径
@@ -299,12 +337,15 @@ ${目标路径}
 3. Tailwind 使用是否规范？
 4. 响应式设计是否完整？
 5. 代码可读性和可维护性如何？
+</TASK>
 
-请给出评分（0-100）和具体建议。
-`,
-  cd: "$(get_config_string 'project.rootDir')",
-  sandbox: "read-only"
-})
+OUTPUT: 请按照 UI REVIEW REPORT 格式输出评分和具体建议。
+EOF`,
+  run_in_background: true
+});
+
+// 使用 TaskOutput 获取结果
+const codexOutput = await TaskOutput({ task_id: codexResult.task_id, block: true });
 ```
 
 #### 3.3 生成验证报告
@@ -412,8 +453,12 @@ ${目标路径}
 - `mcp__figma-mcp__get_design_context` - 获取设计上下文
 - `mcp__figma-mcp__get_screenshot` - 获取设计截图
 
-**Gemini MCP 工具**（UI 代码生成）：
-- `mcp__gemini__gemini` - 前端代码原型生成（⚠️ 32k 上下文限制）
+**Gemini 调用**（UI 代码生成）：
+- `codeagent-wrapper --backend gemini` - 前端代码原型生成（⚠️ 32k 上下文限制）
+- 使用 `<ROLE>` 和 `<TASK>` 标签结构化提示词
+- 使用 `run_in_background: true` 后台运行
 
-**Codex MCP 工具**（代码审查）：
-- `mcp__codex__codex` - 代码质量审查（只读模式）
+**Codex 调用**（代码审查）：
+- `codeagent-wrapper --backend codex` - 代码质量审查（只读模式）
+- 使用 `<ROLE>` 和 `<TASK>` 标签结构化提示词
+- 使用 `TaskOutput` 获取结果

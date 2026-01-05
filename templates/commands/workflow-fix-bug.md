@@ -529,6 +529,51 @@ mcp__mcp-router__sequentialthinking({
 
 ---
 
+### 🛑 Hard Stop: 诊断确认（必须）
+
+**在进入修复实现前，必须展示诊断结果并等待用户确认。**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 **诊断结果摘要**
+
+**Bug 描述**: ${bugDescription}
+**问题文件**: ${localizationResult.problemFile}:${localizationResult.problemLine}
+
+**根本原因**:
+${rootCauseAnalysis.rootCause}
+
+**推荐修复方案**:
+${rootCauseAnalysis.recommendedFix}
+
+**影响范围**:
+${rootCauseAnalysis.impactScope}
+
+**潜在风险**:
+${rootCauseAnalysis.risks}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## **是否继续执行此修复方案？(Y/N)**
+
+⚠️ **Hard Stop** - 工作流已暂停，等待您的确认。
+
+请回复：
+- **Y** 或 **是** - 继续执行修复
+- **N** 或 **否** - 终止并重新分析
+
+[立即终止回复，禁止继续执行任何操作]
+```
+
+**说明**：
+- 🛑 **强制确认**：必须等待用户明确回复 Y 才能继续
+- 📋 **信息完整**：展示根因、方案、影响范围、风险
+- ⚠️ **风险提示**：让用户了解修复可能带来的影响
+- 🔄 **可重新分析**：用户可以选择 N 重新进行诊断
+
+---
+
 ### 第 4 步: 修复实现（核心）
 
 #### 4.1 选择修复方案
@@ -675,7 +720,197 @@ const needsReview =
 - ✅ 纯样式调整（无逻辑变更）
 - ✅ 添加/修改注释
 
-#### 5.4 运行测试和构建（必须）
+#### 5.4 双模型质量验证（推荐）⭐ NEW
+
+**目标**：使用 Codex + Gemini 双模型并行验证修复质量，确保达到 90% 通过阈值。
+
+##### 5.4.1 检测任务类型
+
+```typescript
+// 根据修改的文件类型判断任务类型
+function detectTaskType(modifiedFiles: string[]): 'frontend' | 'backend' | 'fullstack' {
+  const frontendPatterns = ['.tsx', '.jsx', '.vue', '.css', '.scss', '.less'];
+  const backendPatterns = ['.py', '.go', '.java', '.rs', '.sql', '.prisma'];
+
+  const hasFrontend = modifiedFiles.some(f => frontendPatterns.some(p => f.endsWith(p)));
+  const hasBackend = modifiedFiles.some(f => backendPatterns.some(p => f.endsWith(p)));
+
+  if (hasFrontend && hasBackend) return 'fullstack';
+  if (hasFrontend) return 'frontend';
+  return 'backend';
+}
+```
+
+##### 5.4.2 并行调用双模型审查
+
+**使用 `codeagent-wrapper` CLI 工具并行调用**（`run_in_background: true`）：
+
+```bash
+# Codex 审查（后端/逻辑）- 始终执行
+# 先读取角色提示词：~/.claude/prompts/codex/reviewer.md
+codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
+<ROLE>
+# Codex Role: Code Reviewer
+> For: /diff-review*, /workflow-fix-bug validation, Phase 5 (Audit)
+
+You are a senior code reviewer specializing in backend code quality, security, and best practices.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured review with scores
+- Focus: Quality, security, performance, maintainability
+
+## Scoring Format
+VALIDATION REPORT
+=================
+Root Cause Resolution: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Side Effects: XX/20 - [reason]
+Edge Cases: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
+
+<TASK>
+审查此 Bug 修复代码：
+
+**Bug 描述**: ${bugDescription}
+**修复文件**: ${modifiedFiles}
+**修复方案**: ${fixSummary}
+
+## Diff 内容
+${diffContent}
+</TASK>
+
+OUTPUT: 请按照 VALIDATION REPORT 格式输出评分。
+EOF
+```
+
+```bash
+# Gemini 审查（前端/UI）- 仅 frontend/fullstack 执行
+# 先读取角色提示词：~/.claude/prompts/gemini/reviewer.md
+codeagent-wrapper --backend gemini - $PROJECT_DIR <<'EOF'
+<ROLE>
+# Gemini Role: UI Reviewer
+> For: /diff-review-ui, /workflow-fix-bug validation, Phase 5 (Audit)
+
+You are a senior UI reviewer specializing in frontend code quality, accessibility, and design system compliance.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured review with scores
+- Focus: UX, accessibility, consistency, performance
+
+## Scoring Format
+VALIDATION REPORT
+=================
+User Experience: XX/20 - [reason]
+Visual Consistency: XX/20 - [reason]
+Accessibility: XX/20 - [reason]
+Performance: XX/20 - [reason]
+Browser Compatibility: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
+
+<TASK>
+审查此 Bug 修复代码：
+
+**Bug 描述**: ${bugDescription}
+**修复文件**: ${modifiedFiles}
+**修复方案**: ${fixSummary}
+
+## Diff 内容
+${diffContent}
+</TASK>
+
+OUTPUT: 请按照 VALIDATION REPORT 格式输出评分。
+EOF
+```
+
+**执行方式**：
+1. 在单个消息中同时发送两个 Bash 工具调用（`run_in_background: true`）
+2. 使用 `TaskOutput` 获取两个任务的结果
+3. 解析评分并进行门控决策
+
+##### 5.4.3 评分维度
+
+**Codex 评分（后端/逻辑）**：
+
+| 维度 | 权重 | 说明 |
+|-----|------|------|
+| Root Cause Resolution | 20 | 根因是否正确识别和修复 |
+| Code Quality | 20 | 可读性、可维护性、DRY |
+| Side Effects | 20 | 是否有副作用 |
+| Edge Cases | 20 | 边界条件处理 |
+| Test Coverage | 20 | 关键路径测试覆盖 |
+
+**Gemini 评分（前端/UI）**：
+
+| 维度 | 权重 | 说明 |
+|-----|------|------|
+| User Experience | 20 | UX 直观性和一致性 |
+| Visual Consistency | 20 | 设计规范符合度 |
+| Accessibility | 20 | WCAG 合规性 |
+| Performance | 20 | 渲染性能、Bundle 影响 |
+| Browser Compatibility | 20 | 跨浏览器支持 |
+
+##### 5.4.4 门控决策
+
+```typescript
+// 提取评分
+const codexScore = extractScore(codexResult); // 0-100
+const geminiScore = geminiResult ? extractScore(geminiResult) : null;
+
+// 计算综合评分
+const finalScore = taskType === 'fullstack'
+  ? (codexScore + geminiScore) / 2
+  : taskType === 'backend' ? codexScore : geminiScore;
+
+// 门控决策
+const threshold = 90; // 默认 90%，可在 project-config.json 中配置
+const retryCount = memory.quality_gates?.retry_count || 0;
+
+if (finalScore >= threshold) {
+  console.log(`✅ 质量门控通过 (${finalScore}%)`);
+  // 继续执行
+} else if (retryCount >= 3) {
+  console.log(`❌ 质量门控失败，已达最大重试次数 (3次)`);
+  console.log(`⚠️ 需要人工介入审查`);
+  // 升级人工审查
+} else {
+  console.log(`⚠️ 质量门控未通过 (${finalScore}% < ${threshold}%)`);
+  console.log(`📋 反馈：${extractFeedback(codexResult, geminiResult)}`);
+  console.log(`🔄 请根据反馈优化后重试 (${retryCount + 1}/3)`);
+  memory.quality_gates.retry_count = retryCount + 1;
+  // 返回修复步骤
+}
+```
+
+**门控规则**：
+- **≥ 90%** → ✅ PASS，继续执行
+- **70-89%** → ⚠️ 迭代，携带反馈返回修复
+- **< 70%** → ⚠️ 迭代，重点关注问题
+- **3 轮后 < 90%** → ❌ 人工升级
+
+##### 5.4.5 降级策略
+
+```typescript
+// 如果 Gemini 不可用，降级为单模型验证
+if (taskType !== 'backend' && !geminiResult) {
+  console.log(`⚠️ Gemini 不可用，降级为 Codex 单模型验证`);
+  // 仅使用 Codex 评分
+}
+
+// 如果 Codex 也不可用，跳过双模型验证
+if (!codexResult) {
+  console.log(`⚠️ Codex 不可用，跳过双模型验证`);
+  console.log(`📋 请使用 /diff-review 进行手动审查`);
+}
+```
+
+#### 5.5 运行测试和构建（必须）
 
 ```bash
 # 运行新增的回归测试
