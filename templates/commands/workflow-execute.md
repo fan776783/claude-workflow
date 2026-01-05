@@ -1130,31 +1130,9 @@ async function codexReviewDesign(memory, step) {
   const techDesignContent = readFile(techDesignPath);
 
   // 使用 codeagent-wrapper CLI 调用 Codex（后台运行）
-  // 先读取角色提示词：~/.claude/prompts/codex/reviewer.md
   const result = await Bash({
     command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
-<ROLE>
-# Codex Role: Design Reviewer
-> For: /workflow-execute codex_review_design
-
-You are a senior software architect specializing in technical design review.
-
-## CRITICAL CONSTRAINTS
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Structured review with scores
-- Focus: Completeness, feasibility, risk assessment
-
-## Scoring Format
-DESIGN REVIEW REPORT
-====================
-Requirements Coverage: XX/20 - [reason]
-Architecture Design: XX/20 - [reason]
-Implementation Plan: XX/20 - [reason]
-Risk Assessment: XX/20 - [reason]
-Acceptance Criteria: XX/20 - [reason]
-─────────────────────────
-TOTAL SCORE: XX/100
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 
 <TASK>
 请审查以下技术方案文档：
@@ -1175,6 +1153,17 @@ ${techDesignContent}
 - 优点和不足
 - 改进建议
 - 是否建议开始实施
+
+请按照以下格式输出评分：
+DESIGN REVIEW REPORT
+====================
+Requirements Coverage: XX/20 - [reason]
+Architecture Design: XX/20 - [reason]
+Implementation Plan: XX/20 - [reason]
+Risk Assessment: XX/20 - [reason]
+Acceptance Criteria: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
 </TASK>
 
 OUTPUT: 请按照 DESIGN REVIEW REPORT 格式输出评分，以 Markdown 格式输出审查意见。
@@ -1257,28 +1246,7 @@ async function codexReviewCode(memory, step) {
   // 使用 codeagent-wrapper CLI 调用 Codex（后台运行）
   const result = await Bash({
     command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
-<ROLE>
-# Codex Role: Code Reviewer
-> For: /workflow-execute codex_review_code
-
-You are a senior code reviewer specializing in backend code quality, security, and best practices.
-
-## CRITICAL CONSTRAINTS
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Structured review with scores
-- Focus: Quality, security, performance, maintainability
-
-## Scoring Format
-CODE REVIEW REPORT
-==================
-Design Compliance: XX/20 - [reason]
-Code Quality: XX/20 - [reason]
-Error Handling: XX/20 - [reason]
-Security: XX/20 - [reason]
-Test Coverage: XX/20 - [reason]
-─────────────────────────
-TOTAL SCORE: XX/100
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 
 <TASK>
 请审查代码实现：
@@ -1298,6 +1266,17 @@ ${diffContent}
 5. 是否遵循项目代码规范
 6. 是否存在潜在的 bug 或安全隐患
 7. 测试覆盖是否充分
+
+请按照以下格式输出评分：
+CODE REVIEW REPORT
+==================
+Design Compliance: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Error Handling: XX/20 - [reason]
+Security: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
 </TASK>
 
 OUTPUT: 请按照 CODE REVIEW REPORT 格式输出评分，并提供发现的问题和改进建议。
@@ -1683,17 +1662,7 @@ async function backendReviewXq(memory, step) {
     // 使用 codeagent-wrapper CLI 调用 Codex
     const codexResult = await Bash({
       command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
-<ROLE>
-# Codex Role: Requirements Analyzer
-> For: /workflow-execute backend_review_xq
-
-You are a senior requirements analyst specializing in backend system requirements.
-
-## CRITICAL CONSTRAINTS
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Structured analysis report
-- Focus: Completeness, clarity, testability
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/analyzer.md
 
 <TASK>
 请审查这份后端需求分析文档，检查：
@@ -1745,17 +1714,7 @@ async function backendGenerateFasj(memory, step) {
   // 与 Codex 协作生成方案
   const codexResult = await Bash({
     command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
-<ROLE>
-# Codex Role: Backend Architect
-> For: /workflow-execute backend_generate_fasj
-
-You are a senior backend architect specializing in technical design documentation.
-
-## CRITICAL CONSTRAINTS
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Complete technical design document in Markdown
-- Focus: Data model, API design, non-functional requirements
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/architect.md
 
 <TASK>
 请根据以下需求分析文档和方案设计规范，生成后端技术方案文档。

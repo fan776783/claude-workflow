@@ -43,15 +43,7 @@ examples:
 ```bash
 # Codex 分析（后台执行）
 codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-<ROLE>
-You are a senior technical analyst specializing in architecture evaluation,
-solution design, and strategic technical decisions.
-
-CRITICAL CONSTRAINTS:
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Structured analysis report
-- NEVER execute actual modifications
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/analyzer.md
 
 <TASK>
 Analyze: <用户问题>
@@ -67,16 +59,7 @@ EOF
 ```bash
 # Gemini 分析（后台执行）
 codeagent-wrapper --backend gemini - $PROJECT_DIR <<'EOF'
-<ROLE>
-You are a senior UI/UX analyst specializing in design systems,
-user experience evaluation, and frontend architecture decisions.
-
-CRITICAL CONSTRAINTS:
-- ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Structured analysis report
-- NEVER execute actual modifications
-- Context Limit: < 32k tokens
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/gemini/analyzer.md
 
 <TASK>
 Analyze: <用户问题>
@@ -88,6 +71,11 @@ Context:
 OUTPUT: Detailed design analysis with recommendations.
 EOF
 ```
+
+**说明**:
+- 使用 `ROLE_FILE:` 指定提示词文件路径，让子进程自己读取，避免消耗主会话 token
+- 如果 ROLE_FILE 不存在，子进程会使用 TASK 中的上下文作为分析指引
+- 降级策略：模型不可用时自动降级为单模型分析
 
 ### Step 3: 交叉验证
 
