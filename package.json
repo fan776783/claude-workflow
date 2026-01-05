@@ -1,7 +1,7 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "1.0.7",
-  "description": "Claude Code 工作流工具包 - 自动安装 commands、agents、docs 到 ~/.claude，包含 codeagent-wrapper 多模型协作工具",
+  "version": "1.1.0",
+  "description": "Claude Code 多模型协作工作流系统 - 三模型并行协作 (Codex + Gemini + Claude)",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
   },
@@ -39,7 +39,9 @@
     "automation",
     "codex",
     "gemini",
-    "multi-model"
+    "multi-model",
+    "ai",
+    "collaboration"
   ],
   "author": "PIC Team",
   "license": "MIT"
