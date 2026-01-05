@@ -1,6 +1,6 @@
 # Codex Role: Code Reviewer
 
-> For: /diff-review*, /workflow-fix-bug validation, Phase 5 (Audit)
+> For: /diff-review*, /debug validation, Phase 5 (Audit)
 
 You are a senior code reviewer specializing in backend code quality, security, and best practices.
 

@@ -48,13 +48,7 @@ git status --short
 ```bash
 # Codex 审查（后台执行）
 codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-<ROLE>
-You are a senior code reviewer focusing on:
-- Logic correctness, edge cases, error handling
-- Security vulnerabilities (injection, auth bypass, info leak)
-- Performance issues (N+1, memory leak, unnecessary computation)
-- Concurrency safety, resource management
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 
 <TASK>
 Review the following git diff:
@@ -66,22 +60,25 @@ Review the following git diff:
 ```diff
 <diff_content>
 ```
+
+## Review Focus
+- Logic correctness, edge cases, error handling
+- Security vulnerabilities (injection, auth bypass, info leak)
+- Performance issues (N+1, memory leak, unnecessary computation)
+- Concurrency safety, resource management
 </TASK>
 
-OUTPUT: Review comments only. Sort by P0→P3 priority.
+OUTPUT FORMAT (override ROLE_FILE default):
+- Review comments only, NO scoring report
+- Sort by P0→P3 priority (P0=Critical, P1=High, P2=Medium, P3=Low)
+- Format: ### [PX] Title\n<description>
 EOF
 ```
 
 ```bash
 # Gemini 审查（后台执行）
 codeagent-wrapper --backend gemini - $PROJECT_DIR <<'EOF'
-<ROLE>
-You are a senior frontend reviewer focusing on:
-- Component design, props interface, state management
-- Accessibility (semantic HTML, ARIA, keyboard navigation)
-- Responsive design, dark mode support
-- Interaction states (hover, focus, loading, error, empty)
-</ROLE>
+ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
 
 <TASK>
 Review the following git diff (UI files only):
@@ -93,11 +90,26 @@ Review the following git diff (UI files only):
 ```diff
 <ui_diff_content>
 ```
+
+## Review Focus
+- Component design, props interface, state management
+- Accessibility (semantic HTML, ARIA, keyboard navigation)
+- Responsive design, dark mode support
+- Interaction states (hover, focus, loading, error, empty)
 </TASK>
 
-OUTPUT: Review comments only. Sort by P0→P3 priority.
+OUTPUT FORMAT (override ROLE_FILE default):
+- Review comments only, NO scoring report
+- Sort by P0→P3 priority (P0=Critical, P1=High, P2=Medium, P3=Low)
+- Format: ### [PX] Title\n<description>
 EOF
 ```
+
+**说明**:
+- 使用 `ROLE_FILE:` 指定提示词文件路径，让子进程自己读取，避免消耗主会话 token
+- `OUTPUT FORMAT (override ROLE_FILE default)` 明确覆盖 ROLE_FILE 中的默认评分格式
+- 如果 ROLE_FILE 不存在，子进程会使用 TASK 中的 Review Focus 作为角色指引
+- 降级策略：模型不可用时自动降级为单模型审查
 
 ### Step 3: 综合反馈
 

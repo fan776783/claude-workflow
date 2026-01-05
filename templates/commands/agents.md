@@ -21,10 +21,12 @@ allowed-tools: Read(*)
 ## 🔍 智能分析类
 
 - **`/analyze`** ⭐⭐ NEW - 根据描述自动识别场景并执行相应分析
+- **`/debug`** ⭐ NEW - 多模型调试（Codex 后端诊断 + Gemini 前端诊断）
 
 | 命令 | 核心功能 | 典型场景 |
 |------|----------|----------|
 | `/analyze "描述"` | 自动识别场景，执行对应分析策略 | 所有探索和分析任务 |
+| `/debug "问题"` | 双模型并行诊断，支持修复全流程 | Bug 定位、问题排查、修复验证 |
 
 **场景自动识别**：
 
@@ -97,7 +99,6 @@ allowed-tools: Read(*)
 
 - **`/workflow-start`** ⭐⭐⭐ - 智能工作流（自动规划5-22步，支持自动记忆和恢复）
 - **`/workflow-quick-dev`** ⭐ - 快速功能开发（3步：上下文加载 → 探索实现 → 快速验证）
-- **`/workflow-fix-bug`** ⭐ NEW - Bug 修复工作流（6步：BK-MCP获取缺陷 → 重现 → 定位 → 根因分析 → 修复 → 回归测试 → 更新状态）
 - **`/workflow-ui-restore`** ⭐ - UI 设计稿还原（5步：Figma MCP 获取设计 → 分析规范 → 加载上下文 → 实现组件 → 质量验证）
 
 ### 🎉 用户级工作流存储（NEW）
@@ -130,7 +131,6 @@ allowed-tools: Read(*)
 |------|----------|----------|
 | `/workflow-start` + `/workflow-execute` | 智能规划步骤、自动记忆进度、双重Codex审查 | 所有复杂功能（自动适配简单/中等/复杂） |
 | `/workflow-quick-dev` | 代码实现、简要测试 | 简单功能（<300行代码、<1天开发） |
-| `/workflow-fix-bug` | Bug定位、根因分析、强制回归测试、BK-MCP集成 | Bug修复、问题排查、质量保证、工作项同步 |
 | `/workflow-ui-restore` | UI组件代码、样式实现、响应式适配 | 设计稿还原、UI组件开发 |
 
 ### 工作流选择表
@@ -141,7 +141,7 @@ allowed-tools: Read(*)
 | 新功能开发 | 中等（300-500行） | - | `/workflow-start` 或 `/workflow-quick-dev` |
 | 新功能开发 | 简单（<300行） | 明确 | `/workflow-quick-dev` |
 | 新功能开发 | 简单（<300行） | 不明确 | `/workflow-start` |
-| Bug 修复 | - | - | `/workflow-fix-bug` ⭐ |
+| Bug 修复/调试 | - | - | `/debug` ⭐ |
 | UI 还原 | - | - | `/workflow-ui-restore` |
 
 ---
@@ -152,7 +152,7 @@ allowed-tools: Read(*)
 - **初始化项目配置** → `/init-project-config` ⭐（首次使用必须）
 - **开发任何功能（自动适配复杂度）** → `/workflow-start` ⭐⭐⭐
 - **快速开发简单功能** → `/workflow-quick-dev` ⭐
-- **修复 Bug** → `/workflow-fix-bug` ⭐
+- **调试/修复 Bug** → `/debug` ⭐ NEW
 - **还原 Figma 设计稿** → `/workflow-ui-restore` ⭐
 - **分析/探索任何问题** → `/analyze "描述"` ⭐⭐ NEW
 - **审查代码变更** → `/diff-review` ⭐ NEW
@@ -166,31 +166,29 @@ allowed-tools: Read(*)
 - **简单功能**：`/workflow-quick-dev "添加导出为 PDF 的按钮"`
 - **复杂功能**：`/workflow-start "实现多租户权限管理系统，支持租户隔离和 RBAC"`
 
-### 场景B：Bug 修复（推荐使用工作流）⭐
-**标准化工作流（支持 BK-MCP 集成）** ⭐ NEW:
+### 场景B：Bug 修复/调试（推荐使用 /debug）⭐
+**多模型调试命令** ⭐ NEW:
 ```bash
-# 带工作项编号（自动获取缺陷信息并流转状态）
-/workflow-fix-bug "p328_600"
-/workflow-fix-bug "[p313_2377] 微前端路由同步异常"
-
-# 无工作项编号（普通 Bug 修复）
-/workflow-fix-bug "用户头像上传失败"
+# 问题描述
+/debug "用户头像上传失败"
+/debug "页面加载白屏"
+/debug "API 返回 500 错误"
 ```
 
-**BK-MCP 集成功能**:
-- ✅ 自动识别缺陷编号（`p\d+_\d+` 格式）
-- ✅ 获取蓝鲸工作项详细信息（标题、描述、优先级等）
-- ✅ 自动流转状态到"处理中"
-- ✅ 修复完成后流转到"待验证"或"已修复"
-- ✅ 添加修复备注（分支、提交、测试文件等）
-- ✅ 容错处理：BK-MCP 不可用时自动降级
+**核心功能**:
+- ✅ Codex + Gemini 双模型并行诊断
+- ✅ 后端/前端问题自动识别
+- ✅ 交叉验证，综合分析
+- ✅ Hard Stop 用户确认
+- ✅ 修复后双模型审查
+- ✅ 降级策略：模型不可用时自动降级
 
 **手动组合模式**（仅供参考）：
 1. 加载上下文：`/analyze "微前端路由同步上下文"`
 2. 深度分析：`/analyze "路由同步异常原因"`
 3. 修复验证：`/write-tests` 编写回归测试
 
-**优先推荐**: 使用 `/workflow-fix-bug` 标准化工作流，确保不遗漏回归测试和工作项同步
+**优先推荐**: 使用 `/debug` 命令，充分利用双模型的不同视角
 
 ### 场景C：性能优化
 ```bash
@@ -271,4 +269,4 @@ allowed-tools: Read(*)
 
 **工作目录**：当前项目目录（自动识别 `process.cwd()`）
 
-**总计**：8 个命令（1 个分析类 + 1 个审查类 + 1 个测试类 + 1 个项目配置类 + 4 个工作流模板类）
+**总计**：8 个命令（2 个分析类 + 1 个审查类 + 1 个测试类 + 1 个项目配置类 + 3 个工作流模板类）
