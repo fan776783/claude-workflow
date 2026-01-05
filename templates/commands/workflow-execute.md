@@ -1127,8 +1127,40 @@ async function codexReviewDesign(memory, step) {
     throw new Error('技术方案文档不存在，无法进行 Codex 审查');
   }
 
-  const result = await mcp__codex__codex({
-    PROMPT: `请审查技术方案文档：${techDesignPath}
+  const techDesignContent = readFile(techDesignPath);
+
+  // 使用 codeagent-wrapper CLI 调用 Codex（后台运行）
+  // 先读取角色提示词：~/.claude/prompts/codex/reviewer.md
+  const result = await Bash({
+    command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+<ROLE>
+# Codex Role: Design Reviewer
+> For: /workflow-execute codex_review_design
+
+You are a senior software architect specializing in technical design review.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured review with scores
+- Focus: Completeness, feasibility, risk assessment
+
+## Scoring Format
+DESIGN REVIEW REPORT
+====================
+Requirements Coverage: XX/20 - [reason]
+Architecture Design: XX/20 - [reason]
+Implementation Plan: XX/20 - [reason]
+Risk Assessment: XX/20 - [reason]
+Acceptance Criteria: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
+
+<TASK>
+请审查以下技术方案文档：
+
+## 文档内容
+${techDesignContent}
 
 请重点关注：
 1. 需求拆解是否完整
@@ -1143,21 +1175,22 @@ async function codexReviewDesign(memory, step) {
 - 优点和不足
 - 改进建议
 - 是否建议开始实施
+</TASK>
 
-以 Markdown 格式输出审查意见。`,
-    cd: process.cwd(),  // 自动使用当前工作目录
-    sandbox: "read-only"
+OUTPUT: 请按照 DESIGN REVIEW REPORT 格式输出评分，以 Markdown 格式输出审查意见。
+EOF`,
+    run_in_background: true
   });
 
+  // 使用 TaskOutput 获取结果
+  const codexOutput = await TaskOutput({ task_id: result.task_id, block: true });
+
   // 提取评分
-  const score = extractScore(result);
+  const score = extractScore(codexOutput);
   step.actual_score = score;
 
-  // 保存 SESSION_ID 供后续使用
-  memory.codex_session_id = result.session_id;
-
   // 将审查意见追加到技术方案文档
-  appendToFile(techDesignPath, `\n\n## Codex 审查意见\n\n${result.output}`);
+  appendToFile(techDesignPath, `\n\n## Codex 审查意见\n\n${codexOutput}`);
 
   // ⭐ Memory 更新指南：
   // 根据 Codex 审查结果记录问题和建议:
@@ -1218,12 +1251,44 @@ async function codexReviewCode(memory, step) {
   const techDesignPath = memory.artifacts.tech_design;
   const modifiedFiles = memory.implementation?.files_modified || [];
 
-  const result = await mcp__codex__codex({
-    PROMPT: `请审查代码实现：
+  // 获取 diff 内容
+  const diffContent = await Bash({ command: 'git diff --staged' });
+
+  // 使用 codeagent-wrapper CLI 调用 Codex（后台运行）
+  const result = await Bash({
+    command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+<ROLE>
+# Codex Role: Code Reviewer
+> For: /workflow-execute codex_review_code
+
+You are a senior code reviewer specializing in backend code quality, security, and best practices.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured review with scores
+- Focus: Quality, security, performance, maintainability
+
+## Scoring Format
+CODE REVIEW REPORT
+==================
+Design Compliance: XX/20 - [reason]
+Code Quality: XX/20 - [reason]
+Error Handling: XX/20 - [reason]
+Security: XX/20 - [reason]
+Test Coverage: XX/20 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
+
+<TASK>
+请审查代码实现：
 
 **技术方案**：${techDesignPath}
 **修改的文件**：
 ${modifiedFiles.join('\n')}
+
+## Diff 内容
+${diffContent}
 
 请重点关注：
 1. 代码实现是否符合技术方案
@@ -1233,21 +1298,22 @@ ${modifiedFiles.join('\n')}
 5. 是否遵循项目代码规范
 6. 是否存在潜在的 bug 或安全隐患
 7. 测试覆盖是否充分
+</TASK>
 
-请提供：
-- 代码质量评分（0-100分）
-- 发现的问题和改进建议`,
-    cd: process.cwd(),  // 自动使用当前工作目录
-    sandbox: "read-only",
-    SESSION_ID: memory.codex_session_id  // 复用会话
+OUTPUT: 请按照 CODE REVIEW REPORT 格式输出评分，并提供发现的问题和改进建议。
+EOF`,
+    run_in_background: true
   });
 
-  const score = extractScore(result);
+  // 使用 TaskOutput 获取结果
+  const codexOutput = await TaskOutput({ task_id: result.task_id, block: true });
+
+  const score = extractScore(codexOutput);
   step.actual_score = score;
 
   // 生成验证报告（存储在项目目录）
   const reportPath = `.claude/verification-report-${sanitize(memory.task_name)}.md`;
-  writeFile(reportPath, `# Codex 代码审查\n\n${result.output}`);
+  writeFile(reportPath, `# Codex 代码审查\n\n${codexOutput}`);
   memory.artifacts.verification_report = reportPath;
 
   // ⭐ Memory 更新指南：
@@ -1612,24 +1678,45 @@ async function backendReviewXq(memory, step) {
   // 如果启用了 Codex 审查
   const config = loadProjectConfig();
   if (config.backend?.enableCodexReview) {
-    const codexResult = await mcp__codex__codex({
-      PROMPT: `请审查这份后端需求分析文档，检查：
+    const xqContent = readFile(xqPath);
+
+    // 使用 codeagent-wrapper CLI 调用 Codex
+    const codexResult = await Bash({
+      command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+<ROLE>
+# Codex Role: Requirements Analyzer
+> For: /workflow-execute backend_review_xq
+
+You are a senior requirements analyst specializing in backend system requirements.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Structured analysis report
+- Focus: Completeness, clarity, testability
+</ROLE>
+
+<TASK>
+请审查这份后端需求分析文档，检查：
 1. 需求是否完整覆盖 PRD
 2. 边界是否清晰
 3. 用例是否完整
 4. 是否有遗漏的风险点
 
 文档内容：
-${readFile(xqPath)}
+${xqContent}
 
-请指出问题并给出改进建议。`,
-      cd: process.cwd(),
-      sandbox: "read-only",
-      SESSION_ID: memory.codex_session_id
+请指出问题并给出改进建议。
+</TASK>
+
+OUTPUT: Structured analysis with issues and recommendations.
+EOF`,
+      run_in_background: true
     });
 
+    const codexOutput = await TaskOutput({ task_id: codexResult.task_id, block: true });
+
     // 追加 Codex 审查意见到文档
-    appendToXqDocument(xqPath, codexResult.agent_messages);
+    appendToXqDocument(xqPath, codexOutput);
   }
 }
 ```
@@ -1656,8 +1743,22 @@ async function backendGenerateFasj(memory, step) {
   const fasjPath = `${config.backend?.docDir || '.claude/docs'}/${baseName}-fasj.md`;
 
   // 与 Codex 协作生成方案
-  const codexResult = await mcp__codex__codex({
-    PROMPT: `请根据以下需求分析文档和方案设计规范，生成后端技术方案文档。
+  const codexResult = await Bash({
+    command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+<ROLE>
+# Codex Role: Backend Architect
+> For: /workflow-execute backend_generate_fasj
+
+You are a senior backend architect specializing in technical design documentation.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Complete technical design document in Markdown
+- Focus: Data model, API design, non-functional requirements
+</ROLE>
+
+<TASK>
+请根据以下需求分析文档和方案设计规范，生成后端技术方案文档。
 
 ## 需求分析文档（xq.md）
 ${xqContent}
@@ -1670,16 +1771,18 @@ ${specContent}
 2. 接口设计（API 契约、请求响应结构）
 3. 非功能设计（性能、安全、可观测性）
 4. 实施计划（具体任务、依赖、里程碑）
+</TASK>
 
-输出完整的 Markdown 格式技术方案文档。`,
-    cd: process.cwd(),
-    sandbox: "read-only",
-    SESSION_ID: memory.codex_session_id
+OUTPUT: 输出完整的 Markdown 格式技术方案文档。
+EOF`,
+    run_in_background: true
   });
+
+  const codexOutput = await TaskOutput({ task_id: codexResult.task_id, block: true });
 
   // 保存 fasj.md
   ensureDir(path.dirname(fasjPath));
-  writeFile(fasjPath, codexResult.agent_messages);
+  writeFile(fasjPath, codexOutput);
 
   // 更新 memory
   memory.source_docs.fasj = fasjPath;

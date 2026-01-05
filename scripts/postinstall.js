@@ -6,7 +6,7 @@ const fs = require('fs-extra');
 const semver = require('semver');
 
 const pkg = require('../package.json');
-const { ensureClaudeHome, installFresh, upgradeFrom } = require('../lib/installer');
+const { ensureClaudeHome, installFresh, upgradeFrom, installBinary } = require('../lib/installer');
 
 async function main() {
   // 检查是否在 CI 环境或全局安装时跳过
@@ -21,6 +21,7 @@ async function main() {
     const metaDir = path.join(claudeDir, '.claude-workflow');
     const metaFile = path.join(metaDir, 'meta.json');
     const templatesDir = path.join(__dirname, '..', 'templates');
+    const packageDir = path.join(__dirname, '..');
     const currentVersion = pkg.version;
 
     console.log(`\n[claude-workflow] 安装 v${currentVersion}...`);
@@ -54,14 +55,26 @@ async function main() {
       console.log(`[claude-workflow] 版本相同 (v${currentVersion})，跳过复制`);
     }
 
+    // 安装 codeagent-wrapper 二进制文件
+    console.log(`\n[claude-workflow] 安装 codeagent-wrapper...`);
+    const binaryResult = await installBinary(packageDir);
+    if (!binaryResult.success) {
+      console.log(`[claude-workflow] codeagent-wrapper 安装跳过: ${binaryResult.reason}`);
+      if (binaryResult.reason === 'binary_not_found') {
+        console.log(`[claude-workflow] 当前平台无预编译二进制，请从 https://github.com/xxx/codeagent-wrapper 下载`);
+      }
+    }
+
     // 更新元信息
     await fs.writeJson(metaFile, {
       version: currentVersion,
       installedAt: new Date().toISOString(),
-      npmPackage: pkg.name
+      npmPackage: pkg.name,
+      binaryInstalled: binaryResult.success,
+      binaryPath: binaryResult.path || null
     }, { spaces: 2 });
 
-    console.log(`[claude-workflow] 安装位置: ${claudeDir}`);
+    console.log(`\n[claude-workflow] 安装位置: ${claudeDir}`);
     console.log(`[claude-workflow] 完成!\n`);
 
   } catch (err) {
