@@ -16,7 +16,7 @@
 - [4. 其他工作流](#4-其他工作流)
   - [4.1 快速开发工作流](#41-快速开发工作流workflow-quick-dev)
   - [4.2 UI 还原工作流](#42-ui-还原工作流workflow-ui-restore)
-  - [4.3 后端工作流](#43-后端工作流workflow-backend-start)
+  - [4.3 后端工作流](#43-后端工作流workflow-start---backend)
 - [5. 智能分析命令](#5-智能分析命令)
 - [6. 审查命令](#6-审查命令)
 - [7. 典型场景实战](#7-典型场景实战)
@@ -112,14 +112,14 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 | 类别 | 核心命令 | 说明 |
 |------|---------|------|
 | **智能工作流** ⭐⭐⭐ | `/workflow-start`, `/workflow-execute` | 自动规划和执行（推荐） |
-| **后端工作流** | `/workflow-backend-start` | PRD → 需求分析 → 方案设计 → 执行 |
+| **后端工作流** | `/workflow-start --backend` | PRD → 需求分析 → 方案设计 → 执行 |
 | **其他工作流** | `/workflow-quick-dev`, `/workflow-fix-bug`, `/workflow-ui-restore` | 快速开发、Bug修复、UI还原 |
 | **工作流辅助** | `/workflow-status`, `/workflow-retry-step`, `/workflow-skip-step` | 状态查看、重试、跳过 |
 | **CLI 工具** | `claude-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
 | **专项分析** | `/analyze` | 智能分析（自动识别场景） |
-| **审查** | `/diff-review` | 基于 git diff 的代码审查 |
+| **审查** | `/diff-review`, `/diff-review-deep` | 代码审查（单模型/多模型并行） |
 | **测试** | `/write-tests` | 调用 Vitest 测试专家编写测试 |
-| **项目配置** | `/init-project-config` | 自动检测项目结构和技术栈 |
+| **项目配置** | `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） |
 | **帮助** | `/agents` | 查看所有可用 Agent 命令 |
 
 ---
@@ -894,7 +894,7 @@ rm .claude/workflow-memory-backup-1737123456789.json
 
 ---
 
-### 4.3 后端工作流（/workflow-backend-start）
+### 4.3 后端工作流（/workflow-start --backend）
 
 **适用场景**：
 - ✅ 有明确的 PRD 产品需求文档
@@ -957,7 +957,7 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
 **使用示例**：
 ```bash
 # 启动后端工作流
-/workflow-backend-start "docs/user-management-prd.md"
+/workflow-start --backend "docs/user-management-prd.md"
 
 # 审查 xq.md 后继续
 /workflow-execute
@@ -1042,6 +1042,46 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memo
 | P1 | 紧急 | 应在下个周期处理 |
 | P2 | 正常 | 最终需要修复 |
 | P3 | 低优先级 | 有则更好 |
+
+### 6.2 多模型深度审查：`/diff-review-deep`
+
+使用 **Codex + Gemini 并行审查**，适合重要变更的深度审查。
+
+**使用方式**：
+
+| 参数 | 来源 | 示例 |
+|------|------|------|
+| (默认) | 未暂存变更 | `/diff-review-deep` |
+| `--staged` | 已暂存变更 | `/diff-review-deep --staged` |
+| `--branch <base>` | 对比分支 | `/diff-review-deep --branch main` |
+
+**审查分工**：
+
+| 模型 | 审查重点 |
+|------|----------|
+| **Codex** | 后端逻辑、安全漏洞、性能问题、并发安全 |
+| **Gemini** | 前端组件设计、可访问性、响应式设计、样式一致性 |
+| **Claude** | 综合两方反馈，生成最终报告 |
+
+**执行流程**：
+1. 获取 diff 并分类文件（后端/前端）
+2. 并行调用 Codex 和 Gemini（后台执行）
+3. 收集两方审查结果
+4. Claude 综合分析，生成最终报告
+
+**适用场景**：
+- 重要功能上线前的代码审查
+- 涉及安全敏感代码的变更
+- 大型重构的全面审查
+
+**与 `/diff-review` 的区别**：
+
+| 对比项 | `/diff-review` | `/diff-review-deep` |
+|--------|----------------|---------------------|
+| 模型数量 | 单模型（Claude） | 三模型并行 |
+| 审查深度 | 通用审查 | 专业分工深度审查 |
+| 执行时间 | 快（~30秒） | 较慢（~2分钟） |
+| 适用场景 | 日常代码审查 | 重要变更深度审查 |
 
 ---
 
@@ -1143,7 +1183,7 @@ Bug 修复？
   └─ 是 → /workflow-ui-restore（Gemini + Codex）
 
 有 PRD 文档的后端开发？
-  └─ 是 → /workflow-backend-start（PRD → xq.md → fasj.md）
+  └─ 是 → /workflow-start --backend（PRD → xq.md → fasj.md）
 
 简单功能（< 500行，< 1天）？
   └─ 是 → /workflow-quick-dev
@@ -1162,7 +1202,7 @@ Bug 修复？
 | 新功能开发 | 简单（<300行） | 不明确 | `/workflow-start` |
 | Bug 修复 | - | - | `/workflow-fix-bug` ⭐ |
 | UI 还原 | - | - | `/workflow-ui-restore` |
-| 后端开发（有PRD） | - | - | `/workflow-backend-start` |
+| 后端开发（有PRD） | - | - | `/workflow-start --backend` |
 
 ### 8.2 新对话执行模式
 
@@ -1285,7 +1325,7 @@ cp .claude/workflow-memory-backup-{时间戳}.json \
 | `/workflow-quick-dev "功能"` | 快速开发工作流（3步） | ⭐ |
 | `/workflow-ui-restore "Figma URL" "路径"` | UI 还原工作流（Gemini + Codex） | ⭐ |
 | `/workflow-fix-bug "描述或工单号"` | Bug 修复工作流（6步，支持 BK-MCP） | ⭐ |
-| `/workflow-backend-start "PRD路径"` | 后端工作流（PRD→xq.md→fasj.md→执行） | ⭐ |
+| `/workflow-start --backend "PRD路径"` | 后端工作流（PRD→xq.md→fasj.md→执行） | ⭐ |
 | **CLI 工具** |||
 | `claude-workflow status` | 查看安装状态 | ⭐ |
 | `claude-workflow sync` | 同步模板到 ~/.claude | ⭐ |
@@ -1297,9 +1337,10 @@ cp .claude/workflow-memory-backup-{时间戳}.json \
 | `/diff-review` | 审查未提交代码变更 | ⭐ |
 | `/diff-review --staged` | 审查已暂存变更 | ⭐ |
 | `/diff-review --branch main` | 审查整个分支 | ⭐ |
+| `/diff-review-deep` | 多模型深度审查（Codex + Gemini 并行） | ⭐⭐ |
 | **测试与配置** |||
 | `/write-tests` | 调用 Vitest 测试专家编写测试 | ⭐ |
-| `/init-project-config` | 自动检测项目结构和技术栈 | ⭐ |
+| `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） | ⭐ |
 | `/agents` | 查看所有可用 Agent 命令和使用指南 | |
 
 ---

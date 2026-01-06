@@ -320,7 +320,7 @@ load_project_config
 
 # 验证配置
 if ! validate_config; then
-  echo "请运行 /init-project-config 重新生成配置"
+  echo "请运行 /scan 重新生成配置"
   exit 1
 fi
 

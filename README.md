@@ -45,7 +45,7 @@ claude-workflow doctor
 - `/workflow-status` - 检查工作流状态
 - `/workflow-skip-step` - 跳过当前步骤
 - `/workflow-retry-step` - 重试当前步骤
-- `/init-project-config` - 初始化项目配置
+- `/scan` - 智能项目扫描（检测技术栈 + 生成上下文报告）
 - `/write-tests` - 编写测试
 - `/analyze` - 代码分析
 - `/diff-review` - 差异审查

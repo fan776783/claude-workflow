@@ -438,7 +438,7 @@ fi
 
 ## 使用示例
 
-在 `/init-project-config` 命令中使用这些检测逻辑：
+在 `/scan` 命令中使用这些检测逻辑：
 
 ```bash
 #!/bin/bash
