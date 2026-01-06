@@ -1,364 +1,374 @@
 ---
 description: 检查工作流当前状态并推荐下一步操作
-allowed-tools: Read(*)
+allowed-tools: Read(*), Glob(*)
 ---
 
-# 工作流状态检查
+# 工作流状态检查（v2）
 
-检查当前工作流进度，并推荐下一步操作。
+读取 workflow-state.json + tasks.md，生成进度报告。
+
+---
 
 ## 🔍 检查逻辑
 
-### Step 1：查找并读取任务记忆文件
-
-```bash
-# 加载工具函数库
-source ~/.claude/utils/workflow-helpers.sh
-
-# 获取当前项目路径
-current_path=$(pwd)
-
-# 查找活跃工作流
-workflow_dir=$(find_active_workflow "$current_path")
-
-if [ -z "$workflow_dir" ]; then
-  echo "❌ 未发现工作流任务记忆"
-  echo ""
-  echo "当前项目：$current_path"
-  echo ""
-  echo "💡 开始新的工作流："
-  echo "  /workflow-start \"功能需求描述\""
-  echo "  /workflow-quick-dev \"功能需求描述\""
-  echo "  /workflow-fix-bug \"Bug 描述\""
-  exit 0
-fi
-
-# 读取工作流记忆
-memory_file="$workflow_dir/workflow-memory.json"
-echo "📂 工作流目录：$workflow_dir"
-echo ""
-```
-
-**注意**：工作流状态（workflow-memory.json）存储在用户级目录 `~/.claude/workflows/[project_id]/` 中，文档产物（上下文摘要、验证报告等）存储在项目目录 `.claude/` 中。
-
-### Step 2：分析当前步骤和进度
+### Step 1：定位工作流目录
 
 ```typescript
-// 统计各种状态的步骤数量
-const completedSteps = memory.steps.filter(s => s.status === 'completed');
-const failedSteps = memory.steps.filter(s => s.status === 'failed');
-const skippedSteps = memory.steps.filter(s => s.status === 'skipped');
-const pendingSteps = memory.steps.filter(s => s.status === 'pending');
+const cwd = process.cwd();
+const configPath = '.claude/config/project-config.json';
 
-// 找到当前步骤
-const currentStep = memory.steps.find(s =>
-  s.status === 'in_progress' ||
-  s.status === 'failed' ||
-  s.status === 'pending'
-);
+if (!fileExists(configPath)) {
+  console.log(`
+❌ 未发现项目配置
 
-// 计算进度百分比
-const progress = Math.round((completedSteps.length + skippedSteps.length) / memory.total_steps * 100);
+当前路径：${cwd}
 
-// 检查质量关卡状态
-const qualityGateIssues = [];
-for (const [gateName, gate] of Object.entries(memory.quality_gates || {})) {
-  if (gate.passed === false || (gate.actual_score !== null && gate.actual_score < gate.threshold)) {
-    qualityGateIssues.push({
-      name: gateName,
-      step_id: gate.step_id,
-      score: gate.actual_score,
-      threshold: gate.threshold
-    });
-  }
+💡 请先执行扫描命令：/scan
+  `);
+  return;
 }
+
+const projectConfig = JSON.parse(readFile(configPath));
+const projectId = projectConfig.project?.id;
+
+if (!projectId) {
+  console.log(`🚨 项目配置缺少 project.id，请重新执行 /scan`);
+  return;
+}
+
+// 路径安全校验：projectId 只允许字母数字和连字符
+if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+  console.log(`🚨 项目 ID 包含非法字符: ${projectId}`);
+  return;
+}
+
+const workflowDir = path.join(os.homedir(), '.claude/workflows', projectId);
+const statePath = path.join(workflowDir, 'workflow-state.json');
+
+if (!fileExists(statePath)) {
+  console.log(`
+❌ 未发现工作流任务
+
+当前项目：${projectConfig.project.name}
+项目 ID：${projectId}
+预期路径：${statePath}
+
+💡 开始新的工作流：
+  /workflow-start "功能需求描述"
+  /workflow-start --backend "PRD文档路径"
+  `);
+  return;
+}
+
+console.log(`
+📂 工作流目录：${workflowDir}
+🆔 项目 ID：${projectId}
+`);
 ```
+
+---
+
+### Step 2：读取工作流状态
+
+```typescript
+const state = JSON.parse(readFile(statePath));
+
+// 校验 tasks_file 路径安全性
+if (!state.tasks_file ||
+    state.tasks_file.includes('..') ||
+    path.isAbsolute(state.tasks_file) ||
+    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+  console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
+  return;
+}
+
+const tasksPath = path.join(workflowDir, state.tasks_file);
+
+// 二次校验：确保最终路径在 workflowDir 内
+if (!tasksPath.startsWith(workflowDir)) {
+  console.log(`🚨 路径穿越检测: ${tasksPath}`);
+  return;
+}
+
+// 检查任务文件
+if (!fileExists(tasksPath)) {
+  console.log(`
+⚠️ 任务清单不存在：${tasksPath}
+
+状态文件存在，但任务清单缺失。
+可能是工作流创建过程中断。
+
+💡 建议：重新启动工作流
+  /workflow-start "原始需求"
+  `);
+  return;
+}
+
+const tasksContent = readFile(tasksPath);
+
+// 解析任务
+const tasks = parseTasksFromMarkdown(tasksContent);
+const totalTasks = tasks.length;
+
+// 如果没有解析到任务，输出诊断信息
+if (totalTasks === 0) {
+  console.log(`
+⚠️ 无法解析任务清单
+
+任务文件：${tasksPath}
+可能原因：
+- 文件格式不符合预期（需要 ## T1: 格式的标题）
+- 文件内容为空
+
+💡 请检查文件格式是否符合 tasks.md 模板
+  `);
+  return;
+}
+
+// 统计各状态
+const completed = state.progress.completed.length;
+const skipped = state.progress.skipped.length;
+const failed = state.progress.failed.length;
+const pending = totalTasks - completed - skipped - failed;
+
+// 计算进度（安全版本：防止 NaN）
+const progressPercent = totalTasks > 0
+  ? Math.round((completed + skipped) / totalTasks * 100)
+  : 0;
+```
+
+---
 
 ### Step 3：生成状态报告
 
 ```markdown
-# 工作流状态报告
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **工作流状态报告**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**任务名称**：{{memory.task_name}}
-**复杂度**：{{memory.complexity}}
-**预计耗时**：{{memory.estimated_time}}
-**状态**：{{memory.status}}
-**最后更新**：{{memory.updated_at}}
-
----
-
-## 📊 进度概览
-
-**总进度**：{{progress}}（{{completedSteps.length + skippedSteps.length}} / {{memory.total_steps}}）
-
-[████████████░░░░] {{progress}}
-
-**已完成步骤**：{{completedSteps.length}}
-**已跳过步骤**：{{skippedSteps.length}}
-**失败步骤**：{{failedSteps.length}}
-**待执行步骤**：{{pendingSteps.length}}
+**任务名称**：{{state.task_name}}
+**状态**：{{state.status}}
+**启动时间**：{{state.started_at}}
+**最后更新**：{{state.updated_at}}
 
 ---
 
-## 📍 当前步骤
+## 📈 进度概览
 
-{{if currentStep}}
-**步骤 {{currentStep.id}}**：{{currentStep.name}}
-**所属阶段**：{{currentStep.phase}}
-**状态**：{{currentStep.status}}
-**预计耗时**：{{currentStep.estimated_time}}
+**总进度**：{{progressPercent}}%（{{completed + skipped}} / {{totalTasks}}）
 
-{{if currentStep.status === 'failed'}}
-⚠️ **失败原因**：{{currentStep.failure_reason}}
-**上次评分**：{{currentStep.actual_score}} / {{currentStep.threshold}}
-**差距**：{{currentStep.threshold - currentStep.actual_score}} 分
-{{endif}}
+{{generateProgressBar(progressPercent)}}
 
-{{else if memory.status === 'completed'}}
-🎉 所有步骤已完成！
-{{endif}}
+| 状态 | 数量 |
+|------|------|
+| ✅ 已完成 | {{completed}} |
+| ⏭️ 已跳过 | {{skipped}} |
+| ❌ 失败 | {{failed}} |
+| ⏸️ 待执行 | {{pending}} |
 
 ---
 
-## 📋 关键产物
+## 📄 设计文档
 
-{{for artifactName, artifactPath in memory.artifacts}}
-{{if artifactPath}}
-- ✅ {{artifactName}}：`{{artifactPath}}`
-{{endif}}
-{{endfor}}
+📐 **技术方案**：`{{state.tech_design}}`
 
 ---
 
-## 🎯 质量关卡状态
+## 📋 任务清单
 
-{{for gateName, gate in memory.quality_gates}}
-**{{gateName}}**：
-- 步骤ID：{{gate.step_id}}
-- 阈值：{{gate.threshold}}
-- 实际评分：{{gate.actual_score || '未评分'}}
-- 状态：{{gate.passed ? '✅ 通过' : (gate.actual_score ? '❌ 失败' : '⏸️ 待执行')}}
-{{endfor}}
+📝 **任务文件**：`{{tasksPath}}`
 
-{{if qualityGateIssues.length > 0}}
-⚠️ **质量关卡问题**：
-{{for issue in qualityGateIssues}}
-- {{issue.name}}（步骤 {{issue.step_id}}）：评分 {{issue.score}} < 阈值 {{issue.threshold}}
-{{endfor}}
-{{endif}}
+{{#each tasks}}
+{{statusIcon(this.status)}} **{{this.id}}**: {{this.name}}
+   {{#if this.file}}文件: `{{this.file}}`{{/if}}
+   阶段: {{this.phase}}
+{{/each}}
 
 ---
 
-## 📜 用户决策记录
+## 📍 当前任务
 
-{{if memory.decisions && memory.decisions.length > 0}}
-{{for decision in memory.decisions}}
-- **步骤 {{decision.step_id}}**（{{decision.timestamp}}）：
-  - 问题：{{decision.question}}
-  - 决策：{{decision.answer}}
-  - 理由：{{decision.reason}}
-{{endfor}}
+{{#if state.status === 'completed'}}
+🎉 **工作流已完成！**
+
+所有 {{totalTasks}} 个任务已执行完毕。
+
 {{else}}
-无用户决策记录
-{{endif}}
+{{#with currentTask}}
+**任务 {{id}}**：{{name}}
+**阶段**：{{phase}}
+**状态**：{{status}}
+{{#if file}}**文件**：`{{file}}`{{/if}}
+{{#if leverage}}**复用**：`{{leverage}}`{{/if}}
+{{#if design_ref}}**设计参考**：{{design_ref}}{{/if}}
+
+**需求**：{{requirement}}
+**动作**：`{{actions}}`
+
+{{#if quality_gate}}
+⚠️ **这是质量关卡**：评分需 ≥ {{threshold}}
+{{/if}}
+{{/with}}
+{{/if}}
 
 ---
 
-## ⚠️ 遗留问题
+## 🎯 质量关卡
 
-{{if memory.issues && memory.issues.length > 0}}
-{{for issue in memory.issues}}
-- **{{issue.severity}}**：{{issue.description}}（{{issue.timestamp}}）
-{{endfor}}
-{{else}}
-无遗留问题
-{{endif}}
+{{#each state.quality_gates}}
+**{{@key}}**：
+- 任务ID：{{task_id}}
+- 阈值：{{threshold}}
+- 评分：{{actual_score || '待执行'}}
+- 状态：{{passed === true ? '✅ 通过' : (passed === false ? '❌ 失败' : '⏸️ 待执行')}}
+{{/each}}
+
+{{#if hasFailedGates}}
+⚠️ **存在未通过的质量关卡，需要修复后重试**
+{{/if}}
 
 ---
 
-## 🎯 下一步建议
+## 📦 产物文件
 
-{{if memory.status === 'completed'}}
+| 类型 | 路径 |
+|------|------|
+| 技术方案 | `{{state.tech_design}}` |
+| 任务清单 | `{{tasksPath}}` |
+{{#each state.artifacts}}
+| {{@key}} | `{{this}}` |
+{{/each}}
+
+---
+
+## 🚀 下一步操作
+
+{{#if state.status === 'completed'}}
 ### 🎉 工作流已完成
-恭喜！{{memory.task_name}} 已完成全部步骤。
 
-**最终评分**：{{calculateFinalScore(memory)}} / 100
-**总耗时**：{{calculateTotalTime(memory)}}
+**总任务数**：{{totalTasks}}
+**已完成**：{{completed}}
+**已跳过**：{{skipped}}
 
-**产物文档**：
-{{for artifactName, artifactPath in memory.artifacts}}
-{{if artifactPath}}
-- {{artifactPath}}
-{{endif}}
-{{endfor}}
+**产物文件**：
+- 技术方案：`{{state.tech_design}}`
+- 任务清单：`{{tasksPath}}`
 
-查看工作流总结：
-\```bash
-cat {{memory.artifacts.workflow_summary}}
-\```
+{{else if hasFailedTask}}
+### ⚠️ 存在失败任务
 
-{{else if currentStep && currentStep.status === 'failed'}}
-### ⚠️ 当前步骤失败
-{{currentStep.name}}（步骤 {{currentStep.id}}）执行失败。
-
-**失败原因**：{{currentStep.failure_reason}}
-
-{{if currentStep.quality_gate}}
-**质量关卡未通过**：
-- 评分：{{currentStep.actual_score}} / {{currentStep.threshold}}
-- 差距：{{currentStep.threshold - currentStep.actual_score}} 分
+**失败任务**：{{failedTaskId}}
+**失败原因**：{{failedReason}}
 
 **建议操作**：
-1. 根据反馈优化相关内容
-2. 重新执行：`/workflow-retry-step`
-{{else}}
-**建议操作**：
-1. 查看错误信息并修复
-2. 重试：`/workflow-retry-step`
+1. 查看失败原因并修复
+2. 重试当前步骤：`/workflow-retry-step`
 3. 或跳过（慎用）：`/workflow-skip-step`
-{{endif}}
 
-{{else if currentStep}}
+{{else}}
 ### ✅ 准备就绪
-当前可以继续执行下一步。
 
-**下一步骤**：{{currentStep.name}}
-**所属阶段**：{{currentStep.phase}}
-**预计耗时**：{{currentStep.estimated_time}}
+**下一个任务**：{{currentTask.id}} - {{currentTask.name}}
+**阶段**：{{currentTask.phase}}
 
 **执行命令**：
 \```bash
 /workflow-execute
 \```
 
-{{if shouldRecommendNewDialog(currentStep)}}
-💡 **建议**：此步骤建议在新对话窗口中执行，避免上下文消耗。
-{{endif}}
+{{#if currentTask.quality_gate}}
+💡 **提示**：下一步是质量关卡，评分需达到 {{currentTask.threshold}} 分
+{{/if}}
+{{/if}}
 
-{{else}}
-### ⏸️ 无待执行步骤
-所有步骤都已完成或跳过，但工作流状态未标记为 completed。
-
-请检查 workflow-memory.json 文件。
-{{endif}}
-
----
-
-## 🔧 常用命令
-
-**查看技术方案**：
-\```bash
-cat {{state.tech_design_path}}
-\```
-
-**查看验证报告**：
-\```bash
-cat {{state.verification?.report_path}}
-\```
-
-**查看操作日志**：
-\```bash
-cat .claude/operations-log-{task_name}.md
-\```
-
-**重置工作流**（慎用）：
-\```bash
-# 备份当前状态
-cp .claude/workflow-state.json .claude/workflow-state.backup.json
-
-# ���除状态文件以重新开始
-rm .claude/workflow-state.json
-\```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ---
 
-## 示例输出
+## 📦 辅助函数
 
-### 示例1：刚完成阶段1
+```typescript
+function parseTasksFromMarkdown(content: string): Task[] {
+  const tasks: Task[] = [];
+  // 更宽松的正则（允许可选空行和灵活空格）
+  const regex = /## (T\d+):\s*([^\n]+)\n\s*<!-- id: (T\d+)[^>]*-->\s*\n([\s\S]*?)(?=## T\d+:|$)/gm;
 
-```
-# 工作流状态报告
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    const [, id, name, , body] = match;
+    tasks.push({
+      id,
+      name: name.trim(),
+      phase: extractField(body, '阶段'),
+      file: extractField(body, '文件'),
+      leverage: extractField(body, '复用'),
+      design_ref: extractField(body, '设计参考'),
+      requirement: extractField(body, '需求'),
+      actions: extractField(body, 'actions'),
+      depends: extractField(body, '依赖'),
+      quality_gate: body.includes('质量关卡**: true'),
+      threshold: parseInt(extractField(body, '阈值') || '80'),
+      status: extractField(body, '状态')
+    });
+  }
 
-**任务名称**：多租户权限管理
-**当前阶段**：阶段1：需求分析
-**状态**：✅ 已完成
-**最后更新**：2025-01-18 14:30:00
+  return tasks;
+}
 
----
+function extractField(body: string, fieldName: string): string | null {
+  const regex = new RegExp(`\\*\\*${fieldName}\\*\\*:\\s*\`?([^\`\\n]+)\`?`);
+  const match = body.match(regex);
+  return match ? match[1].trim() : null;
+}
 
-## 📊 进度概览
+function generateProgressBar(percent: number): string {
+  const filled = Math.round(percent / 5);
+  const empty = 20 - filled;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percent}%`;
+}
 
-| 阶段 | 状态 | 耗时 |
-|------|------|------|
-| ✅ 阶段1：需求分析 | 已完成 | 15分钟 |
-| ⏸️ 阶段2：技术方案 | 未开始 | - |
-| ⏸️ 阶段3：开发实施 | 未开始 | - |
-| ⏸️ 阶段4：质量验证 | 未开始 | - |
-| ⏸️ 阶段5：文档交付 | 未开始 | - |
+function statusIcon(status: string): string {
+  // 归一化状态字符串
+  // 1. 移除所有 emoji（包括变体选择符 U+FE0F）
+  // 2. 移除括号内容（如失败原因）
+  const normalized = status
+    .replace(/[\u{1F300}-\u{1F9FF}]|\u{2705}|\u{274C}|\u{23ED}\uFE0F?|\u{23F8}\uFE0F?|\u{1F504}/gu, '')  // 移除常见 emoji
+    .replace(/\uFE0F/g, '')            // 移除残留的变体选择符
+    .replace(/\s*\([^)]*\)$/, '')      // 移除括号内容
+    .trim()
+    .toLowerCase();
 
-**总进度**：1/5（20%）
-
----
-
-## 📋 关键产物
-
-- ✅ 上下文摘要：`.claude/context-summary-multi-tenant-permission.md`
-
----
-
-## 🎯 下一步建议
-
-### ✅ 准备就绪
-当前阶段已完成，可以开始下一阶段。
-
-**下一阶段**：阶段2：技术方案设计
-
-**执行命令**：
-\```bash
-/workflow-phase2-design
-\```
-
-**建议**：
-- 在新的对话窗口中执行，避免上下文消耗
-- 确保已仔细阅读上一阶段的产物文档
-- 如有疑问，可先查看上下文摘要文档
-```
-
-### 示例2：阶段2完成但评分不足
-
-```
-# 工作流状态报告
-
-**任务名称**：多租户权限管理
-**当前阶段**：阶段2：技术方案设计
-**状态**：✅ 已完成
-**最后更新**：2025-01-18 15:45:00
-
----
-
-## 🎯 下一步建议
-
-### ⚠️ 警告
-⚠️ Codex 评分过低（75），建议先优化技术方案
-
-### ⚠️ 需要处理
-当前阶段虽已完成，但存在问题需要处理。
-
-**问题**：⚠️ Codex 评分过低（75），建议先优化技术方案
-
-**建议操作**：
-1. 查看技术方案文档中的 Codex 审查意见
-2. 根据 Codex 建议优化技术方案
-3. 可选：重新调用 Codex 进行审查
-4. 确认评分达到 80 分以上后再进入开发实施
+  switch (normalized) {
+    case 'completed':
+      return '✅';
+    case 'skipped':
+      return '⏭️';
+    case 'failed':
+      return '❌';
+    case 'in_progress':
+      return '🔄';
+    case 'pending':
+    default:
+      return '⏸️';
+  }
+}
 ```
 
 ---
 
-## 💡 使用建议
+## 🔄 相关命令
 
-1. **定期检查状态**：每完成一个阶段后执行此命令
-2. **新对话启动**：开始新阶段前先检查状态，确认上下文
-3. **问题排查**：遇到问题时检查状态，确认当前进度
-4. **团队协作**：团队成员接手工作时先检查状态
+```bash
+# 执行下一步
+/workflow-execute
+
+# 重试当前步骤
+/workflow-retry-step
+
+# 跳过当前步骤（慎用）
+/workflow-skip-step
+
+# 启动新工作流
+/workflow-start "功能需求描述"
+```

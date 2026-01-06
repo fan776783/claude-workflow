@@ -1,27 +1,29 @@
 ---
 description: 跳过当前步骤 - 慎用，用于特殊情况下跳过某个步骤
-allowed-tools: Read(*), Write(*)
+allowed-tools: Read(*), Write(*), Edit(*), AskUserQuestion(*)
 ---
 
-# 跳过当前步骤
+# 跳过当前步骤（v2）
 
 ⚠️ **慎用功能**：跳过步骤可能导致后续问题，仅在特殊情况下使用。
+
+---
 
 ## 🎯 适用场景
 
 ### ✅ 合理的跳过场景
 
 1. **条件步骤不需要执行**：
-   - 用户确认步骤，但需求无歧义
-   - 专项分析步骤，但功能不涉及相关领域
+   - 任务不适用于当前项目
+   - 已通过其他方式完成
 
-2. **已通过其他方式完成**：
-   - 已有详细技术方案，跳过方案生成步骤
-   - 已手动完成验证，跳过自动验证步骤
-
-3. **外部因素无法执行**：
+2. **外部因素无法执行**：
    - Codex 服务临时不可用
    - 某个工具暂时无法使用
+
+3. **已手动完成**：
+   - 已有详细技术方案，跳过方案生成步骤
+   - 已手动完成验证，跳过自动验证步骤
 
 ### ❌ 不应跳过的场景
 
@@ -33,56 +35,137 @@ allowed-tools: Read(*), Write(*)
 
 ## 🔍 执行流程
 
-### Step 1：查找并读取任务记忆
-
-```bash
-# 加载工具函数库
-source ~/.claude/utils/workflow-helpers.sh
-
-# 获取当前项目路径
-current_path=$(pwd)
-
-# 查找活跃工作流
-workflow_dir=$(find_active_workflow "$current_path")
-
-if [ -z "$workflow_dir" ]; then
-  echo "❌ 未发现工作流任务记忆"
-  exit 1
-fi
-
-# 读取工作流记忆
-memory_file="$workflow_dir/workflow-memory.json"
-```
+### Step 1：定位工作流状态
 
 ```typescript
-const memory = JSON.parse(readFile(memory_file));
+const cwd = process.cwd();
+const configPath = '.claude/config/project-config.json';
 
-const currentStep = memory.steps.find(step =>
-  step.status === 'pending' || step.status === 'in_progress' || step.status === 'failed'
-);
+if (!fileExists(configPath)) {
+  console.log(`
+❌ 未发现项目配置
 
-if (!currentStep) {
-  throw new Error('没有可跳过的步骤');
+当前路径：${cwd}
+
+💡 请先执行扫描命令：/scan
+  `);
+  return;
+}
+
+const projectConfig = JSON.parse(readFile(configPath));
+const projectId = projectConfig.project?.id;
+
+if (!projectId) {
+  console.log(`🚨 项目配置缺少 project.id，请重新执行 /scan`);
+  return;
+}
+
+// 路径安全校验：projectId 只允许字母数字和连字符
+if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+  console.log(`🚨 项目 ID 包含非法字符: ${projectId}`);
+  return;
+}
+
+const workflowDir = path.join(os.homedir(), '.claude/workflows', projectId);
+const statePath = path.join(workflowDir, 'workflow-state.json');
+
+if (!fileExists(statePath)) {
+  console.log(`❌ 未发现工作流任务`);
+  return;
 }
 ```
 
-### Step 2：显示跳过警告
+### Step 2：读取当前任务
+
+```typescript
+const state = JSON.parse(readFile(statePath));
+
+// 校验 tasks_file 路径安全性
+if (!state.tasks_file ||
+    state.tasks_file.includes('..') ||
+    path.isAbsolute(state.tasks_file) ||
+    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+  console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
+  return;
+}
+
+const tasksPath = path.join(workflowDir, state.tasks_file);
+
+// 二次校验：确保最终路径在 workflowDir 内
+if (!tasksPath.startsWith(workflowDir)) {
+  console.log(`🚨 路径穿越检测: ${tasksPath}`);
+  return;
+}
+
+const tasksContent = readFile(tasksPath);
+
+const currentTaskId = state.current_task;
+
+if (!currentTaskId) {
+  console.log(`
+⚠️ 当前没有可跳过的任务
+
+状态：${state.status}
+
+💡 如果工作流已完成，无需跳过
+  `);
+  return;
+}
+
+// 校验 taskId 格式，防止正则注入
+if (!/^T\d+$/.test(currentTaskId)) {
+  console.log(`❌ 无效的任务 ID 格式: ${currentTaskId}`);
+  return;
+}
+
+// 从 tasks.md 提取任务详情（使用转义后的 ID，更宽松的正则）
+const escapedId = currentTaskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const taskRegex = new RegExp(
+  `## ${escapedId}:\\s*([^\\n]+)\\n\\s*<!-- id: ${escapedId}[^>]*-->\\s*\\n([\\s\\S]*?)(?=## T\\d+:|$)`,
+  'm'
+);
+const taskMatch = tasksContent.match(taskRegex);
+
+if (!taskMatch) {
+  console.log(`❌ 无法找到任务 ${currentTaskId}`);
+  return;
+}
+
+const taskName = taskMatch[1].trim();
+const taskBody = taskMatch[2];
+
+const task = {
+  id: currentTaskId,
+  name: taskName,
+  phase: extractField(taskBody, '阶段'),
+  file: extractField(taskBody, '文件'),
+  quality_gate: taskBody.includes('质量关卡**: true'),
+  threshold: parseInt(extractField(taskBody, '阈值') || '80')
+};
+```
+
+### Step 3：显示跳过警告
 
 ```markdown
-⚠️ **即将跳过步骤**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ **即将跳过任务**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**步骤 ID**：{{currentStep.id}}
-**步骤名称**：{{currentStep.name}}
-**所属阶段**：{{currentStep.phase}}
-**当前状态**：{{currentStep.status}}
+**任务 ID**：{{task.id}}
+**任务名称**：{{task.name}}
+**所属阶段**：{{task.phase}}
+{{#if task.file}}**文件**：`{{task.file}}`{{/if}}
 
-{{if currentStep.quality_gate}}
-🚨 **警告**：这是质量关卡步骤！
-跳过质量关卡可能导致严重的质量问题。
+{{#if task.quality_gate}}
+🚨 **严重警告**：这是质量关卡任务！
 
-**评分阈值**：{{currentStep.threshold}}
-**如果跳过**：后续步骤可能基于不合格的产出继续执行
-{{endif}}
+跳过质量关卡可能导致：
+- 代码质量无法保证
+- 潜在问题无法及时发现
+- 最终交付物存在风险
+
+**阈值要求**：{{task.threshold}} 分
+{{/if}}
 
 ---
 
@@ -92,211 +175,196 @@ if (!currentStep) {
 1. 后续步骤缺少必要的输入
 2. 质量无法保证
 3. 最终交付物存在缺陷
-4. 团队协作时信息不完整
 
 ---
 
 ## 📝 请提供跳过理由
 
-**必须提供跳过理由以便追溯**：
+**必须提供跳过理由以便追溯**
 ```
 
-### Step 3：记录跳过原因
+### Step 4：获取跳过理由
 
 ```typescript
-// 提示用户输入跳过理由
-const reason = await askUser('请输入跳过理由（必填）：');
+const reason = await AskUserQuestion({
+  questions: [{
+    question: "请选择跳过理由",
+    header: "跳过理由",
+    multiSelect: false,
+    options: [
+      { label: "任务不适用", description: "当前项目不需要此任务" },
+      { label: "已手动完成", description: "已通过其他方式完成此任务" },
+      { label: "外部服务不可用", description: "Codex 等服务暂时不可用" },
+      { label: "时间紧迫", description: "截止日期紧迫，需要跳过" }
+    ]
+  }]
+});
 
 if (!reason || reason.trim().length === 0) {
-  throw new Error('必须提供跳过理由');
+  console.log(`❌ 必须提供跳过理由`);
+  return;
+}
+```
+
+### Step 5：更新状态
+
+```typescript
+// 添加到 skipped 数组
+state.progress.skipped.push(currentTaskId);
+
+// 从 failed 数组中移除（如果存在）
+state.progress.failed = state.progress.failed.filter(id => id !== currentTaskId);
+
+// 找到下一个任务
+const nextTaskId = findNextTask(tasksContent, state.progress);
+
+if (nextTaskId) {
+  state.current_task = nextTaskId;
+  state.status = 'in_progress';  // 恢复为进行中状态
+} else {
+  state.current_task = null;
+  state.status = 'completed';
 }
 
-// 标记步骤为 skipped
-currentStep.status = 'skipped';
-currentStep.skipped_at = new Date().toISOString();
-currentStep.skipped_reason = reason;
-currentStep.skipped_by = 'user';
+state.updated_at = new Date().toISOString();
+state.failure_reason = null;  // 清除失败原因
 
 // 如果是质量关卡，记录风险
-if (currentStep.quality_gate) {
-  memory.issues.push({
+if (task.quality_gate) {
+  if (!state.issues) state.issues = [];
+  state.issues.push({
     severity: 'high',
     type: 'quality_gate_skipped',
-    step_id: currentStep.id,
-    step_name: currentStep.name,
-    description: `质量关卡被跳过：${reason}`,
+    task_id: currentTaskId,
+    task_name: task.name,
+    reason: reason,
     timestamp: new Date().toISOString()
   });
 }
 
-// 更新当前步骤指针
-memory.current_step_id = currentStep.id + 1;
-memory.updated_at = new Date().toISOString();
+// 记录跳过信息
+if (!state.skipped_info) state.skipped_info = {};
+state.skipped_info[currentTaskId] = {
+  reason: reason,
+  skipped_at: new Date().toISOString()
+};
 
-saveMemory(memory);
+// 保存状态
+writeFile(statePath, JSON.stringify(state, null, 2));
+
+// 更新 tasks.md 中的状态
+updateTaskStatusInMarkdown(tasksPath, currentTaskId, `⏭️ skipped (${reason})`);
 ```
 
-### Step 4：显示确认信息
+### Step 6：显示确认信息
 
 ```markdown
-✅ 步骤已跳过
+✅ 任务已跳过
 
-**跳过步骤**：{{currentStep.name}}
+**跳过任务**：{{task.id}} - {{task.name}}
 **跳过理由**：{{reason}}
-**跳过时间**：{{currentStep.skipped_at}}
+**跳过时间**：{{new Date().toISOString()}}
 
-{{if currentStep.quality_gate}}
-⚠️ **已记录风险**：质量关卡被跳过，可能影响最终质量
+{{#if task.quality_gate}}
+⚠️ **已记录风险**：质量关卡被跳过
 
-此风险已记录到工作流记忆，在最终报告中会体现。
-{{endif}}
+此风险已记录到工作流状态，在最终报告中会体现。
+{{/if}}
 
----
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+{{#if nextTaskId}}
 ## 🚀 继续执行
 
-执行下一步：
+**下一个任务**：{{nextTaskId}}
+
+执行命令：
 \```bash
 /workflow-execute
 \```
 
-查看当前状态：
+{{else}}
+## 🎉 工作流已完成
+
+所有任务已执行或跳过。
+
+查看状态：
 \```bash
 /workflow-status
 \```
+{{/if}}
 ```
 
 ---
 
-## 💡 示例
+## 📦 辅助函数
 
-### 示例1：跳过用户确认步骤
+```typescript
+function extractField(body: string, fieldName: string): string | null {
+  const regex = new RegExp(`\\*\\*${fieldName}\\*\\*:\\s*\`?([^\`\\n]+)\`?`);
+  const match = body.match(regex);
+  return match ? match[1].trim() : null;
+}
 
-```
-⚠️ 即将跳过步骤
+function findNextTask(content: string, progress: Progress): string | null {
+  const taskIds = [...content.matchAll(/## (T\d+):/g)].map(m => m[1]);
 
-**步骤 ID**：3
-**步骤名称**：用户确认（如有歧义）
-**所属阶段**：analyze
-**当前状态**：pending
-
----
-
-## ⚠️ 跳过风险
-
-跳过此步骤可能导致：
-1. 后续实施方向可能存在偏差
-2. 技术选型可能不符合预期
-
----
-
-## 📝 请提供跳过理由
-
-> 需求已非常明确，无歧义，无需用户确认
-
----
-
-✅ 步骤已跳过
-
-**跳过步骤**：用户确认（如有歧义）
-**跳过理由**：需求已非常明确，无歧义，无需用户确认
-**跳过时间**：2025-01-19 12:00:00
-
----
-
-## 🚀 继续执行
-
-执行下一步：
-\```bash
-/workflow-execute
-\```
-```
-
-### 示例2：跳过质量关卡（不推荐）
-
-```
-⚠️ 即将跳过步骤
-
-**步骤 ID**：8
-**步骤名称**：Codex 方案审查
-**所属阶段**：design
-**当前状态**：failed
-
-🚨 警告：这是质量关卡步骤！
-跳过质量关卡可能导致严重的质量问题。
-
-**评分阈值**：80
-**如果跳过**：技术方案未经充分审查，可能存在重大缺陷
-
----
-
-## ⚠️ 跳过风险
-
-跳过此步骤可能导致：
-1. 技术方案存在重大缺陷
-2. 后续实施基于不合理的设计
-3. 最终交付质量无法保证
-
----
-
-## 📝 请提供跳过理由
-
-> Codex 服务临时不可用，已人工审查技术方案，确认无重大问题
-
----
-
-✅ 步骤已跳过
-
-**跳过步骤**：Codex 方案审查
-**跳过理由**：Codex 服务临时不可用，已人工审查技术方案，确认无重大问题
-**跳过时间**：2025-01-19 12:10:00
-
-⚠️ 已记录风险：质量关卡被跳过，可能影响最终质量
-
-此风险已记录到工作流记忆，在最终报告中会体现。
-
----
-
-## 🚀 继续执行
-
-执行下一步：
-\```bash
-/workflow-execute
-\```
-```
-
----
-
-## 📊 跳过记录追溯
-
-所有跳过的步骤都会记录在 `workflow-memory.json` 中：
-
-```json
-{
-  "steps": [
-    {
-      "id": 8,
-      "name": "Codex 方案审查",
-      "status": "skipped",
-      "skipped_at": "2025-01-19 12:10:00",
-      "skipped_reason": "Codex 服务临时不可用，已人工审查",
-      "skipped_by": "user"
+  for (const id of taskIds) {
+    if (!progress.completed.includes(id) &&
+        !progress.skipped.includes(id) &&
+        !progress.failed.includes(id)) {
+      return id;
     }
-  ],
-  "issues": [
-    {
-      "severity": "high",
-      "type": "quality_gate_skipped",
-      "step_id": 8,
-      "step_name": "Codex 方案审查",
-      "description": "质量关卡被跳过：Codex 服务临时不可用",
-      "timestamp": "2025-01-19 12:10:00"
-    }
-  ]
+  }
+
+  return null;
+}
+
+function updateTaskStatusInMarkdown(filePath: string, taskId: string, newStatus: string) {
+  let content = readFile(filePath);
+
+  // 转义 taskId 防止 regex 注入
+  const escapedId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // 先提取该任务段落
+  const taskRegex = new RegExp(
+    `(## ${escapedId}:[\\s\\S]*?)(?=\\n## T\\d+:|$)`,
+    'm'
+  );
+  const taskMatch = content.match(taskRegex);
+
+  if (!taskMatch) {
+    console.log(`⚠️ 无法找到任务 ${taskId} 进行状态更新`);
+    return;
+  }
+
+  // 在段落内替换状态
+  const taskBlock = taskMatch[1];
+  const statusRegex = /(- \*\*状态\*\*: )([^\n]+)/;
+
+  if (!statusRegex.test(taskBlock)) {
+    console.log(`⚠️ 任务 ${taskId} 缺少状态字段`);
+    return;
+  }
+
+  // 使用 replacer 函数避免 newStatus 中的 $ 被解释为替换 token
+  const updatedBlock = taskBlock.replace(statusRegex, (_, prefix) => prefix + newStatus);
+  content = content.replace(taskBlock, updatedBlock);
+  writeFile(filePath, content);
 }
 ```
 
-在最终的工作流总结报告中，会单独列出所有跳过的步骤和风险。
+---
+
+## ⚠️ 最后提醒
+
+**跳过步骤是不得已的选择，应优先考虑：**
+
+1. **重试步骤**：`/workflow-retry-step`
+2. **优化内容**：根据反馈改进后重新执行
+3. **寻求帮助**：咨询团队成员
+
+**只有在以上方法都不可行时，才考虑跳过步骤。**
 
 ---
 
@@ -311,19 +379,4 @@ saveMemory(memory);
 
 # 继续执行
 /workflow-execute
-
-# 查看任务记忆
-cat .claude/workflow-memory.json
 ```
-
----
-
-## ⚠️ 最后提醒
-
-**跳过步骤是不得已的选择，应优先考虑：**
-
-1. **重试步骤**：`/workflow-retry-step`
-2. **优化内容**：根据反馈改进后重新执行
-3. **调整阈值**：手动修改 workflow-memory.json（需充分理由）
-
-**只有在以上方法都不可行时，才考虑跳过步骤。**
