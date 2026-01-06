@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] - 2026-01-06
+
+### Changed
+- **移除 agents 目录**：将 `vitest-tester` 指令内嵌到 `/write-tests` 命令，移除未使用的 `requirements-analyst` 和 `senior-code-architect`
+- 简化模板结构，`TEMPLATE_DIRS` 从 7 个减少到 6 个
+
+---
+
 ## [1.2.2] - 2026-01-06
 
 ### Fixed

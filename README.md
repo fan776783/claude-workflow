@@ -50,12 +50,6 @@ claude-workflow doctor
 - `/analyze` - 代码分析
 - `/diff-review` - 差异审查
 
-### Agent 定义 (agents/)
-
-- `requirements-analyst` - 需求分析师
-- `senior-code-architect` - 资深代码架构师
-- `vitest-tester` - Vitest 测试专家
-
 ### 文档 (docs/)
 
 - 工作流设计文档
@@ -104,7 +98,7 @@ npm run release 2.0.0
 ```
 ~/.claude/
 ├── commands/           # 工作流命令
-├── agents/             # Agent 定义
+├── prompts/            # 三模型协作 Prompt
 ├── docs/               # 文档
 ├── utils/              # 工具函数
 ├── workflows/          # 工作流状态（按项目隔离）
