@@ -38,7 +38,7 @@ npm run release 2.0.0     # Explicit version
 │   └── validate.js          # Pre-publish validation
 └── templates/               # Files copied to ~/.claude/
     ├── commands/            # Slash command definitions (.md)
-    ├── agents/              # Agent definitions (.md)
+    ├── prompts/             # Multi-model collaboration prompts
     ├── docs/                # Documentation templates
     └── utils/               # Utility templates
 ```

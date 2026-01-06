@@ -95,12 +95,12 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Agent 定义(3个)│  │  MCP 双模型协作  │  │  文档输出       │
+│  Prompt 模板    │  │  MCP 双模型协作  │  │  文档输出       │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • vitest-tester │  │ • Gemini (前端) │  │ • 任务记忆       │
-│ • senior-arch   │  │ • Codex (后端)  │  │ • 技术方案      │
-│ • requirements  │  │ • Figma MCP     │  │ • 验证报告      │
-│   -analyst      │  │ • BK-MCP        │  │ • 工作流总结     │
+│ • codex/        │  │ • Gemini (前端) │  │ • 任务记忆       │
+│ • gemini/       │  │ • Codex (后端)  │  │ • 技术方案      │
+│ • claude/       │  │ • Figma MCP     │  │ • 验证报告      │
+│                 │  │ • BK-MCP        │  │ • 工作流总结     │
 │                 │  │ • Context7      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
@@ -194,7 +194,7 @@ claude-workflow doctor
 ```
 ~/.claude/
 ├── commands/              # 14 个斜杠命令
-├── agents/                # 3 个 Agent 定义（vitest-tester, senior-code-architect, requirements-analyst）
+├── prompts/               # 三模型协作 Prompt 模板
 ├── docs/                  # 6 个技术文档
 ├── utils/                 # 工具函数
 ├── workflows/             # 工作流状态（按项目隔离，使用后自动创建）
@@ -364,7 +364,7 @@ claude mcp list
 ~/.claude/                              # 用户级目录（不提交 Git）
 ├── commands/                           # 工作流命令（25+ 个）
 ├── docs/                               # 技术文档
-├── agents/                             # Agent 定义
+├── prompts/                            # 三模型协作 Prompt
 ├── utils/                              # 工具函数
 ├── workflows/                          # 工作流状态（按项目隔离）
 │   ├── a13dcda9d96c/                   # 项目 1（基于 cwd hash）
@@ -1339,54 +1339,22 @@ cp .claude/workflow-memory-backup-{时间戳}.json \
 | `/diff-review --branch main` | 审查整个分支 | ⭐ |
 | `/diff-review-deep` | 多模型深度审查（Codex + Gemini 并行） | ⭐⭐ |
 | **测试与配置** |||
-| `/write-tests` | 调用 Vitest 测试专家编写测试 | ⭐ |
+| `/write-tests` | Vitest 测试专家编写测试 | ⭐ |
 | `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） | ⭐ |
-| `/agents` | 查看所有可用 Agent 命令和使用指南 | |
 
 ---
 
-## 附录 B：Agent 定义
+## 附录 B：Prompt 模板
 
-项目包含 3 个专业 Agent：
+项目使用三模型协作，Prompt 模板位于 `~/.claude/prompts/`：
 
-| Agent | 专长 | 使用场景 |
-|-------|------|---------|
-| **vitest-tester** | Vitest 测试框架 | 编写单元测试、集成测试、调试失败测试、提高覆盖率 |
-| **senior-code-architect** | 代码架构和框架指导 | 代码审查、架构决策、框架最佳实践、性能优化 |
-| **requirements-analyst** | 需求分析和拆解 | 分析复杂需求、识别功能点、依赖关系、风险评估 |
+| 目录 | 专长 | 使用场景 |
+|------|------|----------|
+| **codex/** | 后端架构、算法、调试 | API 设计、数据库、性能优化 |
+| **gemini/** | 前端 UI、CSS、组件 | React/Vue 组件、样式、可访问性 |
+| **claude/** | 全栈整合、契约设计 | 跨层集成、类型安全、测试 |
 
-### vitest-tester
-
-**核心专长**：
-- 单元测试：为函数、类、组件编写独立测试
-- 集成测试：测试多个模块间的交互
-- Mock 策略：设计和实现 mock、stub、spy
-- 异步测试：正确处理 Promise、async/await
-- 覆盖率优化：识别未覆盖的代码路径
-
-**调用方式**：通过 `/write-tests` 命令自动调用
-
-### senior-code-architect
-
-**核心专长**：
-- 框架精通：React、Vue、Node.js、Element Plus 等
-- 包管理：pnpm、npm、yarn 最佳实践
-- 架构设计：系统架构、微服务、领域驱动设计
-- 性能优化：代码性能分析和优化策略
-- 最新技术：通过 exa MCP 获取最新框架文档
-
-**调用方式**：通过 Task 工具调用 `subagent_type=senior-code-architect`
-
-### requirements-analyst
-
-**核心专长**：
-- 需求识别：从用户描述中提取核心需求和隐含需求
-- 需求分解：将高层次需求拆解为具体功能点
-- 需求分类：区分功能性和非功能性需求
-- 依赖分析：识别需求间的依赖关系和实现顺序
-- 风险识别：识别技术风险和实现难点
-
-**调用方式**：通过 Task 工具调用 `subagent_type=requirements-analyst`
+这些 Prompt 由 `codeagent-wrapper` 在三模型协作流程中自动使用。
 
 ---
 
