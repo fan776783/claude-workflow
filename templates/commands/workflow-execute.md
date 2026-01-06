@@ -1611,7 +1611,7 @@ Codex 审查结果：
 
 ### backend_generate_xq
 
-**已在 `/workflow-backend-start` 中完成**。此 action 通常不会在 `/workflow-execute` 中触发。
+**已在 `/workflow-start --backend` 中完成**。此 action 通常不会在 `/workflow-execute` 中触发。
 
 ### backend_review_xq
 

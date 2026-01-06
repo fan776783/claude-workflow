@@ -77,21 +77,24 @@ allowed-tools: Read(*)
 
 ## ⚙️ 项目配置类
 
-- **`/init-project-config`** ⭐ - 初始化项目配置（`/workflow-start` 前置条件）
+- **`/scan`** ⭐ - 智能项目扫描（`/workflow-start` 前置条件）
 
 | 命令 | 核心功能 | 典型场景 |
 |------|----------|----------|
-| `/init-project-config` | 自动检测项目类型、技术栈、目录结构，生成配置文件 | 新项目初始化、配置更新 |
+| `/scan` | 检测技术栈、生成配置文件和项目上下文报告 | 新项目初始化、配置更新、架构变更后 |
 
 **检测能力**：
 - 项目类型（Monorepo/Single）
-- 包管理器（pnpm/npm/yarn）
-- 框架版本（React/Vue/Angular等）
+- 包管理器（pnpm/npm/yarn/go/cargo/pip）
+- 框架版本（React/Vue/Angular/Go/Python/Rust等）
 - 微前端框架（Wujie/Qiankun等）
 - 可观测性工具（Sentry/Bugsnag等）
 - 自定义路径（HTTP客户端、埋点、API等）
+- **语义代码检索**（入口文件、API路由、数据模型、组件结构）🆕
 
-**输出**：`.claude/config/project-config.json`
+**输出**：
+- `.claude/config/project-config.json` - 项目配置文件
+- `.claude/repo-context.md` - 项目上下文报告
 
 ---
 
@@ -149,7 +152,7 @@ allowed-tools: Read(*)
 ## 🎯 快速选择指南
 
 **我想...**
-- **初始化项目配置** → `/init-project-config` ⭐（首次使用必须）
+- **扫描项目（首次使用必须）** → `/scan` ⭐
 - **开发任何功能（自动适配复杂度）** → `/workflow-start` ⭐⭐⭐
 - **快速开发简单功能** → `/workflow-quick-dev` ⭐
 - **调试/修复 Bug** → `/debug` ⭐ NEW

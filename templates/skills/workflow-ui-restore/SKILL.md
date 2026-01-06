@@ -310,7 +310,7 @@ async function updateProjectConfig(fieldPath: string, value: string) {
   const configPath = ".claude/config/project-config.json";
 
   if (!fs.existsSync(configPath)) {
-    console.log("⚠️ 配置文件不存在，请先运行 /init-project-config");
+    console.log("⚠️ 配置文件不存在，请先运行 /scan");
     return;
   }
 
@@ -409,7 +409,7 @@ import userAvatar from '@/assets/user-profile-avatar.png';
 - `/workflow-quick-dev` - 快速功能开发工作流
 - `/diff-review` - 代码变更审查
 - `/analyze "项目上下文"` - 上下文加载
-- `/init-project-config` - 初始化项目配置
+- `/scan` - 智能项目扫描
 
 **Figma MCP 工具**：
 - `mcp__figma-mcp__get_design_context` - 获取设计上下文（含资源下载）

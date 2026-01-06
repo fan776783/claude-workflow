@@ -1,28 +1,88 @@
 ---
 description: 启动智能工作流 - 分析需求并生成详细执行计划
-argument-hint: "\"功能需求描述\""
-allowed-tools: Task(*), Read(*), Write(*), mcp__mcp-router__sequentialthinking(*), AskUserQuestion(*)
+argument-hint: "\"功能需求描述\" 或 --backend \"PRD文档路径\""
+allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), mcp__mcp-router__sequentialthinking(*), mcp__codex__codex(*), AskUserQuestion(*)
 ---
 
 # 智能工作流启动
 
-分析需求复杂度，生成详细的分步执行计划，创建任务记忆。
+统一的工作流入口，支持多种工作流类型：
+
+| 类型 | 用法 | 说明 |
+|------|------|------|
+| **通用** | `/workflow-start "需求描述"` | 自动适配 5/13/22 步 |
+| **后端** | `/workflow-start --backend "PRD路径"` | 从 PRD 生成 xq.md → fasj.md → 执行计划 |
 
 **配置依赖**：`.claude/config/project-config.json`（自动读取项目配置）
 
 **工作目录**：从配置自动读取（`project.rootDir`）
 
-**工作流状态存储**：用户级目录（`~/.claude/workflows/`），完全避免 Git 冲突 ⭐ NEW
+**工作流状态存储**：用户级目录（`~/.claude/workflows/`），完全避免 Git 冲突
 
-**文档产物存储**：项目目录（`.claude/`），便于团队共享（上下文摘要、验证报告、技术方案等）
+**文档产物存储**：项目目录（`.claude/`），便于团队共享
 
 ---
 
 ## 🎯 执行流程
 
+### Step -2：解析参数并确定工作流类型
+
+```typescript
+// 解析参数
+const args = $ARGUMENTS.join(' ');
+let workflowType = 'general';  // 默认通用工作流
+let requirement = '';
+let prdPath = '';
+
+// 检测工作流类型
+if (args.includes('--backend')) {
+  workflowType = 'backend';
+  // 提取 PRD 路径
+  const match = args.match(/--backend\s+["']?([^"'\s]+)["']?/);
+  prdPath = match ? match[1] : '';
+
+  if (!prdPath) {
+    console.log(`
+❌ 后端工作流需要提供 PRD 文档路径
+
+用法：
+  /workflow-start --backend "docs/user-management-prd.md"
+    `);
+    return;
+  }
+
+  if (!fileExists(prdPath)) {
+    console.log(`❌ PRD 文件不存在：${prdPath}`);
+    return;
+  }
+
+  console.log(`📋 工作流类型：后端工作流（从 PRD 开始）`);
+  console.log(`📄 PRD 文档：${prdPath}\n`);
+} else {
+  // 通用工作流
+  requirement = args.replace(/^["']|["']$/g, '').trim();
+
+  if (!requirement) {
+    console.log(`
+❌ 请提供需求描述
+
+用法：
+  /workflow-start "实现用户认证功能"
+  /workflow-start --backend "docs/prd.md"
+    `);
+    return;
+  }
+
+  console.log(`📋 工作流类型：通用工作流`);
+  console.log(`📝 需求描述：${requirement}\n`);
+}
+```
+
+---
+
 ### Step -1：项目配置检查（强制前置条件）🚨
 
-**目标**: 确保项目已初始化且包含有效的 `project.id`，否则**强制终止并要求执行** `/init-project-config`
+**目标**: 确保项目已扫描且包含有效的 `project.id`，否则**强制终止并要求执行** `/scan`
 
 > ⚠️ **重要**：没有 `project-config.json` 或缺少 `project.id` 时，工作流**无法启动**。
 > 这是为了确保工作流目录（`~/.claude/workflows/{project.id}/`）能正确关联到项目。
@@ -45,11 +105,11 @@ if (!fs.existsSync(configPath)) {
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔧 请先执行初始化命令：
+🔧 请先执行扫描命令：
 
-   /init-project-config
+   /scan
 
-初始化完成后，重新执行：
+扫描完成后，重新执行：
 
    /workflow-start "你的需求描述"
 
@@ -72,9 +132,9 @@ try {
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔧 请重新执行初始化命令：
+🔧 请重新执行扫描命令：
 
-   /init-project-config
+   /scan
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);
@@ -91,11 +151,11 @@ if (!projectConfig.project?.id) {
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔧 请重新执行初始化命令以更新配置：
+🔧 请重新执行扫描命令以更新配置：
 
-   /init-project-config
+   /scan
 
-初始化会自动生成 project.id 并关联工作流目录。
+扫描会自动生成 project.id 并关联工作流目录。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   `);
@@ -908,8 +968,11 @@ ${qualityGates.map(g => `- ${g.name}: 阈值 ${g.threshold}%`).join('\n')}
 ## 🔄 与其他命令的关系
 
 ```bash
-# 启动工作流
+# 启动工作流（通用）
 /workflow-start "功能需求"
+
+# 启动工作流（后端，从 PRD 开始）
+/workflow-start --backend "docs/prd.md"
 
 # 执行下一步（可重复调用）
 /workflow-execute
@@ -1005,4 +1068,184 @@ cat .claude/workflow-two-command-guide.md
 
 # 查看工作流总览
 cat .claude/workflow-summary.md
+```
+
+---
+
+# 📦 后端工作流（--backend 模式）
+
+当使用 `--backend` 参数时，执行后端专用工作流：从 PRD 文档出发，依次生成需求分析文档（xq.md）、方案设计文档（fasj.md）、工作流执行计划。
+
+## 后端工作流特点
+
+- 每生成一个文档后暂停，等待用户审查修改
+- 与 Codex 协作讨论，确保需求理解和方案设计的准确性
+- 文档存储在项目级目录，便于团队共享
+
+## 后端工作流执行流程
+
+```
+PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memory.json（执行计划）
+           ↓                    ↓
+        暂停审查              暂停审查
+```
+
+### Backend Step 1：检查后端配置
+
+```typescript
+// 检查 backend 配置是否存在
+if (!config.backend || !config.backend.fasjSpecPath) {
+  console.log(`⚠️ 未配置方案设计规范路径`);
+
+  // 询问用户配置方式
+  const answer = await AskUserQuestion({
+    questions: [{
+      question: "请选择方案设计规范的配置方式",
+      header: "规范配置",
+      multiSelect: false,
+      options: [
+        { label: "输入规范路径", description: "提供已有的方案设计规范文档路径" },
+        { label: "使用默认模板", description: "使用内置的后端方案设计规范模板" },
+        { label: "取消", description: "取消当前操作" }
+      ]
+    }]
+  });
+
+  // 根据选择更新配置...
+}
+```
+
+### Backend Step 2：解析 PRD 并与 Codex 讨论
+
+```typescript
+const prdContent = readFile(prdPath);
+const baseName = path.basename(prdPath, '.md').replace(/-prd$/, '');
+
+// 与 Codex 讨论需求理解
+const codexResult = await mcp__codex__codex({
+  PROMPT: `请帮我分析这份后端 PRD 文档，重点关注：
+    1. 需求边界：哪些是本次迭代必须做的？
+    2. 业务流程：核心用例的主成功路径和异常路径
+    3. 数据需求：需要哪些核心实体？
+    4. 非功能需求：性能、安全、可用性的具体要求
+    5. 风险点：可能的歧义、遗漏、依赖问题
+
+    PRD 内容：
+    ${prdContent}`,
+  sandbox: "read-only"
+});
+```
+
+### Backend Step 3：生成 xq.md 并暂停
+
+生成需求分析文档后，工作流暂停等待用户审查：
+
+```markdown
+⏸️ 工作流已暂停 - 等待审查
+
+**当前进度**：1 / 10（需求分析已完成）
+
+📄 已生成文档：.claude/docs/{baseName}-xq.md
+
+📝 请执行以下操作：
+1. 审查文档：cat .claude/docs/{baseName}-xq.md
+2. 修改文档（如需要）
+3. 继续执行：/workflow-execute
+```
+
+### Backend Step 4-5：生成 fasj.md 并 Codex 审查
+
+继续执行后，根据 xq.md 和方案设计规范生成技术方案，然后进行 Codex 审查。
+
+### 后端工作流步骤清单（10步）
+
+| 步骤 | 阶段 | 名称 | 说明 |
+|------|------|------|------|
+| 1 | analyze | 生成需求分析文档 | 输出 xq.md |
+| 2 | analyze | 审查需求分析文档 | ⏸️ 暂停等待用户 |
+| 3 | design | 生成方案设计文档 | 输出 fasj.md |
+| 4 | design | Codex 方案审查 | 质量关卡 ≥80 |
+| 5 | design | 审查并修订方案 | ⏸️ 暂停等待用户 |
+| 6 | implement | 生成实施计划 | 拆解工作项 |
+| 7 | implement | 执行开发任务 | 编码实现 |
+| 8 | verify | 自测与验证 | 运行测试 |
+| 9 | verify | Codex 代码审查 | 质量关卡 ≥80 |
+| 10 | deliver | 完善文档并总结 | 输出总结 |
+
+## 后端文档结构
+
+### xq.md 需求分析文档
+
+```markdown
+# 后端需求分析 - {模块名称}
+
+## 0. 元信息
+## 1. 背景与业务目标
+## 2. 范围与边界（In Scope / Out of Scope）
+## 3. 角色与主体
+## 4. 关键业务流程与用例
+## 5. 功能需求拆解（FR-01, FR-02, ...）
+## 6. 非功能需求
+## 7. 数据与接口线索
+## 8. 风险、依赖与假设
+## 9. 验收标准
+## 10. Codex 协作记录
+```
+
+### fasj.md 方案设计文档
+
+```markdown
+# 后端技术方案 - {模块名称}
+
+## 0. 元信息
+## 1. 设计目标与原则
+## 2. 架构与边界
+## 3. 模块与职责划分
+## 4. 数据模型设计
+## 5. 接口设计（API 契约）
+## 6. 业务流程与状态设计
+## 7. 非功能设计
+## 8. 数据迁移与兼容性
+## 9. 实施计划（工作项列表）
+## 10. 测试与验收方案
+## 11. Codex 审查记录
+```
+
+## 后端配置说明
+
+在 `project-config.json` 中配置：
+
+```json
+{
+  "backend": {
+    "docDir": ".claude/docs",
+    "fasjSpecPath": ".claude/specs/backend-fasj-spec.md",
+    "xqSpecPath": ".claude/specs/backend-xq-spec.md",
+    "enableCodexReview": true
+  }
+}
+```
+
+## 后端工作流示例
+
+```bash
+# 1. 启动后端工作流
+/workflow-start --backend "docs/payment-prd.md"
+
+# 输出：
+# ✅ 需求分析文档已生成：.claude/docs/payment-xq.md
+# ⏸️ 工作流已暂停 - 等待审查
+
+# 2. 审查 xq.md 并修改
+cat .claude/docs/payment-xq.md
+# （手动编辑文件）
+
+# 3. 继续执行，生成 fasj.md
+/workflow-execute
+
+# 4. 审查 fasj.md 并修改
+cat .claude/docs/payment-fasj.md
+
+# 5. 继续执行，开始开发
+/workflow-execute
 ```
