@@ -1,111 +1,235 @@
 ---
 description: 重试当前步骤 - 用于质量关卡失败后优化并重新审查
-allowed-tools: Read(*), Write(*), mcp__codex__codex(*)
+allowed-tools: Read(*), Write(*), Edit(*), SlashCommand(*)
 ---
 
-# 重试当前步骤
+# 重试当前步骤（v2）
 
-用于质量关卡失败后，根据反馈优化内容并重新执行审查。
+用于质量关卡失败或任务执行失败后，根据反馈优化内容并重新执行。
+
+---
 
 ## 🎯 使用场景
 
-1. **Codex 方案审查失败**：评分 < 80，需要优化技术方案后重新审查
-2. **Codex 代码审查失败**：评分 < 80，需要修复代码问题后重新审查
-3. **测试失败**：需要修复后重新运行测试
-4. **其他质量检查失败**：需要改进后重新验证
+1. **Codex 代码审查失败**：评分 < 阈值，需要修复代码问题后重新审查
+2. **测试失败**：需要修复后重新运行测试
+3. **任务执行出错**：需要修正后重新执行
+
+---
 
 ## 🔍 执行流程
 
-### Step 1：查找并读取任务记忆
-
-```bash
-# 加载工具函数库
-source ~/.claude/utils/workflow-helpers.sh
-
-# 获取当前项目路径
-current_path=$(pwd)
-
-# 查找活跃工作流
-workflow_dir=$(find_active_workflow "$current_path")
-
-if [ -z "$workflow_dir" ]; then
-  echo "❌ 未发现工作流任务记忆"
-  exit 1
-fi
-
-# 读取工作流记忆
-memory_file="$workflow_dir/workflow-memory.json"
-```
+### Step 1：定位工作流状态
 
 ```typescript
-const memory = JSON.parse(readFile(memory_file));
+const cwd = process.cwd();
+const configPath = '.claude/config/project-config.json';
 
-// 找到当前步骤（最后一个 failed 或 in_progress 的步骤）
-const currentStep = memory.steps.find(step =>
-  step.status === 'failed' || step.status === 'in_progress'
-);
+if (!fileExists(configPath)) {
+  console.log(`
+❌ 未发现项目配置
 
-if (!currentStep) {
-  throw new Error('没有需要重试的步骤');
+当前路径：${cwd}
+
+💡 请先执行扫描命令：/scan
+  `);
+  return;
+}
+
+const projectConfig = JSON.parse(readFile(configPath));
+const projectId = projectConfig.project?.id;
+
+if (!projectId) {
+  console.log(`🚨 项目配置缺少 project.id，请重新执行 /scan`);
+  return;
+}
+
+// 路径安全校验：projectId 只允许字母数字和连字符
+if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+  console.log(`🚨 项目 ID 包含非法字符: ${projectId}`);
+  return;
+}
+
+const workflowDir = path.join(os.homedir(), '.claude/workflows', projectId);
+const statePath = path.join(workflowDir, 'workflow-state.json');
+
+if (!fileExists(statePath)) {
+  console.log(`❌ 未发现工作流任务`);
+  return;
 }
 ```
 
-### Step 2：显示重试信息
+### Step 2：读取当前状态
+
+```typescript
+const state = JSON.parse(readFile(statePath));
+
+// 校验 tasks_file 路径安全性
+if (!state.tasks_file ||
+    state.tasks_file.includes('..') ||
+    path.isAbsolute(state.tasks_file) ||
+    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+  console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
+  return;
+}
+
+const tasksPath = path.join(workflowDir, state.tasks_file);
+
+// 二次校验：确保最终路径在 workflowDir 内
+if (!tasksPath.startsWith(workflowDir)) {
+  console.log(`🚨 路径穿越检测: ${tasksPath}`);
+  return;
+}
+
+const tasksContent = readFile(tasksPath);
+
+// 检查是否有失败的任务
+const failedTaskId = state.progress.failed[state.progress.failed.length - 1];
+
+if (!failedTaskId && state.status !== 'failed') {
+  console.log(`
+⚠️ 当前没有需要重试的任务
+
+当前任务：${state.current_task}
+状态：${state.status}
+
+💡 如果需要执行当前任务，请使用：/workflow-execute
+  `);
+  return;
+}
+
+// 获取需要重试的任务 ID
+const retryTaskId = failedTaskId || state.current_task;
+
+// 校验 taskId 格式，防止正则注入
+if (!/^T\d+$/.test(retryTaskId)) {
+  console.log(`❌ 无效的任务 ID 格式: ${retryTaskId}`);
+  return;
+}
+
+// 从 tasks.md 提取任务详情（使用转义后的 ID，更宽松的正则）
+const escapedId = retryTaskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const taskRegex = new RegExp(
+  `## ${escapedId}:\\s*([^\\n]+)\\n\\s*<!-- id: ${escapedId}[^>]*-->\\s*\\n([\\s\\S]*?)(?=## T\\d+:|$)`,
+  'm'
+);
+const taskMatch = tasksContent.match(taskRegex);
+
+if (!taskMatch) {
+  console.log(`❌ 无法找到任务 ${retryTaskId}`);
+  return;
+}
+
+const taskName = taskMatch[1].trim();
+const taskBody = taskMatch[2];
+
+// 提取任务属性
+const task = {
+  id: retryTaskId,
+  name: taskName,
+  phase: extractField(taskBody, '阶段'),
+  file: extractField(taskBody, '文件'),
+  requirement: extractField(taskBody, '需求'),
+  quality_gate: taskBody.includes('质量关卡**: true'),
+  threshold: parseInt(extractField(taskBody, '阈值') || '80')
+};
+
+// 获取质量关卡评分（如有）
+const gateKey = Object.keys(state.quality_gates || {}).find(
+  k => state.quality_gates[k].task_id === retryTaskId
+);
+const gateInfo = gateKey ? state.quality_gates[gateKey] : null;
+```
+
+### Step 3：显示重试信息
 
 ```markdown
-🔄 **重试步骤**：{{currentStep.name}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 **重试任务**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**步骤 ID**：{{currentStep.id}}
-**所属阶段**：{{currentStep.phase}}
-**当前状态**：{{currentStep.status}}
+**任务 ID**：{{task.id}}
+**任务名称**：{{task.name}}
+**所属阶段**：{{task.phase}}
+{{#if task.file}}**文件**：`{{task.file}}`{{/if}}
 
-{{if currentStep.status === 'failed'}}
-**失败原因**：{{currentStep.failure_reason}}
-**失败时间**：{{currentStep.failed_at}}
+---
 
-**上次评分**：{{currentStep.actual_score}} / 100
-**要求阈值**：{{currentStep.threshold}}
-**差距**：{{currentStep.threshold - currentStep.actual_score}} 分
-{{endif}}
+{{#if gateInfo}}
+## ⚠️ 质量关卡失败详情
+
+**评分**：{{gateInfo.actual_score}} / 100
+**阈值**：{{gateInfo.threshold}}
+**差距**：{{gateInfo.threshold - gateInfo.actual_score}} 分
+
+💡 **建议**：
+1. 查看 Codex 审查意见
+2. 根据反馈修改代码
+3. 确认修改后重新提交
+
+{{/if}}
 
 ---
 
 ## 📋 重试前检查
 
-{{if currentStep.suggestions}}
-请确保已根据以下建议优化：
-
-{{currentStep.suggestions}}
-{{endif}}
-
-继续重试？
+请确保已：
+1. 查看失败原因或审查意见
+2. 完成必要的修改
+3. 验证修改不会引入新问题
 ```
 
-### Step 3：重置步骤状态
+### Step 4：重置任务状态
 
 ```typescript
-// 重置步骤状态为 pending
-currentStep.status = 'pending';
-currentStep.retry_count = (currentStep.retry_count || 0) + 1;
-currentStep.last_retry_at = new Date().toISOString();
+// 从 failed 数组中移除
+state.progress.failed = state.progress.failed.filter(id => id !== retryTaskId);
 
-// 清除失败信息
-delete currentStep.failed_at;
-delete currentStep.failure_reason;
-delete currentStep.actual_score;
+// 确保不在 completed 中
+state.progress.completed = state.progress.completed.filter(id => id !== retryTaskId);
 
-// 保存
-saveMemory(memory);
+// 设置为当前任务
+state.current_task = retryTaskId;
+state.status = 'in_progress';
+state.updated_at = new Date().toISOString();
+
+// 记录重试次数
+if (!state.retry_counts) state.retry_counts = {};
+state.retry_counts[retryTaskId] = (state.retry_counts[retryTaskId] || 0) + 1;
+
+// 重置质量关卡状态
+if (gateKey) {
+  state.quality_gates[gateKey].actual_score = null;
+  state.quality_gates[gateKey].passed = null;
+}
+
+// 保存状态
+writeFile(statePath, JSON.stringify(state, null, 2));
+
+// 更新 tasks.md 中的状态
+updateTaskStatusInMarkdown(tasksPath, retryTaskId, 'pending');
 ```
 
-### Step 4：重新执行
+### Step 5：开始重试
 
 ```markdown
-✅ 步骤已重置为待执行状态
+✅ 任务已重置为待执行状态
 
-**重试次数**：{{currentStep.retry_count}}
+**任务 ID**：{{task.id}}
+**任务名称**：{{task.name}}
+**重试次数**：{{state.retry_counts[retryTaskId]}}
 
----
+{{#if state.retry_counts[retryTaskId] >= 3}}
+⚠️ **警告**：重试次数已达 {{state.retry_counts[retryTaskId]}} 次
+
+建议考虑：
+- 重新审视技术方案
+- 降低复杂度
+- 寻求帮助或协作
+
+{{/if}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ## 🚀 重新执行
 
@@ -115,65 +239,53 @@ saveMemory(memory);
 \```
 
 💡 **提示**：
-- 确保已根据反馈优化相关内容
-- 重试次数过多（> 3次）可能需要重新设计方案
-- 可以手动编辑 workflow-memory.json 调整阈值（不推荐）
+- 确保已根据反馈完成修改
+- 重试次数过多（> 3次）建议重新评估方案
 ```
 
 ---
 
-## 💡 示例
+## 📦 辅助函数
 
-### 示例：Codex 方案审查失败后重试
+```typescript
+function extractField(body: string, fieldName: string): string | null {
+  const regex = new RegExp(`\\*\\*${fieldName}\\*\\*:\\s*\`?([^\`\\n]+)\`?`);
+  const match = body.match(regex);
+  return match ? match[1].trim() : null;
+}
 
-```
-🔄 重试步骤：Codex 方案审查
+function updateTaskStatusInMarkdown(filePath: string, taskId: string, newStatus: string) {
+  let content = readFile(filePath);
 
-**步骤 ID**：8
-**所属阶段**：design
-**当前状态**：failed
+  // 转义 taskId 防止 regex 注入
+  const escapedId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-**失败原因**：评分 72 低于阈值 80
-**失败时间**：2025-01-19 11:30:00
+  // 先提取该任务段落
+  const taskRegex = new RegExp(
+    `(## ${escapedId}:[\\s\\S]*?)(?=\\n## T\\d+:|$)`,
+    'm'
+  );
+  const taskMatch = content.match(taskRegex);
 
-**上次评分**：72 / 100
-**要求阈值**：80
-**差距**：8 分
+  if (!taskMatch) {
+    console.log(`⚠️ 无法找到任务 ${taskId} 进行状态更新`);
+    return;
+  }
 
----
+  // 在段落内替换状态
+  const taskBlock = taskMatch[1];
+  const statusRegex = /(- \*\*状态\*\*: )([^\n]+)/;
 
-## 📋 重试前检查
+  if (!statusRegex.test(taskBlock)) {
+    console.log(`⚠️ 任务 ${taskId} 缺少状态字段`);
+    return;
+  }
 
-请确保已根据以下建议优化：
-
-### 主要问题
-1. 缺少数据迁移方案
-2. 权限验证逻辑不完整
-3. 性能影响未充分评估
-
-### 改进建议
-1. 补充现有数据如何迁移到多租户架构的详细方案
-2. 完善权限验证中间件的实现细节
-3. 增加性能测试计划和预期指标
-
----
-
-✅ 步骤已重置为待执行状态
-
-**重试次数**：1
-
----
-
-## 🚀 重新执行
-
-执行命令：
-\```bash
-/workflow-execute
-\```
-
-💡 提示：
-- 请先编辑技术方案文档，补充缺失的内容
-- 重新审查时，Codex 会复用之前的会话上下文
+  // 使用 replacer 函数避免 newStatus 中的 $ 被解释为替换 token
+  const updatedBlock = taskBlock.replace(statusRegex, (_, prefix) => prefix + newStatus);
+  content = content.replace(taskBlock, updatedBlock);
+  writeFile(filePath, content);
+}
 ```
 
 ---
@@ -182,7 +294,7 @@ saveMemory(memory);
 
 ### 重试次数限制
 
-- **建议**：每个步骤重试次数不超过 3 次
+- **建议**：每个任务重试次数不超过 3 次
 - **超过 3 次**：可能需要重新设计方案或调整目标
 
 ### 不要过度依赖重试
@@ -191,27 +303,7 @@ saveMemory(memory);
 1. 重新分析需求，可能理解有偏差
 2. 调整技术方案，选择更简单的实现
 3. 咨询团队成员或专家
-4. 降低质量阈值（需要充分理由和记录）
-
-### 手动调整阈值（高级用法）
-
-如果确信当前评分已足够（但低于阈值），可以：
-
-```bash
-# 1. 备份任务记忆
-cp .claude/workflow-memory.json .claude/workflow-memory.backup.json
-
-# 2. 编辑 workflow-memory.json
-# 找到对应步骤，修改 threshold 值
-
-# 3. 或者直接标记步骤为 completed
-# 修改 status 为 "completed"，设置 actual_score 为通过值
-
-# 4. 继续执行
-/workflow-execute
-```
-
-⚠️ **警告**：手动调整可能导致后续质量问题，请谨慎操作并记录理由。
+4. 使用 `/workflow-skip-step` 跳过（需充分理由）
 
 ---
 
@@ -221,15 +313,12 @@ cp .claude/workflow-memory.json .claude/workflow-memory.backup.json
 # 查看当前状态
 /workflow-status
 
-# 查看任务记忆（使用 /workflow-status 命令）
-/workflow-status
-
-# 查看技术方案（如果是方案审查失败）
-cat .claude/tech-design/{{task_name}}.md
+# 继续执行
+/workflow-execute
 
 # 跳过当前步骤（慎用）
 /workflow-skip-step
 
-# 继续执行
-/workflow-execute
+# 查看技术方案
+cat .claude/tech-design/{task_name}.md
 ```
