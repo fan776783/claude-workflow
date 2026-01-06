@@ -105,11 +105,7 @@ async function main() {
   try {
     console.log(`\n[claude-workflow] 安装 v${currentVersion}...`);
 
-    // 1. 首先确保目录存在并写入初始 meta.json
-    await ensureClaudeHome(claudeDir, metaDir);
-    await fs.writeJson(metaFile, installStatus, { spaces: 2 });
-
-    // 2. 安装模板
+    // 1. 先读取旧版本信息（在写入新 meta 之前）
     let previousVersion = null;
     if (await fs.pathExists(metaFile)) {
       try {
@@ -119,6 +115,9 @@ async function main() {
         previousVersion = null;
       }
     }
+
+    // 2. 确保目录存在
+    await ensureClaudeHome(claudeDir, metaDir);
 
     try {
       if (!previousVersion) {
