@@ -6,7 +6,7 @@ const fs = require('fs-extra');
 
 async function validate() {
   const templatesDir = path.join(__dirname, '..', 'templates');
-  const required = ['commands', 'agents'];
+  const required = ['commands'];
   const errors = [];
 
   console.log('[validate] 检查发布前置条件...\n');

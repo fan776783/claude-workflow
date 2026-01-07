@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] - 2026-01-07
+
+### Added
+- **细粒度阶段定义**：将原有 5 个阶段扩展为 9 个，避免单个 phase 任务过多导致上下文溢出
+  - `design`: 接口设计、架构设计、类型定义
+  - `infra`: Store、工具函数、指令、守卫
+  - `ui-layout`: 页面布局、路由、菜单配置
+  - `ui-display`: 展示组件（卡片、表格、列表）
+  - `ui-form`: 表单组件（弹窗、输入、选择器）
+  - `ui-integrate`: 组件集成、注册、组装
+  - `test`/`verify`/`deliver`: 保持不变
+- **连续任务数限制**：兜底机制，连续执行超过 5 个任务时强制暂停
+- **state.consecutive_count**：追踪当前会话连续执行的任务数
+
+### Changed
+- `workflow-start.md` 和 `workflow-execute.md` 的 `determinePhase`/`extractPhaseFromTask` 函数同步更新
+- 暂停时提示新开会话避免上下文压缩
+
+---
+
+## [1.2.5] - 2026-01-07
+
+### Fixed
+- **P0 路径穿越漏洞**：新增 `resolveUnder()` 统一路径安全函数，防止 `../` 路径穿越攻击
+- **P0 正则捕获 emoji 丢失**：修复 `extractCurrentTask()` 正则，正确处理标题中的状态 emoji
+- **P0 Subagent 失败处理**：添加 try/catch + JSON 解析，采用 fail-closed 策略
+- **P1 phase 定义不一致**：统一阶段语义定义
+- **P1 quality_gate 解析硬编码**：使用 `parseQualityGate()` 统一解析
+- **P1 emoji 处理硬编码**：使用 `STATUS_EMOJI_REGEX` 统一处理
+- **P2 failed.push 无去重**：使用 `addUnique()` 替代直接 push
+- **P2 extractSection 正则注入**：使用 `escapeRegExp()` 转义
+
+### Added
+- **use_subagent 自动设置**：任务数 > 5 时自动在 workflow-state.json 中设置 `use_subagent: true`
+- **共享工具函数**：`resolveUnder`, `escapeRegExp`, `getStatusEmoji`, `parseQualityGate`, `addUnique`
+
+### Changed
+- 同步修复到 `workflow-status.md`, `workflow-retry-step.md`, `workflow-skip-step.md`
+
+---
+
 ## [1.2.3] - 2026-01-06
 
 ### Changed
