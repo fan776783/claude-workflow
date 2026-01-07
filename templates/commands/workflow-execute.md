@@ -1,15 +1,137 @@
 ---
 description: 执行工作流下一步 - 读取任务定义并执行
+argument-hint: "[--step | --phase | --all]"
 allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), Task(*), TaskOutput(*), AskUserQuestion(*), TodoWrite(*)
 ---
 
-# 智能工作流执行（v2）
+# 智能工作流执行（v2.1）
 
-读取 tasks.md 中的当前任务段落，直接执行。
+读取 tasks.md 中的当前任务段落，支持多种执行模式。
+
+---
+
+## 共享工具函数
+
+```typescript
+// ═══════════════════════════════════════════════════════════════
+// Util 1: 统一路径安全函数
+// ═══════════════════════════════════════════════════════════════
+
+function resolveUnder(baseDir: string, relativePath: string): string | null {
+  if (!relativePath ||
+      path.isAbsolute(relativePath) ||
+      relativePath.includes('..')) {
+    return null;
+  }
+  if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(relativePath)) {
+    return null;
+  }
+  if (/^\/|\/\/|\/\s*$/.test(relativePath)) {
+    return null;
+  }
+  const resolved = path.resolve(baseDir, relativePath);
+  const normalizedBase = path.resolve(baseDir);
+  if (resolved !== normalizedBase &&
+      !resolved.startsWith(normalizedBase + path.sep)) {
+    return null;
+  }
+  return resolved;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 2: 统一状态 Emoji 处理
+// ═══════════════════════════════════════════════════════════════
+
+const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+
+function extractStatusFromTitle(title: string): string | null {
+  const match = title.match(STATUS_EMOJI_REGEX);
+  if (!match) return null;
+  const emoji = match[0].trim();
+  if (emoji === '✅') return 'completed';
+  if (emoji === '⏳') return 'in_progress';
+  if (emoji === '❌') return 'failed';
+  if (emoji.startsWith('⏭')) return 'skipped';
+  return null;
+}
+
+function getStatusEmoji(status: string): string {
+  if (status.includes('completed')) return ' ✅';
+  if (status.includes('in_progress')) return ' ⏳';
+  if (status.includes('failed')) return ' ❌';
+  if (status.includes('skipped')) return ' ⏭️';
+  return '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 3: 去重添加 + 正则转义
+// ═══════════════════════════════════════════════════════════════
+
+function addUnique<T>(arr: T[], item: T): void {
+  if (!arr.includes(item)) arr.push(item);
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 4: 解析 quality_gate（只有明确 true 才返回 true）
+// ═══════════════════════════════════════════════════════════════
+
+function parseQualityGate(body: string): boolean {
+  const match = body.match(/\*\*质量关卡\*\*:\s*(true|false)/i);
+  if (!match) return false;
+  return match[1].toLowerCase() === 'true';
+}
+```
+
+---
+
+## 执行模式
+
+| 模式 | 参数 | 说明 | 中断点 |
+|------|------|------|--------|
+| 单步 | `--step` | 每个任务后暂停 | 每个任务 |
+| 阶段 | `--phase` | 按大阶段连续执行 | 阶段变化时 (P0→P1) |
+| 连续 | `--all` | 执行到质量关卡 | 质量关卡 / git_commit |
+
+### Subagent 模式
+
+| 参数 | 说明 |
+|------|------|
+| `--subagent` | 强制启用 subagent 模式 |
+| `--no-subagent` | 强制禁用 subagent 模式 |
+| _(无参数)_ | **自动检测**：任务数 > 5 时自动启用 |
+
+> **Subagent 模式优势**：每个任务在独立 subagent 中执行，主会话只接收结果摘要，避免上下文膨胀，支持连续执行多个阶段。
+
+**默认模式**：从 `workflow-state.json` 的 `execution_mode` 读取（由 `/workflow-start` 创建时设置为 `phase`）。
 
 ---
 
 ## 🔍 执行流程
+
+### Step 0：解析执行模式
+
+```typescript
+const args = $ARGUMENTS.join(' ');
+
+// 解析命令行参数
+let executionModeOverride: string | null = null;
+let useSubagentOverride: boolean | null = null;
+
+if (args.includes('--step')) executionModeOverride = 'step';
+else if (args.includes('--phase')) executionModeOverride = 'phase';
+else if (args.includes('--all')) executionModeOverride = 'quality_gate';
+
+// subagent 模式可与其他模式组合
+if (args.includes('--subagent')) useSubagentOverride = true;
+else if (args.includes('--no-subagent')) useSubagentOverride = false;
+```
+
+---
 
 ### Step 1：读取工作流状态
 
@@ -67,6 +189,10 @@ const state = JSON.parse(readFile(statePath));
 // 状态预检查：如果处于失败状态，提示用户使用 retry
 if (state.status === 'failed') {
   console.log(`
+📂 工作流目录：${workflowDir}
+📄 任务清单：${state.tasks_file}
+📍 当前任务：${state.current_task}
+
 ⚠️ 当前工作流处于失败状态
 
 失败任务：${state.current_task}
@@ -78,33 +204,17 @@ if (state.status === 'failed') {
   `);
   return;
 }
-
-console.log(`
-📂 工作流目录：${workflowDir}
-📄 任务清单：${state.tasks_file}
-📍 当前任务：${state.current_task}
-`);
 ```
 
 ---
 
-### Step 2：读取任务文件
+### Step 2：路径安全校验
 
 ```typescript
-// 校验 tasks_file 路径安全性
-if (!state.tasks_file ||
-    state.tasks_file.includes('..') ||
-    path.isAbsolute(state.tasks_file) ||
-    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+// 使用统一路径安全函数校验 tasks_file
+const tasksPath = resolveUnder(workflowDir, state.tasks_file);
+if (!tasksPath) {
   console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
-  return;
-}
-
-const tasksPath = path.join(workflowDir, state.tasks_file);
-
-// 二次校验：确保最终路径在 workflowDir 内
-if (!tasksPath.startsWith(workflowDir)) {
-  console.log(`🚨 路径穿越检测: ${tasksPath}`);
   return;
 }
 
@@ -113,7 +223,35 @@ if (!fileExists(tasksPath)) {
   return;
 }
 
+// 校验 tech_design 路径（相对于项目根目录）
+let techDesignPath: string | null = null;
+if (state.tech_design) {
+  techDesignPath = resolveUnder(cwd, state.tech_design);
+  if (!techDesignPath) {
+    console.log(`🚨 技术方案路径不安全: ${state.tech_design}`);
+    return;
+  }
+}
+
+// 安全读取任务文件
 const tasksContent = readFile(tasksPath);
+const totalTaskCount = countTasks(tasksContent);
+
+// 确定执行模式（命令行参数 > state 配置 > 默认 step）
+const executionMode = executionModeOverride || state.execution_mode || 'step';
+const pauseBeforeCommit = state.pause_before_commit !== false; // 默认 true
+
+// 确定是否使用 subagent 模式
+const autoSubagent = totalTaskCount > 5;
+const useSubagent = useSubagentOverride ?? state.use_subagent ?? autoSubagent;
+
+console.log(`
+📂 工作流目录：${workflowDir}
+📄 任务清单：${state.tasks_file}
+📍 当前任务：${state.current_task}
+⚡ 执行模式：${executionMode}${useSubagent ? ' (subagent)' : ''}
+${useSubagent && autoSubagent && useSubagentOverride === null ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
+`);
 ```
 
 ---
@@ -134,22 +272,27 @@ function extractCurrentTask(content: string, taskId: string): Task | null {
     return null;
   }
 
-  // 使用更宽松的正则匹配任务段落（允许可选空行和灵活空格）
+  const escapedId = escapeRegExp(taskId);
+
+  // 新正则：捕获完整标题（包含可能的 emoji），后续再处理
   const regex = new RegExp(
-    `## ${taskId}:\\s*([^\\n]+)\\n` +    // 标题
-    `\\s*<!-- id: ${taskId}[^>]*-->\\s*\\n` +  // ID 注释（允许前后空格）
-    `([\\s\\S]*?)` +                     // 内容
-    `(?=\\n## T\\d+:|$)`,                // 下一个任务或结束
+    `##+ ${escapedId}:\\s*(.+?)\\s*\\n` +              // 标题（捕获完整内容）
+    `(?:\\s*<!-- id: ${escapedId}[^>]*-->\\s*\\n)?` +  // 可选的 ID 注释
+    `([\\s\\S]*?)` +                                     // 内容
+    `(?=\\n##+ T\\d+:|$)`,                               // 下一个任务或结束
     'm'
   );
 
   const match = content.match(regex);
   if (!match) return null;
 
-  const name = match[1].trim();
+  // 从标题中提取状态 emoji 和纯标题
+  const rawTitle = match[1].trim();
+  const titleStatus = extractStatusFromTitle(rawTitle);
+  const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
   const body = match[2];
 
-  // 解析字段
+  // 解析字段（兼容 `- **字段**:` 和 `**字段**:` 两种格式）
   return {
     id: taskId,
     name: name,
@@ -157,12 +300,13 @@ function extractCurrentTask(content: string, taskId: string): Task | null {
     file: extractField(body, '文件'),
     leverage: extractField(body, '复用'),
     design_ref: extractField(body, '设计参考'),
-    requirement: extractField(body, '需求'),
+    requirement: extractField(body, '需求') || extractField(body, '内容'),
     actions: extractField(body, 'actions'),
     depends: extractField(body, '依赖'),
-    quality_gate: body.includes('质量关卡**: true'),
+    quality_gate: parseQualityGate(body),
     threshold: parseInt(extractField(body, '阈值') || '80'),
-    status: extractField(body, '状态')
+    // 优先使用标题状态，其次使用字段状态
+    status: titleStatus || extractField(body, '状态') || 'pending'
   };
 }
 
@@ -199,20 +343,6 @@ if (state.progress.completed.includes(currentTask.id)) {
 ```typescript
 // 同时加载全局约束
 const constraints = extractConstraints(tasksContent);
-
-// 校验 tech_design 路径安全性
-function validateTechDesignPath(techDesign: string, workflowDir: string): boolean {
-  if (!techDesign) return false;
-  if (techDesign.includes('..')) return false;
-  if (path.isAbsolute(techDesign) && !techDesign.startsWith(workflowDir + path.sep)) return false;
-  return true;
-}
-
-const techDesignPath = state.tech_design;
-if (!validateTechDesignPath(techDesignPath, workflowDir)) {
-  console.log(`🚨 技术方案路径不安全: ${techDesignPath}`);
-  return;
-}
 
 console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -255,7 +385,7 @@ if (!actionsRaw || actionsRaw.trim().length === 0) {
 💡 支持的 actions：create_file, edit_file, run_tests, codex_review, git_commit
   `);
 
-  state.progress.failed.push(currentTask.id);
+  addUnique(state.progress.failed, currentTask.id);
   state.status = 'failed';
   state.failure_reason = 'Missing actions field';
   state.updated_at = new Date().toISOString();
@@ -264,65 +394,198 @@ if (!actionsRaw || actionsRaw.trim().length === 0) {
   return;
 }
 
-const actions = actionsRaw.split(',').map(a => a.trim()).filter(Boolean);
+// ═══════════════════════════════════════════════════════════════
+// Subagent 模式：委托给独立 subagent 执行，避免上下文膨胀
+// ═══════════════════════════════════════════════════════════════
+if (useSubagent) {
+  console.log(`🤖 **Subagent 模式**：委托任务 ${currentTask.id} 执行...\n`);
 
-try {
-  for (const action of actions) {
-    switch (action) {
-      case 'create_file':
-        await executeCreateFile(currentTask, state);
-        break;
+  try {
+    const subagentResult = await Task({
+      subagent_type: 'general-purpose',
+      description: `执行 ${currentTask.id}: ${currentTask.name}`,
+      prompt: `
+你是工作流任务执行器。请执行以下任务：
 
-      case 'edit_file':
-        await executeEditFile(currentTask, state);
-        break;
+## 任务信息
+- **ID**: ${currentTask.id}
+- **名称**: ${currentTask.name}
+- **阶段**: ${currentTask.phase}
+- **文件**: ${currentTask.file || '无指定'}
+- **需求**: ${currentTask.requirement}
+- **动作**: ${currentTask.actions}
 
-      case 'run_tests':
-        await executeRunTests(currentTask, state);
-        break;
+## 上下文
+- 项目根目录: ${cwd}
+- 技术方案: ${techDesignPath || '无'}
 
-      case 'codex_review':
-        const reviewResult = await executeCodexReview(currentTask, state);
-        if (!reviewResult.passed) {
-          handleQualityGateFailure(
-            currentTask, state, statePath, tasksPath,
-            reviewResult.score, reviewResult.output
-          );
-          return;
+## 设计参考
+${currentTask.design_ref ? `参见技术方案中的 "${currentTask.design_ref}" 章节` : '无'}
+
+## 约束
+${extractConstraints(tasksContent).map(c => '- ' + c).join('\n')}
+
+## 执行要求
+1. 先用 mcp__auggie-mcp__codebase-retrieval 获取相关代码上下文
+2. 根据 actions 执行操作（create_file/edit_file/run_tests/codex_review）
+3. 遵循多模型协作流程（如适用）
+
+## 输出格式要求（必须遵守）
+完成后请在响应末尾输出 JSON 格式的结果：
+\`\`\`json
+{
+  "success": true,
+  "changed_files": ["file1.ts", "file2.ts"],
+  "summary": "简要说明执行结果"
+}
+\`\`\`
+
+如果执行失败，输出：
+\`\`\`json
+{
+  "success": false,
+  "error": "失败原因说明"
+}
+\`\`\`
+`
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // 解析结构化结果 - Fail-Closed 策略
+    // 宁可误报失败也不要误报成功
+    // ═══════════════════════════════════════════════════════════
+
+    const resultStr = String(subagentResult);
+
+    // 宽容匹配：支持 json/JSON/无标注，大小写不敏感
+    const jsonMatch = resultStr.match(/\`\`\`(?:json)?\s*([\s\S]*?)\s*\`\`\`/i);
+
+    let parseError: string | null = null;
+    let isSuccess = false;
+
+    if (!jsonMatch) {
+      parseError = 'Subagent 未返回 JSON 格式结果';
+    } else {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+
+        // 严格 schema 校验
+        if (typeof parsed.success !== 'boolean') {
+          parseError = 'Invalid schema: success 必须是 boolean 类型';
+        } else if (parsed.success === true) {
+          isSuccess = true;
+          console.log(`✅ Subagent 完成: ${currentTask.id}`);
+          if (parsed.changed_files?.length > 0) {
+            console.log(`   修改文件: ${parsed.changed_files.join(', ')}`);
+          }
+          if (parsed.summary) {
+            console.log(`   摘要: ${parsed.summary}`);
+          }
+        } else {
+          // success === false - 容错处理 error 字段
+          parseError = parsed.error ? String(parsed.error) : 'Subagent 报告失败（无详细原因）';
         }
-        break;
-
-      case 'git_commit':
-        await executeGitCommit(currentTask, state);
-        break;
-
-      default:
-        throw new Error(`未知的 action 类型: ${action}。支持的类型: create_file, edit_file, run_tests, codex_review, git_commit`);
+      } catch (e) {
+        parseError = `JSON 解析错误: ${e instanceof Error ? e.message : String(e)}`;
+      }
     }
+
+    if (!isSuccess) {
+      throw new Error(parseError || 'Unknown subagent error');
+    }
+
+    // 成功：继续进入 Step 6 更新状态
+
+  } catch (error) {
+    // ═══════════════════════════════════════════════════════════
+    // 与直接执行路径一致的失败处理
+    // ═══════════════════════════════════════════════════════════
+
+    const errorMessage = (error instanceof Error ? error.message : String(error))
+      .replace(/[\r\n]+/g, ' ')
+      .substring(0, 200);
+
+    addUnique(state.progress.failed, currentTask.id);
+    state.status = 'failed';
+    state.failure_reason = errorMessage;
+    state.updated_at = new Date().toISOString();
+    writeFile(statePath, JSON.stringify(state, null, 2));
+    updateTaskStatusInMarkdown(tasksPath, currentTask.id, `❌ failed (${errorMessage.substring(0, 50)})`);
+
+    console.log(`
+🛑 **Subagent 执行失败**
+
+任务：${currentTask.id} - ${currentTask.name}
+原因：${errorMessage}
+
+💡 修复后执行：/workflow-retry-step
+    `);
+    return;
   }
-} catch (error) {
-  // 统一错误消息提取
-  const errorMessage = (error instanceof Error ? error.message : String(error))
-    .replace(/[\r\n]+/g, ' ')  // 单行化
-    .substring(0, 200);        // 截断长度
+} else {
+  // ═══════════════════════════════════════════════════════════════
+  // 直接执行模式（原有逻辑）
+  // ═══════════════════════════════════════════════════════════════
+  const actions = actionsRaw.split(',').map(a => a.trim()).filter(Boolean);
 
-  // 失败处理（去重添加）
-  addUnique(state.progress.failed, currentTask.id);
-  state.status = 'failed';
-  state.failure_reason = errorMessage;
-  state.updated_at = new Date().toISOString();
-  writeFile(statePath, JSON.stringify(state, null, 2));
-  updateTaskStatusInMarkdown(tasksPath, currentTask.id, `❌ failed (${errorMessage.substring(0, 50)})`);
+  try {
+    for (const action of actions) {
+      switch (action) {
+        case 'create_file':
+          await executeCreateFile(currentTask, state);
+          break;
 
-  console.log(`
+        case 'edit_file':
+          await executeEditFile(currentTask, state);
+          break;
+
+        case 'run_tests':
+          await executeRunTests(currentTask, state);
+          break;
+
+        case 'codex_review':
+          const reviewResult = await executeCodexReview(currentTask, state);
+          if (!reviewResult.passed) {
+            handleQualityGateFailure(
+              currentTask, state, statePath, tasksPath,
+              reviewResult.score, reviewResult.output
+            );
+            return;
+          }
+          break;
+
+        case 'git_commit':
+          await executeGitCommit(currentTask, state);
+          break;
+
+        default:
+          throw new Error(`未知的 action 类型: ${action}。支持的类型: create_file, edit_file, run_tests, codex_review, git_commit`);
+      }
+    }
+  } catch (error) {
+    // 统一错误消息提取
+    const errorMessage = (error instanceof Error ? error.message : String(error))
+      .replace(/[\r\n]+/g, ' ')  // 单行化
+      .substring(0, 200);        // 截断长度
+
+    // 失败处理（去重添加）
+    addUnique(state.progress.failed, currentTask.id);
+    state.status = 'failed';
+    state.failure_reason = errorMessage;
+    state.updated_at = new Date().toISOString();
+    writeFile(statePath, JSON.stringify(state, null, 2));
+    updateTaskStatusInMarkdown(tasksPath, currentTask.id, `❌ failed (${errorMessage.substring(0, 50)})`);
+
+    console.log(`
 🛑 **任务执行失败**
 
 任务：${currentTask.id} - ${currentTask.name}
 原因：${errorMessage}
 
 💡 修复后执行：/workflow-retry-step
-  `);
-  return;
+    `);
+    return;
+  }
 }
 ```
 
@@ -367,7 +630,7 @@ console.log(`
 
 ---
 
-### Step 7：显示下一步
+### Step 7：判断是否继续执行
 
 ```typescript
 if (state.status === 'completed') {
@@ -388,20 +651,103 @@ if (state.status === 'completed') {
 
 const nextTask = extractCurrentTask(tasksContent, state.current_task);
 
+// 判断是否应该继续执行
+function shouldContinueExecution(
+  currentTask: Task,
+  nextTask: Task,
+  executionMode: string,
+  pauseBeforeCommit: boolean
+): { continue: boolean; reason?: string } {
+  // 单步模式：始终暂停
+  if (executionMode === 'step') {
+    return { continue: false, reason: '单步模式' };
+  }
+
+  // git_commit 前暂停确认
+  if (pauseBeforeCommit && nextTask.actions?.includes('git_commit')) {
+    return { continue: false, reason: '提交前确认' };
+  }
+
+  // 质量关卡暂停
+  if (nextTask.quality_gate) {
+    return { continue: false, reason: '质量关卡' };
+  }
+
+  // 阶段模式：阶段变化时暂停
+  if (executionMode === 'phase') {
+    const currentPhase = extractPhaseFromTask(currentTask);
+    const nextPhase = extractPhaseFromTask(nextTask);
+    if (currentPhase !== nextPhase) {
+      return { continue: false, reason: `阶段变化 (${currentPhase} → ${nextPhase})` };
+    }
+  }
+
+  // 连续模式（quality_gate）：只在质量关卡暂停（已在上面处理）
+  return { continue: true };
+}
+
+// 从任务中提取阶段（design/implement/test/verify/deliver）
+function extractPhaseFromTask(task: Task): string {
+  // 优先使用任务的 phase 字段
+  if (task.phase) return task.phase;
+
+  // 从任务名称推断阶段（扩展同义词）
+  const name = task.name.toLowerCase();
+
+  // 设计阶段
+  if (/设计|design|interface|接口|架构|architecture/.test(name)) return 'design';
+
+  // 测试阶段
+  if (/测试|test|单元|unit|集成|integration/.test(name)) return 'test';
+
+  // 验证阶段
+  if (/审查|review|验证|verify|验收|qa|确认|check/.test(name)) return 'verify';
+
+  // 交付阶段
+  if (/提交|commit|发布|release|部署|deploy|文档|doc/.test(name)) return 'deliver';
+
+  // 默认实现阶段
+  return 'implement';
+}
+
+const decision = shouldContinueExecution(currentTask, nextTask, executionMode, pauseBeforeCommit);
+
 console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **进度**: ${state.progress.completed.length} / ${countTasks(tasksContent)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚀 **下一个任务**: ${nextTask.id} - ${nextTask.name}
-**阶段**: ${nextTask.phase}
+✅ 已完成：${currentTask.id} - ${currentTask.name}
+🚀 下一任务：${nextTask.id} - ${nextTask.name}
+**阶段**: ${nextTask.phase || extractPhaseFromTask(nextTask)}
 ${nextTask.file ? `**文件**: \`${nextTask.file}\`` : ''}
+`);
 
-执行命令：
+if (decision.continue) {
+  console.log(`
+⏩ **连续执行中**（模式: ${executionMode}）
+
+正在自动执行下一个任务...
+`);
+  // 连续执行：继续执行下一个任务
+  // Claude 将自动继续执行 Step 3-7 的逻辑
+  // [CONTINUE_EXECUTION]
+} else {
+  // 阶段切换时建议新开会话
+  const isPhaseChange = decision.reason.includes('阶段变化');
+  const sessionHint = isPhaseChange ? `
+💡 **建议**：阶段已完成，推荐 **新开会话** 继续执行以避免上下文压缩。
+` : '';
+
+  console.log(`
+⏸️ **已暂停**（${decision.reason}）
+${sessionHint}
+**继续执行**：
 \`\`\`bash
 /workflow-execute
 \`\`\`
 `);
+}
 ```
 
 ---
@@ -707,39 +1053,53 @@ function extractField(body: string, fieldName: string): string | null {
 function updateTaskStatusInMarkdown(filePath: string, taskId: string, newStatus: string) {
   let content = readFile(filePath);
 
-  // 转义 taskId 防止 regex 注入
-  const escapedId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 使用共享的 escapeRegExp 函数
+  const escapedId = escapeRegExp(taskId);
 
-  // 先提取该任务段落
+  // 兼容 ## 和 ### 格式
   const taskRegex = new RegExp(
-    `(## ${escapedId}:[\\s\\S]*?)(?=\\n## T\\d+:|$)`,
+    `(##+ ${escapedId}:[\\s\\S]*?)(?=\\n##+ T\\d+:|$)`,
     'm'
   );
   const taskMatch = content.match(taskRegex);
 
   if (!taskMatch) {
-    console.log(`⚠️ 无法找到任务 ${taskId} 进行状态更新`);
+    console.log(`⚠️ 未找到任务 ${taskId}`);
     return;
   }
 
-  // 在段落内替换状态
   const taskBlock = taskMatch[1];
-  const statusRegex = /(- \*\*状态\*\*: )([^\n]+)/;
+  let updatedBlock = taskBlock;
 
-  if (!statusRegex.test(taskBlock)) {
-    console.log(`⚠️ 任务 ${taskId} 缺少状态字段`);
-    return;
+  // 尝试方式1: 更新 `- **状态**:` 字段
+  const statusFieldRegex = /(- \*\*状态\*\*:\s*)([^\n]+)/;
+  if (statusFieldRegex.test(taskBlock)) {
+    updatedBlock = taskBlock.replace(statusFieldRegex, (_, prefix) => prefix + newStatus);
+  }
+  // 尝试方式2: 更新标题中的状态 emoji
+  else {
+    // 使用 escapedId 而非写死 T\d+
+    const titleLineRegex = new RegExp(
+      `(##+ ${escapedId}:\\s*)(.+?)(\\s*\\n)`,
+      'm'
+    );
+
+    const statusEmoji = getStatusEmoji(newStatus);
+
+    updatedBlock = taskBlock.replace(titleLineRegex, (_, prefix, title, suffix) => {
+      // 移除旧的状态 emoji（使用共享正则）
+      const cleanTitle = title.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
+      return `${prefix}${cleanTitle}${statusEmoji}${suffix}`;
+    });
   }
 
-  // 使用 replacer 函数避免 newStatus 中的 $ 被解释为替换 token
-  const updatedBlock = taskBlock.replace(statusRegex, (_, prefix) => prefix + newStatus);
   content = content.replace(taskBlock, updatedBlock);
   writeFile(filePath, content);
 }
 
 function findNextTask(content: string, progress: Progress): string | null {
-  // 找到所有任务 ID
-  const taskIds = [...content.matchAll(/## (T\d+):/g)].map(m => m[1]);
+  // 找到所有任务 ID（兼容 ## 和 ### 格式）
+  const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
 
   // 找到第一个未完成的
   for (const id of taskIds) {
@@ -754,7 +1114,7 @@ function findNextTask(content: string, progress: Progress): string | null {
 }
 
 function countTasks(content: string): number {
-  return (content.match(/## T\d+:/g) || []).length;
+  return (content.match(/##+ T\d+:/g) || []).length;
 }
 
 function extractConstraints(content: string): string[] {
@@ -769,8 +1129,9 @@ function extractConstraints(content: string): string[] {
 
 function extractSection(techDesign: string, sectionRef: string): string | null {
   // 从 tech-design.md 中提取指定章节
+  const escapedRef = escapeRegExp(sectionRef);
   const regex = new RegExp(
-    `## ${sectionRef.replace('.', '\\.')}[^#]*`,
+    `## ${escapedRef}[\\s\\S]*?(?=\\n## |$)`,
     'm'
   );
   const match = techDesign.match(regex);
@@ -809,7 +1170,7 @@ function handleQualityGateFailure(
   score: number,
   output: string
 ): void {
-  state.progress.failed.push(task.id);
+  addUnique(state.progress.failed, task.id);
   state.status = 'failed';
   state.failure_reason = `质量关卡评分 ${score} 低于阈值 ${task.threshold}`;
   state.updated_at = new Date().toISOString();

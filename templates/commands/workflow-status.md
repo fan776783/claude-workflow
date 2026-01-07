@@ -9,6 +9,71 @@ allowed-tools: Read(*), Glob(*)
 
 ---
 
+## 共享工具函数
+
+```typescript
+// ═══════════════════════════════════════════════════════════════
+// Util 1: 统一路径安全函数
+// ═══════════════════════════════════════════════════════════════
+
+function resolveUnder(baseDir: string, relativePath: string): string | null {
+  if (!relativePath ||
+      path.isAbsolute(relativePath) ||
+      relativePath.includes('..')) {
+    return null;
+  }
+  if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(relativePath)) {
+    return null;
+  }
+  if (/^\/|\/\/|\/\s*$/.test(relativePath)) {
+    return null;
+  }
+  const resolved = path.resolve(baseDir, relativePath);
+  const normalizedBase = path.resolve(baseDir);
+  if (resolved !== normalizedBase &&
+      !resolved.startsWith(normalizedBase + path.sep)) {
+    return null;
+  }
+  return resolved;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 2: 统一状态 Emoji 处理
+// ═══════════════════════════════════════════════════════════════
+
+const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+
+function extractStatusFromTitle(title: string): string | null {
+  const match = title.match(STATUS_EMOJI_REGEX);
+  if (!match) return null;
+  const emoji = match[0].trim();
+  if (emoji === '✅') return 'completed';
+  if (emoji === '⏳') return 'in_progress';
+  if (emoji === '❌') return 'failed';
+  if (emoji.startsWith('⏭')) return 'skipped';
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 3: 正则转义 + 质量关卡解析
+// ═══════════════════════════════════════════════════════════════
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseQualityGate(body: string): boolean {
+  const match = body.match(/\*\*质量关卡\*\*:\s*(true|false)/i);
+  if (!match) return false;
+  return match[1].toLowerCase() === 'true';
+}
+```
+
+---
+
+
+
 ## 🔍 检查逻辑
 
 ### Step 1：定位工作流目录
@@ -73,20 +138,10 @@ console.log(`
 ```typescript
 const state = JSON.parse(readFile(statePath));
 
-// 校验 tasks_file 路径安全性
-if (!state.tasks_file ||
-    state.tasks_file.includes('..') ||
-    path.isAbsolute(state.tasks_file) ||
-    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+// 使用统一路径安全函数校验 tasks_file
+const tasksPath = resolveUnder(workflowDir, state.tasks_file);
+if (!tasksPath) {
   console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
-  return;
-}
-
-const tasksPath = path.join(workflowDir, state.tasks_file);
-
-// 二次校验：确保最终路径在 workflowDir 内
-if (!tasksPath.startsWith(workflowDir)) {
-  console.log(`🚨 路径穿越检测: ${tasksPath}`);
   return;
 }
 
@@ -117,7 +172,7 @@ if (totalTasks === 0) {
 
 任务文件：${tasksPath}
 可能原因：
-- 文件格式不符合预期（需要 ## T1: 格式的标题）
+- 文件格式不符合预期（需要 ## T1: 或 ### T1: 格式的标题）
 - 文件内容为空
 
 💡 请检查文件格式是否符合 tasks.md 模板
@@ -291,25 +346,31 @@ const progressPercent = totalTasks > 0
 ```typescript
 function parseTasksFromMarkdown(content: string): Task[] {
   const tasks: Task[] = [];
-  // 更宽松的正则（允许可选空行和灵活空格）
-  const regex = /## (T\d+):\s*([^\n]+)\n\s*<!-- id: (T\d+)[^>]*-->\s*\n([\s\S]*?)(?=## T\d+:|$)/gm;
+
+  // 新正则：捕获完整标题，后续处理 emoji
+  const regex = /##+ (T\d+):\s*(.+?)\s*\n(?:\s*<\!-- id: T\d+[^>]*-->\s*\n)?([\s\S]*?)(?=\n##+ T\d+:|$)/gm;
 
   let match;
   while ((match = regex.exec(content)) !== null) {
-    const [, id, name, , body] = match;
+    const [, id, rawTitle, body] = match;
+
+    // 从标题提取状态
+    const titleStatus = extractStatusFromTitle(rawTitle);
+    const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
+
     tasks.push({
       id,
-      name: name.trim(),
+      name,
       phase: extractField(body, '阶段'),
       file: extractField(body, '文件'),
       leverage: extractField(body, '复用'),
       design_ref: extractField(body, '设计参考'),
-      requirement: extractField(body, '需求'),
+      requirement: extractField(body, '需求') || extractField(body, '内容'),
       actions: extractField(body, 'actions'),
       depends: extractField(body, '依赖'),
-      quality_gate: body.includes('质量关卡**: true'),
+      quality_gate: parseQualityGate(body),
       threshold: parseInt(extractField(body, '阈值') || '80'),
-      status: extractField(body, '状态')
+      status: titleStatus || extractField(body, '状态') || 'pending'
     });
   }
 

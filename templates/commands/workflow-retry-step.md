@@ -3,6 +3,79 @@ description: 重试当前步骤 - 用于质量关卡失败后优化并重新审�
 allowed-tools: Read(*), Write(*), Edit(*), SlashCommand(*)
 ---
 
+## 共享工具函数
+
+```typescript
+// ═══════════════════════════════════════════════════════════════
+// Util 1: 统一路径安全函数
+// ═══════════════════════════════════════════════════════════════
+
+function resolveUnder(baseDir: string, relativePath: string): string | null {
+  if (!relativePath ||
+      path.isAbsolute(relativePath) ||
+      relativePath.includes('..')) {
+    return null;
+  }
+  if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(relativePath)) {
+    return null;
+  }
+  if (/^\/|\/\/|\/\s*$/.test(relativePath)) {
+    return null;
+  }
+  const resolved = path.resolve(baseDir, relativePath);
+  const normalizedBase = path.resolve(baseDir);
+  if (resolved !== normalizedBase &&
+      !resolved.startsWith(normalizedBase + path.sep)) {
+    return null;
+  }
+  return resolved;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 2: 统一状态 Emoji 处理
+// ═══════════════════════════════════════════════════════════════
+
+const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+
+function extractStatusFromTitle(title: string): string | null {
+  const match = title.match(STATUS_EMOJI_REGEX);
+  if (!match) return null;
+  const emoji = match[0].trim();
+  if (emoji === '✅') return 'completed';
+  if (emoji === '⏳') return 'in_progress';
+  if (emoji === '❌') return 'failed';
+  if (emoji.startsWith('⏭')) return 'skipped';
+  return null;
+}
+
+function getStatusEmoji(status: string): string {
+  if (status.includes('completed')) return ' ✅';
+  if (status.includes('in_progress')) return ' ⏳';
+  if (status.includes('failed')) return ' ❌';
+  if (status.includes('skipped')) return ' ⏭️';
+  return '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Util 3: 正则转义 + 质量关卡解析
+// ═══════════════════════════════════════════════════════════════
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseQualityGate(body: string): boolean {
+  const match = body.match(/\*\*质量关卡\*\*:\s*(true|false)/i);
+  if (!match) return false;
+  return match[1].toLowerCase() === 'true';
+}
+```
+
+---
+
+
+
 # 重试当前步骤（v2）
 
 用于质量关卡失败或任务执行失败后，根据反馈优化内容并重新执行。
@@ -64,20 +137,10 @@ if (!fileExists(statePath)) {
 ```typescript
 const state = JSON.parse(readFile(statePath));
 
-// 校验 tasks_file 路径安全性
-if (!state.tasks_file ||
-    state.tasks_file.includes('..') ||
-    path.isAbsolute(state.tasks_file) ||
-    !/^[a-zA-Z0-9_\-\.]+$/.test(state.tasks_file)) {
+// 使用统一路径安全函数校验 tasks_file
+const tasksPath = resolveUnder(workflowDir, state.tasks_file);
+if (!tasksPath) {
   console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
-  return;
-}
-
-const tasksPath = path.join(workflowDir, state.tasks_file);
-
-// 二次校验：确保最终路径在 workflowDir 内
-if (!tasksPath.startsWith(workflowDir)) {
-  console.log(`🚨 路径穿越检测: ${tasksPath}`);
   return;
 }
 
@@ -107,10 +170,12 @@ if (!/^T\d+$/.test(retryTaskId)) {
   return;
 }
 
-// 从 tasks.md 提取任务详情（使用转义后的 ID，更宽松的正则）
-const escapedId = retryTaskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// 从 tasks.md 提取任务详情（使用共享的正则转义函数）
+const escapedId = escapeRegExp(retryTaskId);
 const taskRegex = new RegExp(
-  `## ${escapedId}:\\s*([^\\n]+)\\n\\s*<!-- id: ${escapedId}[^>]*-->\\s*\\n([\\s\\S]*?)(?=## T\\d+:|$)`,
+  `##+ ${escapedId}:\\s*(.+?)\\s*\\n` +
+  `(?:\\s*<\\!-- id: ${escapedId}[^>]*-->\\s*\\n)?` +
+  `([\\s\\S]*?)(?=\\n##+ T\\d+:|$)`,
   'm'
 );
 const taskMatch = tasksContent.match(taskRegex);
@@ -120,7 +185,9 @@ if (!taskMatch) {
   return;
 }
 
-const taskName = taskMatch[1].trim();
+const rawTitle = taskMatch[1].trim();
+const titleStatus = extractStatusFromTitle(rawTitle);
+const taskName = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
 const taskBody = taskMatch[2];
 
 // 提取任务属性
@@ -129,8 +196,8 @@ const task = {
   name: taskName,
   phase: extractField(taskBody, '阶段'),
   file: extractField(taskBody, '文件'),
-  requirement: extractField(taskBody, '需求'),
-  quality_gate: taskBody.includes('质量关卡**: true'),
+  requirement: extractField(taskBody, '需求') || extractField(taskBody, '内容'),
+  quality_gate: parseQualityGate(taskBody),
   threshold: parseInt(extractField(taskBody, '阈值') || '80')
 };
 
@@ -192,6 +259,9 @@ state.progress.completed = state.progress.completed.filter(id => id !== retryTas
 state.current_task = retryTaskId;
 state.status = 'in_progress';
 state.updated_at = new Date().toISOString();
+
+// 清除失败原因（统一使用 delete）
+delete state.failure_reason;
 
 // 记录重试次数
 if (!state.retry_counts) state.retry_counts = {};
@@ -257,32 +327,44 @@ function extractField(body: string, fieldName: string): string | null {
 function updateTaskStatusInMarkdown(filePath: string, taskId: string, newStatus: string) {
   let content = readFile(filePath);
 
-  // 转义 taskId 防止 regex 注入
-  const escapedId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 使用共享的 escapeRegExp 函数
+  const escapedId = escapeRegExp(taskId);
 
-  // 先提取该任务段落
+  // 兼容 ## 和 ### 格式
   const taskRegex = new RegExp(
-    `(## ${escapedId}:[\\s\\S]*?)(?=\\n## T\\d+:|$)`,
+    `(##+ ${escapedId}:[\\s\\S]*?)(?=\\n##+ T\\d+:|$)`,
     'm'
   );
   const taskMatch = content.match(taskRegex);
 
   if (!taskMatch) {
-    console.log(`⚠️ 无法找到任务 ${taskId} 进行状态更新`);
+    console.log(`⚠️ 未找到任务 ${taskId}`);
     return;
   }
 
-  // 在段落内替换状态
   const taskBlock = taskMatch[1];
-  const statusRegex = /(- \*\*状态\*\*: )([^\n]+)/;
+  let updatedBlock = taskBlock;
 
-  if (!statusRegex.test(taskBlock)) {
-    console.log(`⚠️ 任务 ${taskId} 缺少状态字段`);
-    return;
+  // 尝试方式1: 更新 `- **状态**:` 字段
+  const statusFieldRegex = /(- \*\*状态\*\*:\s*)([^\n]+)/;
+  if (statusFieldRegex.test(taskBlock)) {
+    updatedBlock = taskBlock.replace(statusFieldRegex, (_, prefix) => prefix + newStatus);
+  }
+  // 尝试方式2: 更新标题中的状态 emoji
+  else {
+    const titleLineRegex = new RegExp(
+      `(##+ ${escapedId}:\\s*)(.+?)(\\s*\\n)`,
+      'm'
+    );
+
+    const statusEmoji = getStatusEmoji(newStatus);
+
+    updatedBlock = taskBlock.replace(titleLineRegex, (_, prefix, title, suffix) => {
+      const cleanTitle = title.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
+      return `${prefix}${cleanTitle}${statusEmoji}${suffix}`;
+    });
   }
 
-  // 使用 replacer 函数避免 newStatus 中的 $ 被解释为替换 token
-  const updatedBlock = taskBlock.replace(statusRegex, (_, prefix) => prefix + newStatus);
   content = content.replace(taskBlock, updatedBlock);
   writeFile(filePath, content);
 }
