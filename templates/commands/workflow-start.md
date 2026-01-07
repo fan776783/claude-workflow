@@ -1,6 +1,6 @@
 ---
 description: 启动智能工作流 - 分析需求并生成详细执行计划
-argument-hint: "\"功能需求描述\" 或 --backend \"PRD文档路径\""
+argument-hint: "[-y] [-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
 allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase_retrieval(*), AskUserQuestion(*)
 ---
 
@@ -26,14 +26,20 @@ allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), T
 const args = $ARGUMENTS.join(' ');
 let requirement = '';
 let isBackendMode = false;
+let autoConfirm = false;      // --yes / -y: 跳过确认对话框
+let forceOverwrite = false;   // --force / -f: 强制覆盖已有文件
 
-// 解析 --backend flag
-if (args.startsWith('--backend ')) {
-  isBackendMode = true;
-  requirement = args.replace(/^--backend\s+/, '').replace(/^["']|["']$/g, '').trim();
-} else {
-  requirement = args.replace(/^["']|["']$/g, '').trim();
-}
+// 解析标志
+const flags = args.match(/--(?:yes|force|backend|file)|-[yf]/g) || [];
+autoConfirm = flags.some(f => f === '--yes' || f === '-y');
+forceOverwrite = flags.some(f => f === '--force' || f === '-f');
+isBackendMode = flags.some(f => f === '--backend' || f === '--file');
+
+// 移除标志，获取需求内容
+requirement = args
+  .replace(/--(?:yes|force|backend|file)|-[yf]/g, '')
+  .replace(/^["']|["']$/g, '')
+  .trim();
 
 if (!requirement) {
   console.log(`
@@ -41,7 +47,9 @@ if (!requirement) {
 
 用法：
   /workflow-start "实现用户认证功能"
-  /workflow-start --backend "docs/prd.md"
+  /workflow-start --file "docs/prd.md"
+  /workflow-start -y "快速启动，跳过确认"
+  /workflow-start -f "强制覆盖已有文件"
   `);
   return;
 }
@@ -113,18 +121,25 @@ if (fileExists(statePath)) {
     const backupPath = path.join(workflowDir, `backup-${Date.now()}.json`);
     copyFile(statePath, backupPath);
 
-    const choice = await AskUserQuestion({
-      questions: [{
-        question: `检测到未完成的任务"${existingState.task_name}"，如何处理？`,
-        header: "任务冲突",
-        multiSelect: false,
-        options: [
-          { label: "继续旧任务", description: "放弃新任务，继续执行之前的任务" },
-          { label: "开始新任务", description: `旧任务已备份到 ${backupPath}` },
-          { label: "取消", description: "不做任何更改" }
-        ]
-      }]
-    });
+    // autoConfirm 时自动选择"开始新任务"
+    let choice = autoConfirm ? "开始新任务" : null;
+
+    if (!choice) {
+      choice = await AskUserQuestion({
+        questions: [{
+          question: `检测到未完成的任务"${existingState.task_name}"，如何处理？`,
+          header: "任务冲突",
+          multiSelect: false,
+          options: [
+            { label: "继续旧任务", description: "放弃新任务，继续执行之前的任务" },
+            { label: "开始新任务", description: `旧任务已备份到 ${backupPath}` },
+            { label: "取消", description: "不做任何更改" }
+          ]
+        }]
+      });
+    } else {
+      console.log(`⚡ 自动选择：开始新任务（旧任务已备份到 ${backupPath}）`);
+    }
 
     if (choice === "继续旧任务") {
       console.log(`✅ 继续执行任务"${existingState.task_name}"\n🚀 执行命令：/workflow-execute`);
@@ -210,80 +225,81 @@ ensureDir('.claude/tech-design');
 // 检查是否已存在技术方案
 let existingChoice = null;
 if (fileExists(techDesignPath)) {
-  existingChoice = await AskUserQuestion({
-    questions: [{
-      question: `技术方案已存在：${techDesignPath}，如何处理？`,
-      header: "文件冲突",
-      multiSelect: false,
-      options: [
-        { label: "使用现有方案", description: "跳过生成，直接使用已有的技术方案" },
-        { label: "重新生成", description: "覆盖现有方案（原文件将丢失）" },
-        { label: "取消", description: "停止工作流启动" }
-      ]
-    }]
-  });
+  // forceOverwrite 时自动选择"重新生成"
+  // autoConfirm 时自动选择"使用现有方案"
+  if (forceOverwrite) {
+    existingChoice = "重新生成";
+    console.log(`⚡ 强制覆盖：${techDesignPath}`);
+  } else if (autoConfirm) {
+    existingChoice = "使用现有方案";
+    console.log(`⚡ 使用现有技术方案：${techDesignPath}`);
+  } else {
+    existingChoice = await AskUserQuestion({
+      questions: [{
+        question: `技术方案已存在：${techDesignPath}，如何处理？`,
+        header: "文件冲突",
+        multiSelect: false,
+        options: [
+          { label: "使用现有方案", description: "跳过生成，直接使用已有的技术方案" },
+          { label: "重新生成", description: "覆盖现有方案（原文件将丢失）" },
+          { label: "取消", description: "停止工作流启动" }
+        ]
+      }]
+    });
 
-  if (existingChoice === "取消") {
-    console.log("✅ 操作已取消");
-    return;
-  }
+    if (existingChoice === "取消") {
+      console.log("✅ 操作已取消");
+      return;
+    }
 
-  if (existingChoice === "使用现有方案") {
-    console.log(`✅ 使用现有技术方案：${techDesignPath}`);
-    // 跳过生成，直接进入 Hard Stop 1
+    if (existingChoice === "使用现有方案") {
+      console.log(`✅ 使用现有技术方案：${techDesignPath}`);
+      // 跳过生成，直接进入 Hard Stop 1
+    }
   }
 }
 
 // 只在需要时生成技术方案
 if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
-  // 尝试从模板文件生成技术方案
+  // 预渲染复杂内容为字符串
+  const relatedFilesTable = analysisResult.relatedFiles.length > 0
+    ? analysisResult.relatedFiles.map(f =>
+        `| \`${f.path}\` | ${f.purpose} | ${f.reuseType} |`
+      ).join('\n')
+    : '| - | - | - |';
+
+  const patternsContent = analysisResult.patterns.length > 0
+    ? analysisResult.patterns.map(p => `- **${p.name}**: ${p.description}`).join('\n')
+    : '（未检测到）';
+
+  const constraintsContent = analysisResult.constraints.length > 0
+    ? analysisResult.constraints.map(c => `- ${c}`).join('\n')
+    : '（无特殊约束）';
+
+  // 尝试加载模板文件
   const techDesignTemplate = loadTemplate('tech-design-template.md');
 
   let techDesignContent: string;
 
   if (techDesignTemplate) {
-    // 使用模板渲染
-    const templateData = {
+    // 使用简单变量替换
+    techDesignContent = replaceVars(techDesignTemplate, {
       requirement_source: requirementSource,
       created_at: new Date().toISOString(),
       task_name: taskName,
       requirement_summary: requirementContent,
-      existing_patterns: analysisResult.patterns.map(p => `- **${p.name}**: ${p.description}`).join('\n'),
-      constraints: analysisResult.constraints.map(c => `- ${c}`).join('\n'),
+      related_files_table: relatedFilesTable,
+      existing_patterns: patternsContent,
+      constraints: constraintsContent,
       module_structure: '（请根据需求补充模块结构）',
       data_models: '（请根据需求补充数据模型）',
       interface_design: '（请根据需求补充接口设计）',
+      implementation_plan: '| 1 | （待补充） | `（待补充）` | - |',
+      risks: '| （待评估） | - | - |',
       acceptance_criteria: '（从需求文档提取或补充）'
-    };
-
-    // 手动处理 relatedFiles 表格（模板的 each 语法不够灵活）
-    techDesignContent = renderTemplate(techDesignTemplate, templateData);
-
-    // 替换文件表格行
-    const fileTableRow = analysisResult.relatedFiles.length > 0
-      ? analysisResult.relatedFiles.map(f =>
-          `| \`${f.path}\` | ${f.purpose} | ${f.reuseType} |`
-        ).join('\n')
-      : '| - | - | - |';
-    techDesignContent = techDesignContent.replace(
-      /\| `\{\{file_path\}\}` \| \{\{purpose\}\} \| \{\{reuse_type\}\} \|/,
-      fileTableRow
-    );
-
-    // 替换实施计划表格行
-    techDesignContent = techDesignContent.replace(
-      /\| \{\{index\}\} \| \{\{task_name\}\} \| `\{\{file_path\}\}` \| \{\{dependencies\}\} \|/,
-      '| 1 | （待补充） | `（待补充）` | - |'
-    );
-
-    // 替换风险表格行
-    techDesignContent = techDesignContent.replace(
-      /\| \{\{risk\}\} \| \{\{impact\}\} \| \{\{mitigation\}\} \|/,
-      '| （待评估） | - | - |'
-    );
-
+    });
   } else {
-    // 回退到内置模板
+    // 模板缺失时使用简洁的内联生成
     techDesignContent = `---
 version: 1
 requirement_source: "${requirementSource}"
@@ -303,17 +319,15 @@ ${requirementContent}
 
 | 文件 | 用途 | 复用方式 |
 |------|------|----------|
-${analysisResult.relatedFiles.map(f =>
-  `| \`${f.path}\` | ${f.purpose} | ${f.reuseType} |`
-).join('\n')}
+${relatedFilesTable}
 
 ### 2.2 现有架构模式
 
-${analysisResult.patterns.map(p => `- **${p.name}**: ${p.description}`).join('\n')}
+${patternsContent}
 
 ### 2.3 技术约束
 
-${analysisResult.constraints.map(c => `- ${c}`).join('\n')}
+${constraintsContent}
 
 ## 3. 架构设计
 
@@ -375,7 +389,11 @@ ${analysisResult.constraints.map(c => `- ${c}`).join('\n')}
 ### 🛑 Hard Stop 1：设计方案确认
 
 ```typescript
-console.log(`
+// autoConfirm 时跳过设计确认，直接继续
+let designChoice = autoConfirm ? "继续拆分任务" : null;
+
+if (!designChoice) {
+  console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🛑 **设计方案确认**
@@ -387,18 +405,21 @@ console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
 
-const designChoice = await AskUserQuestion({
-  questions: [{
-    question: "如何处理技术方案？",
-    header: "设计确认",
-    multiSelect: false,
-    options: [
-      { label: "继续拆分任务", description: "方案已完善，基于此方案生成任务清单" },
-      { label: "Codex 审查", description: "让 Codex 审查方案后再决定" },
-      { label: "手动编辑后继续", description: "暂停，手动完善方案后重新执行" }
-    ]
-  }]
-});
+  designChoice = await AskUserQuestion({
+    questions: [{
+      question: "如何处理技术方案？",
+      header: "设计确认",
+      multiSelect: false,
+      options: [
+        { label: "继续拆分任务", description: "方案已完善，基于此方案生成任务清单" },
+        { label: "Codex 审查", description: "让 Codex 审查方案后再决定" },
+        { label: "手动编辑后继续", description: "暂停，手动完善方案后重新执行" }
+      ]
+    }]
+  });
+} else {
+  console.log(`⚡ 自动继续：跳过设计确认`);
+}
 
 if (designChoice === "手动编辑后继续") {
   console.log(`
@@ -466,6 +487,9 @@ OUTPUT: DESIGN REVIEW REPORT 格式。`;
 
 ### Phase 2：基于设计生成任务清单
 
+> ⚠️ **强制要求**：必须生成 `tasks-*.md` 文件到 `~/.claude/workflows/{projectId}/` 目录。
+> **禁止**使用 `TodoWrite` 工具替代此步骤。`TodoWrite` 仅用于 Claude 内部进度跟踪，不是工作流任务文档。
+
 ```typescript
 console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -532,66 +556,20 @@ tasks.push({
 });
 
 // 生成 tasks.md
-const checksum = generateChecksum(tasks);
 const tasksPath = path.join(workflowDir, `tasks-${sanitizedName}.md`);
 
-// 尝试从模板文件生成任务清单
-const tasksTemplate = loadTemplate('tasks-template.md');
+// 预渲染复杂内容
+const constraintsMarkdown = analysisResult.constraints.length > 0
+  ? analysisResult.constraints.map(c => `- ${c}`).join('\n')
+  : '（无特殊约束）';
 
-let tasksContent: string;
+const acceptanceCriteria = extractAcceptanceCriteria(techDesign);
+const acceptanceMarkdown = acceptanceCriteria.length > 0
+  ? acceptanceCriteria.map((ac, i) => `- [ ] AC${i + 1}: ${ac}`).join('\n')
+  : '- [ ] AC1: （待定义）';
 
-if (tasksTemplate) {
-  // 准备模板数据
-  const templateData = {
-    tech_design_path: techDesignPath,
-    created_at: new Date().toISOString(),
-    checksum: checksum,
-    task_name: taskName,
-    constraints: analysisResult.constraints,
-    acceptance_criteria: extractAcceptanceCriteria(techDesign).map((ac, i) => ({
-      id: `AC${i + 1}`,
-      description: ac
-    })),
-    tasks: tasks.map(t => ({
-      ...t,
-      file: t.file || '',
-      leverage: t.leverage || '',
-      design_ref: t.design_ref || '',
-      depends: t.depends || '',
-      threshold: t.threshold || 80
-    }))
-  };
-
-  tasksContent = renderTemplate(tasksTemplate, templateData);
-
-} else {
-  // 回退到内置模板
-  tasksContent = `---
-version: 1
-tech_design: "${techDesignPath}"
-created_at: "${new Date().toISOString()}"
-checksum: "${checksum}"
----
-
-# Tasks: ${taskName}
-
-## 设计文档
-
-📄 \`${techDesignPath}\`
-
-## 约束（从设计文档继承）
-
-${analysisResult.constraints.map(c => `- ${c}`).join('\n')}
-
-## 验收标准
-
-${extractAcceptanceCriteria(techDesign).map((ac, i) =>
-  `- [ ] AC${i + 1}: ${ac}`
-).join('\n')}
-
----
-
-${tasks.map(t => `
+// 渲染任务列表
+const tasksMarkdown = tasks.map(t => `
 ## ${t.id}: ${t.name}
 <!-- id: ${t.id}, design_ref: ${t.design_ref || 'N/A'} -->
 - **阶段**: ${t.phase}
@@ -603,7 +581,48 @@ ${t.design_ref ? `- **设计参考**: tech-design.md § ${t.design_ref}` : ''}
 ${t.depends ? `- **依赖**: ${t.depends}` : ''}
 ${t.quality_gate ? `- **质量关卡**: true\n- **阈值**: ${t.threshold}` : ''}
 - **状态**: ${t.status}
-`).join('\n')}
+`).join('\n');
+
+// 尝试加载模板文件
+const tasksTemplate = loadTemplate('tasks-template.md');
+
+let tasksContent: string;
+
+if (tasksTemplate) {
+  // 使用简单变量替换
+  tasksContent = replaceVars(tasksTemplate, {
+    tech_design_path: techDesignPath,
+    created_at: new Date().toISOString(),
+    task_name: taskName,
+    constraints: constraintsMarkdown,
+    acceptance_criteria: acceptanceMarkdown,
+    tasks: tasksMarkdown
+  });
+} else {
+  // 模板缺失时使用简洁的内联生成
+  tasksContent = `---
+version: 1
+tech_design: "${techDesignPath}"
+created_at: "${new Date().toISOString()}"
+---
+
+# Tasks: ${taskName}
+
+## 设计文档
+
+📄 \`${techDesignPath}\`
+
+## 约束（从设计文档继承）
+
+${constraintsMarkdown}
+
+## 验收标准
+
+${acceptanceMarkdown}
+
+---
+
+${tasksMarkdown}
 `;
 }
 
@@ -625,7 +644,11 @@ ${tasks.map(t => `- [ ] ${t.id}: ${t.name} (${t.phase})`).join('\n')}
 ### 🛑 Hard Stop 2：任务清单确认
 
 ```typescript
-console.log(`
+// autoConfirm 时跳过任务清单确认，直接开始执行
+let executeChoice = autoConfirm ? "开始执行" : null;
+
+if (!executeChoice) {
+  console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🛑 **任务清单确认**
@@ -639,18 +662,21 @@ console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
 
-const executeChoice = await AskUserQuestion({
-  questions: [{
-    question: "是否开始执行任务？",
-    header: "执行确认",
-    multiSelect: false,
-    options: [
-      { label: "开始执行", description: "确认任务清单，开始执行第一个任务" },
-      { label: "编辑后执行", description: "暂停，手动调整任务后执行 /workflow-execute" },
-      { label: "取消", description: "取消工作流" }
-    ]
-  }]
-});
+  executeChoice = await AskUserQuestion({
+    questions: [{
+      question: "是否开始执行任务？",
+      header: "执行确认",
+      multiSelect: false,
+      options: [
+        { label: "开始执行", description: "确认任务清单，开始执行第一个任务" },
+        { label: "编辑后执行", description: "暂停，手动调整任务后执行 /workflow-execute" },
+        { label: "取消", description: "取消工作流" }
+      ]
+    }]
+  });
+} else {
+  console.log(`⚡ 自动继续：开始执行任务`);
+}
 
 if (executeChoice === "取消") {
   console.log("✅ 工作流已取消");
@@ -668,10 +694,12 @@ const state = {
   task_name: taskName,
   tech_design: techDesignPath,
   tasks_file: `tasks-${sanitizedName}.md`,
-  tasks_checksum: checksum,
   current_task: "T1",
   status: "in_progress",
   phase: "execute",
+  execution_mode: "phase",        // step | phase | quality_gate（默认阶段模式）
+  pause_before_commit: true,      // git_commit 前始终暂停确认
+  use_subagent: tasks.length > 5, // 任务数 > 5 时自动启用 subagent 模式
   started_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   progress: {
@@ -761,75 +789,38 @@ function sanitize(name: string): string {
 }
 
 /**
- * 简易模板渲染函数
- * 支持：{{variable}}, {{#each array}}, {{#if condition}}, {{this}}, {{this.prop}}
- */
-function renderTemplate(template: string, data: Record<string, any>): string {
-  let result = template;
-
-  // 处理 {{#each array}}...{{/each}}
-  result = result.replace(
-    /\{\{#each\s+(\w+)\}\}([\s\S]*?)\{\{\/each\}\}/g,
-    (_, arrayName, content) => {
-      const arr = data[arrayName];
-      if (!Array.isArray(arr)) return '';
-      return arr.map((item, index) => {
-        let itemContent = content;
-        // 替换 {{this}} 和 {{this.prop}}
-        itemContent = itemContent.replace(/\{\{this\.(\w+)\}\}/g, (__, prop) =>
-          item[prop] !== undefined ? String(item[prop]) : ''
-        );
-        itemContent = itemContent.replace(/\{\{this\}\}/g, String(item));
-        itemContent = itemContent.replace(/\{\{@index\}\}/g, String(index));
-        return itemContent;
-      }).join('');
-    }
-  );
-
-  // 处理 {{#if condition}}...{{/if}}（简化版：非空即真）
-  result = result.replace(
-    /\{\{#if\s+(\S+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
-    (_, condition, content) => {
-      // 支持 this.prop 格式
-      const value = condition.startsWith('this.')
-        ? null  // 在 each 外部不支持 this.xxx
-        : data[condition];
-      return value ? content : '';
-    }
-  );
-
-  // 处理普通变量 {{variable}}
-  result = result.replace(/\{\{(\w+)\}\}/g, (_, key) =>
-    data[key] !== undefined ? String(data[key]) : ''
-  );
-
-  return result;
-}
-
-/**
- * 读取模板文件（从 ~/.claude/docs/ 目录）
+ * 读取模板文件
+ * 优先级：用户目录 > 仓库模板目录
+ * 不再有内置模板回退，模板缺失时快速失败
  */
 function loadTemplate(templateName: string): string {
-  const templatePath = path.join(os.homedir(), '.claude/docs', templateName);
-  if (fileExists(templatePath)) {
-    return readFile(templatePath);
+  // 1. 用户覆盖（优先）
+  const userPath = path.join(os.homedir(), '.claude/docs', templateName);
+  if (fileExists(userPath)) {
+    return readFile(userPath);
   }
-  // 回退到内置模板
-  console.log(`⚠️ 模板文件不存在：${templatePath}，使用内置模板`);
+
+  // 2. 仓库模板（默认）
+  const repoPath = path.join(process.cwd(), 'templates/docs', templateName);
+  if (fileExists(repoPath)) {
+    return readFile(repoPath);
+  }
+
+  // 3. 快速失败
+  console.log(`⚠️ 模板文件不存在：${templateName}`);
+  console.log(`  尝试路径：${userPath}`);
+  console.log(`  尝试路径：${repoPath}`);
   return '';
 }
 
-function generateChecksum(tasks: Task[]): string {
-  const content = JSON.stringify(tasks.map(t => ({
-    id: t.id,
-    name: t.name,
-    file: t.file,
-    actions: t.actions,
-    depends: t.depends,
-    quality_gate: t.quality_gate,
-    threshold: t.threshold
-  })));
-  return crypto.createHash('sha256').update(content).digest('hex').substring(0, 16);
+/**
+ * 简单变量替换（仅支持 {{variable}}）
+ * 不支持循环和条件，复杂内容应预渲染为字符串
+ */
+function replaceVars(template: string, data: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+    data[key] !== undefined ? data[key] : ''
+  );
 }
 
 function determinePhase(item: any): string {
