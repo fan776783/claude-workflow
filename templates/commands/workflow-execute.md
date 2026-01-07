@@ -241,6 +241,9 @@ const totalTaskCount = countTasks(tasksContent);
 const executionMode = executionModeOverride || state.execution_mode || 'step';
 const pauseBeforeCommit = state.pause_before_commit !== false; // 默认 true
 
+// 连续任务计数（用于兜底机制，避免上下文溢出）
+const consecutiveCount = state.consecutive_count || 0;
+
 // 确定是否使用 subagent 模式
 const autoSubagent = totalTaskCount > 5;
 const useSubagent = useSubagentOverride ?? state.use_subagent ?? autoSubagent;
@@ -608,12 +611,16 @@ state.progress.failed = state.progress.failed.filter(id => id !== currentTask.id
 // 清理失败状态
 delete state.failure_reason;
 
+// 更新连续任务计数
+state.consecutive_count = (state.consecutive_count || 0) + 1;
+
 state.current_task = findNextTask(tasksContent, state.progress);
 state.updated_at = new Date().toISOString();
 
 if (!state.current_task) {
   state.status = 'completed';
   state.completed_at = new Date().toISOString();
+  state.consecutive_count = 0;  // 重置计数
 } else {
   state.status = 'in_progress';
 }
@@ -656,11 +663,18 @@ function shouldContinueExecution(
   currentTask: Task,
   nextTask: Task,
   executionMode: string,
-  pauseBeforeCommit: boolean
+  pauseBeforeCommit: boolean,
+  consecutiveCount: number  // 本轮已连续执行的任务数
 ): { continue: boolean; reason?: string } {
   // 单步模式：始终暂停
   if (executionMode === 'step') {
     return { continue: false, reason: '单步模式' };
+  }
+
+  // 兜底机制：连续执行超过 5 个任务时强制暂停，避免上下文溢出
+  const MAX_CONSECUTIVE_TASKS = 5;
+  if (consecutiveCount >= MAX_CONSECUTIVE_TASKS) {
+    return { continue: false, reason: `连续任务数达到上限 (${MAX_CONSECUTIVE_TASKS})` };
   }
 
   // git_commit 前暂停确认
@@ -686,31 +700,68 @@ function shouldContinueExecution(
   return { continue: true };
 }
 
-// 从任务中提取阶段（design/implement/test/verify/deliver）
+/**
+ * 细粒度阶段定义 - 与 workflow-start.md 保持同步
+ *
+ * 阶段划分原则：
+ * - 每个阶段理想任务数：3-5 个
+ * - 超过 5 个任务的大阶段应拆分为子阶段
+ *
+ * 阶段定义：
+ * - design: 接口设计、架构设计、类型定义
+ * - infra: 基础设施、Store、工具函数、指令、守卫
+ * - ui-layout: 页面布局、路由、菜单配置
+ * - ui-display: 展示组件（卡片、表格、列表）
+ * - ui-form: 表单组件（弹窗、输入、选择器）
+ * - ui-integrate: 组件集成、注册、组装
+ * - test: 单元测试、集成测试
+ * - verify: 代码审查、质量关卡
+ * - deliver: 提交、发布、文档
+ */
 function extractPhaseFromTask(task: Task): string {
   // 优先使用任务的 phase 字段
   if (task.phase) return task.phase;
 
-  // 从任务名称推断阶段（扩展同义词）
   const name = task.name.toLowerCase();
+  const file = (task.file || '').toLowerCase();
 
-  // 设计阶段
-  if (/设计|design|interface|接口|架构|architecture/.test(name)) return 'design';
+  // 1. 设计阶段
+  if (/接口|设计|interface|架构|architecture|类型|type/.test(name)) return 'design';
 
-  // 测试阶段
+  // 2. 基础设施阶段（Store、工具、指令、守卫）
+  if (/store|composable|hook|工具|util|helper|指令|directive|守卫|middleware|guard/.test(name) ||
+      /stores\/|composables\/|utils\/|directives\/|middleware\//.test(file)) return 'infra';
+
+  // 3. UI 布局阶段（页面、路由、菜单）
+  if (/页面|page|路由|route|菜单|menu|布局|layout|主页|index/.test(name) ||
+      /pages\/.*index|pages\/.*\.vue$/.test(file)) return 'ui-layout';
+
+  // 4. UI 展示组件（卡片、表格、列表）
+  if (/卡片|card|表格|table|列表|list|展示|display|筛选|filter/.test(name)) return 'ui-display';
+
+  // 5. UI 表单组件（弹窗、表单、选择器）
+  if (/弹窗|modal|dialog|表单|form|选择|select|输入|input|编辑|edit|创建|create/.test(name) ||
+      /modals\/|dialogs\//.test(file)) return 'ui-form';
+
+  // 6. UI 集成（注册、扩展、改造）
+  if (/注册|register|集成|integrate|扩展|extend|改造|refactor|provider/.test(name)) return 'ui-integrate';
+
+  // 7. 测试阶段
   if (/测试|test|单元|unit|集成|integration/.test(name)) return 'test';
 
-  // 验证阶段
+  // 8. 验证阶段
   if (/审查|review|验证|verify|验收|qa|确认|check/.test(name)) return 'verify';
 
-  // 交付阶段
+  // 9. 交付阶段
   if (/提交|commit|发布|release|部署|deploy|文档|doc/.test(name)) return 'deliver';
 
-  // 默认实现阶段
-  return 'implement';
+  // 默认：根据文件路径进一步判断
+  if (/components\//.test(file)) return 'ui-display';
+
+  return 'implement';  // 兜底
 }
 
-const decision = shouldContinueExecution(currentTask, nextTask, executionMode, pauseBeforeCommit);
+const decision = shouldContinueExecution(currentTask, nextTask, executionMode, pauseBeforeCommit, consecutiveCount);
 
 console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -733,10 +784,15 @@ if (decision.continue) {
   // Claude 将自动继续执行 Step 3-7 的逻辑
   // [CONTINUE_EXECUTION]
 } else {
+  // 暂停时重置连续任务计数
+  state.consecutive_count = 0;
+  writeFile(statePath, JSON.stringify(state, null, 2));
+
   // 阶段切换时建议新开会话
   const isPhaseChange = decision.reason.includes('阶段变化');
-  const sessionHint = isPhaseChange ? `
-💡 **建议**：阶段已完成，推荐 **新开会话** 继续执行以避免上下文压缩。
+  const isConsecutiveLimit = decision.reason.includes('连续任务数');
+  const sessionHint = (isPhaseChange || isConsecutiveLimit) ? `
+💡 **建议**：${isPhaseChange ? '阶段已完成' : '已连续执行多个任务'}，推荐 **新开会话** 继续执行以避免上下文压缩。
 ` : '';
 
   console.log(`
