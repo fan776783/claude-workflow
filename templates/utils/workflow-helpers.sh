@@ -30,17 +30,17 @@ find_active_workflow() {
         [ $? -eq 0 ] || continue
         [ "$project_path" = "$current_path" ] || continue
 
-        local memory_file="$workflow_dir/workflow-memory.json"
-        [ -f "$memory_file" ] || continue
+        local state_file="$workflow_dir/workflow-state.json"
+        [ -f "$state_file" ] || continue
 
         # 读取状态
-        local wf_status=$(jq -r '.status' "$memory_file" 2>/dev/null)
+        local wf_status=$(jq -r '.status' "$state_file" 2>/dev/null)
         [ $? -eq 0 ] || continue
 
         # 只处理 in_progress 状态的工作流
         if [ "$wf_status" = "in_progress" ]; then
             # 获取更新时间
-            local updated_at=$(jq -r '.updated_at' "$memory_file" 2>/dev/null)
+            local updated_at=$(jq -r '.updated_at' "$state_file" 2>/dev/null)
 
             # 如果是第一个找到的工作流，或者更新时间更晚，则记录
             if [ -z "$latest_workflow" ] || [ "$updated_at" \> "$latest_updated_at" ]; then
@@ -60,10 +60,10 @@ find_active_workflow() {
 
 # 获取工作流记忆文件路径
 # 参数: $1 - 工作流目录
-# 返回: workflow-memory.json 文件路径
-get_workflow_memory_path() {
+# 返回: workflow-state.json 文件路径
+get_workflow_state_path() {
     local workflow_dir="$1"
-    echo "$workflow_dir/workflow-memory.json"
+    echo "$workflow_dir/workflow-state.json"
 }
 
 # 获取项目元信息文件路径
@@ -104,22 +104,22 @@ list_project_workflows() {
         [ $? -eq 0 ] || continue
         [ "$project_path" = "$current_path" ] || continue
 
-        local memory_file="$workflow_dir/workflow-memory.json"
-        [ -f "$memory_file" ] || continue
+        local state_file="$workflow_dir/workflow-state.json"
+        [ -f "$state_file" ] || continue
 
-        local wf_status=$(jq -r '.status' "$memory_file" 2>/dev/null)
-        local task_name=$(jq -r '.task_name' "$memory_file" 2>/dev/null)
-        local updated_at=$(jq -r '.updated_at' "$memory_file" 2>/dev/null)
-        local current_step=$(jq -r '.current_step_id' "$memory_file" 2>/dev/null)
-        local total_steps=$(jq -r '.total_steps' "$memory_file" 2>/dev/null)
+        local wf_status=$(jq -r '.status' "$state_file" 2>/dev/null)
+        local task_name=$(jq -r '.task_name' "$state_file" 2>/dev/null)
+        local updated_at=$(jq -r '.updated_at' "$state_file" 2>/dev/null)
+        local current_task=$(jq -r '.current_task' "$state_file" 2>/dev/null)
+        local completed_count=$(jq -r '.progress.completed | length' "$state_file" 2>/dev/null)
 
         workflows=$(echo "$workflows" | jq --arg dir "$workflow_dir" \
             --arg status "$wf_status" \
             --arg name "$task_name" \
             --arg updated "$updated_at" \
-            --argjson current "$current_step" \
-            --argjson total "$total_steps" \
-            '. += [{"dir": $dir, "status": $status, "task_name": $name, "updated_at": $updated, "current_step": $current, "total_steps": $total}]')
+            --arg current "$current_task" \
+            --argjson completed "$completed_count" \
+            '. += [{"dir": $dir, "status": $status, "task_name": $name, "updated_at": $updated, "current_task": $current, "completed_count": $completed}]')
     done
 
     echo "$workflows"
@@ -127,7 +127,7 @@ list_project_workflows() {
 
 # 导出函数供其他脚本使用
 export -f find_active_workflow
-export -f get_workflow_memory_path
+export -f get_workflow_state_path
 export -f get_project_meta_path
 export -f generate_project_id
 export -f list_project_workflows

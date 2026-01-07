@@ -109,7 +109,7 @@ allowed-tools: Read(*)
 **重要变更**：工作流状态文件存储在用户级目录，文档产物存储在项目目录，兼顾避免 Git 冲突和文档可访问性。
 
 **存储位置**：
-- 工作流状态：`~/.claude/workflows/{projectId}/workflow-memory.json`（用户级，避免 Git 冲突）
+- 工作流状态：`~/.claude/workflows/{projectId}/workflow-state.json`（用户级，避免 Git 冲突）
 - 上下文摘要：`.claude/context-summary-{task_name}.md`（项目级，按任务区分）
 - Bug 报告：`.claude/bug-reports/`（项目级）
 - 验证报告：`.claude/verification-report-{task_name}.md`（项目级，按任务区分）

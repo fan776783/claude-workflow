@@ -63,7 +63,7 @@ npm run release 2.0.0     # Explicit version
 ## Workflow Templates
 
 The `/workflow-*` commands implement a structured development workflow:
-- `/workflow-start` - Analyzes requirements, creates execution plan in `workflow-memory.json`
+- `/workflow-start` - Analyzes requirements, creates execution plan in `workflow-state.json`
 - `/workflow-execute` - Runs next pending step
 - `/workflow-status` - Shows current progress
 - Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)

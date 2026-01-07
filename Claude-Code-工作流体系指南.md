@@ -368,7 +368,7 @@ claude mcp list
 ├── utils/                              # 工具函数
 ├── workflows/                          # 工作流状态（按项目隔离）
 │   ├── a13dcda9d96c/                   # 项目 1（基于 cwd hash）
-│   │   ├── workflow-memory.json        # 工作流记忆
+│   │   ├── workflow-state.json        # 工作流记忆
 │   │   ├── context-summary-*.md        # 上下文摘要
 │   │   ├── operations-log.md           # 操作日志
 │   │   └── .project-meta.json          # 项目元数据
@@ -500,7 +500,7 @@ cd /path/to/your/project
    └─ 定义依赖关系和产出物
 
 3. 创建任务记忆文件
-   └─ 保存到 .claude/workflow-memory.json
+   └─ 保存到 .claude/workflow-state.json
 ```
 
 #### 执行阶段（/workflow-execute）
@@ -520,7 +520,7 @@ cd /path/to/your/project
 
 ### 3.3 任务记忆文件
 
-**路径**：`.claude/workflow-memory.json`
+**路径**：`.claude/workflow-state.json`
 
 ```json
 {
@@ -656,12 +656,12 @@ const result = await codex({
 
 ```typescript
 // Step 0：检测现有任务（自动执行）
-if (fileExists('.claude/workflow-memory.json')) {
-  const existingMemory = readFile('.claude/workflow-memory.json');
+if (fileExists('.claude/workflow-state.json')) {
+  const existingMemory = readFile('.claude/workflow-state.json');
 
   if (existingMemory.status !== 'completed') {
     // 1. 自动备份到带时间戳的文件
-    const backupPath = `.claude/workflow-memory-backup-${Date.now()}.json`;
+    const backupPath = `.claude/workflow-state-backup-${Date.now()}.json`;
     backup(existingMemory, backupPath);
 
     // 2. 询问用户如何处理
@@ -681,18 +681,18 @@ if (fileExists('.claude/workflow-memory.json')) {
 
 | 现有任务状态 | 系统行为 | 备份位置 |
 |-------------|---------|----------|
-| **未完成** (`in_progress`) | ⚠️ 询问用户确认 | `.claude/workflow-memory-backup-{timestamp}.json` |
-| **已完成** (`completed`) | ✅ 自动归档 | `.claude/workflow-memory-completed-{timestamp}.json` |
+| **未完成** (`in_progress`) | ⚠️ 询问用户确认 | `.claude/workflow-state-backup-{timestamp}.json` |
+| **已完成** (`completed`) | ✅ 自动归档 | `.claude/workflow-state-completed-{timestamp}.json` |
 | **不存在** | ✅ 直接创建 | - |
 
 #### 恢复备份
 
 ```bash
 # 1. 查看所有备份
-ls -lh .claude/workflow-memory-*.json
+ls -lh .claude/workflow-state-*.json
 
 # 2. 查看备份内容
-cat .claude/workflow-memory-backup-1737123456789.json | \
+cat .claude/workflow-state-backup-1737123456789.json | \
   grep -E '"task_name"|"current_step_id"|"total_steps"'
 
 # 输出：
@@ -701,8 +701,8 @@ cat .claude/workflow-memory-backup-1737123456789.json | \
 # "total_steps": 22
 
 # 3. 恢复特定备份
-cp .claude/workflow-memory-backup-1737123456789.json \
-   .claude/workflow-memory.json
+cp .claude/workflow-state-backup-1737123456789.json \
+   .claude/workflow-state.json
 
 # 4. 继续执行
 /workflow-execute
@@ -712,13 +712,13 @@ cp .claude/workflow-memory-backup-1737123456789.json \
 
 ```bash
 # 查看所有备份
-ls -lh .claude/workflow-memory-*.json
+ls -lh .claude/workflow-state-*.json
 
 # 删除已完成任务的备份
-rm .claude/workflow-memory-completed-*.json
+rm .claude/workflow-state-completed-*.json
 
 # 删除特定备份（确认后执行）
-rm .claude/workflow-memory-backup-1737123456789.json
+rm .claude/workflow-state-backup-1737123456789.json
 ```
 
 ### 3.7 使用示例
@@ -904,7 +904,7 @@ rm .claude/workflow-memory-backup-1737123456789.json
 #### 工作流程
 
 ```
-PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-memory.json（执行计划）
+PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-state.json（执行计划）
            ↓                    ↓
         暂停审查              暂停审查
 ```
@@ -1252,7 +1252,7 @@ Bug 修复？
 
 ### 9.2 任务记忆文件在哪？
 
-**A**: `.claude/workflow-memory.json`
+**A**: `.claude/workflow-state.json`
 - 记录所有步骤状态和进度
 - 支持新对话恢复
 - 包含Codex审查评分和决策记录
@@ -1286,22 +1286,22 @@ Bug 修复？
 **A**: 不会！系统内置了自动保护机制 🔒
 
 **未完成的任务**：
-- 自动备份到 `.claude/workflow-memory-backup-{时间戳}.json`
+- 自动备份到 `.claude/workflow-state-backup-{时间戳}.json`
 - 询问用户：继续旧任务 / 开始新任务 / 取消操作
 - 防止意外覆盖
 
 **已完成的任务**：
-- 自动归档到 `.claude/workflow-memory-completed-{时间戳}.json`
+- 自动归档到 `.claude/workflow-state-completed-{时间戳}.json`
 - 直接创建新任务
 
 **恢复备份**：
 ```bash
 # 查看备份
-ls -lh .claude/workflow-memory-*.json
+ls -lh .claude/workflow-state-*.json
 
 # 恢复备份
-cp .claude/workflow-memory-backup-{时间戳}.json \
-   .claude/workflow-memory.json
+cp .claude/workflow-state-backup-{时间戳}.json \
+   .claude/workflow-state.json
 
 # 继续执行
 /workflow-execute
