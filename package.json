@@ -1,6 +1,6 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "1.2.3",
+  "version": "1.2.5",
   "description": "Claude Code 多模型协作工作流系统 - 三模型并行协作 (Codex + Gemini + Claude)",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
@@ -9,6 +9,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "node scripts/validate.js",
+    "sync": "node bin/claude-workflow.js sync",
     "release": "./scripts/release.sh",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
