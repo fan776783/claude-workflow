@@ -270,6 +270,15 @@ cat > "$CONFIG_PATH" <<EOF
     "assets": null
   },
 
+  "modules": [],
+
+  "scanStats": {
+    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "totalFiles": {},
+    "estimatedCoverage": "pending",
+    "gaps": []
+  },
+
   "metadata": {
     "version": "2.0.0",
     "generatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
@@ -365,6 +374,73 @@ const testResult = await mcp__auggie-mcp__codebase-retrieval({
 // - 测试目录结构（__tests__/, tests/, *_test.go）
 // - 测试框架（Jest, Vitest, Go test）
 // - 主要测试用例
+```
+
+---
+
+### 步骤 4.7：更新模块索引和扫描统计
+
+基于语义分析结果，更新 `project-config.json` 中的 `modules` 和 `scanStats`：
+
+```typescript
+// 从语义分析结果中构建模块列表
+const modules = [];
+
+// 示例：根据检测到的目录结构生成模块
+if (entryResult.includes('src/')) {
+  modules.push({
+    name: 'main',
+    path: 'src/',
+    language: projectConfig.tech.language,
+    type: 'application',
+    keyFiles: extractKeyFiles(entryResult),
+    coverage: 'pending'
+  });
+}
+
+// 对于 Monorepo，遍历 apps 和 packages
+if (projectConfig.project.type === 'monorepo') {
+  for (const app of projectConfig.structure.apps) {
+    modules.push({
+      name: app,
+      path: `apps/${app}`,
+      type: 'application',
+      framework: detectFramework(app),
+      keyFiles: [],
+      coverage: 'pending'
+    });
+  }
+  for (const pkg of projectConfig.structure.sharedLibs) {
+    modules.push({
+      name: pkg,
+      path: `packages/${pkg}`,
+      type: 'library',
+      keyFiles: [],
+      exports: [],
+      coverage: 'pending'
+    });
+  }
+}
+
+// 统计文件数量
+const scanStats = {
+  timestamp: new Date().toISOString(),
+  totalFiles: {
+    ts: countFiles('**/*.ts'),
+    tsx: countFiles('**/*.tsx'),
+    js: countFiles('**/*.js'),
+    vue: countFiles('**/*.vue'),
+    go: countFiles('**/*.go'),
+    py: countFiles('**/*.py')
+  },
+  estimatedCoverage: calculateCoverage(modules),
+  gaps: identifyGaps(semanticResults)
+};
+
+// 更新配置文件
+projectConfig.modules = modules;
+projectConfig.scanStats = scanStats;
+writeFile(configPath, JSON.stringify(projectConfig, null, 2));
 ```
 
 ---
