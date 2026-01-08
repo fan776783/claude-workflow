@@ -10,6 +10,15 @@
 - 严格遵守 **Workflow**。跳过任何 phase 均被视为 **危险级操作**，需要 *立即终止任务* 并向用户 *报告跳过的原因*。
 - 除极个别特殊情况外，始终 **强制**与 Codex/Gemini/Claude 协作。
 
+### Figma UI 还原强制规则
+
+当检测到以下**任一条件**时，**必须立即**调用 `figma-ui` skill（使用 Skill 工具）：
+- 用户消息包含 `figma.com` 或 `figma.design` URL
+- 用户提到：还原、切图、设计稿、UI实现、前端开发、Figma
+- 用户要求从设计生成代码、实现 UI、转换设计
+
+**严禁**直接调用 `mcp__figma-mcp__get_design_context` 或其他 Figma MCP 工具。必须通过 `figma-ui` skill 工作流执行。
+
 ---
 
 ## 0. Core Instruction
