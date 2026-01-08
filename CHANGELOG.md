@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.7] - 2026-01-08
+
+### Added
+- **figma-ui skill**：重命名自 `workflow-ui-restore`，Figma 设计稿到代码的自动化工作流
+  - **资源追踪机制**：使用 `assetMapping` 追踪所有下载的资源（包括重命名失败的）
+  - **文件对比**：调用 Figma MCP 前后对比文件列表，精准识别新下载的资源
+  - **hash 文件支持**：正确处理 Figma 下载的 hash 格式文件（如 `7f48...svg`）
+- **CLAUDE.md Figma 规则**：新增强制调用 `figma-ui` skill 的触发条件
+- **debug 命令影响性分析**：新增 Phase 3.5
+  - 依赖链分析（使用 codebase-retrieval）
+  - 数据流追踪（共享状态检查）
+  - 测试覆盖检查
+  - 回归风险评估（🔴高/🟡中/🟢低）
+
+### Fixed
+- **资源清理遗漏**：修复未重命名的资源文件在清理时被忽略的 bug
+- **Glob 模式匹配问题**：改用 `assetMapping` 追踪替代 `${componentName}-*.*` 模式匹配
+
+### Changed
+- `workflow-ui-restore` → `figma-ui`：skill 重命名，更直观的命名
+- 资源重命名函数接收 `newlyDownloadedFiles` 参数，只处理本次下载的文件
+
+---
+
 ## [1.2.6] - 2026-01-07
 
 ### Added
