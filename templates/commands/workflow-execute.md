@@ -8,83 +8,38 @@ allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Ba
 
 读取 tasks.md 中的当前任务段落，支持多种执行模式。
 
+## 规格引用
+
+详细的实现规格已模块化，可按需查阅：
+
+| 模块 | 路径 | 说明 |
+|------|------|------|
+| 路径安全 | `specs/shared/path-utils.md` | resolveUnder 函数 |
+| 状态 Emoji | `specs/shared/status-emoji.md` | 状态解析与显示 |
+| 任务解析 | `specs/workflow/task-parser.md` | extractCurrentTask 等 |
+| 状态机 | `specs/workflow/state-machine.md` | 状态定义与转换 |
+| 质量关卡 | `specs/workflow/quality-gate.md` | 关卡检测逻辑 |
+| Subagent | `specs/workflow/subagent-mode.md` | 子代理执行模式 |
+
 ---
 
 ## 共享工具函数
 
+> 详见 `specs/shared/path-utils.md` 和 `specs/shared/status-emoji.md`
+
 ```typescript
-// ═══════════════════════════════════════════════════════════════
-// Util 1: 统一路径安全函数
-// ═══════════════════════════════════════════════════════════════
+// 路径安全函数 - 详见 specs/shared/path-utils.md
+function resolveUnder(baseDir: string, relativePath: string): string | null;
 
-function resolveUnder(baseDir: string, relativePath: string): string | null {
-  if (!relativePath ||
-      path.isAbsolute(relativePath) ||
-      relativePath.includes('..')) {
-    return null;
-  }
-  if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(relativePath)) {
-    return null;
-  }
-  if (/^\/|\/\/|\/\s*$/.test(relativePath)) {
-    return null;
-  }
-  const resolved = path.resolve(baseDir, relativePath);
-  const normalizedBase = path.resolve(baseDir);
-  if (resolved !== normalizedBase &&
-      !resolved.startsWith(normalizedBase + path.sep)) {
-    return null;
-  }
-  return resolved;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Util 2: 统一状态 Emoji 处理
-// ═══════════════════════════════════════════════════════════════
-
+// 状态 Emoji 处理 - 详见 specs/shared/status-emoji.md
 const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
-const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+function extractStatusFromTitle(title: string): string | null;
+function getStatusEmoji(status: string): string;
 
-function extractStatusFromTitle(title: string): string | null {
-  const match = title.match(STATUS_EMOJI_REGEX);
-  if (!match) return null;
-  const emoji = match[0].trim();
-  if (emoji === '✅') return 'completed';
-  if (emoji === '⏳') return 'in_progress';
-  if (emoji === '❌') return 'failed';
-  if (emoji.startsWith('⏭')) return 'skipped';
-  return null;
-}
-
-function getStatusEmoji(status: string): string {
-  if (status.includes('completed')) return ' ✅';
-  if (status.includes('in_progress')) return ' ⏳';
-  if (status.includes('failed')) return ' ❌';
-  if (status.includes('skipped')) return ' ⏭️';
-  return '';
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Util 3: 去重添加 + 正则转义
-// ═══════════════════════════════════════════════════════════════
-
-function addUnique<T>(arr: T[], item: T): void {
-  if (!arr.includes(item)) arr.push(item);
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Util 4: 解析 quality_gate（只有明确 true 才返回 true）
-// ═══════════════════════════════════════════════════════════════
-
-function parseQualityGate(body: string): boolean {
-  const match = body.match(/\*\*质量关卡\*\*:\s*(true|false)/i);
-  if (!match) return false;
-  return match[1].toLowerCase() === 'true';
-}
+// 工具函数
+function addUnique<T>(arr: T[], item: T): void;
+function escapeRegExp(str: string): string;
+function parseQualityGate(body: string): boolean;
 ```
 
 ---

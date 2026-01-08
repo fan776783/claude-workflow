@@ -1,7 +1,7 @@
 ---
 description: 启动智能工作流 - 分析需求并生成详细执行计划
 argument-hint: "[-y] [-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
-allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase_retrieval(*), AskUserQuestion(*)
+allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase-retrieval(*), AskUserQuestion(*)
 ---
 
 # 智能工作流启动（v2）
@@ -15,6 +15,14 @@ allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), T
                 │
            codebase-retrieval
 ```
+
+## 规格引用
+
+| 模块 | 路径 | 说明 |
+|------|------|------|
+| 状态机 | `specs/workflow/state-machine.md` | 状态文件结构 |
+| 任务解析 | `specs/workflow/task-parser.md` | Task 接口定义 |
+| 质量关卡 | `specs/workflow/quality-gate.md` | 关卡任务标记 |
 
 ---
 
@@ -167,7 +175,7 @@ console.log(`
 `);
 
 // 使用 codebase-retrieval 分析相关代码
-const codeContext = await mcp__auggie-mcp__codebase_retrieval({
+const codeContext = await mcp__auggie-mcp__codebase-retrieval({
   information_request: `
     分析与以下需求相关的代码：
 

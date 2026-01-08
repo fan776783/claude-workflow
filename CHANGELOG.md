@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.8] - 2026-01-08
+
+### Added
+- **交互式菜单**：无参数运行 `claude-workflow` 时显示交互式菜单（TTY 环境）
+- **模块索引与扫描统计**：`/scan` 命令新增 `modules` 和 `scanStats` 字段
+- **specs 模板目录**：新增 `templates/specs/shared/` 和 `templates/specs/workflow/`
+- **Linux ARM64 支持**：新增 `codeagent-wrapper-linux-arm64` 二进制
+
+### Changed
+- **diff-review 重构**：合并 `diff-review-deep.md`，默认多模型并行审查，`--quick` 单模型快速审查
+- **installer 路径处理**：
+  - 新增 `replaceHomePathsInTemplate()` 替换 `~/` 为绝对路径，解决 Windows 多用户环境问题
+  - 使用函数式 replacer 避免 `$` 字符触发特殊语义
+  - 保留符号链接和文件权限
+- **sync -f 备份机制**：强制同步时备份冲突文件到 `backups/force-sync-{timestamp}/`
+
+### Removed
+- `diff-review-deep.md`：功能合并到 `diff-review.md`
+- `workflow-fix-bug.md`：移除未使用的命令
+
+---
+
 ## [1.2.7] - 2026-01-08
 
 ### Added

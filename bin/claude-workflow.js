@@ -9,6 +9,27 @@ const semver = require('semver');
 const pkg = require('../package.json');
 const { ensureClaudeHome, installFresh, upgradeFrom, copyTemplatesToClaude } = require('../lib/installer');
 
+// 无参数时显示交互式菜单（仅在 TTY 环境）
+if (process.argv.length === 2) {
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const { run } = require('../lib/menu');
+    run();
+  } else {
+    // 非 TTY 环境，打印帮助信息
+    console.log(`Claude Workflow v${pkg.version}`);
+    console.log('\n使用: claude-workflow <command>\n');
+    console.log('可用命令:');
+    console.log('  sync     同步工作流模板到 ~/.claude');
+    console.log('  init     初始化项目配置');
+    console.log('  status   查看安装状态');
+    console.log('  doctor   诊断配置问题');
+    console.log('\n示例:');
+    console.log('  claude-workflow sync');
+    console.log('  claude-workflow sync -f');
+  }
+} else {
+  // 有参数时执行命令
+
 const program = new Command();
 
 program
@@ -34,8 +55,14 @@ program
 
       if (options.force) {
         console.log('[claude-workflow] 强制同步模式...');
-        await copyTemplatesToClaude({ templatesDir, claudeDir, overwrite: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupDir = path.join(metaDir, 'backups', `force-sync-${timestamp}`);
+        const results = await copyTemplatesToClaude({ templatesDir, claudeDir, overwrite: true, backupDir });
         console.log('[claude-workflow] 强制同步完成');
+        if (results.backedUp.length > 0) {
+          console.log(`[claude-workflow] 已备份 ${results.backedUp.length} 个冲突文件到: ${backupDir}`);
+          results.backedUp.forEach(f => console.log(`  - ${f}`));
+        }
       } else {
         let previousVersion = null;
         if (await fs.pathExists(metaFile)) {
@@ -293,3 +320,5 @@ program
   });
 
 program.parse(process.argv);
+
+} // end of else block (有参数时执行命令)
