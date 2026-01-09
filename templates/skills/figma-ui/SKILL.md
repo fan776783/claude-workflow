@@ -3,9 +3,11 @@ name: figma-ui
 description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke this skill IMMEDIATELY when: (1) user shares any figma.com or figma.design URL, (2) user mentions 还原/切图/设计稿/UI实现/前端开发/Figma, (3) user asks to implement/restore/build/convert UI from design. Do NOT call mcp__figma-mcp tools directly - always use this skill first."
 ---
 
-# UI 还原工作流
+# UI 还原工作流（双模型协作版）
 
-从 Figma 设计稿到生产代码的 4 步自动化工作流。
+从 Figma 设计稿到生产代码的 **6 阶段**自动化工作流，采用 **Gemini + Claude** 双模型协作机制。
+
+> **模型分工**：Gemini 专注 UI/样式/响应式，Claude 专注整合/API设计/最佳实践。Codex 不参与（后端专长不适用于 UI 还原）。
 
 ---
 
@@ -13,75 +15,108 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 
 > **以下规则违反任一条即视为严重错误，必须立即停止并修正：**
 
-### 规则 1：资源路径必须先于 Figma MCP 调用
+### 规则 1：上下文检索不可跳过
+
+```
+❌ 错误：直接调用 Figma MCP 获取设计
+✅ 正确：先调用 auggie-mcp 检索项目上下文 → 再获取设计信息
+```
+
+**检查点**：在调用 Figma MCP 之前，必须已经：
+1. 调用 `mcp__auggie-mcp__codebase-retrieval` 检索相关代码
+2. 理解项目的组件库、样式系统、设计规范
+
+### 规则 2：用户确认不可跳过（Hard Stop）
+
+```
+❌ 错误：分析完成后直接开始编码
+✅ 正确：展示实施计划 → 输出 "Shall I proceed with this plan? (Y/N)" → 等待用户确认
+```
+
+**检查点**：在进入原型生成阶段之前，必须已经：
+1. 展示三模型分析结果和实施计划
+2. 以**加粗文本**输出：**"Shall I proceed with this plan? (Y/N)"**
+3. 等待用户明确确认
+
+### 规则 3：双模型原型生成不可跳过
+
+```
+❌ 错误：直接编写 UI 代码
+✅ 正确：并行调用 Gemini + Claude → 交叉验证 → 集成最优方案
+```
+
+**检查点**：在写入任何 UI 代码之前，必须已经：
+1. 并行调用 Gemini（UI 样式）+ Claude（整合视角）生成原型
+2. 交叉验证两个原型的优劣
+3. 集成各家所长形成最终方案
+
+### 规则 4：资源路径必须先于 Figma MCP 调用
 
 ```
 ❌ 错误顺序：mcp__figma-mcp__get_design_context() → 获取资源路径
 ✅ 正确顺序：获取资源路径 → mcp__figma-mcp__get_design_context(dirForAssetWrites=绝对路径)
 ```
 
-**检查点**：调用 `mcp__figma-mcp__get_design_context` 之前，必须已经：
-1. 使用 Glob 工具扫描项目目录结构
-2. 确定 `dirForAssetWrites` 的绝对路径
-3. 如果无法确定，使用 AskUserQuestion 询问用户
-
-### 规则 2：Gemini 原型生成不可跳过
+### 规则 5：双模型审计不可跳过
 
 ```
-❌ 错误：直接编写 UI 代码
-✅ 正确：先调用 Gemini 获取原型 → 基于原型完善代码
+❌ 错误：跳过代码审查直接交付
+✅ 正确：Gemini + Claude 并行审查 → 整合反馈 → 修正交付
 ```
 
-**检查点**：在写入任何 UI 代码之前，必须已经：
-1. 调用 `codeagent-wrapper --backend gemini` 获取代码原型
-2. 等待 Gemini 返回完整组件代码
-3. 以 Gemini 代码为基点进行适配
-
-### 规则 3：资源清理必须在 Skill 结束前执行
+### 规则 6：资源清理必须在 Skill 结束前执行
 
 ```
 ❌ 错误：代码生成完成后直接结束
 ✅ 正确：代码生成 → 检查资源引用 → 删除未使用资源 → 结束
 ```
 
-**检查点**：在 Skill 结束之前，必须已经：
-1. 读取生成的代码文件
-2. 扫描 assetsDir 中本组件相关的资源
-3. 删除代码中未引用的资源文件
-4. 向用户报告删除的资源列表
-
 ---
 
 ## 执行流程概览
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ 第 0 步：参数验证与资源路径获取                                    │
-│ ├─ 解析 Figma URL/nodeId                                        │
-│ ├─ 确定目标代码路径                                              │
-│ └─ 【HARD STOP】获取 dirForAssetWrites（绝对路径）                │
-├─────────────────────────────────────────────────────────────────┤
-│ 第 1 步：收集设计信息                                            │
-│ ├─ 调用 Figma MCP（必须带 dirForAssetWrites）                    │
-│ └─ 资源重命名                                                    │
-├─────────────────────────────────────────────────────────────────┤
-│ 第 2 步：生成实现                                                │
-│ ├─ 【HARD STOP】调用 Gemini 获取 UI 代码原型                     │
-│ └─ 基于 Gemini 原型完善代码                                      │
-├─────────────────────────────────────────────────────────────────┤
-│ 第 3 步：质量验证与资源清理                                       │
-│ ├─ Codex 代码审查                                               │
-│ └─ 【HARD STOP】删除未使用的资源文件                              │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Phase 0：参数验证与资源路径获取                                           │
+│ ├─ 解析 Figma URL/nodeId                                                │
+│ ├─ 确定目标代码路径                                                      │
+│ └─ 【HARD STOP】获取 dirForAssetWrites（绝对路径）                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 1：上下文全量检索（新增）                                           │
+│ ├─ 调用 auggie-mcp 检索项目上下文                                        │
+│ └─ 收集组件库、样式系统、设计规范信息                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 2：收集设计信息                                                    │
+│ ├─ 调用 Figma MCP（必须带 dirForAssetWrites）                            │
+│ └─ 资源下载与重命名                                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 3：双模型协作分析（新增）                                           │
+│ ├─ 并行调用 Gemini + Claude 分析实现方案                                  │
+│ ├─ 展示分析结果和实施计划                                                │
+│ └─ 【HARD STOP】输出 "Shall I proceed with this plan? (Y/N)"            │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 4：双模型原型获取（增强）                                           │
+│ ├─ Gemini：UI 样式、布局、响应式设计、可访问性                            │
+│ ├─ Claude：组件 API、代码组织、整合、最佳实践                             │
+│ └─ 交叉验证，集成最优方案                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 5：编码实施                                                        │
+│ └─ 基于交叉验证结果，重构为生产级代码                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Phase 6：双模型审计与交付（增强）                                         │
+│ ├─ Gemini：视觉还原、响应式、可访问性、设计一致性                          │
+│ ├─ Claude：集成正确性、API 设计、可维护性、最佳实践                        │
+│ └─ 【HARD STOP】资源清理 + 验证报告                                      │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 核心流程
 
-### 第 0 步：参数验证与资源路径获取（必须先于 Figma MCP 调用）
+### Phase 0：参数验证与资源路径获取
 
-> **⚠️ 关键约束**：必须在调用任何 Figma MCP 工具之前完成本步骤，否则会因缺少 `dirForAssetWrites` 参数导致调用失败。
+> **⚠️ 关键约束**：必须在调用任何 Figma MCP 工具之前完成本阶段。
 
 **验证逻辑**：
 1. 检查是否提供 Figma URL/节点 ID
@@ -98,88 +133,45 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 4. 询问用户
 ```
 
+---
+
+### Phase 1：上下文全量检索（⛔ 不可跳过）
+
+> **前置条件**：已完成 Phase 0
+
 **执行步骤**：
 
 ```typescript
-// Step 0.1: 从目标路径推断资源目录
-function inferAssetsDirFromTarget(targetPath: string): string | null {
-  // 提取项目根目录（Monorepo 场景）
-  const match = targetPath.match(/^(apps\/[^\/]+|packages\/[^\/]+)/);
-  if (match) {
-    const projectRoot = match[1];
-    // 检查常见资源目录
-    const candidates = [
-      `${projectRoot}/public/assets`,
-      `${projectRoot}/src/assets`,
-      `${projectRoot}/assets`
-    ];
-    for (const dir of candidates) {
-      if (fs.existsSync(dir)) return dir;
-    }
-    // 返回默认目录（即使不存在，Figma MCP 会创建）
-    return `${projectRoot}/public/assets`;
-  }
-  return null;
-}
-
-// Step 0.2: 从项目配置读取
-function getAssetsDirFromConfig(): string | null {
-  const configPath = ".claude/config/project-config.json";
-  if (fs.existsSync(configPath)) {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    return config.customPaths?.assets || config.customPaths?.staticAssets;
-  }
-  return null;
-}
-
-// Step 0.3: 自动发现
-async function discoverAssetsPath(): Promise<string> {
-  const candidates = [
-    'public/assets',
-    'public/images',
-    'src/assets',
-    'assets',
-    'static',
-    'public'
-  ];
-  for (const dir of candidates) {
-    if (fs.existsSync(dir)) return dir;
-  }
-  return 'public/assets';  // 默认
-}
-
-// 完整获取逻辑
-async function resolveAssetsDir(targetPath: string): Promise<string> {
-  // 优先从目标路径推断
-  let assetsDir = inferAssetsDirFromTarget(targetPath);
-  if (assetsDir) return assetsDir;
-
-  // 其次从配置读取
-  assetsDir = getAssetsDirFromConfig();
-  if (assetsDir) return assetsDir;
-
-  // 最后自动发现
-  return discoverAssetsPath();
-}
+// 调用 auggie-mcp 进行语义级代码检索
+mcp__auggie-mcp__codebase-retrieval({
+  information_request: `
+    UI 还原任务上下文检索：
+    1. 项目使用的 UI 组件库（如 Element Plus、Ant Design、自定义组件）
+    2. 样式框架配置（Tailwind、SCSS、CSS Modules）
+    3. 设计系统 token（颜色、间距、字体）
+    4. 类似组件的实现模式（如已有的分页、按钮、输入框组件）
+    5. 项目的响应式断点配置
+    6. 状态管理方案（Vue Composition API、Pinia、Redux）
+    目标路径：${targetPath}
+    组件类型：${componentType}
+  `
+});
 ```
 
-**实际执行示例**：
-
-```
-目标路径: apps/reelmate/components/MobileNotSupported.vue
-↓
-推断资源目录: apps/reelmate/public/assets
-↓
-调用 Figma MCP 时使用: dirForAssetWrites = "/absolute/path/to/apps/reelmate/public/assets"
-```
+**收集信息**：
+- 可复用组件清单
+- 样式框架配置
+- 设计 token 定义
+- 响应式断点
+- 状态管理模式
 
 ---
 
-### 第 1 步：收集设计信息（自动化）
+### Phase 2：收集设计信息
 
-> **前置条件**：已通过第 0 步获取到 `assetsDir`（绝对路径）
+> **前置条件**：已完成 Phase 1
 
-#### 1.1 获取 Figma 设计上下文
+#### 2.1 获取 Figma 设计上下文
 
 ```typescript
 // 确保 assetsDir 是绝对路径
@@ -198,237 +190,227 @@ mcp__figma-mcp__get_design_context({
 // ⚠️ 关键：调用后对比文件列表，识别新下载的资源
 const allFiles = await fs.readdir(absoluteAssetsDir);
 const newlyDownloadedFiles = allFiles.filter(f => !existingFiles.has(f));
-// 例如: ['7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg', 'abc123def456.png']
 ```
 
-**返回信息**：
-- 颜色规范（主色、辅助色、状态色）
-- 文字规范（字体、字号、行高）
-- 间距规范（padding、margin、gap）
-- 圆角和阴影规范
-- 组件层级结构
-- **图片/图标资源**（自动下载到 assetsDir，命名为 hash 格式如 `7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg`）
-
-#### 1.2 资源下载与重命名
+#### 2.2 资源下载与重命名
 
 Figma MCP 下载资源后，**必须对所有资源文件进行重命名**：
 
-**支持的资源类型**：
-```
-图片: .png, .jpg, .jpeg, .webp, .gif, .avif
-矢量: .svg
-视频: .mp4, .webm
-其他: .pdf, .json (Lottie 动画)
-```
-
-**重命名规则**：
-
 ```typescript
-// 资源命名规则
-function renameAsset(originalName: string, usage: string, componentName: string): string {
-  const ext = path.extname(originalName).toLowerCase();
-  const sanitizedUsage = usage.toLowerCase().replace(/\s+/g, '-');
-
-  // 格式: <组件名>-<用途>.<扩展名>
-  // 例如: mobile-not-supported-illustration.png, login-background.svg
-  return `${componentName.toLowerCase()}-${sanitizedUsage}${ext}`;
-}
-
-// 资源用途检测
-function detectAssetUsage(node: FigmaNode): string {
-  const name = node.name.toLowerCase();
-
-  if (name.includes('icon')) return 'icon';
-  if (name.includes('avatar')) return 'avatar';
-  if (name.includes('bg') || name.includes('background')) return 'background';
-  if (name.includes('logo')) return 'logo';
-  if (name.includes('banner')) return 'banner';
-  if (name.includes('illustration') || name.includes('illus')) return 'illustration';
-  if (name.includes('photo') || name.includes('image')) return 'photo';
-  if (name.includes('thumbnail') || name.includes('thumb')) return 'thumbnail';
-
-  return 'asset';  // 默认
-}
-
 // 批量重命名已下载的资源
-// 参数 newlyDownloadedFiles：来自 1.1 步骤对比得到的新下载文件列表
-// 返回值包含：原始文件列表（用于清理）和重命名映射
-interface RenameResult {
-  assetMapping: Map<string, string>;  // 原名 -> 新名
-  allOriginalFiles: string[];         // 所有处理过的原始文件名（包括重命名失败的）
-}
-
 async function renameDownloadedAssets(
   assetsDir: string,
   componentName: string,
-  newlyDownloadedFiles: string[]  // ⚠️ 只处理本次下载的文件
+  newlyDownloadedFiles: string[]
 ): Promise<RenameResult> {
-  const assetMapping = new Map<string, string>();  // 原名 -> 新名
-  const allOriginalFiles: string[] = [];          // 记录所有原始文件，用于清理
-  const supportedExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.svg', '.mp4', '.webm', '.pdf', '.json'];
-
-  for (const file of newlyDownloadedFiles) {
-    const ext = path.extname(file).toLowerCase();
-    if (!supportedExtensions.includes(ext)) continue;
-
-    // 记录原始文件名（无论是否成功重命名）
-    allOriginalFiles.push(file);
-
-    const usage = detectAssetUsage({ name: file });
-    const newName = renameAsset(file, usage, componentName);
-
-    const oldPath = path.join(assetsDir, file);
-    const newPath = path.join(assetsDir, newName);
-
-    if (oldPath !== newPath) {
-      try {
-        await fs.rename(oldPath, newPath);
-        assetMapping.set(file, newName);
-        console.log(`✅ 重命名: ${file} -> ${newName}`);
-      } catch (error) {
-        console.warn(`⚠️ 重命名失败: ${file} -> ${newName}`, error);
-        // 重命名失败时，记录原文件名（确保清理时能找到它）
-        assetMapping.set(file, file);
-      }
-    } else {
-      // 文件名相同，视为已处理（比如已经符合命名规范的文件）
-      assetMapping.set(file, file);
-    }
-  }
-
-  console.log(`📦 资源追踪: 共 ${assetMapping.size} 个文件已记录到 assetMapping`);
+  const assetMapping = new Map<string, string>();
+  // ... 重命名逻辑（同原版）
   return { assetMapping, allOriginalFiles };
 }
 ```
 
-#### 1.3 资源清理（删除未使用的资源）
-
-> **重要**：在代码生成完成后，必须清理未被引用的资源文件。
-
-```typescript
-// 在第 2 步代码生成完成后执行
-// 参数 assetMapping：来自 renameDownloadedAssets 的返回值，记录了原名->新名的映射
-async function cleanupUnusedAssets(
-  assetsDir: string,
-  componentCode: string,
-  assetMapping: Map<string, string>  // 关键：使用重命名阶段记录的映射
-): Promise<string[]> {
-  const deletedFiles: string[] = [];
-
-  // 遍历所有本次下载的资源（通过 assetMapping 追踪，而非文件名模式匹配）
-  for (const [originalName, currentName] of assetMapping.entries()) {
-    const filePath = path.join(assetsDir, currentName);
-
-    // 检查文件是否仍然存在
-    if (!fs.existsSync(filePath)) {
-      console.log(`⚠️ 资源文件不存在，跳过: ${currentName}`);
-      continue;
-    }
-
-    // 检查资源是否在代码中被引用（检查当前文件名和无扩展名版本）
-    const fileNameWithoutExt = currentName.replace(/\.[^.]+$/, '');
-    const isUsed = componentCode.includes(currentName) ||
-                   componentCode.includes(fileNameWithoutExt);
-
-    if (!isUsed) {
-      await fs.unlink(filePath);
-      deletedFiles.push(currentName);
-      console.log(`🗑️ 已删除未使用的资源: ${currentName}`);
-    }
-  }
-
-  return deletedFiles;
-}
-```
-
-**资源清理时机**：
-1. 第 2 步代码生成完成后
-2. Codex Review 确认代码无误后
-3. 最终交付前
-
-#### 1.4 加载项目 UI 上下文
-
-```bash
-/analyze "UI 还原：<组件名称> 的项目上下文"
-```
-
-**收集信息**：
-- 识别可复用组件（从配置读取 UI 组件库路径）
-- 了解样式框架配置（Tailwind/Emotion/CSS Modules 等）
-- 发现现有设计 token 和主题配置
-- 理解响应式断点策略
-
 ---
 
-### 第 2 步：生成实现（Gemini Gate）
+### Phase 3：双模型协作分析（⛔ 不可跳过）
 
-**重要**：本步骤必须以 Gemini 的前端设计（原型代码）为最终的前端代码基点。
+> **前置条件**：已完成 Phase 2，获取到设计上下文和项目上下文
 
-#### 2.1 向 Gemini 索要 UI 代码原型
+#### 3.1 并行调用双模型分析
 
-```typescript
-const geminiResult = await Bash({
-  command: `codeagent-wrapper --backend gemini - ${process.cwd()} <<'EOF'
+使用 `run_in_background: true` 并行执行：
+
+```bash
+# Gemini - 前端 UI 视角
+codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
 <ROLE>
-# Gemini Role: Frontend Developer
-> For: /workflow-ui-restore UI code generation
+# Gemini Role: Frontend Developer (UI Analysis)
+> For: figma-ui Phase 3 - Implementation Analysis
 
-You are a senior frontend developer specializing in React/Vue UI components.
+You are analyzing a UI component from a frontend/visual perspective.
 
 ## CRITICAL CONSTRAINTS
 - ZERO file system write permission - READ-ONLY sandbox
-- OUTPUT FORMAT: Complete component code (not diff/patch)
-- Focus: Visual fidelity, responsive design, accessibility
+- OUTPUT FORMAT: Analysis report with recommendations
+- Focus: Visual fidelity, responsive design, accessibility, animations
+</ROLE>
+
+<TASK>
+## Figma Design Context
+${设计上下文}
+
+## Project Context
+${项目上下文}
+
+## Analysis Requirements
+1. 样式实现方案（Tailwind 类、CSS 变量）
+2. 响应式布局策略
+3. 交互状态设计（hover、active、focus、disabled）
+4. 可访问性要求（ARIA、键盘导航）
+5. 动画和过渡效果
+</TASK>
+
+OUTPUT: 结构化分析报告，包含具体实现建议。
+EOF
+```
+
+```bash
+# Claude - 整合视角
+codeagent-wrapper --backend claude - ${workdir} <<'EOF'
+<ROLE>
+# Claude Role: Full-Stack Architect (UI Analysis)
+> For: figma-ui Phase 3 - Implementation Analysis
+
+You are analyzing a UI component from an integration perspective.
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission - READ-ONLY sandbox
+- OUTPUT FORMAT: Analysis report with recommendations
+- Focus: Integration, API design, maintainability, best practices
+</ROLE>
+
+<TASK>
+## Figma Design Context
+${设计上下文}
+
+## Project Context
+${项目上下文}
+
+## Analysis Requirements
+1. 组件 API 设计（props 接口、暴露方法）
+2. 与现有组件的集成方案
+3. 代码组织和文件结构
+4. TypeScript 类型定义
+5. 状态管理方案
+</TASK>
+
+OUTPUT: 结构化分析报告，包含具体实现建议。
+EOF
+```
+
+#### 3.2 整合分析结果
+
+使用 `TaskOutput` 收集两个模型的分析结果，整合为统一的实施计划。
+
+#### 3.3 展示计划并等待确认（⛔ Hard Stop）
+
+**必须**向用户展示：
+1. 双模型分析要点摘要
+2. 统一的实施计划（含伪代码）
+3. 技术决策说明
+
+**必须**以加粗文本输出：
+
+**"Shall I proceed with this plan? (Y/N)"**
+
+**必须**立即终止当前回复，等待用户确认后再继续。
+
+---
+
+### Phase 4：双模型原型获取（⛔ 不可跳过）
+
+> **前置条件**：用户已确认实施计划（回复 Y）
+
+#### 4.1 并行调用双模型生成原型
+
+使用 `run_in_background: true` 并行执行：
+
+```bash
+# Gemini - UI 样式原型
+codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
+<ROLE>
+# Gemini Role: Frontend Developer (Prototype Generation)
+> For: figma-ui Phase 4 - Prototype Generation
+
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission
+- OUTPUT FORMAT: Complete component code focusing on UI/STYLE
 - Context limit: < 32k tokens
 </ROLE>
 
 <TASK>
-## Task
-Generate a production-ready UI component based on the Figma design specifications below.
+基于以下设计规范生成组件代码，重点关注：
+1. 精确的视觉还原（颜色、间距、字体）
+2. 响应式布局（mobile-first）
+3. 交互状态样式（hover、active、focus、disabled）
+4. 可访问性支持（ARIA、键盘导航）
 
-## Figma Design Specifications
-${设计上下文摘要}
+## 设计规范
+${设计上下文}
 
-## Project Context
-- Reusable components: ${可复用组件列表}
-- Styling framework: ${Tailwind/Emotion/CSS Modules}
-- Responsive breakpoints: ${断点定义}
-- Assets directory: ${assetsDir}
+## 项目规范
+${项目上下文}
 
-## Target
-- File path: ${目标路径}
-- Operation: ${新建 or 修改}
-- Special requirements: ${用户描述}
-
-## Asset References
-Use the following asset paths in your code:
+## 资源路径
 ${资源路径列表}
 
-## Requirements
-1. Provide complete component code (not diff/patch)
-2. Prioritize reusing existing project components
-3. Use project styling framework (Tailwind preferred)
-4. Implement responsive design (mobile-first)
-5. Full TypeScript type definitions
-6. Semantic HTML with accessibility support
-7. Cover all interaction states: hover, active, focus, disabled
-8. Reference assets using the provided paths
+## 目标文件
+${targetPath}
 </TASK>
 
-OUTPUT: Return the complete component code ready for production use.
-EOF`,
-  run_in_background: true
-});
+OUTPUT: 完整的组件代码（重点是样式和视觉还原）。
+EOF
 ```
 
-**注意事项**：
-- Gemini 上下文有效长度**仅为 32k**，避免传入过多无关信息
-- 仅传入与 UI 相关的设计规范和组件信息
-- **Gemini 的代码原型是前端实现的基点**，必须以此为基础
+```bash
+# Claude - 整合原型
+codeagent-wrapper --backend claude - ${workdir} <<'EOF'
+<ROLE>
+# Claude Role: Full-Stack Architect (Prototype Generation)
+> For: figma-ui Phase 4 - Prototype Generation
 
-#### 2.2 基于 Gemini 原型完善代码
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission
+- OUTPUT FORMAT: Complete component code with INTEGRATION focus
+</ROLE>
 
-以 Gemini 的代码为基点，结合项目规范进行适配和完善：
+<TASK>
+基于以下设计规范生成组件代码，重点关注：
+1. 清晰的组件 API 设计（props、emits）
+2. 完整的 TypeScript 类型定义
+3. 状态管理逻辑
+4. 与现有组件的无缝集成
+5. 代码可读性和可维护性
+
+## 设计规范
+${设计上下文}
+
+## 项目规范
+${项目上下文}
+
+## 目标文件
+${targetPath}
+</TASK>
+
+OUTPUT: 完整的组件代码（重点是 API 设计和整合）。
+EOF
+```
+
+#### 4.2 交叉验证双模型结果
+
+使用 `TaskOutput` 收集两个原型后，进行交叉验证：
+
+| 维度 | Gemini 原型 | Claude 原型 | 最优选择 |
+|------|-------------|-------------|----------|
+| 视觉还原 | ✅ 优势 | - | Gemini |
+| 响应式设计 | ✅ 优势 | - | Gemini |
+| 交互状态 | ✅ 优势 | - | Gemini |
+| 类型定义 | - | ✅ 优势 | Claude |
+| API 设计 | - | ✅ 优势 | Claude |
+| 代码组织 | - | ✅ 优势 | Claude |
+
+---
+
+### Phase 5：编码实施
+
+> **前置条件**：已完成 Phase 4 的交叉验证
+
+#### 5.1 集成最优方案
+
+将两个原型视为"脏原型"，集各家所长：
+- **Gemini**：样式、布局、响应式设计、交互状态
+- **Claude**：类型定义、API 设计、代码组织、状态管理
+
+#### 5.2 重构为生产级代码
 
 ```typescript
 if (文件存在) {
@@ -446,247 +428,147 @@ if (文件存在) {
 
 ---
 
-### 第 3 步：质量验证与资源清理
+### Phase 6：双模型审计与交付（⛔ 不可跳过）
 
-> **⛔ 本步骤包含强制执行的资源清理，不可跳过**
+> **前置条件**：已完成 Phase 5
 
-#### 3.1 Codex 代码审查
+#### 6.1 双模型并行代码审查
 
-```typescript
-const codexResult = await Bash({
-  command: `codeagent-wrapper --backend codex - ${process.cwd()} <<'EOF'
+使用 `run_in_background: true` 并行执行：
+
+```bash
+# Gemini - 视觉还原、响应式、可访问性、设计一致性
+codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
 <ROLE>
-# Codex Role: UI Code Reviewer
-> For: /workflow-ui-restore quality verification
-
-You are a senior frontend code reviewer specializing in UI component quality.
+# Gemini Role: Code Reviewer (UI & Accessibility)
+> For: figma-ui Phase 6 - Code Audit
 
 ## CRITICAL CONSTRAINTS
-- ZERO file system write permission - READ-ONLY sandbox
+- ZERO file system write permission
 - OUTPUT FORMAT: Structured review with scores
-- Focus: Visual fidelity, code quality, accessibility
 
 ## Scoring Format
-UI REVIEW REPORT
-================
-Visual Fidelity: XX/20 - [reason]
-Code Quality: XX/20 - [reason]
-Responsive Design: XX/20 - [reason]
-Accessibility: XX/20 - [reason]
-Component Reuse: XX/20 - [reason]
+GEMINI REVIEW REPORT
+====================
+Visual Fidelity: XX/25 - [reason]
+Responsive Design: XX/25 - [reason]
+Accessibility: XX/25 - [reason]
+Design Consistency: XX/25 - [reason]
 ─────────────────────────
 TOTAL SCORE: XX/100
 </ROLE>
 
 <TASK>
-审查以下 UI 组件实现：
+审查文件：${targetPath}
 
-## 文件路径
-${目标路径}
-
-## 审查要点
-1. 是否符合 Figma 设计稿？
-2. 是否复用了项目组件？
-3. Tailwind 使用是否规范？
-4. 响应式设计是否完整？
-5. 代码可读性和可维护性如何？
-6. 资源引用路径是否正确？
+审查要点：
+1. 视觉还原度（与 Figma 设计稿对比）
+2. 响应式设计（断点覆盖、移动端适配）
+3. 可访问性（ARIA、键盘导航、颜色对比度）
+4. 设计一致性（设计 token 使用、样式规范）
 </TASK>
 
-OUTPUT: 请按照 UI REVIEW REPORT 格式输出评分和具体建议。
-EOF`,
-  run_in_background: true
-});
+OUTPUT: 按照 GEMINI REVIEW REPORT 格式输出。
+EOF
 ```
 
-#### 3.2 资源清理（⛔ 强制执行）
+```bash
+# Claude - 集成正确性、API 设计、可维护性、最佳实践
+codeagent-wrapper --backend claude - ${workdir} <<'EOF'
+<ROLE>
+# Claude Role: Code Reviewer (Integration & Maintainability)
+> For: figma-ui Phase 6 - Code Audit
 
-> **此步骤必须在 Skill 结束前执行，不可跳过！**
+## CRITICAL CONSTRAINTS
+- ZERO file system write permission
+- OUTPUT FORMAT: Structured review with scores
 
-**前置条件**：第 1 步的 `renameDownloadedAssets` 返回的 `assetMapping` 必须保留到此步骤。
+## Scoring Format
+CLAUDE REVIEW REPORT
+====================
+Integration: XX/25 - [reason]
+API Design: XX/25 - [reason]
+Maintainability: XX/25 - [reason]
+Best Practices: XX/25 - [reason]
+─────────────────────────
+TOTAL SCORE: XX/100
+</ROLE>
 
-**执行步骤**：
+<TASK>
+审查文件：${targetPath}
 
-```typescript
-// 步骤 3.2.1: 读取生成的代码文件
-const componentCode = await Read({ file_path: 目标路径 });
+审查要点：
+1. 集成正确性（与现有组件的兼容性）
+2. API 设计（props 接口清晰度、事件命名）
+3. 可维护性（代码组织、注释、可读性）
+4. 最佳实践（Vue/React 模式、设计原则）
+</TASK>
 
-// 步骤 3.2.2: 使用 assetMapping 获取本次下载的所有资源
-// 注意：assetMapping 来自第 1 步 renameDownloadedAssets 的返回值
-// 它记录了原始文件名到当前文件名的映射，包括：
-// - 成功重命名的文件：originalName -> newName
-// - 未改变名称的文件：fileName -> fileName
-const unusedAssets: string[] = [];
-
-for (const [originalName, currentName] of assetMapping.entries()) {
-  const filePath = path.join(assetsDir, currentName);
-
-  // 检查文件是否仍然存在
-  if (!fs.existsSync(filePath)) continue;
-
-  // 检查代码中是否引用了该资源
-  const fileNameWithoutExt = currentName.replace(/\.[^.]+$/, '');
-  const isUsed = componentCode.includes(currentName) ||
-                 componentCode.includes(fileNameWithoutExt);
-
-  if (!isUsed) {
-    unusedAssets.push(filePath);
-  }
-}
-
-// 步骤 3.2.3: 删除未使用的资源
-for (const unusedAsset of unusedAssets) {
-  await Bash({ command: `rm "${unusedAsset}"` });
-  console.log(`🗑️ 已删除未使用的资源: ${path.basename(unusedAsset)}`);
-}
-
-// 步骤 3.2.4: 向用户报告
-if (unusedAssets.length > 0) {
-  console.log(`\n📋 资源清理报告：已删除 ${unusedAssets.length} 个未使用的资源文件`);
-  unusedAssets.forEach(f => console.log(`  - ${path.basename(f)}`));
-} else {
-  console.log(`\n✅ 资源清理完成：所有资源均被代码引用，无需删除`);
-}
+OUTPUT: 按照 CLAUDE REVIEW REPORT 格式输出。
+EOF
 ```
 
-**关键变更**：
-- ❌ 旧逻辑：使用 Glob 模式 `${componentName}-*.*` 匹配文件（会遗漏未重命名的文件）
-- ✅ 新逻辑：使用 `assetMapping` 追踪所有本次下载的资源（确保无遗漏）
+#### 6.2 整合审查结果
 
-**实际执行示例**：
+使用 `TaskOutput` 收集两个审查报告，计算综合评分：
 
 ```
-组件: MobileNotSupported.vue
-资源目录: /Users/ws/dev/project/apps/reelmate/assets/images
-
-第 1.1 步 - Figma MCP 调用前后对比:
-  调用前现有文件: [other-component-bg.png, logo.svg]
-  Figma MCP 下载后: [other-component-bg.png, logo.svg, 7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg, abc123def456.png]
-  新下载的文件: [7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg, abc123def456.png]
-
-第 1.2 步 - 资源重命名 (只处理新下载的文件):
-  7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg -> mobile-not-supported-illustration.svg ✅
-  abc123def456.png                              -> mobile-not-supported-icon.png ✅
-  📦 资源追踪: 共 2 个文件已记录到 assetMapping
-
-第 3 步 - 资源清理 (使用 assetMapping 追踪):
-  检查 mobile-not-supported-illustration.svg → 代码中已引用 ✅
-  检查 mobile-not-supported-icon.png         → 代码中未引用 ❌
-
-执行删除:
-  🗑️ 已删除未使用的资源: mobile-not-supported-icon.png
-
-📋 资源清理报告：已删除 1 个未使用的资源文件
+综合评分 = (Gemini 评分 + Claude 评分) / 2
 ```
-
-**关键优势**：
-1. 通过前后对比识别新下载的文件（如 `7f48748b8ba283a69c9061e41bd9578c0d540f0c.svg`）
-2. 使用 `assetMapping` 追踪资源，确保所有新下载的文件都会被正确清理
-3. 不影响其他组件的资源文件
-
-#### 3.3 生成验证报告
-
-自动生成 `.claude/verification-report-{task_name}.md`：
-
-**报告内容**：
-- 视觉还原度评分
-- 代码质量评分
-- 响应式设计评分
-- 可访问性评分
-- 综合评分和建议
-- 已知问题和改进方向
-- 资源清单（保留的资源列表）
-- **已删除资源清单**（清理的资源列表）
 
 **决策规则**：
 - 综合评分 ≥ 90 分 → 通过
 - 综合评分 < 80 分 → 退回修改
 - 80-89 分 → 仔细审阅后决策
 
----
+#### 6.3 资源清理（⛔ 强制执行）
 
-## 配置更新
-
-### 静态资源路径配置
-
-如果项目配置中没有静态资源路径，本 skill 会：
-
-1. **自动发现**：扫描常见资源目录
-2. **写入配置**：将发现的路径写入 `project-config.json`
+> **此步骤必须在 Skill 结束前执行，不可跳过！**
 
 ```typescript
-async function updateProjectConfig(fieldPath: string, value: string) {
-  const configPath = ".claude/config/project-config.json";
+// 使用 assetMapping 追踪并删除未被引用的资源
+const componentCode = await Read({ file_path: targetPath });
 
-  if (!fs.existsSync(configPath)) {
-    console.log("⚠️ 配置文件不存在，请先运行 /scan");
-    return;
-  }
+for (const [originalName, currentName] of assetMapping.entries()) {
+  const filePath = path.join(assetsDir, currentName);
+  if (!fs.existsSync(filePath)) continue;
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const isUsed = componentCode.includes(currentName) ||
+                 componentCode.includes(currentName.replace(/\.[^.]+$/, ''));
 
-  // 设置嵌套字段
-  const keys = fieldPath.split('.');
-  let obj = config;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!obj[keys[i]]) obj[keys[i]] = {};
-    obj = obj[keys[i]];
-  }
-  obj[keys[keys.length - 1]] = value;
-
-  // 更新时间戳
-  config.metadata.lastUpdated = new Date().toISOString();
-
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  console.log(`✅ 已更新配置: ${fieldPath} = ${value}`);
-}
-```
-
-### project-config.json 资源路径字段
-
-```json
-{
-  "customPaths": {
-    "assets": "public/assets",
-    "staticAssets": "public/assets",
-    "images": "public/assets/images",
-    "icons": "public/assets/icons"
+  if (!isUsed) {
+    await Bash({ command: `rm "${filePath}"` });
+    console.log(`🗑️ 已删除未使用的资源: ${currentName}`);
   }
 }
 ```
+
+#### 6.4 生成验证报告
+
+自动生成 `.claude/verification-report-{task_name}.md`：
+
+**报告内容**：
+- 双模型审查评分汇总
+- 视觉还原度评分
+- 代码质量评分
+- 综合评分和建议
+- 已知问题和改进方向
+- 资源清单（保留的资源列表）
+- **已删除资源清单**
 
 ---
 
-## 核心原则
+## 资源矩阵
 
-### 1. 样式使用优先级
-
-```
-1. 复用现有组件（从配置读取 UI 组件库路径）
-2. 使用样式框架（Tailwind/Emotion/CSS Modules 等，从配置读取）
-3. 扩展样式框架配置（设计 token）
-4. 自定义 CSS（仅必要时）
-```
-
-### 2. 响应式设计原则
-
-```tsx
-// 移动优先布局（示例：Tailwind）
-<div className="
-  flex flex-col gap-4 p-4           // 移动端默认
-  md:flex-row md:gap-6 md:p-6      // 平板
-  lg:gap-8 lg:p-8                  // 桌面
-">
-```
-
-### 3. 资源引用规范
-
-```tsx
-// 正确的资源引用方式
-import userAvatar from '@/assets/user-profile-avatar.png';
-// 或
-<img src="/assets/user-profile-avatar.png" alt="用户头像" />
-```
+| Phase | 功能 | 指定模型 | 输出约束 |
+|:------|:-----|:---------|:---------|
+| **Phase 0** | 参数验证 | - | 配置信息 |
+| **Phase 1** | 上下文检索 | Auggie MCP | 原始代码/定义 |
+| **Phase 2** | 设计信息收集 | Figma MCP | 设计规范 + 资源 |
+| **Phase 3** | 双模型分析 | Gemini + Claude | 分步计划 |
+| **Phase 4** | 原型生成 | Gemini + Claude | 完整组件代码 |
+| **Phase 5** | 编码实施 | Claude (Self) | 生产级代码 |
+| **Phase 6** | 双模型审计 | Gemini + Claude | 审查报告 |
 
 ---
 
@@ -694,53 +576,26 @@ import userAvatar from '@/assets/user-profile-avatar.png';
 
 ### 必须做到
 
-1. **⚠️ 资源路径优先**：**必须**在调用 Figma MCP 之前获取 `dirForAssetWrites`，否则调用会失败
-2. **参数验证**：缺少参数时必须询问用户
-3. **路径推断**：优先从目标路径推断资源目录（Monorepo 场景）
-4. **配置读取**：其次从 project-config.json 读取资源路径
-5. **绝对路径**：传给 Figma MCP 的 `dirForAssetWrites` 必须是绝对路径
-6. **⚠️ 文件对比**：调用 Figma MCP **前后**必须对比文件列表，识别新下载的资源（如 `7f48...svg`）
-7. **资源重命名**：**所有**新下载的资源（png/jpg/jpeg/webp/gif/svg 等）都必须按规则重命名
-8. **资源追踪**：使用 `assetMapping` 记录所有新下载的资源（包括重命名失败的），确保清理时无遗漏
-9. **资源清理**：代码生成完成后，使用 `assetMapping` 追踪并删除未被引用的资源文件
-10. **Gemini 优先**：UI 代码必须先从 Gemini 获取原型
-11. **Codex Review**：编码后必须使用 Codex 执行 review
-12. **简体中文**：所有注释、文档、回复必须使用简体中文
+1. **⚠️ 上下文检索优先**：必须在获取设计信息前调用 auggie-mcp
+2. **⚠️ 用户确认必须**：Phase 3 结束时必须输出 "Shall I proceed with this plan? (Y/N)" 并等待确认
+3. **⚠️ 双模型并行**：Phase 3、4、6 必须并行调用 Gemini + Claude
+4. **⚠️ 交叉验证**：Phase 4 必须交叉验证两个原型结果
+5. **资源路径优先**：必须在调用 Figma MCP 之前获取 dirForAssetWrites
+6. **绝对路径**：传给 Figma MCP 的 dirForAssetWrites 必须是绝对路径
+7. **资源追踪**：使用 assetMapping 记录所有新下载的资源
+8. **资源清理**：代码生成完成后，删除未被引用的资源文件
+9. **简体中文**：所有注释、文档、回复必须使用简体中文
 
 ### 禁止操作
 
-- **未获取资源路径就调用 Figma MCP**（会导致调用失败）
-- **未记录现有文件就调用 Figma MCP**（无法识别新下载的资源）
-- **保留未使用的资源文件**（必须清理）
-- **只重命名部分资源类型**（所有图片/矢量/视频都要重命名）
-- **使用 Glob 模式匹配清理资源**（会遗漏未重命名的文件，必须使用 assetMapping）
-- 跳过 Gemini 直接编写 UI 代码
-- 大幅修改 Gemini 的样式和布局设计
-- 向 Gemini 传入后端代码或过多无关信息
-- 未经 Codex review 就提交代码
-- 使用英文注释或文档
-- 资源放置在错误的目录
-- 使用相对路径作为 `dirForAssetWrites`
-
----
-
-## 相关工作流
-
-- `/workflow-quick-dev` - 快速功能开发工作流
-- `/diff-review` - 代码变更审查
-- `/analyze "项目上下文"` - 上下文加载
-- `/scan` - 智能项目扫描
-
-**Figma MCP 工具**：
-- `mcp__figma-mcp__get_design_context` - 获取设计上下文（含资源下载）
-- `mcp__figma-mcp__get_screenshot` - 获取设计截图
-
-**Gemini 调用**（UI 代码生成）：
-- `codeagent-wrapper --backend gemini` - 前端代码原型生成
-- 使用 `<ROLE>` 和 `<TASK>` 标签结构化提示词
-
-**Codex 调用**（代码审查）：
-- `codeagent-wrapper --backend codex` - 代码质量审查
+- **跳过上下文检索**（Phase 1）
+- **跳过用户确认**（Phase 3 Hard Stop）
+- **单模型生成原型**（必须双模型并行）
+- **单模型审计**（必须双模型并行）
+- **未获取资源路径就调用 Figma MCP**
+- **保留未使用的资源文件**
+- **使用相对路径作为 dirForAssetWrites**
+- **使用英文注释或文档**
 
 ---
 
@@ -748,26 +603,39 @@ import userAvatar from '@/assets/user-profile-avatar.png';
 
 > **在结束 figma-ui skill 之前，必须逐项确认以下检查点：**
 
-### 第 0 步检查
+### Phase 0 检查
 - [ ] ✅ 已使用 Glob 扫描项目目录结构
 - [ ] ✅ 已确定 `dirForAssetWrites` 的绝对路径
-- [ ] ✅ 首次调用 Figma MCP 时已携带 `dirForAssetWrites` 参数
 
-### 第 1 步检查
+### Phase 1 检查
+- [ ] ✅ 已调用 `mcp__auggie-mcp__codebase-retrieval` 检索项目上下文
+- [ ] ✅ 已获取组件库、样式系统、设计规范信息
+
+### Phase 2 检查
 - [ ] ✅ **调用 Figma MCP 前**已记录资源目录中的现有文件列表
 - [ ] ✅ Figma MCP 调用成功返回设计上下文
-- [ ] ✅ **调用后**已对比得到新下载的文件列表（如 `7f48...c.svg`）
 - [ ] ✅ 资源文件已按规则重命名
-- [ ] ✅ `assetMapping` 已记录所有新下载的资源（包括重命名失败的）
+- [ ] ✅ `assetMapping` 已记录所有新下载的资源
 
-### 第 2 步检查
-- [ ] ✅ 已调用 `codeagent-wrapper --backend gemini` 获取代码原型
-- [ ] ✅ 已等待 Gemini 返回完整组件代码
-- [ ] ✅ 已基于 Gemini 原型完善并写入代码
+### Phase 3 检查
+- [ ] ✅ 已**并行**调用 Gemini + Claude 进行分析
+- [ ] ✅ 已向用户展示实施计划
+- [ ] ✅ 已输出 **"Shall I proceed with this plan? (Y/N)"**
+- [ ] ✅ 已等待并收到用户确认（Y）
 
-### 第 3 步检查
-- [ ] ✅ 已调用 Codex 进行代码审查
-- [ ] ✅ **已执行资源清理**：使用 `assetMapping` 追踪所有资源，删除未被代码引用的文件
-- [ ] ✅ 已向用户报告资源清理结果（包括删除的文件列表）
+### Phase 4 检查
+- [ ] ✅ 已**并行**调用 Gemini + Claude 生成原型
+- [ ] ✅ 已进行交叉验证，识别各模型优势
+- [ ] ✅ 已整合最优方案
 
-**如果任一检查项未通过，必须返回对应步骤执行，不可结束 Skill。**
+### Phase 5 检查
+- [ ] ✅ 已基于交叉验证结果写入生产级代码
+
+### Phase 6 检查
+- [ ] ✅ 已**并行**调用 Gemini + Claude 进行代码审查
+- [ ] ✅ 已计算综合评分并做出决策
+- [ ] ✅ **已执行资源清理**
+- [ ] ✅ 已向用户报告资源清理结果
+- [ ] ✅ 已生成验证报告
+
+**如果任一检查项未通过，必须返回对应阶段执行，不可结束 Skill。**

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.9] - 2026-01-09
+
+### Changed
+- **figma-ui skill 重构**：从三模型协作改为 **Gemini + Claude 双模型协作**
+  - 移除 Codex 参与（后端专长不适用于 UI 还原任务）
+  - Gemini：UI 样式、视觉还原、响应式设计、可访问性、交互状态
+  - Claude：组件 API、类型定义、代码组织、整合、最佳实践
+- **新增 6 阶段工作流**：
+  - Phase 0: 参数验证与资源路径获取
+  - Phase 1: 上下文全量检索（auggie-mcp）
+  - Phase 2: 收集设计信息（Figma MCP）
+  - Phase 3: 双模型协作分析 + Hard Stop 用户确认
+  - Phase 4: 双模型原型获取 + 交叉验证
+  - Phase 5: 编码实施
+  - Phase 6: 双模型审计与交付
+- **新增强制规则**：
+  - 上下文检索不可跳过
+  - 用户确认不可跳过（"Shall I proceed with this plan? (Y/N)"）
+  - 双模型原型生成不可跳过
+  - 双模型审计不可跳过
+
+---
+
 ## [1.2.8] - 2026-01-08
 
 ### Added
