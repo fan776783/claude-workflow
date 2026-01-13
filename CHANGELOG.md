@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.10] - 2026-01-13
+
+### Changed
+- **figma-ui skill v2 优化版**：重大架构升级，提升效率与可靠性
+  - **阶段合并**：7 阶段 → 5 阶段（Phase 0+1 合并为并行初始化）
+  - **并行 Subagent**：Phase 1 使用双 Subagent 并行执行，返回精炼 JSON，上下文节省 ~80%
+  - **Token-First 策略**：优先使用 Design Token 而非硬编码值，消除技术债务
+  - **任务隔离目录**：`assetsDir/.figma-ui/tmp/<taskId>/` 避免并发任务资源污染
+  - **可恢复状态机**：新增 `WorkflowState` 接口 + 检查点保存/恢复机制
+  - **Gemini 多模态 QA**：Phase 5 获取 Figma 设计截图进行视觉对比审计
+  - **结构化 JSON 输出**：Phase 3/4/5 所有模型输出强制为 JSON Schema
+  - **视觉属性补充**：新增 z-index、opacity、backdrop-filter、overflow、object-fit 检查
+  - **资源安全清理**：路径前缀验证 + 整目录清理（O(1) 安全操作）
+  - **错误处理策略**：单模型失败重试 + 用户选择降级策略
+
+### Fixed
+- **文档一致性**：修复阶段编号混乱（6/7 phases）、规则编号重复、三/双模型措辞不一致
+
+---
+
 ## [1.2.9] - 2026-01-09
 
 ### Changed
