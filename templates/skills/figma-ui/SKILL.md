@@ -9,6 +9,8 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 
 > **模型分工**：Gemini 专注 UI/样式/响应式，Claude 专注整合/API设计/最佳实践。Codex 不参与（后端专长不适用于 UI 还原）。
 
+> **⚠️ 核心目标**：**像素级精准还原设计稿**——布局、间距、尺寸、颜色、字体、内容必须与设计稿完全一致。
+
 ---
 
 ## ⛔ 强制执行规则（HARD STOP）
@@ -57,18 +59,41 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 ✅ 正确顺序：获取资源路径 → mcp__figma-mcp__get_design_context(dirForAssetWrites=绝对路径)
 ```
 
-### 规则 5：双模型审计不可跳过
+### 规则 5：设计精准还原不可妥协
+
+```
+❌ 错误：大致还原设计，忽略细节差异
+✅ 正确：像素级精准还原，逐项核对设计规范
+```
+
+**检查点**：每个元素必须核对以下属性：
+1. **布局**：Flex/Grid 方向、对齐方式、换行策略
+2. **间距**：margin、padding、gap（精确到 px）
+3. **尺寸**：width、height、min/max 约束
+4. **颜色**：背景色、文字色、边框色（使用设计稿精确色值）
+5. **字体**：font-family、font-size、font-weight、line-height、letter-spacing
+6. **内容**：文案、图标、占位符必须与设计稿一致
+7. **圆角**：border-radius 精确值
+8. **阴影**：box-shadow 参数完全匹配
+
+### 规则 6：资源清理必须在编码完成后立即执行
+
+```
+❌ 错误：编码完成 → 审计 → 资源清理（可能被跳过）
+✅ 正确：编码完成 → 资源清理 → 审计 → 交付
+```
+
+**检查点**：在进入审计阶段之前，必须已经：
+1. 读取生成的代码文件
+2. 检查所有下载资源的引用情况
+3. 删除未被引用的资源文件
+4. 记录清理结果
+
+### 规则 6：双模型审计不可跳过
 
 ```
 ❌ 错误：跳过代码审查直接交付
 ✅ 正确：Gemini + Claude 并行审查 → 整合反馈 → 修正交付
-```
-
-### 规则 6：资源清理必须在 Skill 结束前执行
-
-```
-❌ 错误：代码生成完成后直接结束
-✅ 正确：代码生成 → 检查资源引用 → 删除未使用资源 → 结束
 ```
 
 ---
@@ -82,7 +107,7 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 │ ├─ 确定目标代码路径                                                      │
 │ └─ 【HARD STOP】获取 dirForAssetWrites（绝对路径）                        │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Phase 1：上下文全量检索（新增）                                           │
+│ Phase 1：上下文全量检索                                                  │
 │ ├─ 调用 auggie-mcp 检索项目上下文                                        │
 │ └─ 收集组件库、样式系统、设计规范信息                                      │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -90,23 +115,25 @@ description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke th
 │ ├─ 调用 Figma MCP（必须带 dirForAssetWrites）                            │
 │ └─ 资源下载与重命名                                                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Phase 3：双模型协作分析（新增）                                           │
+│ Phase 3：双模型协作分析                                                  │
 │ ├─ 并行调用 Gemini + Claude 分析实现方案                                  │
 │ ├─ 展示分析结果和实施计划                                                │
 │ └─ 【HARD STOP】输出 "Shall I proceed with this plan? (Y/N)"            │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Phase 4：双模型原型获取（增强）                                           │
+│ Phase 4：双模型原型获取                                                  │
 │ ├─ Gemini：UI 样式、布局、响应式设计、可访问性                            │
 │ ├─ Claude：组件 API、代码组织、整合、最佳实践                             │
 │ └─ 交叉验证，集成最优方案                                                │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Phase 5：编码实施                                                        │
-│ └─ 基于交叉验证结果，重构为生产级代码                                      │
+│ Phase 5：编码实施与资源清理（⚠️ 精准还原）                                │
+│ ├─ 基于交叉验证结果，重构为生产级代码                                      │
+│ ├─ 【核心】像素级还原：布局、间距、尺寸、颜色、字体、内容                    │
+│ └─ 【强制】资源清理：删除未被引用的资源文件                                │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Phase 6：双模型审计与交付（增强）                                         │
-│ ├─ Gemini：视觉还原、响应式、可访问性、设计一致性                          │
+│ Phase 6：双模型审计与交付                                                │
+│ ├─ Gemini：视觉还原精准度、响应式、可访问性、设计一致性                      │
 │ ├─ Claude：集成正确性、API 设计、可维护性、最佳实践                        │
-│ └─ 【HARD STOP】资源清理 + 验证报告                                      │
+│ └─ 验证报告                                                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -400,7 +427,7 @@ EOF
 
 ---
 
-### Phase 5：编码实施
+### Phase 5：编码实施与资源清理（⚠️ 精准还原）
 
 > **前置条件**：已完成 Phase 4 的交叉验证
 
@@ -410,9 +437,62 @@ EOF
 - **Gemini**：样式、布局、响应式设计、交互状态
 - **Claude**：类型定义、API 设计、代码组织、状态管理
 
-#### 5.2 重构为生产级代码
+#### 5.2 像素级精准还原（⛔ 核心要求）
+
+> **此步骤是 UI 还原的核心目标，必须逐项核对！**
+
+**还原检查清单**：
+
+| 属性类别 | 检查项 | 精准度要求 |
+|---------|--------|-----------|
+| **布局** | Flex/Grid 方向、justify、align | 与设计稿完全一致 |
+| **间距** | margin、padding、gap | 精确到 px |
+| **尺寸** | width、height、min/max | 精确到 px |
+| **颜色** | 背景、文字、边框、阴影 | 使用设计稿精确色值 |
+| **字体** | family、size、weight、line-height、letter-spacing | 全部匹配 |
+| **圆角** | border-radius | 精确到 px |
+| **阴影** | box-shadow 参数 | 完全匹配 |
+| **内容** | 文案、图标、占位符 | 与设计稿一致 |
+
+**实施流程**：
 
 ```typescript
+// 1. 从 Figma 设计上下文提取精确数值
+const designSpecs = {
+  // 布局
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  alignItems: 'flex-start',
+  gap: '16px',  // 精确值
+
+  // 间距
+  padding: '24px 32px',  // 精确值
+  margin: '0 auto',
+
+  // 尺寸
+  width: '320px',  // 精确值
+  height: 'auto',
+  minHeight: '48px',
+
+  // 颜色（使用设计稿精确色值）
+  backgroundColor: '#F5F5F5',
+  color: '#1A1A1A',
+  borderColor: '#E0E0E0',
+
+  // 字体
+  fontFamily: 'Inter, sans-serif',
+  fontSize: '14px',
+  fontWeight: '500',
+  lineHeight: '1.5',
+  letterSpacing: '-0.01em',
+
+  // 圆角和阴影
+  borderRadius: '8px',
+  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+};
+
+// 2. 写入代码时严格使用这些值
 if (文件存在) {
   Edit({ file_path: 目标路径, old_string: ..., new_string: ... })
 } else {
@@ -420,17 +500,65 @@ if (文件存在) {
 }
 ```
 
-**代码规范**：
+#### 5.3 代码规范
+
 - 优先级：复用组件 > 样式框架 > 扩展配置 > 自定义 CSS
 - 响应式：移动优先（mobile-first）
 - 交互状态：hover、active、focus、disabled 全覆盖
 - 可访问性：语义化 HTML、alt、label、键盘导航
 
+#### 5.4 资源清理（⛔ 强制执行）
+
+> **编码完成后必须立即执行资源清理，不可跳过！**
+
+**5.4.1 资源引用检查**
+
+```typescript
+// 读取生成的代码文件
+const componentCode = await Read({ file_path: targetPath });
+
+// 检查每个下载的资源是否被引用
+const usedAssets: string[] = [];
+const unusedAssets: string[] = [];
+
+for (const [originalName, currentName] of assetMapping.entries()) {
+  const filePath = path.join(assetsDir, currentName);
+  if (!fs.existsSync(filePath)) continue;
+
+  const isUsed = componentCode.includes(currentName) ||
+                 componentCode.includes(currentName.replace(/\.[^.]+$/, ''));
+
+  if (isUsed) {
+    usedAssets.push(currentName);
+  } else {
+    unusedAssets.push(currentName);
+  }
+}
+```
+
+**5.4.2 删除未使用资源**
+
+```typescript
+// 删除未被引用的资源文件
+for (const unusedAsset of unusedAssets) {
+  const filePath = path.join(assetsDir, unusedAsset);
+  await Bash({ command: `rm "${filePath}"` });
+  console.log(`🗑️ 已删除未使用的资源: ${unusedAsset}`);
+}
+```
+
+**5.4.3 记录清理结果**
+
+**必须向用户报告**：
+- 保留的资源列表（被代码引用）
+- 删除的资源列表（未被引用）
+- 资源目录最终状态
+
 ---
 
 ### Phase 6：双模型审计与交付（⛔ 不可跳过）
 
-> **前置条件**：已完成 Phase 5
+> **前置条件**：已完成 Phase 5 编码实施与资源清理
 
 #### 6.1 双模型并行代码审查
 
@@ -451,6 +579,11 @@ codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
 GEMINI REVIEW REPORT
 ====================
 Visual Fidelity: XX/25 - [reason]
+  - Layout accuracy (Flex/Grid direction, alignment)
+  - Spacing precision (margin, padding, gap - exact px)
+  - Dimension accuracy (width, height - exact values)
+  - Color accuracy (exact hex values from design)
+  - Typography (font-family, size, weight, line-height)
 Responsive Design: XX/25 - [reason]
 Accessibility: XX/25 - [reason]
 Design Consistency: XX/25 - [reason]
@@ -462,7 +595,13 @@ TOTAL SCORE: XX/100
 审查文件：${targetPath}
 
 审查要点：
-1. 视觉还原度（与 Figma 设计稿对比）
+1. **视觉还原精准度**（最重要）
+   - 布局：Flex/Grid 方向、justify、align 是否与设计稿完全一致
+   - 间距：margin、padding、gap 是否使用设计稿精确 px 值
+   - 尺寸：width、height 是否使用设计稿精确值
+   - 颜色：是否使用设计稿精确色值（非近似值）
+   - 字体：family、size、weight、line-height、letter-spacing 是否全部匹配
+   - 圆角和阴影：是否与设计稿参数完全一致
 2. 响应式设计（断点覆盖、移动端适配）
 3. 可访问性（ARIA、键盘导航、颜色对比度）
 4. 设计一致性（设计 token 使用、样式规范）
@@ -521,40 +660,18 @@ EOF
 - 综合评分 < 80 分 → 退回修改
 - 80-89 分 → 仔细审阅后决策
 
-#### 6.3 资源清理（⛔ 强制执行）
-
-> **此步骤必须在 Skill 结束前执行，不可跳过！**
-
-```typescript
-// 使用 assetMapping 追踪并删除未被引用的资源
-const componentCode = await Read({ file_path: targetPath });
-
-for (const [originalName, currentName] of assetMapping.entries()) {
-  const filePath = path.join(assetsDir, currentName);
-  if (!fs.existsSync(filePath)) continue;
-
-  const isUsed = componentCode.includes(currentName) ||
-                 componentCode.includes(currentName.replace(/\.[^.]+$/, ''));
-
-  if (!isUsed) {
-    await Bash({ command: `rm "${filePath}"` });
-    console.log(`🗑️ 已删除未使用的资源: ${currentName}`);
-  }
-}
-```
-
-#### 6.4 生成验证报告
+#### 6.3 生成验证报告
 
 自动生成 `.claude/verification-report-{task_name}.md`：
 
 **报告内容**：
 - 双模型审查评分汇总
-- 视觉还原度评分
+- **设计精准还原度评分**（布局、间距、尺寸、颜色、字体）
 - 代码质量评分
 - 综合评分和建议
 - 已知问题和改进方向
 - 资源清单（保留的资源列表）
-- **已删除资源清单**
+- **已删除资源清单**（Phase 5.4 清理结果）
 
 ---
 
@@ -567,7 +684,7 @@ for (const [originalName, currentName] of assetMapping.entries()) {
 | **Phase 2** | 设计信息收集 | Figma MCP | 设计规范 + 资源 |
 | **Phase 3** | 双模型分析 | Gemini + Claude | 分步计划 |
 | **Phase 4** | 原型生成 | Gemini + Claude | 完整组件代码 |
-| **Phase 5** | 编码实施 | Claude (Self) | 生产级代码 |
+| **Phase 5** | 编码实施 + 资源清理 | Claude (Self) | 生产级代码 + 清理报告 |
 | **Phase 6** | 双模型审计 | Gemini + Claude | 审查报告 |
 
 ---
@@ -580,11 +697,12 @@ for (const [originalName, currentName] of assetMapping.entries()) {
 2. **⚠️ 用户确认必须**：Phase 3 结束时必须输出 "Shall I proceed with this plan? (Y/N)" 并等待确认
 3. **⚠️ 双模型并行**：Phase 3、4、6 必须并行调用 Gemini + Claude
 4. **⚠️ 交叉验证**：Phase 4 必须交叉验证两个原型结果
-5. **资源路径优先**：必须在调用 Figma MCP 之前获取 dirForAssetWrites
-6. **绝对路径**：传给 Figma MCP 的 dirForAssetWrites 必须是绝对路径
-7. **资源追踪**：使用 assetMapping 记录所有新下载的资源
-8. **资源清理**：代码生成完成后，删除未被引用的资源文件
-9. **简体中文**：所有注释、文档、回复必须使用简体中文
+5. **⚠️ 设计精准还原**：Phase 5 必须逐项核对布局、间距、尺寸、颜色、字体、内容
+6. **⚠️ 资源清理**：Phase 5 编码完成后必须立即执行资源清理（5.4）
+7. **资源路径优先**：必须在调用 Figma MCP 之前获取 dirForAssetWrites
+8. **绝对路径**：传给 Figma MCP 的 dirForAssetWrites 必须是绝对路径
+9. **资源追踪**：使用 assetMapping 记录所有新下载的资源
+10. **简体中文**：所有注释、文档、回复必须使用简体中文
 
 ### 禁止操作
 
@@ -592,6 +710,8 @@ for (const [originalName, currentName] of assetMapping.entries()) {
 - **跳过用户确认**（Phase 3 Hard Stop）
 - **单模型生成原型**（必须双模型并行）
 - **单模型审计**（必须双模型并行）
+- **跳过资源清理**（Phase 5.4 必须执行）
+- **设计还原不精准**（间距、尺寸、颜色必须与设计稿一致）
 - **未获取资源路径就调用 Figma MCP**
 - **保留未使用的资源文件**
 - **使用相对路径作为 dirForAssetWrites**
@@ -628,14 +748,21 @@ for (const [originalName, currentName] of assetMapping.entries()) {
 - [ ] ✅ 已进行交叉验证，识别各模型优势
 - [ ] ✅ 已整合最优方案
 
-### Phase 5 检查
+### Phase 5 检查（精准还原 + 资源清理）
 - [ ] ✅ 已基于交叉验证结果写入生产级代码
+- [ ] ✅ **布局**：Flex/Grid 方向、对齐方式与设计稿一致
+- [ ] ✅ **间距**：margin、padding、gap 精确到 px
+- [ ] ✅ **尺寸**：width、height 使用设计稿精确值
+- [ ] ✅ **颜色**：使用设计稿精确色值（非近似值）
+- [ ] ✅ **字体**：family、size、weight、line-height 全部匹配
+- [ ] ✅ **内容**：文案、图标与设计稿一致
+- [ ] ✅ 已读取生成的代码文件检查资源引用
+- [ ] ✅ **已删除未被引用的资源文件**
+- [ ] ✅ 已向用户报告资源清理结果
 
 ### Phase 6 检查
 - [ ] ✅ 已**并行**调用 Gemini + Claude 进行代码审查
 - [ ] ✅ 已计算综合评分并做出决策
-- [ ] ✅ **已执行资源清理**
-- [ ] ✅ 已向用户报告资源清理结果
 - [ ] ✅ 已生成验证报告
 
 **如果任一检查项未通过，必须返回对应阶段执行，不可结束 Skill。**
