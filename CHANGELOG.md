@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.11] - 2026-01-23
+
+### Changed
+- **Multi-Model Collaboration System v3.0**：重大架构简化
+  - **协作模式精简**：移除 `triple` mode，专注于 `none`/`single`/`dual` 三种模式
+  - **Global Protocols 重构**：从冗长描述改为简洁的系统约束清单（8 条核心约束）
+  - **协作架构清晰化**：当前模型作为全栈编排者，Codex（后端权威）+ Gemini（前端高手）并行协作
+  - **工作流简化**：5 个清晰 Phase（上下文检索 → 协作分析 → 原型获取 → 编码实施 → 审计交付）
+  - **动态路由**：根据任务类型智能选择协作模式（后端→Codex，前端→Gemini，全栈→并行）
+  - **评估维度明确化**：新增正确性、完整性、一致性、可维护性四维度评估
+  - **质量阈值**：单模型评分 < 6 拒绝采用，契约不一致以 Codex API 为准
+
+### Removed
+- **templates/prompts/claude/**：移除未使用的 6 个角色提示词文件（analyzer/architect/debugger/optimizer/reviewer/tester）
+
+---
+
 ## [1.2.10] - 2026-01-13
 
 ### Changed
