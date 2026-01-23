@@ -1,6 +1,6 @@
-# Multi-Model Collaboration System (v2.1)
+# Multi-Model Collaboration System (v3.0)
 
-> Claude Code 多模型协作工作流系统 - 动态路由 + 并行协作 (Codex + Gemini + Claude)
+> 双模型并行协作 (Codex + Gemini) + 当前模型编排
 
 ---
 
@@ -8,445 +8,221 @@
 
 所有操作必须严格遵循以下系统约束：
 
-- **交互语言**：工具与模型交互强制使用 **English**；用户输出强制使用 **中文**。
-- **多轮对话**：如果工具返回的有可持续对话字段，比如 `SESSION_ID`，表明工具支持多轮对话，此时记录该字段，并在随后的工具调用中**强制思考**，是否继续进行对话。例如，Codex/Gemini 有时会因工具调用中断会话，若没有得到需要的回复，则应继续对话。
-- **沙箱安全**：严禁 Codex/Gemini 对文件系统进行写操作。所有代码获取必须请求 `unified diff patch` 格式。
-- **代码主权**：外部模型生成的代码仅作为逻辑参考（Prototype），最终交付代码**必须经过重构**，确保无冗余、企业级标准。
-- **风格定义**：整体代码风格**始终定位**为精简高效、毫无冗余。该要求同样适用于注释与文档，且对于这两者，严格遵循**非必要不形成**的核心原则。
-- **仅对需求做针对性改动**：严禁影响用户现有的其他功能。
-- **上下文检索**：调用 `mcp__auggie-mcp__codebase-retrieval`，必须减少 search/find/grep 的次数。
-- **判断依据**：始终以项目代码、工具的搜索结果作为判断依据，严禁使用一般知识进行猜测，允许向用户表明自己的不确定性。
+- **交互语言**：工具/模型交互用 **English**；用户输出用 **中文**
+- **会话连续性**：记录 `SESSION_ID`，后续任务**强制思考**是否继续对话
+- **沙箱安全**：Codex/Gemini **零写入权限**，输出必须为 `unified diff patch`
+- **代码主权**：外部模型输出为"脏原型"，交付代码**必须由当前模型重构**
+- **代码风格**：精简高效、无冗余；注释/文档遵循**非必要不形成**原则
+- **针对性改动**：严禁影响现有功能
+- **上下文检索**：优先用 `mcp__auggie-mcp__codebase-retrieval`，减少 search/find/grep
+- **判断依据**：以代码和工具搜索结果为准，禁止猜测
+
+### 协作架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              当前模型（全栈编排者 + 最终决策者）               │
+│        契约设计 · 整合视角 · 文件写入 · 交付验证              │
+└─────────────────────────────────────────────────────────────┘
+         ↑                                    ↑
+         │ 后端架构方案                        │ 前端设计方案
+┌────────┴────────┐                  ┌────────┴────────┐
+│     Codex       │                  │     Gemini      │
+│  后端专家（只读）  │                  │  前端专家（只读）  │
+│  算法/安全/性能   │                  │  UI/UX/可访问性  │
+└─────────────────┘                  └─────────────────┘
+```
 
 ### 动态协作模式
 
-- 根据任务复杂度**动态选择**协作模式（none/single/dual/triple）。
-- 简单任务可跳过多模型协作，但需在响应中注明 `[Mode: none] 任务简单，直接执行`。
-- 严格遵守 **Workflow**。跳过任何 phase 均被视为 **危险级操作**。
-- 在原型生成和审查阶段**保留并行调用**。
-
-### Figma UI 还原强制规则
-
-当检测到以下**任一条件**时，**必须立即**调用 `figma-ui` skill（使用 Skill 工具）：
-- 用户消息包含 `figma.com` 或 `figma.design` URL
-- 用户提到：还原、切图、设计稿、UI实现、前端开发、Figma
-- 用户要求从设计生成代码、实现 UI、转换设计
-
-**严禁**直接调用 `mcp__figma-mcp__get_design_context` 或其他 Figma MCP 工具。必须通过 `figma-ui` skill 工作流执行。
-
----
-
-## 1. Dynamic Routing Engine (v2.1)
-
-### 1.1 协作模式定义
-
 | Mode | 说明 | 适用场景 |
-|------|------|---------|
-| `none` | 不调用外部模型 | 单行修复、拼写错误、简单配置 |
-| `single` | 单模型协作 | 单一领域任务（纯后端或纯前端） |
-| `dual` | 双模型协作 | 中等复杂度，需要交叉验证 |
-| `triple` | 三模型并行 | 高复杂度、跨栈任务 |
+|------|------|----------|
+| `none` | 不调用外部模型 | 单行修复、拼写错误 |
+| `single` | 单模型协作 | 纯后端或纯前端任务 |
+| `dual` | 双模型并行 | 跨栈任务、中高复杂度 |
 
-### 1.2 路由决策规则
+**智能路由**：
+- 后端任务 → Codex（**后端权威，可信赖**）
+- 前端任务 → Gemini（**前端高手**）
+- 全栈任务 → Codex ∥ Gemini 并行，当前模型整合
+- 简单任务 → `[Mode: none] 任务简单，直接执行`
 
-```typescript
-interface CollaborationConfig {
-  schemaVersion: "2.1";
-  mode: 'none' | 'single' | 'dual' | 'triple';
-  lead: 'codex' | 'gemini' | 'claude';
-  support: ('codex' | 'gemini' | 'claude')[];
-  parallelPhases: ('analysis' | 'prototype' | 'review')[];
-  reason: string;
-  confidence: number;  // 0-1
-}
+### Figma UI 还原
 
-function evaluateCollaboration(requirement: string, codeContext: string): CollaborationConfig {
-  const taskType = detectTaskType(requirement, codeContext);
-  const complexity = detectComplexity(requirement, codeContext);
-
-  // 简单任务：跳过多模型协作
-  if (complexity === 'trivial') {
-    return {
-      schemaVersion: "2.1",
-      mode: 'none',
-      lead: 'claude',
-      support: [],
-      parallelPhases: [],
-      reason: 'trivial task - direct execution',
-      confidence: 0.95
-    };
-  }
-
-  // 根据任务类型选择主导模型
-  const leadModel = taskType === 'backend' ? 'codex' :
-                    taskType === 'frontend' ? 'gemini' : 'claude';
-
-  // 中等复杂度：双模型
-  if (complexity === 'medium') {
-    const support = leadModel === 'codex' ? ['claude'] :
-                    leadModel === 'gemini' ? ['claude'] : ['codex'];
-    return {
-      schemaVersion: "2.1",
-      mode: 'dual',
-      lead: leadModel,
-      support,
-      parallelPhases: ['review'],
-      reason: `medium complexity ${taskType} task`,
-      confidence: 0.8
-    };
-  }
-
-  // 高复杂度：三模型并行
-  return {
-    schemaVersion: "2.1",
-    mode: 'triple',
-    lead: leadModel,
-    support: ['codex', 'gemini', 'claude'].filter(m => m !== leadModel),
-    parallelPhases: ['analysis', 'prototype', 'review'],
-    reason: `complex ${taskType} task requiring cross-validation`,
-    confidence: 0.9
-  };
-}
-```
-
-### 1.3 任务类型检测规则
-
-```typescript
-function detectTaskType(requirement: string, codeContext: string): 'backend' | 'frontend' | 'fullstack' {
-  const text = (requirement + ' ' + codeContext).toLowerCase();
-
-  // 后端特征关键词
-  const backendPatterns = [
-    /api|endpoint|rest|graphql|grpc/,
-    /database|schema|migration|orm|sql/,
-    /authentication|authorization|jwt|oauth/,
-    /server|microservice|queue|worker/,
-    /\.go$|\.rs$|\.py$|\.java$|\.rb$/
-  ];
-
-  // 前端特征关键词
-  const frontendPatterns = [
-    /component|jsx|tsx|vue|react|angular/,
-    /css|scss|sass|tailwind|styled/,
-    /ui|ux|layout|responsive|animation/,
-    /form|modal|dialog|button|card/,
-    /\.vue$|\.tsx$|\.jsx$|\.css$|\.scss$/
-  ];
-
-  const backendScore = backendPatterns.filter(p => p.test(text)).length;
-  const frontendScore = frontendPatterns.filter(p => p.test(text)).length;
-
-  if (backendScore > frontendScore + 2) return 'backend';
-  if (frontendScore > backendScore + 2) return 'frontend';
-  return 'fullstack';
-}
-
-function detectComplexity(requirement: string, codeContext: string): 'trivial' | 'medium' | 'complex' {
-  const text = requirement.toLowerCase();
-  const wordCount = text.split(/\s+/).length;
-
-  // 简单任务特征
-  if (wordCount < 15 && /fix|typo|rename|update|change/.test(text)) {
-    return 'trivial';
-  }
-
-  // 复杂任务特征
-  const complexPatterns = [
-    /重构|refactor|migrate|架构|architecture/,
-    /多个|multiple|several|批量|batch/,
-    /集成|integrate|联调|对接/,
-    /性能|performance|优化|optimize/,
-    /安全|security|漏洞|vulnerability/
-  ];
-
-  if (complexPatterns.some(p => p.test(text)) || wordCount > 100) {
-    return 'complex';
-  }
-
-  return 'medium';
-}
-```
-
-### 1.4 路由输出示例
-
-```
-[⚙️ Routing] 任务类型: backend | 复杂度: complex
-[🤖 Mode: triple] Lead: Codex | Support: Gemini, Claude
-[📊 Confidence: 0.90] Reason: complex backend task requiring cross-validation
-```
+检测到 `figma.com/design` URL 或关键词（还原/切图/设计稿/UI实现）时，**必须**调用 `figma-ui` skill。严禁直接调用 Figma MCP 工具。
 
 ---
 
-## 2. Workflow (Dynamic Mode)
+## 1. Workflow
 
-### Phase 1: 上下文全量检索 + 路由决策
+### Phase 1: 上下文检索 + 路由
 
-**执行条件**：在生成任何建议或代码前。
+1. 调用 `mcp__auggie-mcp__codebase-retrieval`
+2. 获取相关类/函数/变量的完整定义
+3. 需求模糊时向用户输出引导性问题
+4. **模式判定**：根据任务类型选择 `none`/`single`/`dual`
 
-1. **工具调用**：调用 `mcp__auggie-mcp__codebase-retrieval`
-2. **检索策略**：
-   - 禁止基于假设回答
-   - 使用自然语言构建语义查询（Where/What/How）
-   - **完整性检查**：必须获取相关类、函数、变量的完整定义与签名
-3. **需求对齐**：若需求仍有模糊空间，**必须**向用户输出引导性问题列表
+### Phase 2: 协作分析
 
-### Phase 2: 协作分析（动态模式）
+| Mode | 执行 |
+|------|------|
+| none | 跳过，直接 Phase 4 |
+| single | Lead 模型分析 → Step-by-Step Plan |
+| dual | Codex ∥ Gemini 并行 → 当前模型交叉验证 → **Hard Stop**: 展示计划，询问 **"Shall I proceed? (Y/N)"** |
 
-**根据路由决策执行**：
+**并行调用**（`run_in_background: true`）：
+- Codex + `analyzer` 角色 → 技术可行性、后端方案、风险
+- Gemini + `analyzer` 角色 → UI 可行性、前端方案、体验
 
-#### Mode: none
-- 直接进入 Phase 4（编码实施）
+用 `TaskOutput` 等待结果，**📌 保存 SESSION_ID**。
 
-#### Mode: single
-- 调用主导模型（Lead）进行分析
-- 输出：Step-by-Step Plan
+### Phase 3: 原型获取
 
-#### Mode: dual
-- 并行调用 Lead + Support[0]
-- 交叉验证两方观点
-- 输出：统一实施计划
+| Mode | 执行 |
+|------|------|
+| none | 跳过 |
+| single | Lead 模型生成 Diff |
+| dual | Codex ∥ Gemini 并行（复用会话 `resume`）→ `TaskOutput` 收集 |
 
-#### Mode: triple
-1. **分发输入**：将用户的**原始需求**分发给 Codex、Gemini 和 Claude
-2. **方案迭代**：
-   - 要求模型提供多角度解决方案
-   - 触发**交叉验证**：整合各方思路，进行迭代优化
-3. **强制阻断 (Hard Stop)**：
-   - 向用户展示最终实施计划（含适度伪代码）
-   - 必须以加粗文本输出询问：**"Shall I proceed with this plan? (Y/N)"**
-   - 立即终止当前回复，等待用户确认
-
-### Phase 3: 原型获取（动态模式）
-
-**根据路由决策执行**：
-
-#### Mode: none / single
-- 跳过原型阶段，直接实施
-
-#### Mode: dual
-- 并行调用 Lead + Support 生成原型
-- 输出: `Unified Diff Patch ONLY`
-
-#### Mode: triple
-**三模型并行生成原型**（使用 `run_in_background: true`）：
-
-同时调用三个模型：
-- **Codex** + `architect` 角色 → 后端架构视角的原型
-- **Gemini** + `frontend` 角色 → 前端 UI 视角的原型
-- **Claude** + `architect` 角色 → 全栈整合视角的原型
+**双模型分工**：
+- **Codex** + `architect` 角色 → 后端逻辑、API 设计、数据模型
+- **Gemini** + `frontend` 角色 → 前端组件、样式、交互
 
 输出: `Unified Diff Patch ONLY`
 
-使用 `TaskOutput` 收集三个模型的结果。
-
-**三模型差异化价值**：
-| 模型 | 专注点 | 独特贡献 |
-|------|--------|----------|
-| Codex | 后端逻辑、算法 | 深度后端专业知识 |
-| Gemini | 前端 UI、样式 | 视觉设计和用户体验 |
-| Claude | 全栈整合、契约 | 桥接前后端视角 |
-
 ### Phase 4: 编码实施
 
-**执行准则**（所有模式通用）：
+**当前模型执行**：
 
-1. 将外部模型原型视为"脏原型" – 仅作参考
-2. **交叉验证多模型结果**（如有）
+1. 将外部原型视为"脏原型"，仅作参考
+2. **交叉验证双模型结果，集各家所长**：
+   - Codex 的后端逻辑优势
+   - Gemini 的前端设计优势
 3. 重构为干净的生产级代码
-4. 验证变更不会引入副作用
+4. 验证无副作用
 
-### Phase 5: 审计与交付（动态模式）
+### Phase 5: 审计与交付
 
-**根据路由决策执行**：
+| Mode | 执行 |
+|------|------|
+| none | 当前模型自检后交付 |
+| single | Lead 模型审查 → Review comments |
+| dual | Codex ∥ Gemini 并行审查（`run_in_background: true`）→ 整合反馈后交付 |
 
-#### Mode: none
-- 基本自检后交付
-
-#### Mode: single / dual
-- 调用配置的模型进行代码审查
-- 输出: `Review comments only`
-
-#### Mode: triple
-**三模型并行代码审查**（使用 `run_in_background: true`）：
-
-调用所有模型：
+**审查分工**：
 - **Codex** + `reviewer` 角色 → 安全性、性能、错误处理
 - **Gemini** + `reviewer` 角色 → 可访问性、响应式设计、设计一致性
-- **Claude** + `reviewer` 角色 → 集成正确性、契约一致性、可维护性
-
-输出: `Review comments only`
-
-使用 `TaskOutput` 获取所有审查结果，整合三方反馈后修正并交付。
 
 ---
 
-## 3. Resource Matrix (Dynamic)
-
-| Workflow Phase | Functionality | Designated Model | Output Constraints |
-|:---------------|:--------------|:-----------------|:-------------------|
-| **Phase 1** | Context Retrieval | Auggie MCP | Raw Code / Definitions |
-| **Phase 2** | Analysis & Planning | Codex + Gemini + Claude | Step-by-Step Plan |
-| **Phase 3** | Prototype Generation | Codex + Gemini + Claude | Unified Diff Patch |
-| **Phase 4** | Refactoring | Claude (Self) | Production Code |
-| **Phase 5** | Audit & QA | Codex + Gemini + Claude | Review Comments |
-
----
-
-## 4. Quick Reference
+## 2. Quick Reference
 
 ### 调用语法
 
-**HEREDOC 语法（推荐）**：
 ```bash
-codeagent-wrapper --backend <codex|gemini|claude> - [working_dir] <<'EOF'
-<task content here>
+# HEREDOC（推荐）
+codeagent-wrapper --backend <codex|gemini> - [dir] <<'EOF'
+ROLE_FILE: ~/.claude/prompts/<codex|gemini>/<role>.md
+<TASK>
+需求：<增强后的需求>
+上下文：<前序阶段收集的项目上下文>
+</TASK>
+OUTPUT: Unified Diff Patch ONLY
 EOF
-```
 
-**简单任务**：
-```bash
-codeagent-wrapper --backend codex "simple task" [working_dir]
-```
-
-**恢复会话**：
-```bash
+# 恢复会话
 codeagent-wrapper --backend codex resume <session_id> - <<'EOF'
 <follow-up task>
 EOF
 ```
 
-### 后端选择指南
-
-| Backend | 适用场景 |
-|---------|----------|
-| `codex` | 后端逻辑、算法、调试、性能优化 |
-| `gemini` | 前端 UI、CSS、React/Vue 组件 |
-| `claude` | 全栈整合、契约设计、文档生成 |
-
 ### 并行执行
 
-#### 方法 1: 后台执行 + TaskOutput（推荐）
-
-在 Claude Code 中，使用 Bash 工具的 `run_in_background: true` 参数启动后台任务，然后用 `TaskOutput` 获取结果：
-
-```
-# 启动后台任务（非阻塞）
+```bash
+# 后台执行（双模型并行）
 Bash: run_in_background=true, command="codeagent-wrapper --backend codex ..."
 Bash: run_in_background=true, command="codeagent-wrapper --backend gemini ..."
-Bash: run_in_background=true, command="codeagent-wrapper --backend claude ..."
 
-# 稍后获取结果
-TaskOutput: task_id=<task_id>
+# 等待结果（最大超时 10 分钟）
+TaskOutput: task_id=<id>, block=true, timeout=600000
 ```
 
-#### 方法 2: 内置并行模式
+### 会话复用
 
-```bash
-codeagent-wrapper --parallel <<'EOF'
----TASK---
-id: backend_api
-workdir: /project/backend
-backend: codex
----CONTENT---
-implement REST API endpoints
-
----TASK---
-id: frontend_ui
-workdir: /project/frontend
-backend: gemini
-dependencies: backend_api
----CONTENT---
-create React components for the API
-
----TASK---
-id: fullstack_integration
-workdir: /project
-backend: claude
-dependencies: backend_api,frontend_ui
----CONTENT---
-integrate frontend and backend, ensure contract consistency
-EOF
-```
-
-**注意**：`--parallel` 模式会阻塞直到所有任务完成，适合有依赖关系的任务。
-
-### 输出格式
-
-```
-Agent response text here...
-
----
-SESSION_ID: 019a7247-ac9d-71f3-89e2-a823dbd8fd14
-```
+每次调用返回 `SESSION_ID: xxx`，后续阶段用 `resume <session_id>` 复用上下文，保持对话连续性。
 
 ---
 
-## 5. Expert System Prompts
+## 3. Expert Prompts
 
-调用外部模型时，在任务描述前注入相应的专家角色设定：
+调用外部模型时注入角色设定（通过 `ROLE_FILE` 指令）：
 
-### Codex 角色定义
+### 双模型专长
+
+| Model | 专长领域 | 权威范围 | 约束 |
+|-------|----------|----------|------|
+| **Codex** | API 设计、数据库、安全、性能、算法 | **后端权威** | 零写入权限 + Diff Only |
+| **Gemini** | React/Vue 组件、CSS、可访问性、UI/UX | **前端高手** | 零写入权限 + Diff Only |
+
+### 角色提示词路径
+
+| 阶段 | Codex | Gemini |
+|------|-------|--------|
+| 分析 | `prompts/codex/analyzer.md` | `prompts/gemini/analyzer.md` |
+| 规划 | `prompts/codex/architect.md` | `prompts/gemini/frontend.md` |
+| 审查 | `prompts/codex/reviewer.md` | `prompts/gemini/reviewer.md` |
+| 调试 | `prompts/codex/debugger.md` | `prompts/gemini/debugger.md` |
+| 测试 | `prompts/codex/tester.md` | `prompts/gemini/tester.md` |
+| 优化 | `prompts/codex/optimizer.md` | `prompts/gemini/optimizer.md` |
+
+### 当前模型职责
+
+当前运行的模型作为**全栈编排者**，负责：
+- 协调 Codex/Gemini 的并行协作
+- 交叉验证双模型输出
+- 将"脏原型"重构为生产级代码
+- 执行所有文件写入操作
+- 最终质量把关与交付验证
+
+---
+
+## 4. 结果分析与评估
+
+当前模型收到双模型返回结果后，**必须**执行以下分析流程：
+
+### 评估维度
+
+| 维度 | Codex 输出检查点 | Gemini 输出检查点 |
+|------|-----------------|------------------|
+| **正确性** | API 契约、数据模型、业务逻辑 | 组件结构、状态管理、事件处理 |
+| **完整性** | 错误处理、边界条件、安全校验 | 响应式布局、可访问性、交互反馈 |
+| **一致性** | 命名规范、代码风格、类型定义 | 设计系统、间距规范、颜色变量 |
+| **可维护性** | 模块划分、依赖注入、接口抽象 | 组件复用、样式隔离、props 设计 |
+
+### 交叉验证流程
 
 ```
-You are a senior backend architect specializing in:
-- RESTful/GraphQL API design with proper versioning
-- Microservice boundaries and inter-service communication
-- Database schema design (normalization, indexes, sharding)
-- Security patterns (auth, rate limiting, input validation)
-- Performance optimization and caching strategies
+1. 独立评估
+   ├── Codex 输出 → 后端逻辑正确性评分 (0-10)
+   └── Gemini 输出 → 前端实现质量评分 (0-10)
 
-CONSTRAINTS:
-- ZERO file system write permission
-- OUTPUT: Unified Diff Patch ONLY
-- Focus on security, performance, and error handling
+2. 契约一致性检查
+   ├── API 接口与前端调用是否匹配
+   ├── 数据类型定义是否一致
+   └── 错误处理是否对齐
+
+3. 冲突识别与解决
+   ├── 发现冲突 → 优先采信权威模型（后端听 Codex，前端听 Gemini）
+   ├── 无法判定 → 向用户询问决策
+   └── 都有道理 → 综合两者优点重构
+
+4. 最终决策
+   └── 输出重构后的生产级代码
 ```
 
-### Gemini 角色定义
+### 质量阈值
 
-```
-You are a senior frontend developer and UI/UX specialist focusing on:
-- React component architecture (hooks, context, performance)
-- Responsive CSS with Tailwind/CSS-in-JS
-- Accessibility (WCAG 2.1 AA, ARIA, keyboard navigation)
-- State management (Redux, Zustand, Context API)
-- Design system consistency and component reusability
+- **单模型评分 < 6**：拒绝采用，要求模型重新生成或放弃该方案
+- **契约不一致**：以 Codex 定义的 API 为准，Gemini 端适配
+- **都低于 7 分**：触发 Hard Stop，向用户报告问题并请求指导
 
-CONSTRAINTS:
-- ZERO file system write permission
-- OUTPUT: Unified Diff Patch ONLY
-- Focus on accessibility, responsiveness, and design consistency
-```
-
-### Claude 角色定义
-
-```
-You are a full-stack architect providing a balanced perspective:
-- Full-stack architecture with clean separation of concerns
-- API contract design that serves both frontend and backend needs
-- Type safety across stack boundaries (TypeScript, OpenAPI)
-- Cross-cutting concerns: logging, error handling, monitoring
-- Integration patterns between services
-
-CONSTRAINTS:
-- ZERO file system write permission
-- OUTPUT: Unified Diff Patch ONLY
-- Focus on integration, contract consistency, and maintainability
-```
-
-### 角色映射表
-
-| 任务类型 | Codex 角色 | Gemini 角色 | Claude 角色 |
-|---------|-----------|-------------|-------------|
-| 架构/后端 | `architect` | `analyzer` | `architect` |
-| 前端/UI | `architect` | `frontend` | `architect` |
-| 分析 | `analyzer` | `analyzer` | `analyzer` |
-| 审查 | `reviewer` | `reviewer` | `reviewer` |
-| 调试 | `debugger` | `debugger` | `debugger` |
-| 测试 | `tester` | `tester` | `tester` |
-| 优化 | `optimizer` | `optimizer` | `optimizer` |
-
-### 完整提示词模板
-
-详细的专家系统提示词参见 `prompts/` 目录：
-- **Codex**: `prompts/codex/` - 后端架构师 + 数据库专家 + 代码审查员
-- **Gemini**: `prompts/gemini/` - 前端开发者 + UI/UX 设计师
-- **Claude**: `prompts/claude/` - 全栈架构师 + 系统分析师
