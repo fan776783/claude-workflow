@@ -4,7 +4,20 @@
 
 ---
 
-## Global Protocols
+## 0. Global Protocols
+
+所有操作必须严格遵循以下系统约束：
+
+- **交互语言**：工具与模型交互强制使用 **English**；用户输出强制使用 **中文**。
+- **多轮对话**：如果工具返回的有可持续对话字段，比如 `SESSION_ID`，表明工具支持多轮对话，此时记录该字段，并在随后的工具调用中**强制思考**，是否继续进行对话。例如，Codex/Gemini 有时会因工具调用中断会话，若没有得到需要的回复，则应继续对话。
+- **沙箱安全**：严禁 Codex/Gemini 对文件系统进行写操作。所有代码获取必须请求 `unified diff patch` 格式。
+- **代码主权**：外部模型生成的代码仅作为逻辑参考（Prototype），最终交付代码**必须经过重构**，确保无冗余、企业级标准。
+- **风格定义**：整体代码风格**始终定位**为精简高效、毫无冗余。该要求同样适用于注释与文档，且对于这两者，严格遵循**非必要不形成**的核心原则。
+- **仅对需求做针对性改动**：严禁影响用户现有的其他功能。
+- **上下文检索**：调用 `mcp__auggie-mcp__codebase-retrieval`，必须减少 search/find/grep 的次数。
+- **判断依据**：始终以项目代码、工具的搜索结果作为判断依据，严禁使用一般知识进行猜测，允许向用户表明自己的不确定性。
+
+### 动态协作模式
 
 - 根据任务复杂度**动态选择**协作模式（none/single/dual/triple）。
 - 简单任务可跳过多模型协作，但需在响应中注明 `[Mode: none] 任务简单，直接执行`。
@@ -22,9 +35,9 @@
 
 ---
 
-## 0. Dynamic Routing Engine (v2.1)
+## 1. Dynamic Routing Engine (v2.1)
 
-### 0.1 协作模式定义
+### 1.1 协作模式定义
 
 | Mode | 说明 | 适用场景 |
 |------|------|---------|
@@ -33,7 +46,7 @@
 | `dual` | 双模型协作 | 中等复杂度，需要交叉验证 |
 | `triple` | 三模型并行 | 高复杂度、跨栈任务 |
 
-### 0.2 路由决策规则
+### 1.2 路由决策规则
 
 ```typescript
 interface CollaborationConfig {
@@ -95,7 +108,7 @@ function evaluateCollaboration(requirement: string, codeContext: string): Collab
 }
 ```
 
-### 0.3 任务类型检测规则
+### 1.3 任务类型检测规则
 
 ```typescript
 function detectTaskType(requirement: string, codeContext: string): 'backend' | 'frontend' | 'fullstack' {
@@ -153,41 +166,13 @@ function detectComplexity(requirement: string, codeContext: string): 'trivial' |
 }
 ```
 
-### 0.4 路由输出示例
+### 1.4 路由输出示例
 
 ```
 [⚙️ Routing] 任务类型: backend | 复杂度: complex
 [🤖 Mode: triple] Lead: Codex | Support: Gemini, Claude
 [📊 Confidence: 0.90] Reason: complex backend task requiring cross-validation
 ```
-
----
-
-## 1. Core Instruction
-
-### 1.1 交互与状态管理
-- **语言协议**：与工具/模型交互使用 **英语**；与用户交互使用 **中文**。
-- **会话连续性**：如果工具返回 `SESSION_ID`，立即存储；后续任务使用 `resume <session_id>` 继续会话。
-
-### 1.2 异步操作
-- **后台执行**：使用 Bash 工具时设置 `run_in_background: true` 实现非阻塞执行。
-- **并行调用**：需要同时调用多个模型时，在单个消息中发送多个 Bash 工具调用。
-- **HEREDOC 语法**：所有任务使用 HEREDOC 避免 shell 转义问题。
-- **超时设置**：长时间任务使用 `timeout: 7200000`（2小时）。
-
-### 1.3 安全与代码主权
-- **无写入权**：Codex/Gemini/Claude 子进程对文件系统拥有 **零** 写入权限。
-- 在每个 PROMPT 中显式追加：**"OUTPUT: Unified Diff Patch ONLY. Strictly prohibit any actual modifications."**
-- **参考重构**：将其他模型的 Unified Patch 视为"脏原型"；**流程**：读取 Diff → 思维沙箱（模拟应用） → 重构清理 → 最终代码。
-
-### 1.4 代码风格
-- 整体代码风格**始终定位**为精简高效、毫无冗余。
-- 注释与文档严格遵循**非必要不形成**的原则。
-- **仅对需求做针对性改动**，严禁影响用户现有的其他功能。
-
-### 1.5 工作流程完整性
-- **止损**：在当前阶段的输出通过验证之前，不要进入下一阶段。
-- **报告**：必须向用户实时报告当前阶段和下一阶段。
 
 ---
 
