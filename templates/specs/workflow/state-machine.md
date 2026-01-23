@@ -78,6 +78,42 @@
     "reason": "complex backend task",
     "confidence": 0.85
   },
+  "constraints": {
+    "hard": [
+      {
+        "id": "C001",
+        "description": "API 响应必须包含 requestId",
+        "type": "hard",
+        "category": "interface",
+        "sourceModel": "codex",
+        "phase": "analysis",
+        "verified": true
+      }
+    ],
+    "soft": [
+      {
+        "id": "C002",
+        "description": "建议使用 zod 进行输入验证",
+        "type": "soft",
+        "category": "data",
+        "sourceModel": "claude",
+        "phase": "analysis",
+        "verified": false
+      }
+    ],
+    "openQuestions": [],
+    "successCriteria": [
+      "所有 API 端点返回标准格式",
+      "类型检查通过",
+      "测试覆盖率 > 80%"
+    ]
+  },
+  "zeroDecisionAudit": {
+    "passed": true,
+    "antiPatterns": [],
+    "remainingAmbiguities": [],
+    "auditedAt": "2026-01-08T10:25:00Z"
+  },
   "created_at": "2026-01-08T10:00:00Z",
   "updated_at": "2026-01-08T10:30:00Z",
   "failure_reason": null
@@ -104,6 +140,77 @@
 | `collaboration.support` | 辅助模型列表 |
 | `collaboration.parallelPhases` | 并行执行的阶段：analysis/prototype/review |
 | `collaboration.confidence` | 路由置信度 0-1 |
+| `constraints` | 约束系统（v2.1） |
+| `constraints.hard` | 硬约束列表（必须满足） |
+| `constraints.soft` | 软约束列表（建议满足） |
+| `constraints.openQuestions` | 待澄清问题 |
+| `constraints.successCriteria` | 成功标准 |
+| `zeroDecisionAudit` | 零决策审计结果 |
+
+## 约束系统（v2.1）
+
+### Constraint 接口定义
+
+```typescript
+interface Constraint {
+  id: string;                    // 唯一标识 C001, C002...
+  description: string;           // 约束描述
+  type: 'hard' | 'soft';         // 硬约束必须满足，软约束建议满足
+  category: 'requirement' | 'interface' | 'data' | 'error' | 'security' | 'performance';
+  sourceModel: 'codex' | 'gemini' | 'claude' | 'user';  // 来源追踪
+  phase: 'analysis' | 'review';  // 产生阶段
+  verified?: boolean;            // 是否已验证
+  verifyCmd?: string;            // 验证命令（可选）
+}
+
+interface ConstraintSet {
+  hard: Constraint[];            // 硬约束（最多 7 个）
+  soft: Constraint[];            // 软约束（最多 7 个）
+  openQuestions: string[];       // 待澄清问题（最多 5 个）
+  successCriteria: string[];     // 成功标准（最多 7 个）
+}
+```
+
+### 约束合并语义
+
+并行模型输出约束时，按以下规则合并：
+
+```typescript
+function mergeConstraints(sets: ConstraintSet[]): ConstraintSet {
+  return {
+    // 硬约束：取并集（所有模型的硬约束都必须满足）
+    hard: deduplicateById(sets.flatMap(s => s.hard)).slice(0, 7),
+
+    // 软约束：取并集，按出现频率排序
+    soft: rankByFrequency(sets.flatMap(s => s.soft)).slice(0, 7),
+
+    // 待澄清问题：取并集，保留来源
+    openQuestions: deduplicate(sets.flatMap(s => s.openQuestions)).slice(0, 5),
+
+    // 成功标准：取交集（所有模型都认可的标准）
+    successCriteria: intersection(sets.map(s => s.successCriteria)).slice(0, 7)
+  };
+}
+```
+
+### 约束验证
+
+```typescript
+interface ConstraintVerification {
+  constraintId: string;
+  passed: boolean;
+  details: string;
+  checkedAt: string;
+}
+
+// 内置验证器
+const BUILTIN_VERIFIERS = {
+  'ts_typecheck': 'pnpm tsc --noEmit',
+  'lint': 'pnpm lint',
+  'test': 'pnpm test',
+  'build': 'pnpm build'
+};
+```
 
 ## 状态转换
 

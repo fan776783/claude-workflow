@@ -3,9 +3,17 @@ description: 检查工作流当前状态并推荐下一步操作
 allowed-tools: Read(*), Glob(*)
 ---
 
-# 工作流状态检查（v2）
+# 工作流状态检查（v2.1）
 
 读取 workflow-state.json + tasks.md，生成进度报告。
+
+## 渐进披露模式
+
+| 参数 | 说明 |
+|------|------|
+| _(无参数)_ | 简洁模式：只显示核心进度和下一步操作 |
+| `--detail` | 详细模式：显示完整的约束、审计、产物信息 |
+| `--json` | JSON 模式：输出原始状态数据供脚本处理 |
 
 ---
 
@@ -79,6 +87,14 @@ function parseQualityGate(body: string): boolean {
 ### Step 1：定位工作流目录
 
 ```typescript
+// ═══════════════════════════════════════════════════════════════
+// Step 0: 解析渐进披露模式
+// ═══════════════════════════════════════════════════════════════
+
+const args = ($ARGUMENTS || []).join(' ');
+const isDetailMode = args.includes('--detail') || args.includes('-d');
+const isJsonMode = args.includes('--json');
+
 const cwd = process.cwd();
 const configPath = '.claude/config/project-config.json';
 
@@ -201,6 +217,29 @@ const isProgressive = state.mode === 'progressive';
 
 ### Step 3：生成状态报告
 
+```typescript
+// ═══════════════════════════════════════════════════════════════
+// JSON 模式：直接输出原始状态
+// ═══════════════════════════════════════════════════════════════
+
+if (isJsonMode) {
+  console.log(JSON.stringify({
+    ...state,
+    _meta: {
+      tasksPath,
+      workflowDir,
+      totalTasks,
+      progressPercent
+    }
+  }, null, 2));
+  return;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 简洁模式 vs 详细模式
+// ═══════════════════════════════════════════════════════════════
+```
+
 ```markdown
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **工作流状态报告**
@@ -320,6 +359,106 @@ const isProgressive = state.mode === 'progressive';
 {{#if hasFailedGates}}
 ⚠️ **存在未通过的质量关卡，需要修复后重试**
 {{/if}}
+
+---
+
+{{#if isDetailMode}}
+## 📦 约束系统 (v2.1)
+
+{{#if state.constraints}}
+### 硬约束（必须满足）
+
+{{#if state.constraints.hard.length}}
+| ID | 描述 | 类别 | 来源 | 已验证 |
+|----|------|------|------|--------|
+{{#each state.constraints.hard}}
+| {{id}} | {{description}} | {{category}} | {{sourceModel}} | {{#if verified}}✅{{else}}⏳{{/if}} |
+{{/each}}
+{{else}}
+_（无硬约束）_
+{{/if}}
+
+### 软约束（建议满足）
+
+{{#if state.constraints.soft.length}}
+| ID | 描述 | 类别 | 来源 |
+|----|------|------|------|
+{{#each state.constraints.soft}}
+| {{id}} | {{description}} | {{category}} | {{sourceModel}} |
+{{/each}}
+{{else}}
+_（无软约束）_
+{{/if}}
+
+### 成功标准
+
+{{#if state.constraints.successCriteria.length}}
+{{#each state.constraints.successCriteria}}
+- [ ] {{this}}
+{{/each}}
+{{else}}
+_（未定义成功标准）_
+{{/if}}
+
+{{#if state.constraints.openQuestions.length}}
+### ⚠️ 待澄清问题
+
+{{#each state.constraints.openQuestions}}
+- ❓ {{this}}
+{{/each}}
+{{/if}}
+{{/if}}
+
+---
+
+## 🔍 Zero-Decision 审计
+
+{{#if state.zeroDecisionAudit}}
+{{#if state.zeroDecisionAudit.passed}}
+✅ **审计通过** ({{state.zeroDecisionAudit.auditedAt}})
+
+任务清单明确无歧义，可安全执行。
+{{else}}
+{{#if state.zeroDecisionAudit.passed === null}}
+⏳ **审计未执行**
+
+首次执行时将自动进行 Zero-Decision 审计。
+{{else}}
+❌ **审计失败** ({{state.zeroDecisionAudit.auditedAt}})
+
+存在以下问题需要在执行前解决：
+
+{{#if state.zeroDecisionAudit.antiPatterns.length}}
+| 任务 | 问题 | 严重性 |
+|------|------|--------|
+{{#each state.zeroDecisionAudit.antiPatterns}}
+| {{taskId}} | {{description}} | {{#if (eq severity 'error')}}❌ 错误{{else}}⚠️ 警告{{/if}} |
+{{/each}}
+{{/if}}
+
+{{#if state.zeroDecisionAudit.remainingAmbiguities.length}}
+**其他模糊项**：
+{{#each state.zeroDecisionAudit.remainingAmbiguities}}
+- {{this}}
+{{/each}}
+{{/if}}
+
+💡 请修复上述问题后重新启动工作流。
+{{/if}}
+{{/if}}
+{{else}}
+⏳ **审计未执行**
+
+首次执行时将自动进行 Zero-Decision 审计。
+{{/if}}
+{{/if}}
+{{/if}}
+
+{{#unless isDetailMode}}
+---
+
+💡 **查看详细信息**：`/workflow-status --detail`
+{{/unless}}
 
 ---
 

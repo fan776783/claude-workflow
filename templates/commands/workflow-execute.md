@@ -1379,6 +1379,38 @@ function countTasks(content: string): number {
   return (content.match(/##+ T\d+:/g) || []).length;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Constraint System (v2.1) - 结构化约束解析与验证
+// ═══════════════════════════════════════════════════════════════
+
+interface Constraint {
+  id: string;
+  description: string;
+  type: 'hard' | 'soft';
+  category: 'requirement' | 'interface' | 'data' | 'error' | 'security' | 'performance';
+  sourceModel: 'codex' | 'gemini' | 'claude' | 'user';
+  phase: 'analysis' | 'review';
+  verified?: boolean;
+  verifyCmd?: string;
+}
+
+interface ConstraintSet {
+  hard: Constraint[];
+  soft: Constraint[];
+  openQuestions: string[];
+  successCriteria: string[];
+}
+
+const BUILTIN_VERIFIERS: Record<string, string> = {
+  'ts_typecheck': 'pnpm tsc --noEmit',
+  'lint': 'pnpm lint',
+  'test': 'pnpm test',
+  'build': 'pnpm build'
+};
+
+/**
+ * 解析任务文件中的约束（简化版：只提取描述）
+ */
 function extractConstraints(content: string): string[] {
   const match = content.match(/## 约束[^\n]*\n([\s\S]*?)(?=##|---)/);
   if (!match) return [];
@@ -1387,6 +1419,306 @@ function extractConstraints(content: string): string[] {
     .split('\n')
     .filter(line => line.trim().startsWith('-'))
     .map(line => line.replace(/^-\s*/, '').trim());
+}
+
+/**
+ * 解析结构化约束（从 workflow-state.json）
+ */
+function parseStructuredConstraints(state: State): ConstraintSet {
+  if (!state.constraints) {
+    return { hard: [], soft: [], openQuestions: [], successCriteria: [] };
+  }
+  return {
+    hard: state.constraints.hard || [],
+    soft: state.constraints.soft || [],
+    openQuestions: state.constraints.openQuestions || [],
+    successCriteria: state.constraints.successCriteria || []
+  };
+}
+
+/**
+ * 验证单个约束
+ */
+async function verifyConstraint(constraint: Constraint): Promise<{
+  passed: boolean;
+  details: string;
+}> {
+  if (!constraint.verifyCmd) {
+    return { passed: true, details: 'No verification command specified' };
+  }
+
+  // 检查是否是内置验证器
+  const builtinCmd = BUILTIN_VERIFIERS[constraint.verifyCmd];
+  const cmd = builtinCmd || constraint.verifyCmd;
+
+  // 安全检查：只允许特定前缀的命令
+  const ALLOWED_PREFIXES = ['pnpm ', 'npm ', 'yarn ', 'npx ', 'node '];
+  if (!ALLOWED_PREFIXES.some(prefix => cmd.startsWith(prefix))) {
+    return { passed: false, details: `Unsafe command blocked: ${cmd}` };
+  }
+
+  try {
+    const result = await Bash({ command: cmd, timeout: 120000 });
+    return {
+      passed: result.exitCode === 0,
+      details: result.exitCode === 0 ? 'Verification passed' : result.stderr || result.stdout
+    };
+  } catch (e) {
+    return {
+      passed: false,
+      details: `Verification failed: ${e instanceof Error ? e.message : String(e)}`
+    };
+  }
+}
+
+/**
+ * 验证所有硬约束（质量关卡集成）
+ */
+async function verifyHardConstraints(constraints: ConstraintSet): Promise<{
+  allPassed: boolean;
+  results: { constraintId: string; passed: boolean; details: string }[];
+}> {
+  const results = [];
+
+  for (const constraint of constraints.hard) {
+    if (constraint.verifyCmd) {
+      const result = await verifyConstraint(constraint);
+      results.push({
+        constraintId: constraint.id,
+        passed: result.passed,
+        details: result.details
+      });
+
+      // 硬约束失败立即停止
+      if (!result.passed) {
+        return { allPassed: false, results };
+      }
+    }
+  }
+
+  return { allPassed: true, results };
+}
+
+/**
+ * 合并多模型输出的约束集（v2.1 并行协作）
+ *
+ * 合并语义：
+ * - 硬约束：取并集（所有模型的硬约束都必须满足）
+ * - 软约束：取并集，按出现频率排序
+ * - 待澄清问题：取并集，保留来源
+ * - 成功标准：取交集（所有模型都认可的标准）
+ */
+function mergeConstraints(sets: ConstraintSet[]): ConstraintSet {
+  // 硬约束去重（按 id 或 description）
+  const hardMap = new Map<string, Constraint>();
+  for (const set of sets) {
+    for (const c of set.hard || []) {
+      const key = c.id || c.description;
+      if (!hardMap.has(key)) {
+        hardMap.set(key, c);
+      }
+    }
+  }
+
+  // 软约束按频率排序
+  const softFreq = new Map<string, { constraint: Constraint; count: number }>();
+  for (const set of sets) {
+    for (const c of set.soft || []) {
+      const key = c.description;
+      if (softFreq.has(key)) {
+        softFreq.get(key)!.count++;
+      } else {
+        softFreq.set(key, { constraint: c, count: 1 });
+      }
+    }
+  }
+  const softSorted = [...softFreq.values()]
+    .sort((a, b) => b.count - a.count)
+    .map(v => v.constraint);
+
+  // 待澄清问题去重
+  const questionsSet = new Set<string>();
+  for (const set of sets) {
+    for (const q of set.openQuestions || []) {
+      questionsSet.add(q);
+    }
+  }
+
+  // 成功标准取交集
+  let successIntersection: string[] | null = null;
+  for (const set of sets) {
+    if (set.successCriteria && set.successCriteria.length > 0) {
+      if (successIntersection === null) {
+        successIntersection = [...set.successCriteria];
+      } else {
+        successIntersection = successIntersection.filter(
+          sc => set.successCriteria.includes(sc)
+        );
+      }
+    }
+  }
+
+  return {
+    hard: [...hardMap.values()].slice(0, 7),           // 最多 7 个硬约束
+    soft: softSorted.slice(0, 7),                       // 最多 7 个软约束
+    openQuestions: [...questionsSet].slice(0, 5),       // 最多 5 个问题
+    successCriteria: (successIntersection || []).slice(0, 7)  // 最多 7 个标准
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Zero-Decision 审计引擎 (v2.1)
+// ═══════════════════════════════════════════════════════════════
+
+interface ZeroDecisionAudit {
+  passed: boolean;
+  antiPatterns: {
+    taskId: string;
+    pattern: string;
+    description: string;
+    severity: 'error' | 'warning';
+  }[];
+  remainingAmbiguities: string[];
+  auditedAt: string;
+}
+
+/**
+ * 反模式检测规则
+ * 这些模式表明任务描述不够明确，需要在执行前澄清
+ */
+const ANTI_PATTERNS = [
+  // 模糊表述
+  { pattern: /\bTBD\b/i, description: '待定内容需要明确', severity: 'error' as const },
+  { pattern: /\bTODO\b/i, description: '待办事项需要具体化', severity: 'error' as const },
+  { pattern: /待定|待确认|待讨论/i, description: '存在未确认内容', severity: 'error' as const },
+
+  // 依赖不明
+  { pattern: /depends on|取决于|视.*而定/i, description: '存在未解决的依赖', severity: 'error' as const },
+  { pattern: /如果需要|if needed|可能需要/i, description: '条件性需求需要明确', severity: 'warning' as const },
+
+  // 范围不清
+  { pattern: /等等|etc\.?|\.{3,}/i, description: '范围不明确', severity: 'warning' as const },
+  { pattern: /大概|可能|或许|maybe|perhaps/i, description: '描述不确定', severity: 'warning' as const },
+  { pattern: /适当的?|合适的?|appropriate/i, description: '标准不明确', severity: 'warning' as const },
+
+  // 缺失具体信息
+  { pattern: /\[.*\?\]|\{.*\?\}/i, description: '占位符未填充', severity: 'error' as const },
+  { pattern: /XXX|FIXME|HACK/i, description: '标记需要处理', severity: 'warning' as const }
+];
+
+/**
+ * 执行 Zero-Decision 审计
+ * 扫描任务清单，检测反模式和模糊表述
+ */
+function performZeroDecisionAudit(tasksContent: string, tasks: Task[]): ZeroDecisionAudit {
+  const antiPatterns: ZeroDecisionAudit['antiPatterns'] = [];
+  const remainingAmbiguities: string[] = [];
+
+  for (const task of tasks) {
+    // 检查任务名称
+    for (const rule of ANTI_PATTERNS) {
+      if (rule.pattern.test(task.name)) {
+        antiPatterns.push({
+          taskId: task.id,
+          pattern: rule.pattern.source,
+          description: `${task.name}: ${rule.description}`,
+          severity: rule.severity
+        });
+      }
+    }
+
+    // 检查需求描述
+    const requirement = task.requirement || '';
+    for (const rule of ANTI_PATTERNS) {
+      if (rule.pattern.test(requirement)) {
+        antiPatterns.push({
+          taskId: task.id,
+          pattern: rule.pattern.source,
+          description: `需求描述: ${rule.description}`,
+          severity: rule.severity
+        });
+      }
+    }
+
+    // 检查是否缺少关键字段
+    if (!task.actions || task.actions.trim() === '') {
+      antiPatterns.push({
+        taskId: task.id,
+        pattern: 'missing_actions',
+        description: '缺少 actions 定义',
+        severity: 'error'
+      });
+    }
+
+    if (!task.file && !task.requirement) {
+      antiPatterns.push({
+        taskId: task.id,
+        pattern: 'missing_context',
+        description: '缺少文件路径或需求描述',
+        severity: 'warning'
+      });
+    }
+  }
+
+  // 检查全局约束是否有模糊表述
+  const constraintsSection = tasksContent.match(/## 约束[\s\S]*?(?=##|$)/);
+  if (constraintsSection) {
+    for (const rule of ANTI_PATTERNS) {
+      if (rule.pattern.test(constraintsSection[0])) {
+        remainingAmbiguities.push(`约束部分: ${rule.description}`);
+      }
+    }
+  }
+
+  // 判断是否通过审计
+  const hasErrors = antiPatterns.some(ap => ap.severity === 'error');
+
+  return {
+    passed: !hasErrors,
+    antiPatterns,
+    remainingAmbiguities,
+    auditedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * 格式化审计报告
+ */
+function formatAuditReport(audit: ZeroDecisionAudit): string {
+  if (audit.passed && audit.antiPatterns.length === 0) {
+    return '✅ Zero-Decision 审计通过：任务清单明确无歧义';
+  }
+
+  let report = audit.passed
+    ? '⚠️ Zero-Decision 审计警告：存在以下需注意的问题\n'
+    : '❌ Zero-Decision 审计失败：存在以下必须解决的问题\n';
+
+  // 按严重程度分组
+  const errors = audit.antiPatterns.filter(ap => ap.severity === 'error');
+  const warnings = audit.antiPatterns.filter(ap => ap.severity === 'warning');
+
+  if (errors.length > 0) {
+    report += '\n**错误（必须修复）：**\n';
+    for (const err of errors) {
+      report += `- ${err.taskId}: ${err.description}\n`;
+    }
+  }
+
+  if (warnings.length > 0) {
+    report += '\n**警告（建议修复）：**\n';
+    for (const warn of warnings) {
+      report += `- ${warn.taskId}: ${warn.description}\n`;
+    }
+  }
+
+  if (audit.remainingAmbiguities.length > 0) {
+    report += '\n**其他模糊项：**\n';
+    for (const amb of audit.remainingAmbiguities) {
+      report += `- ${amb}\n`;
+    }
+  }
+
+  return report;
 }
 
 function extractSection(techDesign: string, sectionRef: string): string | null {

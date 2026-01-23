@@ -668,6 +668,37 @@ console.log(`
 const blockedTasks = tasks.filter(t => t.status === 'blocked');
 const pendingTasks = tasks.filter(t => t.status === 'pending');
 
+// ═══════════════════════════════════════════════════════════════
+// 约束系统初始化 (v2.1)
+// ═══════════════════════════════════════════════════════════════
+
+// 从代码分析结果提取约束（初始化为 soft，需人工确认升级为 hard）
+const initialConstraints = {
+  hard: [],  // 硬约束（必须满足）
+  soft: analysisResult.constraints.map((c, i) => ({
+    id: `C${String(i + 1).padStart(3, '0')}`,
+    description: c,
+    type: 'soft',
+    category: detectConstraintCategory(c),
+    sourceModel: 'claude',
+    phase: 'analysis',
+    verified: false
+  })),
+  openQuestions: [],      // 待澄清问题
+  successCriteria: extractAcceptanceCriteria(techDesign)  // 成功标准
+};
+
+// 约束分类检测函数
+function detectConstraintCategory(description: string): string {
+  const text = description.toLowerCase();
+  if (/安全|密码|加密|认证|授权|xss|sql|csrf/.test(text)) return 'security';
+  if (/性能|速度|延迟|缓存|优化/.test(text)) return 'performance';
+  if (/接口|api|契约|格式|协议/.test(text)) return 'interface';
+  if (/数据|类型|校验|验证|schema/.test(text)) return 'data';
+  if (/错误|异常|边界|容错/.test(text)) return 'error';
+  return 'requirement';
+}
+
 // 创建精简的 workflow-state.json
 // 状态为 planned，等待用户审查后执行
 const state = {
@@ -681,6 +712,7 @@ const state = {
   mode: blockedTasks.length > 0 ? "progressive" : "normal",  // 渐进式工作流模式
   pause_before_commit: true,      // git_commit 前始终暂停确认
   use_subagent: tasks.length > 5, // 任务数 > 5 时自动启用 subagent 模式
+  consecutive_count: 0,           // 连续执行任务计数
   unblocked: [],                  // 已解除的依赖列表
   sessions: {                     // 多模型会话 ID（由分析阶段填充）
     codex: null,
@@ -694,6 +726,24 @@ const state = {
     blocked: blockedTasks.map(t => t.id),  // 被阻塞的任务 ID
     skipped: [],
     failed: []
+  },
+  // 约束系统 (v2.1)
+  constraints: initialConstraints,
+  // 零决策审计（初始为空，由执行阶段填充）
+  zeroDecisionAudit: {
+    passed: null,
+    antiPatterns: [],
+    remainingAmbiguities: [],
+    auditedAt: null
+  },
+  // 上下文感知指标 (v2.1)
+  contextMetrics: {
+    estimatedTokens: 0,
+    warningThreshold: 60,
+    dangerThreshold: 80,
+    maxConsecutiveTasks: 5,
+    usagePercent: 0,
+    history: []
   },
   quality_gates: tasks
     .filter(t => t.quality_gate)
