@@ -184,12 +184,17 @@ if (totalTasks === 0) {
 const completed = state.progress.completed.length;
 const skipped = state.progress.skipped.length;
 const failed = state.progress.failed.length;
-const pending = totalTasks - completed - skipped - failed;
+const blocked = state.progress.blocked?.length || 0;  // 渐进式工作流：阻塞任务
+const pending = totalTasks - completed - skipped - failed - blocked;
 
 // 计算进度（安全版本：防止 NaN）
 const progressPercent = totalTasks > 0
   ? Math.round((completed + skipped) / totalTasks * 100)
   : 0;
+
+// 渐进式工作流：获取已解除的依赖
+const unblocked = state.unblocked || [];
+const isProgressive = state.mode === 'progressive';
 ```
 
 ---
@@ -203,8 +208,28 @@ const progressPercent = totalTasks > 0
 
 **任务名称**：{{state.task_name}}
 **状态**：{{state.status}}
+{{#if isProgressive}}**工作模式**：渐进式{{/if}}
 **启动时间**：{{state.started_at}}
 **最后更新**：{{state.updated_at}}
+
+{{#if isProgressive}}
+---
+
+## 🔗 依赖状态
+
+| 依赖类型 | 状态 |
+|---------|------|
+| api_spec (后端接口) | {{unblocked.includes('api_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+| design_spec (设计稿) | {{unblocked.includes('design_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+
+{{#if (unblocked.length < 2)}}
+💡 **解除阻塞**：
+\`\`\`bash
+{{#unless unblocked.includes('api_spec')}}/workflow-unblock api_spec    # 后端接口已就绪{{/unless}}
+{{#unless unblocked.includes('design_spec')}}/workflow-unblock design_spec # 设计稿已就绪{{/unless}}
+\`\`\`
+{{/if}}
+{{/if}}
 
 ---
 
@@ -214,11 +239,24 @@ const progressPercent = totalTasks > 0
 
 {{generateProgressBar(progressPercent)}}
 
+{{#if state.contextMetrics}}
+**上下文使用率**：{{state.contextMetrics.usagePercent}}%
+
+{{generateContextBar(state.contextMetrics.usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}}
+
+{{#if (state.contextMetrics.usagePercent > state.contextMetrics.dangerThreshold)}}
+🚨 **上下文使用率过高！** 强烈建议新开会话继续执行。
+{{else if (state.contextMetrics.usagePercent > state.contextMetrics.warningThreshold)}}
+⚠️ 上下文使用率较高，建议减少连续执行任务数或新开会话。
+{{/if}}
+{{/if}}
+
 | 状态 | 数量 |
 |------|------|
 | ✅ 已完成 | {{completed}} |
 | ⏭️ 已跳过 | {{skipped}} |
 | ❌ 失败 | {{failed}} |
+{{#if blocked}}| ⏳ 阻塞中 | {{blocked}} |{{/if}}
 | ⏸️ 待执行 | {{pending}} |
 
 ---
@@ -236,6 +274,7 @@ const progressPercent = totalTasks > 0
 {{#each tasks}}
 {{statusIcon(this.status)}} **{{this.id}}**: {{this.name}}
    {{#if this.file}}文件: `{{this.file}}`{{/if}}
+   {{#if this.blocked_by}}⏳ 等待: `{{this.blocked_by.join(', ')}}`{{/if}}
    阶段: {{this.phase}}
 {{/each}}
 
@@ -309,6 +348,51 @@ const progressPercent = totalTasks > 0
 - 技术方案：`{{state.tech_design}}`
 - 任务清单：`{{tasksPath}}`
 
+{{else if state.status === 'planned'}}
+### 📋 规划完成，等待执行
+
+工作流已完成规划阶段，请审查技术方案和任务清单后开始执行。
+
+{{#if isProgressive}}
+🔄 **工作模式**：渐进式
+
+| 依赖类型 | 状态 |
+|---------|------|
+| api_spec (后端接口) | {{unblocked.includes('api_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+| design_spec (设计稿) | {{unblocked.includes('design_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+
+{{#if blocked}}
+**阻塞的任务**：{{blocked}} 个（等待依赖解除后可执行）
+{{/if}}
+{{/if}}
+
+**技术方案**：`{{state.tech_design}}`
+**任务清单**：`{{tasksPath}}`
+
+**开始执行**：
+\```bash
+/workflow-execute
+\```
+
+{{#if isProgressive}}
+💡 渐进式工作流：可先执行无阻塞的任务，阻塞任务需等待依赖就绪后通过 `/workflow-unblock` 解除。
+{{else}}
+💡 执行后将自动复用规划阶段的模型会话上下文。
+{{/if}}
+
+{{else if state.status === 'blocked'}}
+### ⏳ 工作流等待依赖
+
+当前所有可执行任务均被阻塞，等待外部依赖解除。
+
+**阻塞的任务**：{{state.progress.blocked.join(', ')}}
+
+**解除阻塞**：
+\```bash
+{{#unless unblocked.includes('api_spec')}}/workflow-unblock api_spec    # 后端接口已就绪{{/unless}}
+{{#unless unblocked.includes('design_spec')}}/workflow-unblock design_spec # 设计稿已就绪{{/unless}}
+\```
+
 {{else if hasFailedTask}}
 ### ⚠️ 存在失败任务
 
@@ -358,6 +442,12 @@ function parseTasksFromMarkdown(content: string): Task[] {
     const titleStatus = extractStatusFromTitle(rawTitle);
     const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
 
+    // 解析阻塞依赖（渐进式工作流）
+    const blockedByField = extractField(body, '阻塞依赖');
+    const blocked_by = blockedByField
+      ? blockedByField.split(',').map(s => s.trim()).filter(Boolean)
+      : null;
+
     tasks.push({
       id,
       name,
@@ -368,6 +458,7 @@ function parseTasksFromMarkdown(content: string): Task[] {
       requirement: extractField(body, '需求') || extractField(body, '内容'),
       actions: extractField(body, 'actions'),
       depends: extractField(body, '依赖'),
+      blocked_by,  // 渐进式工作流：任务的阻塞依赖
       quality_gate: parseQualityGate(body),
       threshold: parseInt(extractField(body, '阈值') || '80'),
       status: titleStatus || extractField(body, '状态') || 'pending'
@@ -387,6 +478,21 @@ function generateProgressBar(percent: number): string {
   const filled = Math.round(percent / 5);
   const empty = 20 - filled;
   return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percent}%`;
+}
+
+function generateContextBar(usagePercent: number, warningThreshold: number, dangerThreshold: number): string {
+  const filled = Math.round(usagePercent / 5);
+  let bar = '';
+  for (let i = 0; i < 20; i++) {
+    if (i < filled) {
+      if (i >= dangerThreshold / 5) bar += '🟥';
+      else if (i >= warningThreshold / 5) bar += '🟨';
+      else bar += '🟩';
+    } else {
+      bar += '░';
+    }
+  }
+  return `[${bar}] ${usagePercent}%`;
 }
 
 function statusIcon(status: string): string {
@@ -409,6 +515,8 @@ function statusIcon(status: string): string {
       return '❌';
     case 'in_progress':
       return '🔄';
+    case 'blocked':
+      return '⏳';
     case 'pending':
     default:
       return '⏸️';

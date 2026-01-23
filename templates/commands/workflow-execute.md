@@ -40,6 +40,73 @@ function getStatusEmoji(status: string): string;
 function addUnique<T>(arr: T[], item: T): void;
 function escapeRegExp(str: string): string;
 function parseQualityGate(body: string): boolean;
+
+// ═══════════════════════════════════════════════════════════════
+// Context Awareness 函数 (v2.1)
+// ═══════════════════════════════════════════════════════════════
+
+interface ContextMetrics {
+  estimatedTokens: number;
+  warningThreshold: number;      // 默认 60
+  dangerThreshold: number;       // 默认 80
+  maxConsecutiveTasks: number;   // 动态计算
+  usagePercent: number;          // 当前使用率
+  history: { taskId: string; tokens: number; timestamp: string }[];
+}
+
+const MAX_CONTEXT_TOKENS = 200000;  // Claude 最大上下文
+
+function estimateContextTokens(
+  tasksContent: string,
+  techDesignContent: string | null,
+  recentDiff: string | null
+): number {
+  let totalChars = 0;
+  totalChars += tasksContent.length;
+  if (techDesignContent) totalChars += techDesignContent.length;
+  if (recentDiff) totalChars += Math.min(recentDiff.length, 50000);
+  return Math.round(totalChars / 4);
+}
+
+function calculateDynamicMaxTasks(
+  taskComplexity: 'simple' | 'medium' | 'complex',
+  usagePercent: number
+): number {
+  const baseLimit = taskComplexity === 'simple' ? 8 :
+                    taskComplexity === 'medium' ? 5 : 3;
+  if (usagePercent > 70) return Math.max(2, baseLimit - 3);
+  if (usagePercent > 50) return Math.max(3, baseLimit - 1);
+  return baseLimit;
+}
+
+function detectTaskComplexity(task: Task): 'simple' | 'medium' | 'complex' {
+  const actions = (task.actions || '').split(',').length;
+  const hasMultipleFiles = (task.file || '').includes(',');
+  const isQualityGate = task.quality_gate;
+  const hasDesignRef = !!task.design_ref;
+
+  if (isQualityGate || hasDesignRef || hasMultipleFiles) return 'complex';
+  if (actions > 2) return 'medium';
+  return 'simple';
+}
+
+function generateContextBar(usagePercent: number, warningThreshold: number, dangerThreshold: number): string {
+  const filled = Math.round(usagePercent / 5);
+  const warning = Math.round(warningThreshold / 5);
+  const danger = Math.round(dangerThreshold / 5);
+
+  let bar = '';
+  for (let i = 0; i < 20; i++) {
+    if (i < filled) {
+      if (i >= danger / 5 * 4) bar += '🟥';
+      else if (i >= warning / 5 * 4) bar += '🟨';
+      else bar += '🟩';
+    } else {
+      bar += '░';
+    }
+  }
+  return `[${bar}] ${usagePercent}%`;
+}
 ```
 
 ---
@@ -141,6 +208,59 @@ if (!fileExists(statePath)) {
 // 读取精简状态
 const state = JSON.parse(readFile(statePath));
 
+// 状态预检查：如果处于 planned 状态，转换为 running
+if (state.status === 'planned') {
+  state.status = 'running';
+  state.phase = 'execute';
+  state.updated_at = new Date().toISOString();
+
+  // 渐进式工作流：检查是否所有任务都被阻塞
+  if (state.mode === 'progressive') {
+    const tasksPath = resolveUnder(workflowDir, state.tasks_file);
+    if (tasksPath && fileExists(tasksPath)) {
+      const tasksContent = readFile(tasksPath);
+      const nextTask = findNextTask(tasksContent, state.progress);
+
+      // 如果没有可执行的任务，转为 blocked 状态
+      if (!nextTask && state.progress?.blocked?.length > 0) {
+        state.status = 'blocked';
+        writeFile(statePath, JSON.stringify(state, null, 2));
+
+        const blockedDeps = [];
+        if (!state.unblocked?.includes('api_spec')) blockedDeps.push('api_spec');
+        if (!state.unblocked?.includes('design_spec')) blockedDeps.push('design_spec');
+
+        console.log(`
+📋 工作流规划完成，但所有任务需要等待依赖
+
+🔄 **工作模式**：渐进式
+⏳ **状态**：等待依赖解除
+
+**阻塞的任务**：${state.progress.blocked.join(', ')}
+
+**解除阻塞**：
+\`\`\`bash
+${blockedDeps.map(d => `/workflow-unblock ${d}`).join('\n')}
+\`\`\`
+
+💡 当后端接口或设计稿就绪后，执行上述命令解除相应依赖。
+        `);
+        return;
+      }
+    }
+  }
+
+  writeFile(statePath, JSON.stringify(state, null, 2));
+
+  console.log(`
+✅ 开始执行工作流
+
+📋 任务名称：${state.task_name}
+📊 任务数量：${countTasks(readFile(resolveUnder(workflowDir, state.tasks_file)))}
+${state.mode === 'progressive' ? `🔄 工作模式：渐进式` : ''}
+`);
+}
+
 // 状态预检查：如果处于失败状态，提示用户使用 retry
 if (state.status === 'failed') {
   console.log(`
@@ -156,6 +276,33 @@ if (state.status === 'failed') {
 请使用以下命令：
 - 重试当前步骤：/workflow-retry-step
 - 跳过当前步骤：/workflow-skip-step（慎用）
+  `);
+  return;
+}
+
+// 渐进式工作流：如果处于 blocked 状态，提示用户解除阻塞
+if (state.status === 'blocked') {
+  const blockedDeps = [];
+  if (!state.unblocked?.includes('api_spec')) blockedDeps.push('api_spec');
+  if (!state.unblocked?.includes('design_spec')) blockedDeps.push('design_spec');
+
+  console.log(`
+📂 工作流目录：${workflowDir}
+📄 任务清单：${state.tasks_file}
+${state.mode === 'progressive' ? '🔄 工作模式：渐进式' : ''}
+
+⏳ **工作流等待依赖解除**
+
+当前所有可执行任务均被阻塞，等待外部依赖。
+
+${state.progress?.blocked?.length > 0 ? `**阻塞的任务**：${state.progress.blocked.join(', ')}` : ''}
+
+**解除阻塞**：
+\`\`\`bash
+${blockedDeps.map(d => `/workflow-unblock ${d}`).join('\n')}
+\`\`\`
+
+💡 当后端接口或设计稿就绪后，执行上述命令解除相应依赖。
   `);
   return;
 }
@@ -196,6 +343,42 @@ const totalTaskCount = countTasks(tasksContent);
 const executionMode = executionModeOverride || state.execution_mode || 'step';
 const pauseBeforeCommit = state.pause_before_commit !== false; // 默认 true
 
+// ═══════════════════════════════════════════════════════════════
+// Context Awareness: 估算 token 使用量
+// ═══════════════════════════════════════════════════════════════
+
+// 读取技术方案内容用于估算
+let techDesignContent: string | null = null;
+if (techDesignPath && fileExists(techDesignPath)) {
+  techDesignContent = readFile(techDesignPath);
+}
+
+// 获取最近 diff（用于估算）
+const recentDiff = await Bash({ command: 'git diff HEAD --stat 2>/dev/null || echo ""', timeout: 5000 });
+
+// 估算当前上下文 token 数
+const estimatedTokens = estimateContextTokens(
+  tasksContent,
+  techDesignContent,
+  recentDiff.stdout
+);
+const usagePercent = Math.round(estimatedTokens / MAX_CONTEXT_TOKENS * 100);
+
+// 初始化或更新 contextMetrics
+if (!state.contextMetrics) {
+  state.contextMetrics = {
+    estimatedTokens,
+    warningThreshold: 60,
+    dangerThreshold: 80,
+    maxConsecutiveTasks: 5,
+    usagePercent,
+    history: []
+  };
+}
+
+state.contextMetrics.estimatedTokens = estimatedTokens;
+state.contextMetrics.usagePercent = usagePercent;
+
 // 连续任务计数（用于兜底机制，避免上下文溢出）
 const consecutiveCount = state.consecutive_count || 0;
 
@@ -208,6 +391,8 @@ console.log(`
 📄 任务清单：${state.tasks_file}
 📍 当前任务：${state.current_task}
 ⚡ 执行模式：${executionMode}${useSubagent ? ' (subagent)' : ''}
+📊 上下文使用率：${generateContextBar(usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}
+${usagePercent > state.contextMetrics.warningThreshold ? `⚠️ 上下文使用率较高，建议减少连续执行任务数` : ''}
 ${useSubagent && autoSubagent && useSubagentOverride === null ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
 `);
 ```
@@ -573,11 +758,16 @@ state.current_task = findNextTask(tasksContent, state.progress);
 state.updated_at = new Date().toISOString();
 
 if (!state.current_task) {
-  state.status = 'completed';
-  state.completed_at = new Date().toISOString();
+  // 检查是否有被阻塞的任务（渐进式工作流）
+  if (state.mode === 'progressive' && state.progress?.blocked?.length > 0) {
+    state.status = 'blocked';
+  } else {
+    state.status = 'completed';
+    state.completed_at = new Date().toISOString();
+  }
   state.consecutive_count = 0;  // 重置计数
 } else {
-  state.status = 'in_progress';
+  state.status = 'running';
 }
 
 writeFile(statePath, JSON.stringify(state, null, 2));
@@ -619,17 +809,34 @@ function shouldContinueExecution(
   nextTask: Task,
   executionMode: string,
   pauseBeforeCommit: boolean,
-  consecutiveCount: number  // 本轮已连续执行的任务数
+  consecutiveCount: number,  // 本轮已连续执行的任务数
+  contextMetrics: ContextMetrics  // 上下文感知指标
 ): { continue: boolean; reason?: string } {
   // 单步模式：始终暂停
   if (executionMode === 'step') {
     return { continue: false, reason: '单步模式' };
   }
 
-  // 兜底机制：连续执行超过 5 个任务时强制暂停，避免上下文溢出
-  const MAX_CONSECUTIVE_TASKS = 5;
-  if (consecutiveCount >= MAX_CONSECUTIVE_TASKS) {
-    return { continue: false, reason: `连续任务数达到上限 (${MAX_CONSECUTIVE_TASKS})` };
+  // ═══════════════════════════════════════════════════════════════
+  // Context Awareness: 动态计算连续任务上限
+  // ═══════════════════════════════════════════════════════════════
+  const taskComplexity = detectTaskComplexity(nextTask);
+  const dynamicMaxTasks = calculateDynamicMaxTasks(taskComplexity, contextMetrics.usagePercent);
+
+  // 更新 contextMetrics 中的动态上限
+  contextMetrics.maxConsecutiveTasks = dynamicMaxTasks;
+
+  // 动态兜底机制：根据任务复杂度和上下文使用率调整
+  if (consecutiveCount >= dynamicMaxTasks) {
+    const reason = contextMetrics.usagePercent > contextMetrics.warningThreshold
+      ? `上下文使用率 ${contextMetrics.usagePercent}%（连续 ${consecutiveCount} 任务）`
+      : `连续任务数达到动态上限 (${dynamicMaxTasks})`;
+    return { continue: false, reason };
+  }
+
+  // 上下文危险阈值：强制暂停
+  if (contextMetrics.usagePercent > contextMetrics.dangerThreshold) {
+    return { continue: false, reason: `上下文使用率 ${contextMetrics.usagePercent}% 超过危险阈值` };
   }
 
   // git_commit 前暂停确认
@@ -716,7 +923,7 @@ function extractPhaseFromTask(task: Task): string {
   return 'implement';  // 兜底
 }
 
-const decision = shouldContinueExecution(currentTask, nextTask, executionMode, pauseBeforeCommit, consecutiveCount);
+const decision = shouldContinueExecution(currentTask, nextTask, executionMode, pauseBeforeCommit, consecutiveCount, state.contextMetrics);
 
 console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -741,14 +948,38 @@ if (decision.continue) {
 } else {
   // 暂停时重置连续任务计数
   state.consecutive_count = 0;
+
+  // 记录 context history
+  state.contextMetrics.history.push({
+    taskId: currentTask.id,
+    tokens: state.contextMetrics.estimatedTokens,
+    timestamp: new Date().toISOString()
+  });
+
+  // 保持 history 最近 10 条
+  if (state.contextMetrics.history.length > 10) {
+    state.contextMetrics.history = state.contextMetrics.history.slice(-10);
+  }
+
   writeFile(statePath, JSON.stringify(state, null, 2));
 
-  // 阶段切换时建议新开会话
+  // 阶段切换或上下文警告时建议新开会话
   const isPhaseChange = decision.reason.includes('阶段变化');
-  const isConsecutiveLimit = decision.reason.includes('连续任务数');
-  const sessionHint = (isPhaseChange || isConsecutiveLimit) ? `
+  const isConsecutiveLimit = decision.reason.includes('连续') || decision.reason.includes('动态上限');
+  const isContextWarning = decision.reason.includes('上下文使用率');
+
+  let sessionHint = '';
+  if (isContextWarning) {
+    sessionHint = `
+⚠️ **上下文使用率较高**
+📊 当前：${generateContextBar(state.contextMetrics.usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}
+💡 **强烈建议**：执行 \`/clear\` 或 **新开会话** 继续执行
+`;
+  } else if (isPhaseChange || isConsecutiveLimit) {
+    sessionHint = `
 💡 **建议**：${isPhaseChange ? '阶段已完成' : '已连续执行多个任务'}，推荐 **新开会话** 继续执行以避免上下文压缩。
-` : '';
+`;
+  }
 
   console.log(`
 ⏸️ **已暂停**（${decision.reason}）
@@ -864,6 +1095,12 @@ interface ReviewResult {
 async function executeCodexReview(task: Task, state: State): Promise<ReviewResult> {
   console.log(`🔍 Codex 代码审查...\n`);
 
+  // SESSION_ID 复用：检查是否有之前的 codex 会话
+  const codexSessionId = state.sessions?.codex;
+  if (codexSessionId) {
+    console.log(`📎 复用 Codex 会话: ${codexSessionId.substring(0, 8)}...`);
+  }
+
   // 获取 diff（git diff HEAD 已包含 staged + unstaged）
   const diffResult = await Bash({ command: 'git diff HEAD' });
   const untrackedFiles = await Bash({ command: 'git ls-files --others --exclude-standard' });
@@ -946,8 +1183,13 @@ TOTAL SCORE: XX/100
 OUTPUT: CODE REVIEW REPORT 格式。`;
   writeFile(tempFile, reviewPrompt);
 
+  // 构建命令：如果有 SESSION_ID 则使用 resume 模式
+  const codexCommand = codexSessionId
+    ? `codeagent-wrapper --backend codex resume ${codexSessionId} - "${process.cwd()}" < "${tempFile}"`
+    : `codeagent-wrapper --backend codex - "${process.cwd()}" < "${tempFile}"`;
+
   const codexResult = await Bash({
-    command: `codeagent-wrapper --backend codex - "${process.cwd()}" < "${tempFile}"`,
+    command: codexCommand,
     run_in_background: true
   });
 
@@ -955,6 +1197,14 @@ OUTPUT: CODE REVIEW REPORT 格式。`;
 
   // 清理临时文件
   await Bash({ command: `rm -f "${tempFile}"` });
+
+  // 提取并存储 SESSION_ID（用于后续复用）
+  const sessionMatch = output.match(/SESSION_ID:\s*([0-9a-f-]{36})/i);
+  if (sessionMatch) {
+    if (!state.sessions) state.sessions = { codex: null, gemini: null, claude: null };
+    state.sessions.codex = sessionMatch[1];
+    console.log(`💾 保存 Codex SESSION_ID: ${sessionMatch[1].substring(0, 8)}...`);
+  }
 
   // 持久化审查结果
   const reviewArtifact = path.join(workflowDir, `review-${task.id}-${Date.now()}.txt`);
@@ -1112,11 +1362,12 @@ function findNextTask(content: string, progress: Progress): string | null {
   // 找到所有任务 ID（兼容 ## 和 ### 格式）
   const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
 
-  // 找到第一个未完成的
+  // 找到第一个未完成且未阻塞的任务
   for (const id of taskIds) {
     if (!progress.completed.includes(id) &&
         !progress.skipped.includes(id) &&
-        !progress.failed.includes(id)) {
+        !progress.failed.includes(id) &&
+        !progress.blocked?.includes(id)) {  // 跳过被阻塞的任务
       return id;
     }
   }

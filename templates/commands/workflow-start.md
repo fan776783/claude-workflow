@@ -1,6 +1,6 @@
 ---
 description: 启动智能工作流 - 分析需求并生成详细执行计划
-argument-hint: "[-y] [-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
+argument-hint: "[-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
 allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase-retrieval(*), AskUserQuestion(*)
 ---
 
@@ -34,18 +34,16 @@ allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), T
 const args = $ARGUMENTS.join(' ');
 let requirement = '';
 let isBackendMode = false;
-let autoConfirm = false;      // --yes / -y: 跳过确认对话框
 let forceOverwrite = false;   // --force / -f: 强制覆盖已有文件
 
 // 解析标志
-const flags = args.match(/--(?:yes|force|backend|file)|-[yf]/g) || [];
-autoConfirm = flags.some(f => f === '--yes' || f === '-y');
+const flags = args.match(/--(?:force|backend|file)|-f/g) || [];
 forceOverwrite = flags.some(f => f === '--force' || f === '-f');
 isBackendMode = flags.some(f => f === '--backend' || f === '--file');
 
 // 移除标志，获取需求内容
 requirement = args
-  .replace(/--(?:yes|force|backend|file)|-[yf]/g, '')
+  .replace(/--(?:force|backend|file)|-f/g, '')
   .replace(/^["']|["']$/g, '')
   .trim();
 
@@ -56,7 +54,6 @@ if (!requirement) {
 用法：
   /workflow-start "实现用户认证功能"
   /workflow-start --file "docs/prd.md"
-  /workflow-start -y "快速启动，跳过确认"
   /workflow-start -f "强制覆盖已有文件"
   `);
   return;
@@ -125,29 +122,22 @@ const statePath = path.join(workflowDir, 'workflow-state.json');
 if (fileExists(statePath)) {
   const existingState = JSON.parse(readFile(statePath));
 
-  if (existingState.status !== 'completed') {
+  if (existingState.status !== 'completed' && existingState.status !== 'planned') {
     const backupPath = path.join(workflowDir, `backup-${Date.now()}.json`);
     copyFile(statePath, backupPath);
 
-    // autoConfirm 时自动选择"开始新任务"
-    let choice = autoConfirm ? "开始新任务" : null;
-
-    if (!choice) {
-      choice = await AskUserQuestion({
-        questions: [{
-          question: `检测到未完成的任务"${existingState.task_name}"，如何处理？`,
-          header: "任务冲突",
-          multiSelect: false,
-          options: [
-            { label: "继续旧任务", description: "放弃新任务，继续执行之前的任务" },
-            { label: "开始新任务", description: `旧任务已备份到 ${backupPath}` },
-            { label: "取消", description: "不做任何更改" }
-          ]
-        }]
-      });
-    } else {
-      console.log(`⚡ 自动选择：开始新任务（旧任务已备份到 ${backupPath}）`);
-    }
+    const choice = await AskUserQuestion({
+      questions: [{
+        question: `检测到未完成的任务"${existingState.task_name}"，如何处理？`,
+        header: "任务冲突",
+        multiSelect: false,
+        options: [
+          { label: "继续旧任务", description: "放弃新任务，继续执行之前的任务" },
+          { label: "开始新任务", description: `旧任务已备份到 ${backupPath}` },
+          { label: "取消", description: "不做任何更改" }
+        ]
+      }]
+    });
 
     if (choice === "继续旧任务") {
       console.log(`✅ 继续执行任务"${existingState.task_name}"\n🚀 执行命令：/workflow-execute`);
@@ -234,13 +224,9 @@ ensureDir('.claude/tech-design');
 let existingChoice = null;
 if (fileExists(techDesignPath)) {
   // forceOverwrite 时自动选择"重新生成"
-  // autoConfirm 时自动选择"使用现有方案"
   if (forceOverwrite) {
     existingChoice = "重新生成";
     console.log(`⚡ 强制覆盖：${techDesignPath}`);
-  } else if (autoConfirm) {
-    existingChoice = "使用现有方案";
-    console.log(`⚡ 使用现有技术方案：${techDesignPath}`);
   } else {
     existingChoice = await AskUserQuestion({
       questions: [{
@@ -397,11 +383,7 @@ ${constraintsContent}
 ### 🛑 Hard Stop 1：设计方案确认
 
 ```typescript
-// autoConfirm 时跳过设计确认，直接继续
-let designChoice = autoConfirm ? "继续拆分任务" : null;
-
-if (!designChoice) {
-  console.log(`
+console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🛑 **设计方案确认**
@@ -413,21 +395,18 @@ if (!designChoice) {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
 
-  designChoice = await AskUserQuestion({
-    questions: [{
-      question: "如何处理技术方案？",
-      header: "设计确认",
-      multiSelect: false,
-      options: [
-        { label: "继续拆分任务", description: "方案已完善，基于此方案生成任务清单" },
-        { label: "Codex 审查", description: "让 Codex 审查方案后再决定" },
-        { label: "手动编辑后继续", description: "暂停，手动完善方案后重新执行" }
-      ]
-    }]
-  });
-} else {
-  console.log(`⚡ 自动继续：跳过设计确认`);
-}
+const designChoice = await AskUserQuestion({
+  questions: [{
+    question: "如何处理技术方案？",
+    header: "设计确认",
+    multiSelect: false,
+    options: [
+      { label: "继续拆分任务", description: "方案已完善，基于此方案生成任务清单" },
+      { label: "Codex 审查", description: "让 Codex 审查方案后再决定" },
+      { label: "手动编辑后继续", description: "暂停，手动完善方案后重新执行" }
+    ]
+  }]
+});
 
 if (designChoice === "手动编辑后继续") {
   console.log(`
@@ -511,21 +490,32 @@ const techDesign = readFile(techDesignPath);
 // 从技术方案提取实施计划
 const implementationPlan = extractImplementationPlan(techDesign);
 
-// 为每个任务补充详细信息
-const tasks = implementationPlan.map((item, index) => ({
-  id: `T${index + 1}`,
-  name: item.task,
-  phase: determinePhase(item),
-  file: item.file,
-  leverage: findLeverage(item.file, analysisResult.reusableComponents),
-  design_ref: item.section || `4.${index + 1}`,
-  requirement: item.description || item.task,
-  actions: determineActions(item),
-  depends: item.depends ? `T${item.depends}` : null,
-  quality_gate: item.isQualityGate || false,
-  threshold: item.threshold || 80,
-  status: 'pending'
-}));
+// 为每个任务补充详细信息（包含依赖分类）
+const tasks = implementationPlan.map((item, index) => {
+  const task = {
+    id: `T${index + 1}`,
+    name: item.task,
+    phase: determinePhase(item),
+    file: item.file,
+    leverage: findLeverage(item.file, analysisResult.reusableComponents),
+    design_ref: item.section || `4.${index + 1}`,
+    requirement: item.description || item.task,
+    actions: determineActions(item),
+    depends: item.depends ? `T${item.depends}` : null,
+    quality_gate: item.isQualityGate || false,
+    threshold: item.threshold || 80,
+    status: 'pending'
+  };
+
+  // 渐进式工作流：自动分类任务依赖
+  const blockedBy = classifyTaskDependencies(task);
+  if (blockedBy.length > 0) {
+    task.blocked_by = blockedBy;
+    task.status = 'blocked';  // 有未解除依赖时标记为 blocked
+  }
+
+  return task;
+});
 
 // 添加标准质量关卡（如果没有）
 if (!tasks.some(t => t.quality_gate)) {
@@ -587,6 +577,7 @@ ${t.design_ref ? `- **设计参考**: tech-design.md § ${t.design_ref}` : ''}
 - **需求**: ${t.requirement}
 - **actions**: \`${t.actions}\`
 ${t.depends ? `- **依赖**: ${t.depends}` : ''}
+${t.blocked_by ? `- **阻塞依赖**: \`${t.blocked_by.join(', ')}\`` : ''}
 ${t.quality_gate ? `- **质量关卡**: true\n- **阈值**: ${t.threshold}` : ''}
 - **状态**: ${t.status}
 `).join('\n');
@@ -649,47 +640,23 @@ ${tasks.map(t => `- [ ] ${t.id}: ${t.name} (${t.phase})`).join('\n')}
 
 ---
 
-### 🛑 Hard Stop 2：任务清单确认
+### 🛑 Hard Stop 2：规划完成（强制停止）
 
 ```typescript
-// autoConfirm 时跳过任务清单确认，直接开始执行
-let executeChoice = autoConfirm ? "开始执行" : null;
-
-if (!executeChoice) {
-  console.log(`
+// 规划完成后强制停止，不提供自动执行选项
+console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🛑 **任务清单确认**
+🛑 **规划完成**
 
 📄 技术方案：${techDesignPath}
 📋 任务清单：${tasksPath}
 📊 任务数量：${tasks.length}
 
-**是否开始执行？**
+**请审查上述文件后执行工作流**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
-
-  executeChoice = await AskUserQuestion({
-    questions: [{
-      question: "是否开始执行任务？",
-      header: "执行确认",
-      multiSelect: false,
-      options: [
-        { label: "开始执行", description: "确认任务清单，开始执行第一个任务" },
-        { label: "编辑后执行", description: "暂停，手动调整任务后执行 /workflow-execute" },
-        { label: "取消", description: "取消工作流" }
-      ]
-    }]
-  });
-} else {
-  console.log(`⚡ 自动继续：开始执行任务`);
-}
-
-if (executeChoice === "取消") {
-  console.log("✅ 工作流已取消");
-  return;
-}
 ```
 
 ---
@@ -697,21 +664,34 @@ if (executeChoice === "取消") {
 ### Step 3：创建工作流状态
 
 ```typescript
+// 统计阻塞任务
+const blockedTasks = tasks.filter(t => t.status === 'blocked');
+const pendingTasks = tasks.filter(t => t.status === 'pending');
+
 // 创建精简的 workflow-state.json
+// 状态为 planned，等待用户审查后执行
 const state = {
   task_name: taskName,
   tech_design: techDesignPath,
   tasks_file: `tasks-${sanitizedName}.md`,
-  current_task: "T1",
-  status: "in_progress",
-  phase: "execute",
+  current_task: pendingTasks.length > 0 ? pendingTasks[0].id : (blockedTasks.length > 0 ? null : "T1"),
+  status: "planned",  // 规划完成，等待执行
+  phase: "plan",
   execution_mode: "phase",        // step | phase | quality_gate（默认阶段模式）
+  mode: blockedTasks.length > 0 ? "progressive" : "normal",  // 渐进式工作流模式
   pause_before_commit: true,      // git_commit 前始终暂停确认
   use_subagent: tasks.length > 5, // 任务数 > 5 时自动启用 subagent 模式
+  unblocked: [],                  // 已解除的依赖列表
+  sessions: {                     // 多模型会话 ID（由分析阶段填充）
+    codex: null,
+    gemini: null,
+    claude: null
+  },
   started_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   progress: {
     completed: [],
+    blocked: blockedTasks.map(t => t.id),  // 被阻塞的任务 ID
     skipped: [],
     failed: []
   },
@@ -745,7 +725,7 @@ if (!fileExists(metaPath)) {
 }
 
 console.log(`
-✅ 工作流已启动！
+✅ 规划完成！
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -753,6 +733,7 @@ console.log(`
 **技术方案**：${techDesignPath}
 **任务清单**：${tasksPath}
 **任务数量**：${tasks.length}
+${state.mode === 'progressive' ? `**工作模式**：渐进式（${blockedTasks.length} 个任务等待依赖）` : ''}
 
 **文件结构**：
 .claude/
@@ -763,22 +744,26 @@ console.log(`
 ├── workflow-state.json        ← 运行时状态
 └── tasks-${sanitizedName}.md  ← 任务清单
 
+${blockedTasks.length > 0 ? `
+**⏳ 阻塞任务**（需解除依赖后执行）：
+${blockedTasks.map(t => `- ${t.id}: ${t.name} [等待: ${t.blocked_by.join(', ')}]`).join('\n')}
+
+**💡 解除阻塞**：
+\`\`\`bash
+/workflow-unblock api_spec    # 后端接口已就绪
+/workflow-unblock design_spec # 设计稿已就绪
+\`\`\`
+` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🚀 **下一步**
 
-${executeChoice === "开始执行" ? '自动开始执行第一个任务...' : `
-执行命令开始：
+请审查技术方案和任务清单，确认无误后执行：
 \`\`\`bash
 /workflow-execute
 \`\`\`
-`}
 `);
-
-if (executeChoice === "开始执行") {
-  // 自动执行第一个任务
-  await executeCommand('/workflow-execute');
-}
+// 规划完成，强制停止，不自动执行
 ```
 
 ---
@@ -786,6 +771,36 @@ if (executeChoice === "开始执行") {
 ## 📦 辅助函数
 
 ```typescript
+/**
+ * 任务依赖自动分类
+ * 根据任务名称和文件路径判断是否需要外部依赖（接口规格/设计稿）
+ *
+ * @returns 依赖标识数组：'api_spec' | 'design_spec'
+ */
+function classifyTaskDependencies(task: { name: string; file?: string }): string[] {
+  const deps: string[] = [];
+  const name = task.name.toLowerCase();
+  const file = (task.file || '').toLowerCase();
+
+  // 需要后端接口的任务
+  if (/api|接口|服务层|service|fetch|request|http|数据获取|后端/.test(name) ||
+      /services\/|api\/|http\/|requests\//.test(file)) {
+    deps.push('api_spec');
+  }
+
+  // 需要设计稿的任务
+  if (/ui|样式|组件|还原|视觉|布局|卡片|弹窗|表单|界面|页面/.test(name) ||
+      /\.vue$|\.tsx$|\.jsx$|\.css$|\.scss$/.test(file) ||
+      /components\/|pages\/|views\//.test(file)) {
+    // 排除骨架类任务（这些可以先做）
+    if (!/骨架|skeleton|mock|stub|placeholder/.test(name)) {
+      deps.push('design_spec');
+    }
+  }
+
+  return deps;
+}
+
 function sanitize(name: string): string {
   return name
     .normalize('NFKD')                           // Unicode 规范化
