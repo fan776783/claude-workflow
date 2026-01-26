@@ -23,9 +23,6 @@
     "README.md",
     "CHANGELOG.md"
   ],
-  "publishConfig": {
-    "registry": "http://your-registry-host:4873"
-  },
   "engines": {
     "node": ">=18"
   },

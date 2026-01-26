@@ -2,3 +2,6 @@ node_modules/
 *.log
 .DS_Store
 .npmrc
+.env
+.env.local
+Claude-Code-工作流体系指南.md

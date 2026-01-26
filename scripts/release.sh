@@ -4,7 +4,16 @@
 set -euo pipefail
 trap 'echo "Error: release failed at line $LINENO" >&2' ERR
 
-REGISTRY_URL="${NPM_REGISTRY_URL:-http://your-registry-host:4873}"
+# Load .env if exists
+if [[ -f .env ]]; then
+  set -a; source .env; set +a
+fi
+
+if [[ -z "${NPM_REGISTRY_URL:-}" ]]; then
+  echo "Error: NPM_REGISTRY_URL not set. Create .env file or export NPM_REGISTRY_URL" >&2
+  exit 1
+fi
+REGISTRY_URL="$NPM_REGISTRY_URL"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "Error: $1 not found" >&2; exit 1; }
@@ -21,7 +30,7 @@ version-type:
   <x.y.z> - Explicit version
 
 Environment:
-  NPM_REGISTRY_URL - Override registry (default: http://your-registry-host:4873)
+  NPM_REGISTRY_URL - Registry URL (required, set in .env or export)
 
 Examples:
   ./scripts/release.sh patch

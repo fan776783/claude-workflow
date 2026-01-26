@@ -4,12 +4,19 @@ Claude Code 工作流工具包 - 提供标准化的工作流命令、Agent 定�
 
 ## 安装
 
+首次使用需配置私有 registry：
+
+```bash
+# 设置 registry（替换为实际地址）
+npm config set @pic:registry http://your-registry-host:4873
+```
+
 ```bash
 # 全局安装（推荐）
-npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
+npm install -g @pic/claude-workflow
 
 # 或作为开发依赖
-npm install -D @pic/claude-workflow --registry http://your-registry-host:4873
+npm install -D @pic/claude-workflow
 ```
 
 安装后会自动将工作流文件复制到 `~/.claude/` 目录。
@@ -59,7 +66,7 @@ claude-workflow doctor
 ## 升级
 
 ```bash
-npm update -g @pic/claude-workflow --registry http://your-registry-host:4873
+npm update -g @pic/claude-workflow
 ```
 
 升级时会自动：
