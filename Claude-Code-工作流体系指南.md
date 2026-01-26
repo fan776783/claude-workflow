@@ -2,9 +2,9 @@
 
 > 基于 Claude Code 的智能化开发工作流体系
 
-**文档版本**：v3.2.0
-**最后更新**：2025-12-04
-**包版本**：@pic/claude-workflow v1.0.3
+**文档版本**：v4.0.0
+**最后更新**：2026-01-24
+**包版本**：@pic/claude-workflow v1.2.11
 
 ---
 
@@ -14,14 +14,14 @@
 - [2. 工作流安装与配置](#2-工作流安装与配置)
 - [3. 智能工作流](#3-智能工作流)
 - [4. 其他工作流](#4-其他工作流)
-  - [4.1 快速开发工作流](#41-快速开发工作流workflow-quick-dev)
-  - [4.2 UI 还原工作流](#42-ui-还原工作流workflow-ui-restore)
-  - [4.3 后端工作流](#43-后端工作流workflow-start---backend)
+  - [4.1 UI 还原工作流](#41-ui-还原工作流figma-ui)
+  - [4.2 后端工作流](#42-后端工作流workflow-start---backend)
 - [5. 智能分析命令](#5-智能分析命令)
 - [6. 审查命令](#6-审查命令)
-- [7. 典型场景实战](#7-典型场景实战)
-- [8. 最佳实践](#8-最佳实践)
-- [9. 常见问题](#9-常见问题)
+- [7. 调试命令](#7-调试命令)
+- [8. 典型场景实战](#8-典型场景实战)
+- [9. 最佳实践](#9-最佳实践)
+- [10. 常见问题](#10-常见问题)
 - [附录 A：命令速查表](#附录-a命令速查表)
 - [附录 B：Agent 定义](#附录-bagent-定义)
 - [附录 C：快速入门](#附录-c快速入门)
@@ -38,21 +38,20 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 - ✅ **npm 包安装**：`npm install -g @pic/claude-workflow` 一行命令完成安装
 - ✅ **智能升级**：自动备份、3-way merge、保留用户修改
 - ✅ **CLI 工具**：`claude-workflow status/sync/init/doctor` 命令行管理
-- ✅ **多模型协作**：Gemini（前端） + Codex（后端）双模型互补
+- ✅ **多模型协作**：Gemini（前端） + Codex（后端）双模型并行协作
 - ✅ **零配置体验**：首次使用自动检测并初始化项目
 - ✅ **用户级存储**：工作流状态存储在 `~/.claude/`，完全避免 Git 冲突
-- ✅ **极简使用**：仅需2个命令即可完成复杂任务
-- ✅ **智能规划**：根据需求自动生成5-22个步骤
+- ✅ **极简使用**：仅需 2 个命令即可完成复杂任务
+- ✅ **智能规划**：根据需求自动生成执行计划
 - ✅ **自动记忆**：任务进度持久化，支持新对话恢复
-- ✅ **质量保证**：内置双重 Codex 审查机制
-- ✅ **效率提升**：自动化繁琐的分析和验证工作
+- ✅ **质量保证**：内置双模型审查机制
 - ✅ **多项目管理**：自动识别和隔离不同项目的工作流状态
 
 ### 1.2 整体架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│         @pic/claude-workflow (v1.0.2)                        │
+│         @pic/claude-workflow (v1.2.11)                       │
 │          npm 包工作流工具集 - 一次安装，所有项目通用            │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -80,16 +79,14 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│核心工作流 (8个) │  │ CLI 工具         │  │  分析审查 (3个) │
+│核心工作流       │  │ CLI 工具         │  │  分析审查       │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
 │ • workflow-start│  │ • status 状态   │  │ • /analyze      │
 │ • workflow-exec │  │ • sync 同步     │  │ • /diff-review  │
-│ • quick-dev     │  │ • init 初始化   │  │ • /write-tests  │
-│ • fix-bug       │  │ • doctor 诊断   │  │                 │
-│ • ui-restore    │  │                 │  │                 │
-│ • backend-start │  │                 │  │                 │
+│ • figma-ui      │  │ • init 初始化   │  │ • /write-tests  │
+│ • backend-start │  │ • doctor 诊断   │  │ • /debug        │
 │ • status/retry  │  │                 │  │                 │
-│ • skip-step     │  │                 │  │                 │
+│ • skip/unblock  │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
@@ -113,13 +110,15 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 |------|---------|------|
 | **智能工作流** ⭐⭐⭐ | `/workflow-start`, `/workflow-execute` | 自动规划和执行（推荐） |
 | **后端工作流** | `/workflow-start --backend` | PRD → 需求分析 → 方案设计 → 执行 |
-| **其他工作流** | `/workflow-quick-dev`, `/workflow-fix-bug`, `/workflow-ui-restore` | 快速开发、Bug修复、UI还原 |
-| **工作流辅助** | `/workflow-status`, `/workflow-retry-step`, `/workflow-skip-step` | 状态查看、重试、跳过 |
+| **UI 还原** | `/figma-ui` | Figma 设计稿 → 前端代码（Skill） |
+| **工作流辅助** | `/workflow-status`, `/workflow-retry-step`, `/workflow-skip-step`, `/workflow-unblock` | 状态查看、重试、跳过、解除阻塞 |
 | **CLI 工具** | `claude-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
-| **专项分析** | `/analyze` | 智能分析（自动识别场景） |
-| **审查** | `/diff-review`, `/diff-review-deep` | 代码审查（单模型/多模型并行） |
-| **测试** | `/write-tests` | 调用 Vitest 测试专家编写测试 |
+| **智能分析** | `/analyze` | 双模型技术分析（Codex + Gemini 并行） |
+| **代码审查** | `/diff-review`, `/diff-review --quick` | 多模型并行审查 / 单模型快速审查 |
+| **调试** | `/debug` | 多模型调试（Codex 后端 + Gemini 前端） |
+| **测试** | `/write-tests` | Vitest 测试专家编写测试 |
 | **项目配置** | `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） |
+| **其他工具** | `/enhance`, `/git-rollback` | Prompt 增强、Git 回滚 |
 | **帮助** | `/agents` | 查看所有可用 Agent 命令 |
 
 ---
@@ -193,9 +192,12 @@ claude-workflow doctor
 
 ```
 ~/.claude/
-├── commands/              # 14 个斜杠命令
-├── prompts/               # 三模型协作 Prompt 模板
-├── docs/                  # 6 个技术文档
+├── commands/              # 15 个斜杠命令
+├── prompts/               # 双模型协作 Prompt 模板
+│   ├── codex/             # Codex 角色提示词
+│   └── gemini/            # Gemini 角色提示词
+├── skills/                # Skill 定义（如 figma-ui）
+├── docs/                  # 技术文档模板
 ├── utils/                 # 工具函数
 ├── workflows/             # 工作流状态（按项目隔离，使用后自动创建）
 ├── logs/                  # 操作日志（使用后自动创建）
@@ -362,9 +364,10 @@ claude mcp list
 
 ```
 ~/.claude/                              # 用户级目录（不提交 Git）
-├── commands/                           # 工作流命令（25+ 个）
+├── commands/                           # 工作流命令（15 个）
+├── skills/                             # Skill 定义
 ├── docs/                               # 技术文档
-├── prompts/                            # 三模型协作 Prompt
+├── prompts/                            # 双模型协作 Prompt
 ├── utils/                              # 工具函数
 ├── workflows/                          # 工作流状态（按项目隔离）
 │   ├── a13dcda9d96c/                   # 项目 1（基于 cwd hash）
@@ -797,57 +800,7 @@ rm .claude/workflow-state-backup-1737123456789.json
 
 ## 4. 其他工作流
 
-### 4.1 快速开发工作流（/workflow-quick-dev）
-
-**适用场景**：
-- ✅ 功能需求明确，无需复杂需求分析
-- ✅ 开发周期 < 1天
-- ✅ 代码变更 < 500 行
-- ✅ 已有类似实现可参考
-
-**不适用场景**：
-- ❌ 复杂的架构设计需求
-- ❌ 跨多个应用的大型功能
-- ❌ 需要详细需求拆解
-
-#### 3步快速流程
-
-```
-第1步：快速上下文加载（必须）
-  ├─ /context-load "功能描述"
-  └─ 用户确认（发现歧义时）
-
-第2步：探索与实现（核心）
-  ├─ 探索现有实现（/explore-code，推荐）
-  └─ 快速实现（直接编码）
-
-第3步：快速验证（必须）
-  ├─ 功能测试（手动或自动）
-  └─ 代码质量检查（可选）
-```
-
-**使用示例**：
-```bash
-/workflow-quick-dev "添加导出为 PDF 的按钮"
-/workflow-quick-dev "实现文件导出为 PDF"
-/workflow-quick-dev "添加快捷键支持"
-```
-
-**与完整开发流程的区别**：
-
-| 维度 | 快速开发工作流 | 完整开发流程 |
-|------|---------------|-------------|
-| 需求分析 | 跳过（需求明确） | /analyze-requirements |
-| 上下文加载 | ✅ 必须 | ✅ 必须 |
-| 代码探索 | 可选（推荐） | 必须 |
-| 架构评估 | 跳过 | /architect-review |
-| 实现 | 直接编码 | 详细设计 → 编码 |
-| 测试 | 简化（核心场景） | 完整测试覆盖 |
-| 审查 | 可选（单项） | 必须（多维度） |
-
----
-
-### 4.2 UI 还原工作流（/workflow-ui-restore）
+### 4.1 UI 还原工作流（/figma-ui）
 
 **适用场景**：
 - ✅ 有明确的 Figma 设计稿
@@ -860,41 +813,28 @@ rm .claude/workflow-state-backup-1737123456789.json
 - 📐 智能识别可复用组件
 - ✅ Codex 自动化质量验证
 
-#### 3步 UI 还原流程
-
-```
-第1步：收集设计信息（自动化）
-  ├─ Figma MCP 获取设计上下文（颜色、间距、字体）
-  ├─ 获取设计截图
-  └─ 加载项目 UI 上下文
-
-第2步：生成实现（Gemini Gate）⭐
-  ├─ 向 Gemini 索要 UI 代码原型（必须）
-  └─ 基于 Gemini 原型完善代码
-
-第3步：质量验证（Codex Review）
-  ├─ Codex 代码审查
-  └─ 生成验证报告
-```
-
-**使用示例**：
+**使用方式**：
 ```bash
-# 新建组件
-/workflow-ui-restore "https://figma.com/file/xxx?node-id=123:456" "src/components/UserProfile.tsx"
+# 直接使用 Figma URL
+/figma-ui "https://figma.com/design/xxx?node-id=123:456"
 
-# 修改现有组件
-/workflow-ui-restore "node-id=789:012" "apps/agent/src/components/ProfileCard.tsx" "更新头像样式"
+# 或在对话中提及 Figma 相关关键词
+# 系统会自动检测并调用 figma-ui skill
 ```
+
+**触发条件**（自动检测）：
+- 检测到 `figma.com/design` URL
+- 提及关键词：还原、切图、设计稿、UI实现、前端开发、Figma
 
 **重要原则**：
 - ✅ **Gemini 优先**：UI 代码必须先从 Gemini 获取原型
 - ✅ **Gemini 32k 限制**：注意上下文长度，仅传入 UI 相关信息
 - ✅ **Codex Review**：编码后必须使用 Codex 执行 review
-- ❌ 禁止跳过 Gemini 直接编写 UI 代码
+- ❌ 严禁直接调用 Figma MCP 工具，必须通过 figma-ui skill
 
 ---
 
-### 4.3 后端工作流（/workflow-start --backend）
+### 4.2 后端工作流（/workflow-start --backend）
 
 **适用场景**：
 - ✅ 有明确的 PRD 产品需求文档
@@ -974,42 +914,25 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 
 ## 5. 智能分析命令
 
-### 5.1 统一入口：`/analyze`
+### 5.1 双模型分析：`/analyze`
 
-`/analyze` 是智能分析的统一入口，根据用户描述自动识别场景并执行相应分析策略。
+`/analyze` 使用 **Codex + Gemini 双模型并行分析**，交叉验证后综合见解。
 
 **使用方式**：
 ```bash
 /analyze "描述你想分析的内容"
 ```
 
-**场景自动识别**：
+**执行流程**：
+1. Codex 并行分析（后端视角：架构、性能、安全）
+2. Gemini 并行分析（前端视角：UI/UX、可访问性）
+3. 当前模型交叉验证，综合两方见解
 
-| 输入示例 | 识别场景 | 执行策略 |
-|----------|----------|----------|
-| `/analyze "项目上下文"` | 上下文加载 | 生成结构化上下文摘要 |
-| `/analyze "用户登录在哪"` | 代码探索 | 搜索文件和代码片段 |
-| `/analyze "这个 bug 的原因"` | 深度分析 | Codex 深度分析报告 |
-| `/analyze "性能瓶颈"` | 性能分析 | Bundle 体积 + 运行时性能 |
-| `/analyze "依赖安全漏洞"` | 依赖分析 | 依赖图 + 安全审计 |
-| `/analyze "路由配置"` | 路由分析 | 路由结构 + 懒加载检查 |
-| `/analyze "状态管理"` | 状态分析 | Store 架构 + 性能问题 |
-| `/analyze "翻译完整性"` | 国际化分析 | 翻译键完整性报告 |
-| `/analyze "这个需求怎么拆"` | 需求分析 | 功能点 + 风险评估 |
-
-**触发关键词**：
-
-| 场景 | 触发关键词 |
-|------|-----------|
-| 上下文加载 | 上下文、context、项目结构、代码库概览 |
-| 代码探索 | 在哪、怎么实现、找到、定位、搜索 |
-| 深度分析 | 分析、问题、原因、为什么、设计 |
-| 性能分析 | 性能、Bundle、体积、加载、优化 |
-| 依赖分析 | 依赖、漏洞、安全、版本、冲突 |
-| 路由分析 | 路由、route、导航、懒加载 |
-| 状态分析 | 状态、store、Pinia、Zustand、Redux |
-| 国际化分析 | 国际化、i18n、翻译、多语言 |
-| 需求分析 | 需求、拆解、功能点、工作量 |
+**适用场景**：
+- 架构设计评审
+- 技术方案可行性分析
+- 代码质量深度分析
+- 性能瓶颈诊断
 
 ---
 
@@ -1017,7 +940,7 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 
 ### 6.1 Diff 审查：`/diff-review`
 
-基于 git diff 的通用代码审查，支持多种变更来源。
+基于 git diff 的代码审查，**默认使用多模型并行审查**。
 
 **使用方式**：
 
@@ -1027,6 +950,15 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 | `--staged` | 已暂存变更 | `/diff-review --staged` |
 | `--all` | 全部未提交 | `/diff-review --all` |
 | `--branch <base>` | 对比分支 | `/diff-review --branch main` |
+| `--quick` | 单模型快速审查 | `/diff-review --quick` |
+
+**审查分工**（多模型模式）：
+
+| 模型 | 审查重点 |
+|------|----------|
+| **Codex** | 后端逻辑、安全漏洞、性能问题、并发安全 |
+| **Gemini** | 前端组件设计、可访问性、响应式设计、样式一致性 |
+| **Claude** | 综合两方反馈，生成最终报告 |
 
 **输出格式**：结构化 Markdown（Summary + Findings），包含：
 - 优先级（P0-P3）
@@ -1043,229 +975,189 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 | P2 | 正常 | 最终需要修复 |
 | P3 | 低优先级 | 有则更好 |
 
-### 6.2 多模型深度审查：`/diff-review-deep`
+---
 
-使用 **Codex + Gemini 并行审查**，适合重要变更的深度审查。
+## 7. 调试命令
+
+### 7.1 多模型调试：`/debug`
+
+使用 **Codex 后端诊断 + Gemini 前端诊断** 的多模型调试，支持 Bug 修复全流程。
 
 **使用方式**：
-
-| 参数 | 来源 | 示例 |
-|------|------|------|
-| (默认) | 未暂存变更 | `/diff-review-deep` |
-| `--staged` | 已暂存变更 | `/diff-review-deep --staged` |
-| `--branch <base>` | 对比分支 | `/diff-review-deep --branch main` |
-
-**审查分工**：
-
-| 模型 | 审查重点 |
-|------|----------|
-| **Codex** | 后端逻辑、安全漏洞、性能问题、并发安全 |
-| **Gemini** | 前端组件设计、可访问性、响应式设计、样式一致性 |
-| **Claude** | 综合两方反馈，生成最终报告 |
+```bash
+/debug "问题描述"
+/debug "p328_600"  # 支持蓝鲸工单号
+```
 
 **执行流程**：
-1. 获取 diff 并分类文件（后端/前端）
-2. 并行调用 Codex 和 Gemini（后台执行）
-3. 收集两方审查结果
-4. Claude 综合分析，生成最终报告
+1. 问题分析与信息收集
+2. Codex 后端诊断（API、数据库、业务逻辑）
+3. Gemini 前端诊断（组件、状态、样式）
+4. 交叉验证定位根因
+5. 修复实现与验证
 
 **适用场景**：
-- 重要功能上线前的代码审查
-- 涉及安全敏感代码的变更
-- 大型重构的全面审查
-
-**与 `/diff-review` 的区别**：
-
-| 对比项 | `/diff-review` | `/diff-review-deep` |
-|--------|----------------|---------------------|
-| 模型数量 | 单模型（Claude） | 三模型并行 |
-| 审查深度 | 通用审查 | 专业分工深度审查 |
-| 执行时间 | 快（~30秒） | 较慢（~2分钟） |
-| 适用场景 | 日常代码审查 | 重要变更深度审查 |
+- 复杂 Bug 定位
+- 跨前后端问题排查
+- 性能问题诊断
+- 蓝鲸工单处理（自动获取工单详情）
 
 ---
 
-## 7. 典型场景实战
+## 8. 典型场景实战
 
-### 7.1 场景A：复杂功能开发（智能工作流）
+### 8.1 场景A：复杂功能开发（智能工作流）
 
 **任务**：实现多租户权限管理系统
 
 ```bash
 # 对话1：启动并开始执行
 /workflow-start "实现多租户权限管理系统，支持租户隔离和RBAC"
-# ✅ 生成 22 个步骤
+# ✅ 生成执行计划
 
-/workflow-execute  # 步骤1-8：需求分析 + 技术方案
-# 步骤8: Codex方案审查，评分85，通过 ✅
+/workflow-execute  # 执行各步骤
+# 双模型审查通过 ✅
 
-# 对话2（新窗口）：开发实施
-/workflow-execute  # 步骤9-12：编码 + 测试
+# 对话2（新窗口）：继续开发
+/workflow-execute  # 自动从上次位置继续
 
 # 对话3（新窗口）：验证交付
-/workflow-execute  # 步骤13-22：Codex代码审查 + 文档
-# 步骤13: Codex代码审查，评分90，通过 ✅
-# 🎉 完成！评分89/100
+/workflow-execute  # 完成剩余步骤
+# 🎉 完成！
 ```
 
-### 7.2 场景B：简单功能开发（快速工作流）
-
-**任务**：添加用户头像上传功能
-
-```bash
-/workflow-quick-dev "添加用户头像上传功能"
-# ✅ 自动加载上下文
-# ✅ 探索现有文件上传实现
-# ✅ 快速实现并验证
-# 🎉 完成！总耗时 < 30分钟
-```
-
-### 7.3 场景C：UI 还原（UI 还原工作流）
+### 8.2 场景B：UI 还原（figma-ui skill）
 
 **任务**：还原 Figma 用户设置页面
 
 ```bash
-/workflow-ui-restore "https://www.figma.com/file/xxxxx"
+/figma-ui "https://www.figma.com/design/xxxxx?node-id=123:456"
 # ✅ 自动获取设计规范
-# ✅ 分析颜色、间距、字体
-# ✅ 加载UI上下文
-# ✅ 实现组件（Tailwind CSS + 响应式）
-# ✅ UI审查通过
-# 🎉 完成！总耗时 < 45分钟
+# ✅ Gemini 生成前端代码原型
+# ✅ Codex 代码审查
+# 🎉 完成！
 ```
 
-### 7.4 场景D：Bug 修复（Bug 修复工作流）
+### 8.3 场景C：Bug 调试（debug 命令）
 
 **任务**：修复用户头像上传失败问题
 
 ```bash
-# 带工作项编号（自动获取缺陷信息并流转状态）
-/workflow-fix-bug "p328_600"
+# 带工作项编号（自动获取缺陷信息）
+/debug "p328_600"
 # ✅ 自动获取蓝鲸工作项详情
-# ✅ 流转状态到"处理中"
-# ✅ 6步标准化流程执行
-# ✅ 强制回归测试
-# ✅ 流转状态到"待验证"
+# ✅ Codex 后端诊断 + Gemini 前端诊断
+# ✅ 定位根因并修复
 
-# 无工作项编号（普通 Bug 修复）
-/workflow-fix-bug "用户头像上传失败"
+# 无工作项编号
+/debug "用户头像上传失败，返回 413 错误"
 ```
 
-**6步标准化流程**：
-1. 缺陷信息获取（可选，BK-MCP）
-2. Bug 重现与信息收集
-3. 快速定位（/analyze 轻量级）
-4. 深度分析（Codex 重量级）
-5. 修复实现
-6. 回归测试与质量验证（强制）
+### 8.4 场景D：代码审查
 
-### 7.5 场景E：查看进度并继续
+```bash
+# 多模型并行审查（默认）
+/diff-review --branch main
+
+# 单模型快速审查
+/diff-review --quick --staged
+```
+
+### 8.5 场景E：查看进度并继续
 
 ```bash
 # 在新对话中
 /workflow-status
-# 显示：当前步骤10，总共22步，已完成9步
+# 显示：当前步骤、总进度、下一步建议
 
-/workflow-execute  # 继续执行步骤10
+/workflow-execute  # 继续执行
 ```
 
 ---
 
-## 8. 最佳实践
+## 9. 最佳实践
 
-### 8.1 工作流选择
+### 9.1 工作流选择
 
 ```
-Bug 修复？
-  └─ 是 → /workflow-fix-bug（支持 BK-MCP 集成）
+Bug 调试？
+  └─ 是 → /debug（支持 BK-MCP 集成）
 
 有 Figma 设计稿？
-  └─ 是 → /workflow-ui-restore（Gemini + Codex）
+  └─ 是 → /figma-ui（Gemini + Codex）
 
 有 PRD 文档的后端开发？
   └─ 是 → /workflow-start --backend（PRD → xq.md → fasj.md）
 
-简单功能（< 500行，< 1天）？
-  └─ 是 → /workflow-quick-dev
-
-复杂功能或不确定复杂度？
-  └─ /workflow-start（自动适配 5-22 步）
+功能开发？
+  └─ /workflow-start（自动规划执行计划）
 ```
 
 **工作流选择表**：
 
-| 任务类型 | 任务复杂度 | 需求明确度 | 推荐工作流 |
-|---------|-----------|-----------|-----------|
-| 新功能开发 | 复杂（>500行） | - | `/workflow-start` ⭐⭐⭐ |
-| 新功能开发 | 中等（300-500行） | - | `/workflow-start` 或 `/workflow-quick-dev` |
-| 新功能开发 | 简单（<300行） | 明确 | `/workflow-quick-dev` |
-| 新功能开发 | 简单（<300行） | 不明确 | `/workflow-start` |
-| Bug 修复 | - | - | `/workflow-fix-bug` ⭐ |
-| UI 还原 | - | - | `/workflow-ui-restore` |
-| 后端开发（有PRD） | - | - | `/workflow-start --backend` |
+| 任务类型 | 推荐工作流 |
+|---------|-----------|
+| 新功能开发 | `/workflow-start` ⭐⭐⭐ |
+| Bug 调试 | `/debug` ⭐ |
+| UI 还原 | `/figma-ui` |
+| 后端开发（有PRD） | `/workflow-start --backend` |
+| 代码审查 | `/diff-review` |
+| 技术分析 | `/analyze` |
 
-### 8.2 新对话执行模式
+### 9.2 新对话执行模式
 
 **推荐做法**：关键阶段在新对话中执行
 
 ```bash
-# 对话1：分析 + 方案（约30-60分钟）
+# 对话1：分析 + 方案
 /workflow-start "需求"
-/workflow-execute × N  # 执行到Codex方案审查完成
+/workflow-execute × N  # 执行到方案审查完成
 
-# 对话2：开发实施（主要开发时间）
+# 对话2：开发实施
 /workflow-execute × N  # 编码 + 测试
 
-# 对话3：验证交付（约1-2小时）
-/workflow-execute × N  # Codex代码审查 + 文档
+# 对话3：验证交付
+/workflow-execute × N  # 代码审查 + 文档
 ```
 
 **优势**：
 - ✅ 每个对话上下文独立
-- ✅ Codex审查上下文充足
+- ✅ 审查上下文充足
 - ✅ 可随时暂停和恢复
 
-### 8.3 质量保证
+### 9.3 质量保证
 
-- ✅ 依赖质量关卡：Codex评分 < 80自动阻止
-- ✅ 及时重试：评分不足时优化后 `/workflow-retry-step`
+- ✅ 依赖质量关卡：双模型审查
+- ✅ 及时重试：审查不通过时 `/workflow-retry-step`
 - ✅ 记录决策：所有决策自动记录到任务记忆
 - ✅ 文档完整：技术方案、验证报告自动生成
 
-### 8.4 效率提升
-
-- ✅ 简单任务连续执行：在同一对话完成5步
-- ✅ 复杂任务分批执行：新对话中恢复
-- ✅ 查看状态：`/workflow-status` 随时了解进度
-- ✅ 复用会话：Codex 方案审查和代码审查复用SESSION_ID
-
 ---
 
-## 9. 常见问题
+## 10. 常见问题
 
-### 9.1 如何选择工作流？
+### 10.1 如何选择工作流？
 
 **A**: 优先使用智能工作流 `/workflow-start`
-- 自动适配任务复杂度（简单/中等/复杂）
-- 适用所有场景
-- 除非明确是简单功能或UI还原
+- 自动规划执行计划
+- 适用大多数场景
+- Bug 调试用 `/debug`，UI 还原用 `/figma-ui`
 
-### 9.2 任务记忆文件在哪？
+### 10.2 任务记忆文件在哪？
 
-**A**: `.claude/workflow-state.json`
+**A**: `~/.claude/workflows/{project-hash}/workflow-state.json`
 - 记录所有步骤状态和进度
 - 支持新对话恢复
-- 包含Codex审查评分和决策记录
+- 包含审查结果和决策记录
 
-### 9.3 质量关卡失败怎么办？
+### 10.3 质量关卡失败怎么办？
 
 **A**:
-1. 查看Codex审查意见（在技术方案或验证报告中）
+1. 查看审查意见
 2. 根据建议优化内容
 3. 执行 `/workflow-retry-step` 重新审查
-4. 评分 ≥ 80 即可继续
 
-### 9.4 如何在新对话中恢复？
+### 10.4 如何在新对话中恢复？
 
 **A**:
 ```bash
@@ -1274,40 +1166,20 @@ Bug 修复？
 # ✅ 自动读取任务记忆，继续下一步
 ```
 
-### 9.5 可以跳过某个步骤吗？
+### 10.5 可以跳过某个步骤吗？
 
 **A**:
 - 可以使用 `/workflow-skip-step`（慎用）
 - 会记录跳过理由到任务记忆
-- 跳过质量关卡会记录风险
 
-### 9.6 重新执行 workflow-start 会覆盖旧任务吗？
+### 10.6 如何解除任务阻塞？
 
-**A**: 不会！系统内置了自动保护机制 🔒
-
-**未完成的任务**：
-- 自动备份到 `.claude/workflow-state-backup-{时间戳}.json`
-- 询问用户：继续旧任务 / 开始新任务 / 取消操作
-- 防止意外覆盖
-
-**已完成的任务**：
-- 自动归档到 `.claude/workflow-state-completed-{时间戳}.json`
-- 直接创建新任务
-
-**恢复备份**：
+**A**:
 ```bash
-# 查看备份
-ls -lh .claude/workflow-state-*.json
-
-# 恢复备份
-cp .claude/workflow-state-backup-{时间戳}.json \
-   .claude/workflow-state.json
-
-# 继续执行
-/workflow-execute
+# 当后端接口或设计稿就绪时
+/workflow-unblock api_spec    # 解除 API 依赖阻塞
+/workflow-unblock design_spec # 解除设计稿依赖阻塞
 ```
-
-详见：[3.6 任务保护机制](#36-任务保护机制)
 
 ---
 
@@ -1316,15 +1188,14 @@ cp .claude/workflow-state-backup-{时间戳}.json \
 | 命令 | 简介 | 优先级 |
 |------|------|-------|
 | **智能工作流** |||
-| `/workflow-start "需求"` | 启动智能工作流，自动规划5-22步 | ⭐⭐⭐ |
+| `/workflow-start "需求"` | 启动智能工作流，自动规划执行计划 | ⭐⭐⭐ |
 | `/workflow-execute` | 执行下一步（重复调用） | ⭐⭐⭐ |
 | `/workflow-status` | 查看当前状态和进度 | ⭐⭐ |
 | `/workflow-retry-step` | 重试当前步骤（质量关卡失败后） | ⭐ |
 | `/workflow-skip-step` | 跳过当前步骤（慎用） | |
+| `/workflow-unblock` | 解除任务阻塞依赖 | |
 | **其他工作流** |||
-| `/workflow-quick-dev "功能"` | 快速开发工作流（3步） | ⭐ |
-| `/workflow-ui-restore "Figma URL" "路径"` | UI 还原工作流（Gemini + Codex） | ⭐ |
-| `/workflow-fix-bug "描述或工单号"` | Bug 修复工作流（6步，支持 BK-MCP） | ⭐ |
+| `/figma-ui "Figma URL"` | UI 还原（Gemini + Codex） | ⭐ |
 | `/workflow-start --backend "PRD路径"` | 后端工作流（PRD→xq.md→fasj.md→执行） | ⭐ |
 | **CLI 工具** |||
 | `claude-workflow status` | 查看安装状态 | ⭐ |
@@ -1333,28 +1204,43 @@ cp .claude/workflow-state-backup-{时间戳}.json \
 | `claude-workflow init` | 初始化项目配置 | ⭐ |
 | `claude-workflow doctor` | 诊断配置问题 | |
 | **分析与审查** |||
-| `/analyze "描述"` | 智能分析（自动识别场景） | ⭐⭐ |
-| `/diff-review` | 审查未提交代码变更 | ⭐ |
+| `/analyze "描述"` | 双模型技术分析（Codex + Gemini 并行） | ⭐⭐ |
+| `/diff-review` | 多模型并行代码审查（默认） | ⭐ |
+| `/diff-review --quick` | 单模型快速审查 | ⭐ |
 | `/diff-review --staged` | 审查已暂存变更 | ⭐ |
 | `/diff-review --branch main` | 审查整个分支 | ⭐ |
-| `/diff-review-deep` | 多模型深度审查（Codex + Gemini 并行） | ⭐⭐ |
-| **测试与配置** |||
+| **调试与测试** |||
+| `/debug "问题描述"` | 多模型调试（Codex + Gemini） | ⭐⭐ |
 | `/write-tests` | Vitest 测试专家编写测试 | ⭐ |
+| **其他工具** |||
 | `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） | ⭐ |
+| `/enhance "prompt"` | Prompt 增强 | |
+| `/git-rollback` | 交互式 Git 回滚 | |
+| `/agents` | 查看所有可用 Agent 命令 | |
 
 ---
 
 ## 附录 B：Prompt 模板
 
-项目使用三模型协作，Prompt 模板位于 `~/.claude/prompts/`：
+项目使用双模型协作，Prompt 模板位于 `~/.claude/prompts/`：
 
 | 目录 | 专长 | 使用场景 |
 |------|------|----------|
-| **codex/** | 后端架构、算法、调试 | API 设计、数据库、性能优化 |
-| **gemini/** | 前端 UI、CSS、组件 | React/Vue 组件、样式、可访问性 |
-| **claude/** | 全栈整合、契约设计 | 跨层集成、类型安全、测试 |
+| **codex/** | 后端架构、算法、调试、安全 | API 设计、数据库、性能优化、代码审查 |
+| **gemini/** | 前端 UI、CSS、组件、可访问性 | React/Vue 组件、样式、响应式设计 |
 
-这些 Prompt 由 `codeagent-wrapper` 在三模型协作流程中自动使用。
+**角色提示词**：
+
+| 角色 | Codex | Gemini |
+|------|-------|--------|
+| 分析 | `codex/analyzer.md` | `gemini/analyzer.md` |
+| 架构 | `codex/architect.md` | `gemini/frontend.md` |
+| 审查 | `codex/reviewer.md` | `gemini/reviewer.md` |
+| 调试 | `codex/debugger.md` | `gemini/debugger.md` |
+| 测试 | `codex/tester.md` | `gemini/tester.md` |
+| 优化 | `codex/optimizer.md` | `gemini/optimizer.md` |
+
+这些 Prompt 由 `codeagent-wrapper` 在双模型协作流程中自动使用。
 
 ---
 
@@ -1379,6 +1265,26 @@ npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
 
 # 3. 随时查看状态
 /workflow-status
+```
+
+### 常用命令
+
+```bash
+# 功能开发
+/workflow-start "需求描述"
+/workflow-execute
+
+# UI 还原
+/figma-ui "Figma URL"
+
+# Bug 调试
+/debug "问题描述"
+
+# 代码审查
+/diff-review --branch main
+
+# 技术分析
+/analyze "分析内容"
 ```
 
 ### 进阶使用

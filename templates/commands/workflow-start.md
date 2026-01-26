@@ -4,7 +4,7 @@ argument-hint: "[-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
 allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase-retrieval(*), AskUserQuestion(*)
 ---
 
-# 智能工作流启动（v2）
+# 智能工作流启动（v2.2）
 
 三阶段强制流程：**需求 → 设计 → 任务**
 
@@ -708,7 +708,7 @@ const state = {
   current_task: pendingTasks.length > 0 ? pendingTasks[0].id : (blockedTasks.length > 0 ? null : "T1"),
   status: "planned",  // 规划完成，等待执行
   phase: "plan",
-  execution_mode: "phase",        // step | phase | quality_gate（默认阶段模式）
+  execution_mode: "phase",        // step | phase | boundary | quality_gate（默认阶段模式）
   mode: blockedTasks.length > 0 ? "progressive" : "normal",  // 渐进式工作流模式
   pause_before_commit: true,      // git_commit 前始终暂停确认
   use_subagent: tasks.length > 5, // 任务数 > 5 时自动启用 subagent 模式
@@ -727,8 +727,11 @@ const state = {
     skipped: [],
     failed: []
   },
-  // 约束系统 (v2.1)
-  constraints: initialConstraints,
+  // 约束系统 (v2.2) - 增加 PBT 属性
+  constraints: {
+    ...initialConstraints,
+    pbtProperties: []  // PBT 属性由 Phase 1.5 填充
+  },
   // 零决策审计（初始为空，由执行阶段填充）
   zeroDecisionAudit: {
     passed: null,
@@ -736,7 +739,7 @@ const state = {
     remainingAmbiguities: [],
     auditedAt: null
   },
-  // 上下文感知指标 (v2.1)
+  // 上下文感知指标 - 详见 specs/shared/context-awareness.md
   contextMetrics: {
     estimatedTokens: 0,
     warningThreshold: 60,
@@ -744,6 +747,12 @@ const state = {
     maxConsecutiveTasks: 5,
     usagePercent: 0,
     history: []
+  },
+  // 边界调度 (v2.2) - 详见 specs/workflow/subagent-routing.md
+  boundaryScheduling: {
+    enabled: false,               // 使用 --boundary 模式时启用
+    currentBoundary: null,
+    boundaryProgress: {}          // 按边界 ID 记录进度
   },
   quality_gates: tasks
     .filter(t => t.quality_gate)

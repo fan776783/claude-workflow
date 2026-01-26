@@ -1,10 +1,10 @@
 ---
 description: 执行工作流下一步 - 读取任务定义并执行
-argument-hint: "[--step | --phase | --all]"
+argument-hint: "[--step | --phase | --boundary | --all]"
 allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), Task(*), TaskOutput(*), AskUserQuestion(*), TodoWrite(*)
 ---
 
-# 智能工作流执行（v2.1）
+# 智能工作流执行（v2.2）
 
 读取 tasks.md 中的当前任务段落，支持多种执行模式。
 
@@ -16,16 +16,18 @@ allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Ba
 |------|------|------|
 | 路径安全 | `specs/shared/path-utils.md` | resolveUnder 函数 |
 | 状态 Emoji | `specs/shared/status-emoji.md` | 状态解析与显示 |
+| 上下文感知 | `specs/shared/context-awareness.md` | Token 估算与动态限制 |
 | 任务解析 | `specs/workflow/task-parser.md` | extractCurrentTask 等 |
 | 状态机 | `specs/workflow/state-machine.md` | 状态定义与转换 |
 | 质量关卡 | `specs/workflow/quality-gate.md` | 关卡检测逻辑 |
-| Subagent | `specs/workflow/subagent-mode.md` | 子代理执行模式 |
+| Subagent | `specs/workflow/subagent-routing.md` | 上下文边界调度 |
+| PBT 属性 | `specs/workflow/pbt-properties.md` | 属性驱动测试 |
 
 ---
 
 ## 共享工具函数
 
-> 详见 `specs/shared/path-utils.md` 和 `specs/shared/status-emoji.md`
+> 详见 `specs/shared/path-utils.md`、`specs/shared/status-emoji.md` 和 `specs/shared/context-awareness.md`
 
 ```typescript
 // 路径安全函数 - 详见 specs/shared/path-utils.md
@@ -42,7 +44,7 @@ function escapeRegExp(str: string): string;
 function parseQualityGate(body: string): boolean;
 
 // ═══════════════════════════════════════════════════════════════
-// Context Awareness 函数 (v2.1)
+// Context Awareness 函数 - 详见 specs/shared/context-awareness.md
 // ═══════════════════════════════════════════════════════════════
 
 interface ContextMetrics {
@@ -117,7 +119,24 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 |------|------|------|--------|
 | 单步 | `--step` | 每个任务后暂停 | 每个任务 |
 | 阶段 | `--phase` | 按大阶段连续执行 | 阶段变化时 (P0→P1) |
+| 边界 | `--boundary` | 按上下文边界并行执行 | 边界组完成时 |
 | 连续 | `--all` | 执行到质量关卡 | 质量关卡 / git_commit |
+
+### 边界模式（v2.2 新增）
+
+> 详见 `specs/workflow/subagent-routing.md`
+
+按上下文边界划分任务，而非按角色划分：
+
+```
+✓ 按边界划分：用户域、认证授权、数据层、API 层、UI 层、基础设施
+✗ 禁止按角色：架构师、安全专家、测试专家
+```
+
+**优势**：
+- 边界内任务串行，边界间并行
+- 自动选择最佳模型（Codex/Gemini）
+- 减少跨域干扰，提高并行效率
 
 ### Subagent 模式
 
@@ -146,6 +165,7 @@ let useSubagentOverride: boolean | null = null;
 
 if (args.includes('--step')) executionModeOverride = 'step';
 else if (args.includes('--phase')) executionModeOverride = 'phase';
+else if (args.includes('--boundary')) executionModeOverride = 'boundary';  // v2.2 新增
 else if (args.includes('--all')) executionModeOverride = 'quality_gate';
 
 // subagent 模式可与其他模式组合

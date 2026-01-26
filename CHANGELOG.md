@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2026-01-26
+
+### Breaking Changes
+- **Multi-Model Collaboration System v3.0**：架构重大简化
+  - 移除 `triple` 协作模式，仅保留 `none`/`single`/`dual` 三种模式
+  - 外部模型输出定义为"脏原型"，所有交付代码必须由当前模型重构
+  - 新增质量阈值：单模型评分 < 6 拒绝采用
+
+### Added
+- **Workflow v2.1**：约束系统 + Zero-Decision 审计 + 渐进披露
+- **动态多模型协作**：根据任务类型智能路由（后端→Codex，前端→Gemini，全栈→并行）
+- **上下文感知**：自动检测任务复杂度选择协作模式
+- **四维评估体系**：正确性、完整性、一致性、可维护性
+- **交叉验证流程**：双模型输出独立评估 + 契约一致性检查 + 冲突解决策略
+- **specs 模板**：新增 `context-awareness.md`、`pbt-properties.md`、`subagent-routing.md`
+
+### Changed
+- **Global Protocols 重构**：从冗长描述改为 8 条简洁系统约束
+- **协作架构清晰化**：当前模型作为全栈编排者，Codex（后端权威）+ Gemini（前端高手）并行协作
+- **工作流简化**：5 个清晰 Phase（上下文检索 → 协作分析 → 原型获取 → 编码实施 → 审计交付）
+- **figma-ui skill v2**：7 阶段 → 5 阶段，双 Subagent 并行，Token-First 策略，Gemini 多模态 QA
+
+### Removed
+- **templates/prompts/claude/**：移除 6 个未使用的角色提示词文件
+
+---
+
 ## [1.2.11] - 2026-01-23
 
 ### Changed

@@ -63,6 +63,32 @@ status: draft  # draft | approved | superseded
 
 {{acceptance_criteria}}
 
-## 7. Codex 审查记录
+## 7. PBT 属性清单
+
+> Property-Based Testing 属性定义系统行为的不变性约束
+
+{{#if pbt_properties.length}}
+| ID | 属性名 | 类别 | 定义 |
+|----|--------|------|------|
+{{#each pbt_properties}}
+| {{id}} | {{name}} | {{category}} | {{definition}} |
+{{/each}}
+
+### 边界条件
+
+{{#each pbt_properties}}
+- **{{id}}**: {{boundaryConditions}}
+{{/each}}
+
+### 证伪策略
+
+{{#each pbt_properties}}
+- **{{id}}**: {{falsificationStrategy}}
+{{/each}}
+{{else}}
+_（PBT 属性将在代码分析阶段自动提取）_
+{{/if}}
+
+## 8. Codex 审查记录
 
 （审查后自动追加）
