@@ -298,7 +298,7 @@ function selectModelForBoundary(
 ### --boundary 模式
 
 ```bash
-/workflow-execute --boundary   # 按上下文边界并行执行同阶段任务
+/workflow execute --boundary   # 按上下文边界并行执行同阶段任务
 ```
 
 **执行流程**：

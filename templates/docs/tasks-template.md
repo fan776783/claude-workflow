@@ -1,8 +1,9 @@
 ---
-version: 1
+version: 2
 tech_design: "{{tech_design_path}}"
 created_at: "{{created_at}}"
 checksum: "{{checksum}}"
+last_change: "{{last_change_id}}"
 ---
 
 # Tasks: {{task_name}}

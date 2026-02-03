@@ -1,7 +1,7 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "2.0.0",
-  "description": "Claude Code 多模型协作工作流系统 - 三模型并行协作 (Codex + Gemini + Claude)",
+  "version": "2.2.0",
+  "description": "Claude Code 多模型协作工作流系统 - Skills 架构 (Codex + Gemini + Claude)",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
   },

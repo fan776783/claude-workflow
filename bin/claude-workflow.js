@@ -199,7 +199,7 @@ program
       console.log('\n下一步:');
       console.log('  1. 编辑 .claude/config/project-config.json 完善配置');
       console.log('  2. 创建 CLAUDE.md 添加项目规范');
-      console.log('  3. 开始使用工作流: /workflow-start "功能描述"');
+      console.log('  3. 开始使用工作流: /workflow start "功能描述"');
 
     } catch (err) {
       console.error(`[claude-workflow] init 失败: ${err.message}`);

@@ -1,17 +1,13 @@
----
-description: 启动智能工作流 - 分析需求并生成详细执行计划
-argument-hint: "[-f] \"功能需求描述\" 或 --file \"PRD文档路径\""
-allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), TaskOutput(*), mcp__auggie-mcp__codebase-retrieval(*), AskUserQuestion(*)
----
+# workflow start - 启动工作流 (v3.0)
 
-# 智能工作流启动（v2.2）
+> 精简接口：自动检测 `.md` 文件，无需 `--backend`/`--file` 参数
 
-三阶段强制流程：**需求 → 设计 → 任务**
+三阶段强制流程：**需求 → 设计 → 意图审查 → 任务**
 
 ```
-需求文档 ──▶ 代码分析 ──▶ tech-design.md ──▶ tasks.md ──▶ 执行
-                │              │                │
-                │         🛑 确认设计       🛑 确认任务
+需求文档 ──▶ 代码分析 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+                │              │                   │                │
+                │         🛑 确认设计          🔍 审查意图      🛑 确认任务
                 │
            codebase-retrieval
 ```
@@ -33,17 +29,15 @@ allowed-tools: Task(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), T
 ```typescript
 const args = $ARGUMENTS.join(' ');
 let requirement = '';
-let isBackendMode = false;
 let forceOverwrite = false;   // --force / -f: 强制覆盖已有文件
 
 // 解析标志
-const flags = args.match(/--(?:force|backend|file)|-f/g) || [];
+const flags = args.match(/--force|-f/g) || [];
 forceOverwrite = flags.some(f => f === '--force' || f === '-f');
-isBackendMode = flags.some(f => f === '--backend' || f === '--file');
 
 // 移除标志，获取需求内容
 requirement = args
-  .replace(/--(?:force|backend|file)|-f/g, '')
+  .replace(/--force|-f/g, '')
   .replace(/^["']|["']$/g, '')
   .trim();
 
@@ -52,14 +46,14 @@ if (!requirement) {
 ❌ 请提供需求描述
 
 用法：
-  /workflow-start "实现用户认证功能"
-  /workflow-start --file "docs/prd.md"
-  /workflow-start -f "强制覆盖已有文件"
+  /workflow start "实现用户认证功能"
+  /workflow start docs/prd.md        # 自动检测 .md 文件
+  /workflow start -f "强制覆盖已有文件"
   `);
   return;
 }
 
-// 检测是否是文件路径
+// 自动检测：.md 结尾且文件存在 → 文件模式
 let requirementSource = 'inline';
 let requirementContent = requirement;
 
@@ -67,9 +61,6 @@ if (requirement.endsWith('.md') && fileExists(requirement)) {
   requirementSource = requirement;
   requirementContent = readFile(requirement);
   console.log(`📄 需求文档：${requirement}\n`);
-} else if (isBackendMode) {
-  console.log(`⚠️ --backend 模式但文件不存在：${requirement}`);
-  return;
 } else {
   console.log(`📝 需求描述：${requirement}\n`);
 }
@@ -140,7 +131,7 @@ if (fileExists(statePath)) {
     });
 
     if (choice === "继续旧任务") {
-      console.log(`✅ 继续执行任务"${existingState.task_name}"\n🚀 执行命令：/workflow-execute`);
+      console.log(`✅ 继续执行任务"${existingState.task_name}"\n🚀 执行命令：/workflow execute`);
       return;
     }
     if (choice === "取消") {
@@ -380,6 +371,96 @@ ${constraintsContent}
 
 ---
 
+### Phase 1.5：Intent Review（增量变更意图审查）
+
+> v3.0 新增：在生成任务清单前，生成 Intent 文档供用户审查变更意图
+
+```typescript
+console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 Phase 1.5: 意图审查
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+// 确保工作流目录存在
+ensureDir(workflowDir);
+
+// 创建 changes 目录结构
+const changeId = "CHG-001";
+const changesDir = path.join(workflowDir, 'changes', changeId);
+ensureDir(changesDir);
+
+// 生成 Intent 文档
+const intentContent = generateIntentSummary({
+  requirement: requirementContent,
+  techDesign: readFile(techDesignPath),
+  analysisResult: analysisResult,
+  taskName: taskName,
+  changeId: changeId
+});
+
+const intentPath = path.join(changesDir, 'intent.md');
+writeFile(intentPath, intentContent);
+
+console.log(`
+📄 Intent 文档已生成：${intentPath}
+
+**变更概要**：
+- 变更 ID: ${changeId}
+- 触发类型: new_requirement
+- 影响范围: ${analysisResult.relatedFiles.length} 个文件
+`);
+
+// Hard Stop: Intent 确认
+const intentChoice = await AskUserQuestion({
+  questions: [{
+    question: "请确认以上变更意图是否正确？",
+    header: "Intent Review",
+    multiSelect: false,
+    options: [
+      { label: "意图正确", description: "继续生成任务清单" },
+      { label: "需要调整", description: "暂停，手动编辑 intent.md 后重新执行" },
+      { label: "取消", description: "放弃本次变更" }
+    ]
+  }]
+});
+
+if (intentChoice === "取消") {
+  console.log(`
+❌ 变更已取消
+
+已清理临时文件。
+  `);
+  // 清理 changes 目录
+  await Bash({ command: `rm -rf "${changesDir}"` });
+  return;
+}
+
+if (intentChoice === "需要调整") {
+  console.log(`
+⏸️ 工作流已暂停
+
+请编辑 Intent 文档后重新执行：
+  1. 编辑文件：${intentPath}
+  2. 重新启动：/workflow start "${requirement}"
+  `);
+  return;
+}
+
+// 更新审查状态
+const reviewStatus = {
+  change_id: changeId,
+  reviewed_at: new Date().toISOString(),
+  status: "approved",
+  reviewer: "user"
+};
+writeFile(path.join(changesDir, 'review-status.json'), JSON.stringify(reviewStatus, null, 2));
+
+console.log(`✅ Intent 已批准，继续生成任务清单`);
+```
+
+---
+
 ### 🛑 Hard Stop 1：设计方案确认
 
 ```typescript
@@ -414,7 +495,7 @@ if (designChoice === "手动编辑后继续") {
 
 请完善技术方案后重新执行：
   1. 编辑文件：${techDesignPath}
-  2. 重新启动：/workflow-start "${requirement}"
+  2. 重新启动：/workflow start "${requirement}"
   `);
   return;
 }
@@ -592,6 +673,8 @@ if (tasksTemplate) {
   tasksContent = replaceVars(tasksTemplate, {
     tech_design_path: techDesignPath,
     created_at: new Date().toISOString(),
+    checksum: '',  // 可选：后续可添加内容校验
+    last_change_id: changeId,
     task_name: taskName,
     constraints: constraintsMarkdown,
     acceptance_criteria: acceptanceMarkdown,
@@ -600,9 +683,11 @@ if (tasksTemplate) {
 } else {
   // 模板缺失时使用简洁的内联生成
   tasksContent = `---
-version: 1
+version: 2
 tech_design: "${techDesignPath}"
 created_at: "${new Date().toISOString()}"
+checksum: ""
+last_change: "${changeId}"
 ---
 
 # Tasks: ${taskName}
@@ -767,8 +852,47 @@ const state = {
     }), {}),
   artifacts: {
     tech_design: techDesignPath
+  },
+  // Delta Tracking 系统 (v3.0)
+  delta_tracking: {
+    enabled: true,
+    changes_dir: "changes/",
+    current_change: changeId,
+    applied_changes: [changeId],
+    change_counter: 1
   }
 };
+
+// 创建 Genesis Change (delta.json)
+const genesisChange = {
+  id: changeId,
+  parent_change: null,
+  created_at: new Date().toISOString(),
+  status: "applied",
+  trigger: {
+    type: "new_requirement",
+    description: requirementContent.substring(0, 200),
+    source: requirementSource
+  },
+  spec_deltas: [{
+    operation: "ADDED",
+    section: "full",
+    before: null,
+    after: techDesignPath,
+    rationale: "Initial tech design"
+  }],
+  task_deltas: tasks.map(t => ({
+    operation: "ADDED",
+    task_id: t.id,
+    full_task: t,
+    rationale: "Initial task planning"
+  }))
+};
+
+writeFile(
+  path.join(changesDir, 'delta.json'),
+  JSON.stringify(genesisChange, null, 2)
+);
 
 writeFile(statePath, JSON.stringify(state, null, 2));
 
@@ -801,7 +925,12 @@ ${state.mode === 'progressive' ? `**工作模式**：渐进式（${blockedTasks.
 
 ~/.claude/workflows/${projectId}/
 ├── workflow-state.json        ← 运行时状态
-└── tasks-${sanitizedName}.md  ← 任务清单
+├── tasks-${sanitizedName}.md  ← 任务清单
+└── changes/
+    └── ${changeId}/
+        ├── delta.json         ← 变更描述
+        ├── intent.md          ← 意图文档
+        └── review-status.json ← 审查状态
 
 ${blockedTasks.length > 0 ? `
 **⏳ 阻塞任务**（需解除依赖后执行）：
@@ -809,8 +938,8 @@ ${blockedTasks.map(t => `- ${t.id}: ${t.name} [等待: ${t.blocked_by.join(', ')
 
 **💡 解除阻塞**：
 \`\`\`bash
-/workflow-unblock api_spec    # 后端接口已就绪
-/workflow-unblock design_spec # 设计稿已就绪
+/workflow unblock api_spec    # 后端接口已就绪
+/workflow unblock design_spec # 设计稿已就绪
 \`\`\`
 ` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -819,7 +948,7 @@ ${blockedTasks.map(t => `- ${t.id}: ${t.name} [等待: ${t.blocked_by.join(', ')
 
 请审查技术方案和任务清单，确认无误后执行：
 \`\`\`bash
-/workflow-execute
+/workflow execute
 \`\`\`
 `);
 // 规划完成，强制停止，不自动执行
@@ -830,6 +959,62 @@ ${blockedTasks.map(t => `- ${t.id}: ${t.name} [等待: ${t.blocked_by.join(', ')
 ## 📦 辅助函数
 
 ```typescript
+/**
+ * 生成 Intent 摘要文档 (v3.0)
+ */
+function generateIntentSummary(params: {
+  requirement: string;
+  techDesign: string;
+  analysisResult: any;
+  taskName: string;
+  changeId: string;
+}): string {
+  const { requirement, techDesign, analysisResult, taskName, changeId } = params;
+
+  return `# Intent: ${taskName}
+
+## Change ID: ${changeId}
+
+## 触发
+
+- **类型**: new_requirement
+- **来源**: ${requirementSource}
+
+## 变更意图
+
+${requirement.substring(0, 500)}
+
+## 影响分析
+
+### 涉及文件
+
+${analysisResult.relatedFiles.map(f => `- \`${f.path}\` — ${f.purpose}`).join('\n') || '（无已有文件受影响）'}
+
+### 技术约束
+
+${analysisResult.constraints.map(c => `- ${c}`).join('\n') || '（无特殊约束）'}
+
+### 可复用组件
+
+${analysisResult.reusableComponents.map(c => `- \`${c.path}\` — ${c.description || c.purpose}`).join('\n') || '（无可复用组件）'}
+
+## 审查状态
+
+- **状态**: pending
+- **审查人**: -
+- **审查时间**: -
+`;
+}
+
+/**
+ * 生成下一个变更 ID
+ */
+function nextChangeId(state: any): string {
+  const counter = (state.delta_tracking?.change_counter || 0) + 1;
+  state.delta_tracking.change_counter = counter;
+  return \`CHG-\${String(counter).padStart(3, '0')}\`;
+}
+
 /**
  * 任务依赖自动分类
  * 根据任务名称和文件路径判断是否需要外部依赖（接口规格/设计稿）
@@ -997,14 +1182,14 @@ function findLeverage(file: string, reusableComponents: any[]): string | null {
 
 ```bash
 # 执行下一步
-/workflow-execute
+/workflow execute
 
 # 查看状态
-/workflow-status
+/workflow status
 
 # 跳过当前步骤（慎用）
-/workflow-skip-step
+/workflow execute --skip
 
 # 重试当前步骤
-/workflow-retry-step
+/workflow execute --retry
 ```

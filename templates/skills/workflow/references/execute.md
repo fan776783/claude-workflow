@@ -1,12 +1,27 @@
----
-description: 执行工作流下一步 - 读取任务定义并执行
-argument-hint: "[--step | --phase | --boundary | --all]"
-allowed-tools: SlashCommand(*), Read(*), Write(*), Edit(*), Grep(*), Glob(*), Bash(*), Task(*), TaskOutput(*), AskUserQuestion(*), TodoWrite(*)
----
+# workflow execute - 执行任务 (v3.0)
 
-# 智能工作流执行（v2.2）
+> 精简接口：默认阶段模式，支持自然语言控制执行模式
 
-读取 tasks.md 中的当前任务段落，支持多种执行模式。
+执行工作流任务。
+
+## 参数
+
+| 参数 | 说明 |
+|------|------|
+| `--retry` | 重试模式：重试失败的任务 |
+| `--skip` | 跳过模式：跳过当前任务（慎用） |
+
+## 自然语言控制
+
+在命令参数或对话中描述意图：
+
+| 用户说 | 系统理解 |
+|--------|----------|
+| "单步执行" / "step" | 单步模式 |
+| "继续" / "下一阶段" | 阶段模式（默认） |
+| "连续" / "执行到质量关卡" | 连续模式 |
+| "重试" | 等同 `--retry` |
+| "跳过" | 等同 `--skip` |
 
 ## 规格引用
 
@@ -115,40 +130,13 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 
 ## 执行模式
 
-| 模式 | 参数 | 说明 | 中断点 |
-|------|------|------|--------|
-| 单步 | `--step` | 每个任务后暂停 | 每个任务 |
-| 阶段 | `--phase` | 按大阶段连续执行 | 阶段变化时 (P0→P1) |
-| 边界 | `--boundary` | 按上下文边界并行执行 | 边界组完成时 |
-| 连续 | `--all` | 执行到质量关卡 | 质量关卡 / git_commit |
+| 模式 | 说明 | 中断点 |
+|------|------|--------|
+| 单步 | 每个任务后暂停 | 每个任务 |
+| 阶段 | 按大阶段连续执行（默认） | 阶段变化时 |
+| 连续 | 执行到质量关卡 | 质量关卡 / git_commit |
 
-### 边界模式（v2.2 新增）
-
-> 详见 `specs/workflow/subagent-routing.md`
-
-按上下文边界划分任务，而非按角色划分：
-
-```
-✓ 按边界划分：用户域、认证授权、数据层、API 层、UI 层、基础设施
-✗ 禁止按角色：架构师、安全专家、测试专家
-```
-
-**优势**：
-- 边界内任务串行，边界间并行
-- 自动选择最佳模型（Codex/Gemini）
-- 减少跨域干扰，提高并行效率
-
-### Subagent 模式
-
-| 参数 | 说明 |
-|------|------|
-| `--subagent` | 强制启用 subagent 模式 |
-| `--no-subagent` | 强制禁用 subagent 模式 |
-| _(无参数)_ | **自动检测**：任务数 > 5 时自动启用 |
-
-> **Subagent 模式优势**：每个任务在独立 subagent 中执行，主会话只接收结果摘要，避免上下文膨胀，支持连续执行多个阶段。
-
-**默认模式**：从 `workflow-state.json` 的 `execution_mode` 读取（由 `/workflow-start` 创建时设置为 `phase`）。
+> **Subagent 模式**：任务数 > 5 时自动启用，每个任务在独立 subagent 中执行，避免上下文膨胀。
 
 ---
 
@@ -158,19 +146,43 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 
 ```typescript
 const args = $ARGUMENTS.join(' ');
+const argLower = args.toLowerCase();
 
 // 解析命令行参数
 let executionModeOverride: string | null = null;
-let useSubagentOverride: boolean | null = null;
+let isRetryMode = false;
+let isSkipMode = false;
 
-if (args.includes('--step')) executionModeOverride = 'step';
-else if (args.includes('--phase')) executionModeOverride = 'phase';
-else if (args.includes('--boundary')) executionModeOverride = 'boundary';  // v2.2 新增
-else if (args.includes('--all')) executionModeOverride = 'quality_gate';
+// 特殊模式：--retry 和 --skip
+if (args.includes('--retry') || /重试/.test(argLower)) {
+  isRetryMode = true;
+} else if (args.includes('--skip') || /跳过/.test(argLower)) {
+  isSkipMode = true;
+}
 
-// subagent 模式可与其他模式组合
-if (args.includes('--subagent')) useSubagentOverride = true;
-else if (args.includes('--no-subagent')) useSubagentOverride = false;
+// 自然语言检测执行模式
+if (!isRetryMode && !isSkipMode) {
+  if (/单步|step/.test(argLower)) {
+    executionModeOverride = 'step';
+  } else if (/连续|all|质量关卡/.test(argLower)) {
+    executionModeOverride = 'quality_gate';
+  }
+  // 默认：phase 模式（"继续"/"下一阶段" 无需特殊处理）
+}
+
+// --retry 模式：跳转到 Step 1-Retry
+if (isRetryMode) {
+  // 详见下方 "Retry 模式" 章节
+  await executeRetryMode();
+  return;
+}
+
+// --skip 模式：跳转到 Step 1-Skip
+if (isSkipMode) {
+  // 详见下方 "Skip 模式" 章节
+  await executeSkipMode();
+  return;
+}
 ```
 
 ---
@@ -220,7 +232,7 @@ if (!fileExists(statePath)) {
 预期路径：${statePath}
 
 💡 请先启动工作流：
-  /workflow-start "功能需求描述"
+  /workflow start "功能需求描述"
   `);
   return;
 }
@@ -260,7 +272,7 @@ if (state.status === 'planned') {
 
 **解除阻塞**：
 \`\`\`bash
-${blockedDeps.map(d => `/workflow-unblock ${d}`).join('\n')}
+${blockedDeps.map(d => `/workflow unblock ${d}`).join('\n')}
 \`\`\`
 
 💡 当后端接口或设计稿就绪后，执行上述命令解除相应依赖。
@@ -294,8 +306,8 @@ if (state.status === 'failed') {
 失败原因：${state.failure_reason || '未知'}
 
 请使用以下命令：
-- 重试当前步骤：/workflow-retry-step
-- 跳过当前步骤：/workflow-skip-step（慎用）
+- 重试当前步骤：/workflow execute --retry
+- 跳过当前步骤：/workflow execute --skip（慎用）
   `);
   return;
 }
@@ -319,7 +331,7 @@ ${state.progress?.blocked?.length > 0 ? `**阻塞的任务**：${state.progress.
 
 **解除阻塞**：
 \`\`\`bash
-${blockedDeps.map(d => `/workflow-unblock ${d}`).join('\n')}
+${blockedDeps.map(d => `/workflow unblock ${d}`).join('\n')}
 \`\`\`
 
 💡 当后端接口或设计稿就绪后，执行上述命令解除相应依赖。
@@ -402,9 +414,9 @@ state.contextMetrics.usagePercent = usagePercent;
 // 连续任务计数（用于兜底机制，避免上下文溢出）
 const consecutiveCount = state.consecutive_count || 0;
 
-// 确定是否使用 subagent 模式
+// 确定是否使用 subagent 模式（自动检测：任务数 > 5）
 const autoSubagent = totalTaskCount > 5;
-const useSubagent = useSubagentOverride ?? state.use_subagent ?? autoSubagent;
+const useSubagent = state.use_subagent ?? autoSubagent;
 
 console.log(`
 📂 工作流目录：${workflowDir}
@@ -413,7 +425,7 @@ console.log(`
 ⚡ 执行模式：${executionMode}${useSubagent ? ' (subagent)' : ''}
 📊 上下文使用率：${generateContextBar(usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}
 ${usagePercent > state.contextMetrics.warningThreshold ? `⚠️ 上下文使用率较高，建议减少连续执行任务数` : ''}
-${useSubagent && autoSubagent && useSubagentOverride === null ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
+${useSubagent && autoSubagent ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
 `);
 ```
 
@@ -681,7 +693,7 @@ ${extractConstraints(tasksContent).map(c => '- ' + c).join('\n')}
 任务：${currentTask.id} - ${currentTask.name}
 原因：${errorMessage}
 
-💡 修复后执行：/workflow-retry-step
+💡 修复后执行：/workflow execute --retry
     `);
     return;
   }
@@ -745,7 +757,7 @@ ${extractConstraints(tasksContent).map(c => '- ' + c).join('\n')}
 任务：${currentTask.id} - ${currentTask.name}
 原因：${errorMessage}
 
-💡 修复后执行：/workflow-retry-step
+💡 修复后执行：/workflow execute --retry
     `);
     return;
   }
@@ -883,7 +895,7 @@ function shouldContinueExecution(
 }
 
 /**
- * 细粒度阶段定义 - 与 workflow-start.md 保持同步
+ * 细粒度阶段定义 - 与 start.md 保持同步
  *
  * 阶段划分原则：
  * - 每个阶段理想任务数：3-5 个
@@ -1006,7 +1018,7 @@ if (decision.continue) {
 ${sessionHint}
 **继续执行**：
 \`\`\`bash
-/workflow-execute
+/workflow execute
 \`\`\`
 `);
 }
@@ -1094,7 +1106,7 @@ async function executeRunTests(task: Task, state: State) {
 
 ${result.stderr || result.stdout}
 
-请修复测试后重新执行 /workflow-execute
+请修复测试后重新执行 /workflow execute
     `);
     throw new Error('Tests failed');
   }
@@ -1800,10 +1812,162 @@ function handleQualityGateFailure(
 
 ${output}
 
-💡 请根据审查意见修改后执行 /workflow-retry-step
+💡 请根据审查意见修改后执行 /workflow execute --retry
   `);
 }
 
+```
+
+---
+
+## 🔄 Retry 模式
+
+当使用 `--retry` 参数时，重试失败的任务：
+
+```typescript
+async function executeRetryMode() {
+  // 读取状态
+  const state = JSON.parse(readFile(statePath));
+  const tasksContent = readFile(tasksPath);
+
+  // 检查是否有失败的任务
+  const failedTaskId = state.progress.failed[state.progress.failed.length - 1];
+
+  if (!failedTaskId && state.status !== 'failed') {
+    console.log(`
+⚠️ 当前没有需要重试的任务
+
+当前任务：${state.current_task}
+状态：${state.status}
+
+💡 如果需要执行当前任务，请使用：/workflow execute
+    `);
+    return;
+  }
+
+  const retryTaskId = failedTaskId || state.current_task;
+
+  // 从 failed 数组中移除
+  state.progress.failed = state.progress.failed.filter(id => id !== retryTaskId);
+  state.progress.completed = state.progress.completed.filter(id => id !== retryTaskId);
+
+  // 设置为当前任务
+  state.current_task = retryTaskId;
+  state.status = 'in_progress';
+  state.updated_at = new Date().toISOString();
+  delete state.failure_reason;
+
+  // 记录重试次数
+  if (!state.retry_counts) state.retry_counts = {};
+  state.retry_counts[retryTaskId] = (state.retry_counts[retryTaskId] || 0) + 1;
+
+  // 重置质量关卡状态（如有）
+  const gateKey = Object.keys(state.quality_gates || {}).find(
+    k => state.quality_gates[k].task_id === retryTaskId
+  );
+  if (gateKey) {
+    state.quality_gates[gateKey].actual_score = null;
+    state.quality_gates[gateKey].passed = null;
+  }
+
+  writeFile(statePath, JSON.stringify(state, null, 2));
+  updateTaskStatusInMarkdown(tasksPath, retryTaskId, 'pending');
+
+  console.log(`
+✅ 任务已重置为待执行状态
+
+**任务 ID**：${retryTaskId}
+**重试次数**：${state.retry_counts[retryTaskId]}
+${state.retry_counts[retryTaskId] >= 3 ? `
+⚠️ **警告**：重试次数已达 ${state.retry_counts[retryTaskId]} 次
+建议考虑重新审视技术方案。
+` : ''}
+
+🚀 **继续执行**：/workflow execute
+  `);
+}
+```
+
+---
+
+## ⚠️ Skip 模式
+
+当使用 `--skip` 参数时，跳过当前任务（慎用）：
+
+```typescript
+async function executeSkipMode() {
+  const state = JSON.parse(readFile(statePath));
+  const tasksContent = readFile(tasksPath);
+  const currentTaskId = state.current_task;
+
+  if (!currentTaskId) {
+    console.log(`⚠️ 当前没有可跳过的任务`);
+    return;
+  }
+
+  // 获取跳过理由
+  const reason = await AskUserQuestion({
+    questions: [{
+      question: "请选择跳过理由",
+      header: "跳过理由",
+      multiSelect: false,
+      options: [
+        { label: "任务不适用", description: "当前项目不需要此任务" },
+        { label: "已手动完成", description: "已通过其他方式完成此任务" },
+        { label: "外部服务不可用", description: "Codex 等服务暂时不可用" },
+        { label: "时间紧迫", description: "截止日期紧迫，需要跳过" }
+      ]
+    }]
+  });
+
+  if (!reason || reason.trim().length === 0) {
+    console.log(`❌ 必须提供跳过理由`);
+    return;
+  }
+
+  // 添加到 skipped 数组
+  if (!state.progress.skipped.includes(currentTaskId)) {
+    state.progress.skipped.push(currentTaskId);
+  }
+  state.progress.failed = state.progress.failed.filter(id => id !== currentTaskId);
+
+  // 找到下一个任务
+  const nextTaskId = findNextTask(tasksContent, state.progress);
+
+  if (nextTaskId) {
+    state.current_task = nextTaskId;
+    state.status = 'in_progress';
+  } else {
+    state.current_task = null;
+    state.status = 'completed';
+  }
+
+  state.updated_at = new Date().toISOString();
+  delete state.failure_reason;
+
+  // 记录跳过信息
+  if (!state.skipped_info) state.skipped_info = {};
+  state.skipped_info[currentTaskId] = {
+    reason: reason,
+    skipped_at: new Date().toISOString()
+  };
+
+  writeFile(statePath, JSON.stringify(state, null, 2));
+  updateTaskStatusInMarkdown(tasksPath, currentTaskId, `⏭️ skipped (${reason})`);
+
+  console.log(`
+✅ 任务已跳过
+
+**跳过任务**：${currentTaskId}
+**跳过理由**：${reason}
+${nextTaskId ? `
+🚀 **下一个任务**：${nextTaskId}
+执行：/workflow execute
+` : `
+🎉 工作流已完成
+`}
+  `);
+}
 ```
 
 ---
@@ -1812,11 +1976,11 @@ ${output}
 
 ```bash
 # 查看状态
-/workflow-status
+/workflow status
 
 # 重试当前步骤
-/workflow-retry-step
+/workflow execute --retry
 
 # 跳过当前步骤（慎用）
-/workflow-skip-step
+/workflow execute --skip
 ```

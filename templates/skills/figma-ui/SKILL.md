@@ -1,246 +1,244 @@
 ---
 name: figma-ui
-description: "REQUIRED workflow for Figma-to-code UI restoration. MUST invoke this skill IMMEDIATELY when: (1) user shares any figma.com or figma.design URL, (2) user mentions 还原/切图/设计稿/UI实现/前端开发/Figma, (3) user asks to implement/restore/build/convert UI from design. Do NOT call mcp__figma-mcp tools directly - always use this skill first."
+description: "Translate Figma designs into production-ready code with 1:1 visual fidelity using Figma MCP workflow (design context, screenshots, assets, project-convention translation) and dual-model collaboration (Gemini + Codex) with automated visual validation. Trigger when user provides Figma URLs or node IDs, mentions 还原/切图/设计稿/UI实现, or asks to implement UI from design. Requires Figma MCP server connection."
 ---
 
-# UI 还原工作流（v3.2 精简版）
+# Figma UI 实现工作流
 
-从 Figma 设计稿到生产代码的 **3 阶段**工作流，采用 **Gemini + Claude** 双模型协作。
-
-> **模型分工**：Gemini 专注 UI/样式/多模态视觉验证，Claude 专注整合/编码/最佳实践。
-
-> **核心目标**：高保真还原设计稿，强制使用 Design Token + 元素覆盖率门控。
+Figma 设计稿到生产代码的 3 阶段工作流，采用双模型协作 + 自动化视觉验证。
 
 ---
 
-## 强制规则（HARD STOP）
+## ⚠️ STRICT MODE - 必读
 
-### 规则 1：元素追踪
-```
-❌ 直接编码，不追踪元素
-✅ 从 Figma 输出提取 ElementManifest，追踪实现状态
-```
+**你必须严格按 Phase A → B → C 的步骤顺序执行。**
 
-### 规则 2：用户确认
-```
-❌ 分析后直接编码
-✅ 展示 BuildPlan → "Shall I proceed? (Y/N)" → 等待确认
-```
+| 约束 | 要求 |
+|------|------|
+| **顺序执行** | 每一步完成并验证后，才能进入下一步 |
+| **禁止跳步** | 不得跳过任何步骤，即使认为"不需要" |
+| **失败即停** | 步骤失败时必须修复或回退，不得绕过继续 |
+| **断言检查** | 每个 Phase 结束时必须执行 CHECKPOINT，全部通过才能继续 |
+| **依赖顺序** | A.2.1 必须在 A.2.2 之前完成（assetsDir 是后续步骤的依赖） |
 
-### 规则 3：覆盖率门控
-```
-❌ 忽略缺失元素
-✅ 覆盖率 < 100% 时阻止交付
-```
-
-### 规则 4：Token-First
-```
-❌ 使用硬编码色值 #3B82F6
-✅ 映射到 Design Token，无 Token 时记录审计
-```
-
-### 规则 5：多模态验证
-```
-❌ 仅代码审计
-✅ Figma 截图 → Gemini 多模态对比
-```
-
-### 规则 6：实际页面验证
-```
-❌ 仅静态代码对比
-✅ Chrome-MCP 打开页面 → 截图 → 与设计稿对比 → 循环修复
-```
+**违反以上任一约束将导致最终交付失败。**
 
 ---
 
-## 执行流程（3 阶段）
+## 强制规则
+
+| 规则 | 要求 |
+|------|------|
+| MCP 优先 | 先检查 Figma MCP 连接，失败则引导配置 |
+| 元素追踪 | 提取 ElementManifest，追踪 P0/P1/P2 实现状态 |
+| 复用优先 | 检查项目现有组件，扩展而非新建 |
+| Token-First | 映射到 Design Token，禁止硬编码值 |
+| 用户确认 | 展示 BuildPlan → "Shall I proceed?" → 等待确认 |
+| 覆盖率门控 | P0/P1 覆盖率 < 100% 时阻止交付 |
+| 视觉验证 | Chrome-MCP 截图 → Gemini 多模态对比 |
+
+## 执行流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Phase A：输入获取                                            │
-│ ├─ 提取参数（URL、nodeId、targetPath）                       │
-│ ├─ 并行：Explore agent + Figma MCP                          │
-│ ├─ 提取 ElementManifest                                     │
-│ └─ 保存检查点                                                │
-├─────────────────────────────────────────────────────────────┤
-│ Phase B：分析 + 编码                                         │
-│ ├─ Gemini：布局 + Token 映射 + 响应式                        │
-│ ├─ Claude：组件结构 + 代码组织                               │
-│ ├─ 生成 BuildPlan                                           │
-│ ├─ 【HARD STOP】展示计划，等待确认                           │
-│ ├─ 编码：Token-First + 元素清单驱动                          │
-│ └─ 资源清理                                                  │
-├─────────────────────────────────────────────────────────────┤
-│ Phase C：验证 + 交付                                         │
-│ ├─ 覆盖率检查（门控）                                        │
-│ ├─ Chrome-MCP 实际页面验证（循环修复）                       │
-│ ├─ Gemini 多模态视觉对比                                     │
-│ ├─ 评分决策                                                  │
-│ └─ 输出验证结果                                              │
-└─────────────────────────────────────────────────────────────┘
+Phase A: 设计获取
+├─ A.0 MCP 连接检查
+├─ A.1 解析 URL（fileKey + nodeId）
+├─ A.2.1 【先】Explore agent 获取项目配置（含 assetsDir）
+├─ A.2.2 【后】Figma MCP 获取设计上下文（依赖 assetsDir）
+├─ A.2.3 条件检查（designContext 为空 → 执行 A.3）
+├─ A.3 大节点分拆（如需要）
+├─ A.4 提取 ElementManifest
+└─ A.5 获取视觉参考截图
+→ CHECKPOINT A
+
+Phase B: 分析 + 编码
+├─ B.1 双模型并行分析
+├─ B.2 生成 BuildPlan
+├─ B.3 【HARD STOP】展示计划，等待确认
+├─ B.4 项目约定转换 + 编码
+└─ B.5 资源处理
+→ CHECKPOINT B
+
+Phase C: 验证 + 交付
+├─ C.1 覆盖率检查（门控）
+├─ C.2 验证 Checklist
+├─ C.3 Chrome-MCP 视觉验证（循环修复）
+└─ C.4 交付决策
+→ CHECKPOINT C
 ```
 
 ---
 
-## 核心数据结构
+## Phase A: 设计获取
 
-### ElementManifest
+### A.0 MCP 连接检查
 
-```typescript
-interface ElementManifest {
-  taskId: string;
-  elements: Array<{
-    nodeId: string;
-    name: string;
-    type: string;
-    priority: 'P0' | 'P1' | 'P2';  // P0=必须, P1=重要, P2=可选
-    status: 'pending' | 'implemented' | 'verified';
-  }>;
-  // 覆盖率仅计算 P0/P1 元素（P2 为可选，不影响门控）
-  coverage: {
-    requiredP0P1: number;      // P0 + P1 总数
-    implementedP0P1: number;   // 已实现的 P0 + P1 数量
-    ratio: number;             // implementedP0P1 / requiredP0P1
-  };
-}
+首次调用 Figma MCP 失败时，引导用户配置：
+
+```bash
+# 1. 添加 Figma MCP
+claude mcp add figma --url https://mcp.figma.com/mcp
+
+# 2. 登录 OAuth
+claude mcp login figma
+
+# 3. 重启 Claude Code
 ```
 
-### TokenMapping
+配置完成后，用户需重启 Claude Code 继续。
+
+### A.1 解析 URL
+
+**URL 格式**：`https://figma.com/design/:fileKey/:fileName?node-id=1-2`
 
 ```typescript
-interface TokenMapping {
-  colors: Record<string, string>;     // "#3B82F6" → "colors.primary.500"
-  spacing: Record<string, string>;    // "16px" → "spacing.4"
-  typography: Record<string, string>;
-  radius: Record<string, string>;
-  shadow: Record<string, string>;
-}
-```
-
-### BuildPlan
-
-```typescript
-interface BuildPlan {
-  component: { name: string; filePath: string; framework: string };
-  layout: { strategy: 'flex' | 'grid'; direction: 'row' | 'column' };
-  responsive: { approach: 'mobile-first' | 'desktop-first'; breakpoints: string[] };
-}
-```
-
-### WorkflowState
-
-```typescript
-interface WorkflowState {
-  taskId: string;
-  targetPath: string;
-  figma: { url: string; nodeId: string };
-  taskAssetsDir: string;
-  phaseStatus: Record<'A' | 'B' | 'C', 'pending' | 'completed' | 'failed'>;
-  designContext: object;           // Figma MCP 原始输出
-  elementManifest: ElementManifest;
-  tokenMapping: TokenMapping;
-  buildPlan: BuildPlan | null;
-  userApproved: boolean;
-  // Chrome-MCP 验证配置
-  validation: ValidationConfig;
-}
-```
-
-### ValidationConfig
-
-```typescript
-interface ValidationConfig {
-  pageUrl: string;                  // 实际页面 URL
-  designScreenshot: string;         // 设计稿截图路径（缓存）
-  ignoreRegions: IgnoreRegion[];    // 忽略区域
-  maxRetries: number;               // 最大修复循环次数（默认 3）
-  currentRetry: number;             // 当前循环次数
-  accessStrategy: PageAccessStrategy; // 页面访问策略
-}
-
-interface IgnoreRegion {
-  type: 'header' | 'sidebar' | 'footer' | 'custom';
-  selector?: string;                // CSS 选择器（custom 时使用）
-  reason: string;                   // 忽略原因
-}
-
-interface PageAccessStrategy {
-  type: 'direct_url' | 'modal' | 'drawer' | 'nested_route';
-  requiresAuth: boolean;
-  requiresData: boolean;
-  triggerAction?: {
-    navigateTo: string;             // 先导航到的页面
-    clickSelector?: string;         // 点击触发元素
-    waitForSelector?: string;       // 等待目标出现
-  };
-  mockStrategy?: {
-    type: 'msw' | 'fixture' | 'test_harness';
-    endpoints?: string[];           // 需要 mock 的接口
-    fixtureData?: object;           // 固定数据
-  };
-}
-```
-
----
-
-## Phase A：输入获取
-
-### A.1 提取参数
-
-```typescript
-const params = {
-  figmaUrl: extractFigmaUrl(userInput),
-  nodeId: extractNodeId(userInput),
-  targetPath: extractTargetPath(userInput),
-  taskId: `figma-ui-${Date.now().toString(36)}`
+const parseResult = {
+  fileKey: 'kL9xQn2VwM8pYrTb4ZcHjF',  // /design/ 后的段
+  nodeId: '42-15',                      // node-id 参数值
+  // 注意：node-id=1-2 在 MCP 调用时转为 nodeId="1:2"
 };
 ```
 
-### A.2 并行执行
+**无 URL 时**（figma-desktop MCP）：使用 Figma 桌面端当前选中的节点。
 
-**Explore Agent**：扫描项目配置
+### A.2.1 【先】获取项目配置（优先读缓存）
+
+> ⚠️ **必须先完成此步骤，获取 `assetsDir` 后才能执行 A.2.2**
+
+**优先级**：ui-config.json 缓存 > Explore agent
 
 ```typescript
-Task({
-  subagent_type: 'Explore',
-  prompt: `
-    扫描项目，返回 JSON：
-    - assetsDir: 静态资源目录
-    - framework: vue/react/nuxt/next
-    - cssFramework: tailwind/scss/css-modules
-    - designTokens: { colors, spacing, typography, radius, shadow }
-  `
-})
+// 1. 尝试读取 /scan 生成的 UI 配置
+const uiConfigPath = '.claude/config/ui-config.json';
+let projectConfig = null;
+
+if (await fileExists(uiConfigPath)) {
+  const uiConfig = await readJson(uiConfigPath);
+  if (uiConfig.assetsDir) {
+    // ✅ 缓存命中，直接使用（0 tokens）
+    projectConfig = {
+      assetsDir: uiConfig.assetsDir,
+      cssFramework: uiConfig.cssFramework,
+      designTokens: uiConfig.designTokens,
+      componentsDir: uiConfig.componentsDir,
+      existingComponents: uiConfig.existingComponents
+    };
+    console.log('[figma-ui] 使用 ui-config.json 缓存');
+  }
+}
+
+// 2. 缓存未命中时提示用户先运行 /scan
+if (!projectConfig) {
+  console.log('[figma-ui] 未找到 UI 配置缓存');
+  console.log('建议先运行 /scan 生成配置，可节省后续扫描开销');
+
+  // 降级：启动 Explore agent（消耗更多 tokens）
+  projectConfig = await Task({
+    subagent_type: 'Explore',
+    prompt: '扫描项目，返回：assetsDir, cssFramework, designTokens, componentsDir, existingComponents'
+  });
+}
+
+// 3. 提取 assetsDir（必须有值）
+const assetsDir = projectConfig.assetsDir || 'public/images';
 ```
 
-**Figma MCP**：获取设计上下文
+**缓存来源**：运行 `/scan` 时自动生成 `.claude/config/ui-config.json`。
+
+### A.2.2 【后】Figma MCP 获取设计上下文
+
+> ⚠️ **`dirForAssetWrites` 是必填参数，必须使用 A.2.1 获取的 `assetsDir`**
 
 ```typescript
+// 1. 使用 A.2.1 获取的 assetsDir 构造临时目录
 const taskAssetsDir = `${assetsDir}/.figma-ui/tmp/${taskId}`;
+
+// 2. 确保目录存在（Figma MCP 不会自动创建）
+await Bash({ command: `mkdir -p "${taskAssetsDir}"` });
+
+// 3. 调用 Figma MCP（dirForAssetWrites 必填！）
 const designContext = await mcp__figma-mcp__get_design_context({
-  nodeId,
-  dirForAssetWrites: taskAssetsDir
+  nodeId,                              // 必填
+  dirForAssetWrites: taskAssetsDir     // ⚠️ 必填！来自 A.2.1
 });
 ```
 
-### A.3 提取 ElementManifest
+### A.2.3 条件检查（必须执行）
 
-遍历 `designContext` 节点，提取 `nodeId`、`name`、`type`，根据类型判断优先级。
+```
+designContext 返回结果检查：
+├─ 正常返回（有 code/布局信息）→ 继续 A.4
+├─ 返回为空或被截断 → 必须执行 A.3 分拆
+└─ 报错 → 检查 MCP 连接，修复后重试
+```
 
-### A.4 保存检查点
+**禁止在 designContext 为空时跳过 A.3 直接继续。**
 
-存储 `WorkflowState`，标记 Phase A 完成。
+### A.3 大节点分拆
+
+**当 designContext 响应为空或被截断时，必须执行此步骤**：
+
+```typescript
+// 1. 获取节点结构
+const metadata = await mcp__figma-mcp__get_metadata({ nodeId });
+
+// 2. 识别主要子节点
+const childNodes = extractChildNodeIds(metadata);
+
+// 3. 分块获取每个子节点
+for (const childId of childNodes) {
+  const childContext = await mcp__figma-mcp__get_design_context({
+    nodeId: childId,
+    dirForAssetWrites: taskAssetsDir  // 使用同一个临时目录
+  });
+  mergeContext(designContext, childContext);
+}
+```
+
+### A.4 提取 ElementManifest
+
+遍历 designContext，按类型判断优先级。详见 [references/data-structures.md](references/data-structures.md)
+
+### A.5 获取视觉参考
+
+```typescript
+await mcp__figma-mcp__get_screenshot({ nodeId });
+// 保存为 ${taskAssetsDir}/design-reference.png
+```
+
+此截图作为后续验证的**视觉真相来源**。
+
+### ✅ CHECKPOINT A（必须全部通过才能进入 Phase B）
+
+```
+□ MCP 连接正常？
+  └─ 否 → 返回 A.0 引导配置
+
+□ assetsDir 已获取？（来自 ui-config.json 或 Explore）
+  └─ 否 → 检查 .claude/config/ui-config.json 或重新执行 A.2.1
+
+□ designContext 非空且包含布局/样式信息？
+  └─ 否 → 执行 A.3 分拆后重新检查
+
+□ elementManifest 已提取？（elements.length > 0）
+  └─ 否 → 返回 A.4 重新提取
+
+□ 设计参考截图已保存？
+  └─ 否 → 返回 A.5 重新获取
+```
+
+**全部通过 → 进入 Phase B**
 
 ---
 
-## Phase B：分析 + 编码
+## Phase B: 分析 + 编码
 
 ### B.1 双模型并行分析
 
-**Gemini**（`run_in_background: true`）：
-
+**Gemini**（`run_in_background: true`）- 前端专家：
 ```bash
 codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
+ROLE_FILE: ~/.claude/prompts/gemini/frontend.md
 分析设计上下文，返回 JSON：
 - layoutStrategy: { type, direction, alignment }
 - tokenMapping: { colors, spacing, typography, radius, shadow }
@@ -252,440 +250,208 @@ codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
 EOF
 ```
 
-**Claude**（`run_in_background: true`）：
-
+**Codex**（`run_in_background: true`）- 组件架构：
 ```bash
-codeagent-wrapper --backend claude - ${workdir} <<'EOF'
+codeagent-wrapper --backend codex - ${workdir} <<'EOF'
+ROLE_FILE: ~/.claude/prompts/codex/architect.md
 分析设计上下文，返回 JSON：
 - fileStructure: { mainFile, styleFile }
-- stateManagement: { localState }
+- componentReuse: { existing[], newRequired[] }
 - prototypeCode: 组件结构代码
 
 设计上下文：${designContext}
+现有组件：${existingComponents}
 元素清单：${elementManifest}
 EOF
 ```
 
 ### B.2 生成 BuildPlan
 
-合并双模型分析结果。
+合并双模型结果，生成构建计划。
 
 ### B.3 展示计划（HARD STOP）
 
 向用户展示：
-1. 布局策略
+1. 布局策略 + 响应式方案
 2. Token 映射摘要
-3. 元素统计（P0/P1/P2）
+3. 组件复用情况（复用 N 个，新建 M 个）
+4. 元素统计（P0: x, P1: y, P2: z）
 
-**输出**：**"Shall I proceed with this plan? (Y/N)"**
+**输出**："Shall I proceed with this plan? (Y/N)"
 
-**立即终止，等待用户确认。**
+**立即终止，等待用户确认后继续。**
 
-### B.4 编码
+### B.4 项目约定转换 + 编码
 
-1. 合并双模型原型代码
-2. Token-First：检查并替换硬编码值
+**UI First, Data Later** — 先实现像素级视觉还原：
+- 使用 mock data 匹配设计稿，不接入真实 API
+- 使用设计稿原文，跳过 i18n
+- 跳过复杂状态管理，专注组件结构和样式
+
+**转换原则**：
+
+1. **复用优先**：查找项目组件源码和 demo，扩展现有组件而非新建
+2. **Token 映射**：将 Figma 颜色/间距/字体映射到项目 Token
+3. **框架适配**：Figma 输出视为设计意图，转换为项目框架约定
+4. **样式一致**：使用项目 CSS 方案（Tailwind/SCSS/CSS Modules）
+
+**编码流程**：
+1. 合并双模型原型代码（Gemini 样式 + Codex 结构）
+2. Token-First 检查：替换所有硬编码值
 3. 更新 ElementManifest 状态
 4. 写入目标文件
 
-### B.5 资源清理
+### B.5 资源处理
 
-移动已使用资源到 `assetsDir`，删除临时目录。
+**资源规则**：
+- Figma MCP 返回的 localhost 资源 URL **直接使用**
+- **禁止**导入新图标包，所有资源来自 Figma
+- **禁止**创建占位符
+
+**清理流程**：
+```typescript
+// 移动已使用资源到项目资源目录
+moveUsedAssets(taskAssetsDir, assetsDir);
+// 删除临时目录
+cleanup(taskAssetsDir);
+```
+
+### ✅ CHECKPOINT B（必须全部通过才能进入 Phase C）
+
+```
+□ 双模型分析结果已收集？
+  └─ 否 → 等待 TaskOutput 或重新启动分析
+
+□ BuildPlan 已生成并展示给用户？
+  └─ 否 → 返回 B.2 生成计划
+
+□ 用户已确认 "Y" 继续？
+  └─ 否 → 等待用户确认，或根据反馈调整计划
+
+□ 代码已写入目标文件？
+  └─ 否 → 返回 B.4 完成编码
+
+□ ElementManifest 状态已更新？（无 pending 的 P0/P1）
+  └─ 否 → 返回 B.4 补充实现
+
+□ 资源已清理（临时目录已删除）？
+  └─ 否 → 返回 B.5 完成清理
+```
+
+**全部通过 → 进入 Phase C**
 
 ---
 
-## Phase C：验证 + 交付
+## Phase C: 验证 + 交付
 
 ### C.1 覆盖率检查（门控）
 
 ```typescript
-// 仅检查 P0/P1 元素的覆盖率（P2 可选，不阻塞交付）
 const missingP0P1 = elementManifest.elements.filter(
   e => e.priority !== 'P2' && e.status === 'pending'
 );
-
 if (missingP0P1.length > 0) {
-  throw new Error(`覆盖率不足，缺失 P0/P1 元素: ${missingP0P1.map(e => e.name).join(', ')}`);
+  // 阻止交付，返回 Phase B 补充实现
+  throw new Error(`覆盖率不足: ${missingP0P1.map(e => e.name).join(', ')}`);
 }
 ```
 
-### C.2 Chrome-MCP 实际页面验证（循环修复）
+### C.2 验证 Checklist
 
-**步骤 1：缓存设计稿截图**
+在自动验证前，快速自检：
 
-```typescript
-// 首次执行时缓存设计稿截图（后续循环复用）
-if (!validation.designScreenshot) {
-  const screenshotPath = `${taskAssetsDir}/design-screenshot.png`;
-  await mcp__figma-mcp__get_screenshot({ nodeId });
-  validation.designScreenshot = screenshotPath;
-}
-```
+- [ ] **布局**：间距、对齐、尺寸匹配
+- [ ] **排版**：字体、大小、粗细、行高
+- [ ] **颜色**：精确匹配设计稿
+- [ ] **交互**：hover/active/disabled 状态
+- [ ] **响应式**：符合 Figma 约束
+- [ ] **资源**：图片/图标正确渲染
+- [ ] **可访问性**：符合 WCAG 标准
 
-**步骤 2：打开页面并截图**
+### C.3 Chrome-MCP 视觉验证
 
-首先分析目标页面类型，确定打开策略：
+详见 [references/chrome-validation.md](references/chrome-validation.md)
 
-```typescript
-interface PageAccessStrategy {
-  type: 'direct_url' | 'modal' | 'drawer' | 'nested_route';
-  requiresAuth: boolean;
-  requiresData: boolean;
-  triggerAction?: {
-    // 弹窗/抽屉触发方式
-    navigateTo: string;          // 先导航到的页面
-    clickSelector?: string;      // 点击触发元素
-    waitForSelector?: string;    // 等待目标出现
-  };
-  mockStrategy?: {
-    // 数据 mock 策略
-    type: 'msw' | 'fixture' | 'test_harness';
-    endpoints?: string[];        // 需要 mock 的接口
-    fixtureData?: object;        // 固定数据
-  };
-}
-```
+核心步骤：
+1. 确定页面访问策略（direct_url/modal/drawer）
+2. 打开页面并截图
+3. Gemini 多模态对比（设计稿 vs 实际页面）
+4. 差异修复（最多 3 次循环）
 
-**策略 A：直接 URL 访问**
+### C.4 交付决策
 
-```typescript
-// 简单页面，直接导航
-if (strategy.type === 'direct_url' && !strategy.requiresAuth) {
-  await mcp__chrome-mcp__navigate_page({
-    type: 'url',
-    url: validation.pageUrl
-  });
-}
-```
-
-**策略 B：需要认证的页面**
-
-```typescript
-// 方案 1：使用已登录的浏览器会话（推荐）
-// Chrome-MCP 连接到已打开的浏览器，复用现有 session
-
-// 方案 2：注入测试 token
-await mcp__chrome-mcp__evaluate_script({
-  function: `() => {
-    localStorage.setItem('auth_token', '${testToken}');
-    sessionStorage.setItem('user', JSON.stringify(${mockUser}));
-  }`
-});
-await mcp__chrome-mcp__navigate_page({ type: 'reload' });
-```
-
-**策略 C：弹窗/抽屉/模态框**
-
-```typescript
-if (strategy.type === 'modal' || strategy.type === 'drawer') {
-  // 1. 先导航到父页面
-  await mcp__chrome-mcp__navigate_page({
-    type: 'url',
-    url: strategy.triggerAction.navigateTo
-  });
-
-  // 2. 等待页面加载
-  await mcp__chrome-mcp__wait_for({
-    text: '页面加载标识',
-    timeout: 10000
-  });
-
-  // 3. 点击触发按钮
-  const snapshot = await mcp__chrome-mcp__take_snapshot({});
-  const triggerElement = findElementBySelector(snapshot, strategy.triggerAction.clickSelector);
-  await mcp__chrome-mcp__click({ uid: triggerElement.uid });
-
-  // 4. 等待弹窗出现
-  await mcp__chrome-mcp__wait_for({
-    text: strategy.triggerAction.waitForSelector,
-    timeout: 5000
-  });
-}
-```
-
-**策略 D：需要接口数据的页面**
-
-```typescript
-if (strategy.requiresData) {
-  // 方案 1：启动 Mock Server (MSW)
-  await Bash({
-    command: `cd ${projectDir} && npx msw start --fixture ${fixtureFile}`,
-    run_in_background: true
-  });
-
-  // 方案 2：注入测试数据到页面
-  await mcp__chrome-mcp__evaluate_script({
-    function: `() => {
-      window.__TEST_DATA__ = ${JSON.stringify(strategy.mockStrategy.fixtureData)};
-      window.__MOCK_MODE__ = true;
-    }`
-  });
-
-  // 方案 3：生成独立测试 HTML（最可靠）
-  const testHtmlPath = await generateTestHarness({
-    component: targetComponent,
-    props: mockProps,
-    mockData: fixtureData
-  });
-  await mcp__chrome-mcp__navigate_page({
-    type: 'url',
-    url: `file://${testHtmlPath}`
-  });
-}
-```
-
-**生成测试 Harness（推荐方案）**
-
-```typescript
-async function generateTestHarness(config: {
-  component: string;
-  props: object;
-  mockData: object;
-}): Promise<string> {
-  const harnessContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UI 验证 - ${config.component}</title>
-  <!-- 引入项目样式 -->
-  <link rel="stylesheet" href="${projectStylesPath}">
-</head>
-<body>
-  <div id="app">
-    <!-- 组件渲染区域 -->
-  </div>
-  <script type="module">
-    // Mock 数据注入
-    window.__MOCK_DATA__ = ${JSON.stringify(config.mockData)};
-
-    // 动态导入并渲染组件
-    import { mount } from '${frameworkMountHelper}';
-    import Component from '${config.component}';
-
-    mount(Component, {
-      target: document.getElementById('app'),
-      props: ${JSON.stringify(config.props)}
-    });
-  </script>
-</body>
-</html>`;
-
-  const harnessPath = `${taskAssetsDir}/test-harness.html`;
-  await writeFile(harnessPath, harnessContent);
-  return harnessPath;
-}
-```
-
-**策略选择流程**
-
-```typescript
-function determineAccessStrategy(designContext: object): PageAccessStrategy {
-  // 1. 分析组件类型
-  const componentType = designContext.componentType;  // modal/drawer/page/card
-
-  // 2. 检查是否需要认证
-  const requiresAuth = projectConfig.authRequired &&
-    !designContext.isPublicPage;
-
-  // 3. 检查数据依赖
-  const requiresData = designContext.hasDynamicContent ||
-    designContext.apiEndpoints?.length > 0;
-
-  // 4. 选择策略
-  if (componentType === 'modal' || componentType === 'drawer') {
-    return {
-      type: componentType,
-      requiresAuth,
-      requiresData,
-      triggerAction: inferTriggerAction(designContext)
-    };
-  }
-
-  if (requiresData) {
-    return {
-      type: 'direct_url',
-      requiresAuth,
-      requiresData: true,
-      mockStrategy: { type: 'test_harness', fixtureData: generateMockData(designContext) }
-    };
-  }
-
-  return { type: 'direct_url', requiresAuth, requiresData: false };
-}
-```
-
-**截图执行**
-
-```typescript
-// 策略确定后，执行截图
-const actualScreenshot = `${taskAssetsDir}/actual-screenshot-${validation.currentRetry}.png`;
-await mcp__chrome-mcp__take_screenshot({
-  filePath: actualScreenshot,
-  fullPage: false  // 仅可视区域，与设计稿对应
-});
-```
-
-**步骤 3：Gemini 视觉对比（忽略公共区域）**
-
-```bash
-codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
-对比两张截图，返回 JSON：
-{
-  "match": true/false,
-  "differences": [
-    {
-      "location": "描述位置",
-      "expected": "设计稿中的样式",
-      "actual": "实际页面的样式",
-      "severity": "critical|major|minor"
-    }
-  ],
-  "ignoredRegions": ["header", "sidebar"],  // 已忽略的区域
-  "overallSimilarity": 0-100
-}
-
-设计稿截图：[Image: design-screenshot.png]
-实际页面截图：[Image: actual-screenshot.png]
-
-忽略区域配置：
-${JSON.stringify(validation.ignoreRegions)}
-
-注意：
-1. 忽略 header/sidebar/footer 等公共区域的差异
-2. 仅关注目标组件区域的视觉保真度
-3. severity 判断：
-   - critical: 布局错乱、元素缺失
-   - major: 颜色/间距明显偏差
-   - minor: 细微样式差异
-EOF
-```
-
-**步骤 4：循环修复决策**
-
-```typescript
-const compareResult = parseGeminiResult();
-
-if (compareResult.match || compareResult.overallSimilarity >= 95) {
-  // 验证通过，继续 C.3
-  console.log('✅ Chrome-MCP 视觉验证通过');
-} else if (validation.currentRetry >= validation.maxRetries) {
-  // 达到最大重试次数，输出差异报告并询问用户
-  console.log(`⚠️ 已达最大修复次数 (${validation.maxRetries})，以下差异未解决:`);
-  compareResult.differences.forEach(d => console.log(`  - ${d.location}: ${d.expected} → ${d.actual}`));
-  // 询问用户是否继续
-  await askUser('是否接受当前结果并继续? (Y/N)');
-} else {
-  // 尝试修复
-  validation.currentRetry++;
-  console.log(`🔄 检测到差异，开始第 ${validation.currentRetry} 次修复...`);
-
-  // 调用 Gemini 生成修复代码
-  const fixPatch = await generateFixPatch(compareResult.differences);
-
-  // 应用修复
-  applyPatch(fixPatch);
-
-  // 递归验证
-  goto('C.2');  // 重新执行 C.2
-}
-```
-
-**忽略区域默认配置**
-
-```typescript
-const defaultIgnoreRegions: IgnoreRegion[] = [
-  { type: 'header', reason: '公共头部组件，非本次修改范围' },
-  { type: 'sidebar', reason: '公共侧边栏组件，非本次修改范围' }
-];
-
-// 用户可通过参数覆盖
-if (userSpecifiedTarget.includes('header')) {
-  defaultIgnoreRegions = defaultIgnoreRegions.filter(r => r.type !== 'header');
-}
-```
-
-### C.3 Gemini 多模态视觉对比
-
-```bash
-codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
-对比设计截图和生成代码，返回 JSON：
-{
-  "scores": {
-    "visualFidelity": 0-25,
-    "responsiveDesign": 0-25,
-    "accessibility": 0-25,
-    "designConsistency": 0-25
-  },
-  "matches": ["..."],
-  "mismatches": ["..."],
-  "totalScore": 0-100
-}
-
-设计截图：[Image]
-生成代码：${code}
-EOF
-```
-
-### C.4 评分决策
-
-| 分数 | 决策 |
+| 条件 | 决策 |
 |------|------|
-| ≥90 + 覆盖率100% | ✅ 通过 |
-| ≥80 | ⚠️ 需审查 |
-| <80 | ❌ 拒绝 |
+| 覆盖率 100% + 视觉评分 ≥90 | ✅ 通过 |
+| 视觉评分 ≥80 | ⚠️ 需人工审查 |
+| 视觉评分 <80 或循环修复超限 | ❌ 报告差异，请求指导 |
 
-### C.5 输出验证结果
+### ✅ CHECKPOINT C（最终交付检查）
 
-控制台输出：
-- 元素覆盖率
-- 各维度评分
-- 匹配/差异项
-- 最终决策
+```
+□ P0/P1 覆盖率 = 100%？
+  └─ 否 → 返回 Phase B 补充实现
 
----
+□ 验证 Checklist 全部通过？
+  └─ 否 → 修复对应问题
 
-## 错误处理
+□ Chrome-MCP 视觉验证通过（评分 ≥80）？
+  └─ 否 → 循环修复（最多 3 次）或请求指导
 
-### 单模型失败
-
-```typescript
-const results = await Promise.allSettled([geminiTask, claudeTask]);
-if (results.filter(r => r.status === 'rejected').length === 2) {
-  throw new Error('双模型均失败');
-}
-// 单模型失败时询问用户是否继续
+□ 交付决策已做出？
+  └─ 否 → 根据评分执行 C.4 决策
 ```
 
+**全部通过 → 任务完成，输出交付摘要**
+
 ---
 
-## 检查清单
+## 常见问题
 
-### Phase A
-- [ ] 并行启动 Explore + Figma MCP
-- [ ] 提取 ElementManifest
-- [ ] 创建任务隔离目录
-- [ ] 保存检查点
+### Figma 输出被截断
+**原因**：设计过于复杂或嵌套层级过多
+**方案**：使用 A.3 大节点分拆策略
 
-### Phase B
-- [ ] 并行调用 Gemini + Claude
-- [ ] 生成 BuildPlan
-- [ ] 展示计划并输出确认提示
-- [ ] 收到用户确认
-- [ ] Token-First 编码
-- [ ] 更新元素状态
-- [ ] 资源清理
+### 设计 Token 与项目不一致
+**原因**：项目 Token 值与 Figma 设计值不同
+**方案**：优先使用项目 Token 保持一致性，微调间距/尺寸以匹配视觉
 
-### Phase C
-- [ ] 覆盖率检查通过
-- [ ] Chrome-MCP 页面验证
-  - [ ] 页面访问策略确定（direct_url/modal/drawer）
-  - [ ] 前置条件处理（认证/Mock 数据/触发操作）
-  - [ ] 设计稿截图已缓存
-  - [ ] 实际页面截图完成
-  - [ ] 视觉对比通过（或用户确认接受差异）
-- [ ] Gemini 多模态对比完成
-- [ ] 输出验证结果
+### 资源无法加载
+**原因**：Figma MCP 资源端点不可访问
+**方案**：确认 MCP 服务运行中，直接使用 localhost URL
 
-**任一检查项未通过，返回对应阶段执行。**
+---
+
+## 快速参考
+
+### 必传参数速查
+
+| 工具 | 必传参数 |
+|------|----------|
+| `get_design_context` | `nodeId`, **`dirForAssetWrites`**（来自 A.2.1） |
+| `get_screenshot` | `nodeId` |
+| `get_metadata` | `nodeId` |
+
+### 依赖顺序
+
+```
+A.2.1 读取缓存（ui-config.json）→ 命中？
+         ├─ 是 → assetsDir（0 tokens）
+         └─ 否 → Explore agent → assetsDir（~64k tokens）
+                  ↓
+A.2.2 Figma MCP（需要 assetsDir）
+                  ↓
+A.2.3 条件检查 → designContext 为空？ → A.3 分拆
+```
+
+> 提示：先运行 `/scan` 生成 `ui-config.json`，可将 A.2.1 开销从 ~64k tokens 降至 ~0
+
+### Phase 流转条件
+
+```
+Phase A → CHECKPOINT A 通过 → Phase B
+Phase B → CHECKPOINT B 通过 → Phase C
+Phase C → CHECKPOINT C 通过 → 交付完成
+```
+
+**任一 CHECKPOINT 失败 → 返回对应阶段修复，禁止跳过。**

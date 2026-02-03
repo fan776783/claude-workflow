@@ -18,9 +18,10 @@
 
 本项目使用 Claude Workflow Toolkit 提供的通用工作流：
 
-- `/workflow-start` - 智能工作流（自动规划）
-- `/workflow-quick-dev` - 快速功能开发
-- `/workflow-fix-bug` - Bug 修复工作流
-- `/workflow-ui-restore` - UI 还原工作流
+- `/workflow start "需求"` - 启动智能工作流
+- `/workflow execute` - 执行下一个任务
+- `/workflow status` - 查看工作流状态
+- `/workflow unblock <dep>` - 解除任务阻塞
+- `/workflow archive` - 归档已完成工作流
 
-详见：`~/.claude/commands/agents.md`
+详见：`~/.claude/skills/workflow/SKILL.md`

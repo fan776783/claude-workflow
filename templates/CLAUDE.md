@@ -47,10 +47,6 @@
 - 全栈任务 → Codex ∥ Gemini 并行，当前模型整合
 - 简单任务 → `[Mode: none] 任务简单，直接执行`
 
-### Figma UI 还原
-
-检测到 `figma.com/design` URL 或关键词（还原/切图/设计稿/UI实现）时，**必须**调用 `figma-ui` skill。严禁直接调用 Figma MCP 工具。
-
 ---
 
 ## 1. Workflow

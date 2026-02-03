@@ -1,9 +1,4 @@
----
-description: 检查工作流当前状态并推荐下一步操作
-allowed-tools: Read(*), Glob(*)
----
-
-# 工作流状态检查（v2.1）
+# workflow status - 查看工作流状态 (v3.0)
 
 读取 workflow-state.json + tasks.md，生成进度报告。
 
@@ -135,8 +130,8 @@ if (!fileExists(statePath)) {
 预期路径：${statePath}
 
 💡 开始新的工作流：
-  /workflow-start "功能需求描述"
-  /workflow-start --backend "PRD文档路径"
+  /workflow start "功能需求描述"
+  /workflow start docs/prd.md
   `);
   return;
 }
@@ -170,7 +165,7 @@ if (!fileExists(tasksPath)) {
 可能是工作流创建过程中断。
 
 💡 建议：重新启动工作流
-  /workflow-start "原始需求"
+  /workflow start "原始需求"
   `);
   return;
 }
@@ -264,8 +259,8 @@ if (isJsonMode) {
 {{#if (unblocked.length < 2)}}
 💡 **解除阻塞**：
 \`\`\`bash
-{{#unless unblocked.includes('api_spec')}}/workflow-unblock api_spec    # 后端接口已就绪{{/unless}}
-{{#unless unblocked.includes('design_spec')}}/workflow-unblock design_spec # 设计稿已就绪{{/unless}}
+{{#unless unblocked.includes('api_spec')}}/workflow unblock api_spec    # 后端接口已就绪{{/unless}}
+{{#unless unblocked.includes('design_spec')}}/workflow unblock design_spec # 设计稿已就绪{{/unless}}
 \`\`\`
 {{/if}}
 {{/if}}
@@ -457,7 +452,7 @@ _（未定义成功标准）_
 {{#unless isDetailMode}}
 ---
 
-💡 **查看详细信息**：`/workflow-status --detail`
+💡 **查看详细信息**：`/workflow status --detail`
 {{/unless}}
 
 ---
@@ -510,11 +505,11 @@ _（未定义成功标准）_
 
 **开始执行**：
 \```bash
-/workflow-execute
+/workflow execute
 \```
 
 {{#if isProgressive}}
-💡 渐进式工作流：可先执行无阻塞的任务，阻塞任务需等待依赖就绪后通过 `/workflow-unblock` 解除。
+💡 渐进式工作流：可先执行无阻塞的任务，阻塞任务需等待依赖就绪后通过 `/workflow unblock` 解除。
 {{else}}
 💡 执行后将自动复用规划阶段的模型会话上下文。
 {{/if}}
@@ -528,8 +523,8 @@ _（未定义成功标准）_
 
 **解除阻塞**：
 \```bash
-{{#unless unblocked.includes('api_spec')}}/workflow-unblock api_spec    # 后端接口已就绪{{/unless}}
-{{#unless unblocked.includes('design_spec')}}/workflow-unblock design_spec # 设计稿已就绪{{/unless}}
+{{#unless unblocked.includes('api_spec')}}/workflow unblock api_spec    # 后端接口已就绪{{/unless}}
+{{#unless unblocked.includes('design_spec')}}/workflow unblock design_spec # 设计稿已就绪{{/unless}}
 \```
 
 {{else if hasFailedTask}}
@@ -540,8 +535,8 @@ _（未定义成功标准）_
 
 **建议操作**：
 1. 查看失败原因并修复
-2. 重试当前步骤：`/workflow-retry-step`
-3. 或跳过（慎用）：`/workflow-skip-step`
+2. 重试当前步骤：`/workflow execute --retry`
+3. 或跳过（慎用）：`/workflow execute --skip`
 
 {{else}}
 ### ✅ 准备就绪
@@ -551,7 +546,7 @@ _（未定义成功标准）_
 
 **执行命令**：
 \```bash
-/workflow-execute
+/workflow execute
 \```
 
 {{#if currentTask.quality_gate}}
@@ -669,14 +664,14 @@ function statusIcon(status: string): string {
 
 ```bash
 # 执行下一步
-/workflow-execute
+/workflow execute
 
 # 重试当前步骤
-/workflow-retry-step
+/workflow execute --retry
 
 # 跳过当前步骤（慎用）
-/workflow-skip-step
+/workflow execute --skip
 
 # 启动新工作流
-/workflow-start "功能需求描述"
+/workflow start "功能需求描述"
 ```

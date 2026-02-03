@@ -38,6 +38,7 @@ npm run release 2.0.0     # Explicit version
 │   └── validate.js          # Pre-publish validation
 └── templates/               # Files copied to ~/.claude/
     ├── commands/            # Slash command definitions (.md)
+    ├── skills/              # Skill definitions (portable across tools)
     ├── prompts/             # Multi-model collaboration prompts
     ├── docs/                # Documentation templates
     └── utils/               # Utility templates
@@ -58,12 +59,14 @@ npm run release 2.0.0     # Explicit version
 - `~/.claude/.claude-workflow/originals/` - pristine copies for upgrade diffing
 - `~/.claude/.claude-workflow/backups/` - pre-upgrade backups
 
-**Template Directories:** `TEMPLATE_DIRS = ['commands', 'agents', 'docs', 'utils']`
+**Template Directories:** `TEMPLATE_DIRS = ['commands', 'agents', 'skills', 'docs', 'utils']`
 
-## Workflow Templates
+## Workflow Skill
 
-The `/workflow-*` commands implement a structured development workflow:
-- `/workflow-start` - Analyzes requirements, creates execution plan in `workflow-state.json`
-- `/workflow-execute` - Runs next pending step
-- `/workflow-status` - Shows current progress
+The `/workflow` skill implements a structured development workflow:
+- `/workflow start "需求"` - Analyzes requirements, creates execution plan in `workflow-state.json`
+- `/workflow execute` - Runs next pending step (supports `--retry` and `--skip` flags)
+- `/workflow status` - Shows current progress
+- `/workflow unblock <dep>` - Unblocks tasks waiting for dependencies
+- `/workflow archive` - Archives completed workflows
 - Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)

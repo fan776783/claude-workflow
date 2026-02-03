@@ -42,16 +42,19 @@ claude-workflow doctor
 
 ## 包含内容
 
-### 工作流命令 (commands/)
+### 工作流技能 (skills/workflow/)
 
-- `/workflow-start` - 智能工作流（自动规划）
-- `/workflow-quick-dev` - 快速功能开发
-- `/workflow-fix-bug` - Bug 修复工作流
-- `/workflow-ui-restore` - UI 设计稿还原
-- `/workflow-execute` - 执行工作流下一步
-- `/workflow-status` - 检查工作流状态
-- `/workflow-skip-step` - 跳过当前步骤
-- `/workflow-retry-step` - 重试当前步骤
+统一入口：`/workflow <action> [args]`
+
+| 动作 | 说明 |
+|------|------|
+| `/workflow start "需求"` | 启动智能工作流（自动规划） |
+| `/workflow execute` | 执行下一个任务 |
+| `/workflow execute --retry` | 重试当前失败步骤 |
+| `/workflow execute --skip` | 跳过当前步骤（慎用） |
+| `/workflow status` | 查看工作流状态 |
+| `/workflow unblock <dep>` | 解除任务阻塞 |
+| `/workflow archive` | 归档已完成工作流 |
 - `/scan` - 智能项目扫描（检测技术栈 + 生成上下文报告）
 - `/write-tests` - 编写测试
 - `/analyze` - 代码分析

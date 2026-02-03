@@ -1,10 +1,4 @@
----
-description: 解除任务阻塞依赖 - 当后端接口或设计稿就绪时解除相关任务的阻塞状态
-argument-hint: "<api_spec|design_spec> 解除指定类型的依赖阻塞"
-allowed-tools: Read(*), Write(*), Bash(*), AskUserQuestion(*)
----
-
-# 解除任务阻塞
+# workflow unblock - 解除任务阻塞 (v3.0)
 
 渐进式工作流的依赖解除命令。当外部依赖就绪时，解除相关任务的阻塞状态。
 
@@ -18,9 +12,9 @@ allowed-tools: Read(*), Write(*), Bash(*), AskUserQuestion(*)
 ## 使用方法
 
 ```bash
-/workflow-unblock api_spec     # 后端接口已就绪
-/workflow-unblock design_spec  # 设计稿已就绪
-/workflow-unblock all          # 解除所有阻塞
+/workflow unblock api_spec     # 后端接口已就绪
+/workflow unblock design_spec  # 设计稿已就绪
+/workflow unblock all          # 解除所有阻塞
 ```
 
 ---
@@ -38,9 +32,9 @@ if (!args || !validDeps.includes(args)) {
 ❌ 请指定要解除的依赖类型
 
 用法：
-  /workflow-unblock api_spec     # 后端接口已就绪
-  /workflow-unblock design_spec  # 设计稿已就绪
-  /workflow-unblock all          # 解除所有阻塞
+  /workflow unblock api_spec     # 后端接口已就绪
+  /workflow unblock design_spec  # 设计稿已就绪
+  /workflow unblock all          # 解除所有阻塞
 
 当前支持的依赖类型：
   - api_spec: 后端接口规格（API 文档、Swagger 等）
@@ -76,7 +70,7 @@ const workflowDir = path.join(os.homedir(), '.claude/workflows', projectId);
 const statePath = path.join(workflowDir, 'workflow-state.json');
 
 if (!fileExists(statePath)) {
-  console.log(`🚨 工作流未启动，请先执行 /workflow-start`);
+  console.log(`🚨 工作流未启动，请先执行 /workflow start`);
   return;
 }
 
@@ -222,8 +216,8 @@ ${unblockedTasks.map(t => `- ${t.id}: ${t.name}`).join('\n')}
 🚀 **下一步**
 
 \`\`\`bash
-/workflow-execute   # 执行下一个任务
-/workflow-status    # 查看当前状态
+/workflow execute   # 执行下一个任务
+/workflow status    # 查看当前状态
 \`\`\`
 `);
 } else {
@@ -246,13 +240,13 @@ ${unblockedTasks.map(t => `- ${t.id}: ${t.name}`).join('\n')}
 ${stillBlocked.map(t => `- ${t.id}: ${t.name} [等待: ${t.deps.join(', ')}]`).join('\n')}
 
 **需要解除的依赖**：
-${[...new Set(stillBlocked.flatMap(t => t.deps))].map(d => `  /workflow-unblock ${d}`).join('\n')}
+${[...new Set(stillBlocked.flatMap(t => t.deps))].map(d => `  /workflow unblock ${d}`).join('\n')}
 `);
   } else {
     console.log(`
 ✅ 所有任务均已解除阻塞！
 
-执行 /workflow-execute 继续工作流。
+执行 /workflow execute 继续工作流。
 `);
   }
 }
@@ -264,11 +258,11 @@ ${[...new Set(stillBlocked.flatMap(t => t.deps))].map(d => `  /workflow-unblock 
 
 ```bash
 # 查看状态
-/workflow-status
+/workflow status
 
 # 执行下一步
-/workflow-execute
+/workflow execute
 
 # 启动工作流
-/workflow-start
+/workflow start
 ```

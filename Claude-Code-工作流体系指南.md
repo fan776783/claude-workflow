@@ -2,9 +2,9 @@
 
 > 基于 Claude Code 的智能化开发工作流体系
 
-**文档版本**：v4.0.0
-**最后更新**：2026-01-24
-**包版本**：@pic/claude-workflow v1.2.11
+**文档版本**：v5.0.0
+**最后更新**：2026-02-02
+**包版本**：@pic/claude-workflow v2.1.0
 
 ---
 
@@ -15,7 +15,7 @@
 - [3. 智能工作流](#3-智能工作流)
 - [4. 其他工作流](#4-其他工作流)
   - [4.1 UI 还原工作流](#41-ui-还原工作流figma-ui)
-  - [4.2 后端工作流](#42-后端工作流workflow-start---backend)
+  - [4.2 PRD 文档工作流](#42-prd-文档工作流)
 - [5. 智能分析命令](#5-智能分析命令)
 - [6. 审查命令](#6-审查命令)
 - [7. 调试命令](#7-调试命令)
@@ -23,7 +23,7 @@
 - [9. 最佳实践](#9-最佳实践)
 - [10. 常见问题](#10-常见问题)
 - [附录 A：命令速查表](#附录-a命令速查表)
-- [附录 B：Agent 定义](#附录-bagent-定义)
+- [附录 B：Prompt 模板](#附录-bprompt-模板)
 - [附录 C：快速入门](#附录-c快速入门)
 
 ---
@@ -35,6 +35,7 @@
 Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发流程，涵盖从需求分析到质量验证的完整开发生命周期。
 
 **核心价值**：
+- ✅ **Skill 架构**：渐进加载，按需加载 references 减少上下文占用
 - ✅ **npm 包安装**：`npm install -g @pic/claude-workflow` 一行命令完成安装
 - ✅ **智能升级**：自动备份、3-way merge、保留用户修改
 - ✅ **CLI 工具**：`claude-workflow status/sync/init/doctor` 命令行管理
@@ -51,7 +52,7 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│         @pic/claude-workflow (v1.2.11)                       │
+│         @pic/claude-workflow (v2.1.0)                        │
 │          npm 包工作流工具集 - 一次安装，所有项目通用            │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -69,24 +70,15 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
          ┌────────────────────┼────────────────────┐
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ 智能规划引擎     │  │  任务记忆管理    │  │  质量关卡系统   │
+│ Skills (7 个)    │  │  任务记忆管理    │  │  质量关卡系统   │
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • 复杂度分析     │  │ • 进度持久化     │  │ • Codex 方案审查 │
-│ • 步骤自动生成   │  │ • 新对话恢复     │  │ • Codex 代码审查 │
-│ • 5-22步规划    │  │ • 决策记录       │  │ • 评分门槛控制   │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│核心工作流       │  │ CLI 工具         │  │  分析审查       │
-├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • workflow-start│  │ • status 状态   │  │ • /analyze      │
-│ • workflow-exec │  │ • sync 同步     │  │ • /diff-review  │
-│ • figma-ui      │  │ • init 初始化   │  │ • /write-tests  │
-│ • backend-start │  │ • doctor 诊断   │  │ • /debug        │
-│ • status/retry  │  │                 │  │                 │
-│ • skip/unblock  │  │                 │  │                 │
+│ • workflow      │  │ • 进度持久化     │  │ • Codex 方案审查 │
+│ • analyze       │  │ • 新对话恢复     │  │ • Codex 代码审查 │
+│ • debug         │  │ • 决策记录       │  │ • 评分门槛控制   │
+│ • diff-review   │  │                 │  │                 │
+│ • scan          │  │                 │  │                 │
+│ • figma-ui      │  │                 │  │                 │
+│ • write-tests   │  │                 │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
@@ -96,7 +88,7 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
 │ • codex/        │  │ • Gemini (前端) │  │ • 任务记忆       │
 │ • gemini/       │  │ • Codex (后端)  │  │ • 技术方案      │
-│ • claude/       │  │ • Figma MCP     │  │ • 验证报告      │
+│                 │  │ • Figma MCP     │  │ • 验证报告      │
 │                 │  │ • BK-MCP        │  │ • 工作流总结     │
 │                 │  │ • Context7      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
@@ -104,19 +96,18 @@ Claude Code 工作流体系是一套基于 AI 和斜杠命令的智能化开发�
 
 ### 1.3 命令总览
 
-项目核心命令：
+项目核心命令（v2.1.0 使用 Skill 架构）：
 
 | 类别 | 核心命令 | 说明 |
 |------|---------|------|
-| **智能工作流** ⭐⭐⭐ | `/workflow-start`, `/workflow-execute` | 自动规划和执行（推荐） |
-| **后端工作流** | `/workflow-start --backend` | PRD → 需求分析 → 方案设计 → 执行 |
+| **智能工作流** ⭐⭐⭐ | `/workflow start`, `/workflow execute` | 自动规划和执行（推荐） |
+| **工作流辅助** | `/workflow status`, `/workflow execute --retry`, `/workflow execute --skip`, `/workflow unblock` | 状态查看、重试、跳过、解除阻塞 |
 | **UI 还原** | `/figma-ui` | Figma 设计稿 → 前端代码（Skill） |
-| **工作流辅助** | `/workflow-status`, `/workflow-retry-step`, `/workflow-skip-step`, `/workflow-unblock` | 状态查看、重试、跳过、解除阻塞 |
 | **CLI 工具** | `claude-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
 | **智能分析** | `/analyze` | 双模型技术分析（Codex + Gemini 并行） |
 | **代码审查** | `/diff-review`, `/diff-review --quick` | 多模型并行审查 / 单模型快速审查 |
 | **调试** | `/debug` | 多模型调试（Codex 后端 + Gemini 前端） |
-| **测试** | `/write-tests` | Vitest 测试专家编写测试 |
+| **测试** | `/write-tests` | 测试编写专家 |
 | **项目配置** | `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） |
 | **其他工具** | `/enhance`, `/git-rollback` | Prompt 增强、Git 回滚 |
 | **帮助** | `/agents` | 查看所有可用 Agent 命令 |
@@ -192,11 +183,19 @@ claude-workflow doctor
 
 ```
 ~/.claude/
-├── commands/              # 15 个斜杠命令
+├── commands/              # 工具命令（enhance, git-rollback, agents）
+├── skills/                # 8 个 Skill（支持 references 渐进加载）
+│   ├── workflow/          # 智能工作流（含 6 个 references）
+│   ├── analyze/           # 双模型分析
+│   ├── debug/             # 多模型调试
+│   ├── diff-review/       # 代码审查
+│   ├── scan/              # 项目扫描
+│   ├── figma-ui/          # UI 还原
+│   ├── write-tests/       # 测试编写
+│   └── perf-budget/       # 性能预算
 ├── prompts/               # 双模型协作 Prompt 模板
 │   ├── codex/             # Codex 角色提示词
 │   └── gemini/            # Gemini 角色提示词
-├── skills/                # Skill 定义（如 figma-ui）
 ├── docs/                  # 技术文档模板
 ├── utils/                 # 工具函数
 ├── workflows/             # 工作流状态（按项目隔离，使用后自动创建）
@@ -481,122 +480,97 @@ cd /path/to/your/project
 
 **智能工作流 = 自动规划 + 自动记忆 + 智能执行**
 
-只需记住 **2个命令**：
+只需记住 **1 个 Skill 入口**：
 ```bash
-/workflow-start "功能需求"    # 启动：分析需求并生成执行计划
-/workflow-execute             # 执行：自动执行下一步（可重复调用）
+/workflow start "功能需求"    # 启动：分析需求并生成执行计划
+/workflow execute             # 执行：自动执行下一步（可重复调用）
+/workflow status              # 状态：查看当前进度
 ```
 
 ### 3.2 工作原理
 
-#### 启动阶段（/workflow-start）
+#### 启动阶段（/workflow start）
 
 ```
-1. 使用 sequential-thinking 分析需求复杂度
-   ├─ 简单任务：< 300行，< 1天 → 生成 5 个步骤
-   ├─ 中等任务：300-1000行，1-2天 → 生成 13 个步骤
-   └─ 复杂任务：> 1000行，> 2天 → 生成 22 个步骤
+1. 使用 codebase-retrieval 分析需求和代码上下文
+   ├─ 自动检测相关模块
+   ├─ 获取依赖关系图
+   └─ 评估实现复杂度
 
-2. 生成详细的分步执行计划
-   ├─ 每个步骤包含：ID、名称、action、预计时间
-   ├─ 设置质量关卡（Codex 审查）
-   └─ 定义依赖关系和产出物
+2. 生成技术设计文档（tech-design.md）
+   ├─ 需求分析和范围边界
+   ├─ 架构设计和模块划分
+   └─ 实施计划和风险评估
 
-3. 创建任务记忆文件
-   └─ 保存到 .claude/workflow-state.json
+3. 创建任务清单（tasks.md）
+   ├─ 分阶段任务拆分
+   ├─ 设置质量关卡
+   └─ 定义验收标准
 ```
 
-#### 执行阶段（/workflow-execute）
+#### 执行阶段（/workflow execute）
 
 ```
 1. 读取任务记忆，找到当前待执行步骤
-2. 根据 action 类型执行相应操作
-   ├─ context_load → 调用 /context-load
-   ├─ codex_review_design → 调用 Codex 审查方案 ⭐
-   ├─ code → 提示用户编码
-   ├─ codex_review_code → 调用 Codex 审查代码 ⭐
-   └─ ...
-3. 检查质量关卡（评分 < 80 自动阻止）
-4. 更新任务记忆，标记步骤完成
+2. 根据任务类型执行相应操作
+   ├─ design → 接口设计、架构设计
+   ├─ infra → Store、工具函数
+   ├─ ui → 组件实现
+   ├─ test → 测试编写
+   └─ verify → 验证和交付
+3. 检查质量关卡（Codex 审查）
+4. 更新任务状态，标记步骤完成
 5. 提示继续或完成
 ```
 
 ### 3.3 任务记忆文件
 
-**路径**：`.claude/workflow-state.json`
+**路径**：`~/.claude/workflows/{project-hash}/workflow-state.json`
 
 ```json
 {
-  "task_name": "多租户权限管理",
-  "complexity": "complex",
-  "current_step_id": 8,
-  "total_steps": 22,
-  "status": "in_progress",
+  "name": "多租户权限管理",
+  "status": "running",
+  "current_task": "T-003",
+  "current_phase": "design",
 
-  "steps": [
-    {
-      "id": 8,
-      "name": "Codex 方案审查",
-      "action": "codex_review_design",
-      "status": "completed",
-      "quality_gate": true,
-      "threshold": 80,
-      "actual_score": 85
+  "tasks": {
+    "T-003": {
+      "name": "设计权限接口",
+      "phase": "design",
+      "status": "in_progress"
     }
-    // ... 更多步骤
-  ],
+  },
 
   "quality_gates": {
-    "codex_design_review": {
-      "step_id": 8,
-      "threshold": 80,
-      "actual_score": 85,
-      "passed": true
+    "design_review": {
+      "passed": true,
+      "score": 85
     }
   },
 
   "artifacts": {
-    "context_summary": ".claude/context-summary-xxx.md",
-    "tech_design": ".claude/tech-design/xxx.md",
-    "verification_report": ".claude/verification-report-xxx.md"
+    "tech_design": ".claude/tech-design/multi-tenant-auth.md",
+    "tasks": "~/.claude/workflows/xxx/tasks-multi-tenant-auth.md"
   }
 }
 ```
 
-### 3.4 复杂度自动适配
+### 3.4 执行阶段
 
-#### 简单任务（5步）
+工作流任务按阶段组织，每个阶段聚焦特定类型的工作：
 
-```
-1. 快速上下文收集
-2. 直接编码实现
-3. 编写单元测试
-4. 运行验证
-5. 代码提交
-```
-
-#### 中等任务（13步）
-
-```
-1-3.  需求分析（加载上下文、需求拆解、用户确认）
-4-6.  技术方案（探索实现、生成方案、Codex审查 ⭐）
-7-9.  开发实施（实现功能、编写测试、运行验证）
-10-11. 质量验证（Codex代码审查 ⭐、质量验证）
-12-13. 文档交付（补充文档、代码提交）
-```
-
-#### 复杂任务（22步）
-
-```
-1-3.  需求分析（上下文、需求分析、用户确认）
-4-9.  技术方案（架构评估、探索代码、专项分析、
-                生成方案、Codex审查 ⭐、优化方案）
-10-12. 开发实施（实现功能、编写测试、运行测试）
-13-17. 质量验证（Codex代码审查 ⭐、架构审查、
-                 专项审查、性能验证、生成报告）
-18-22. 文档交付（更新方案、API文档、使用文档、
-                 代码提交、生成总结）
-```
+| 阶段 | 说明 | 任务类型 |
+|------|------|----------|
+| `design` | 接口设计、架构设计 | 类型定义、API 契约 |
+| `infra` | 基础设施搭建 | Store、工具函数、守卫 |
+| `ui-layout` | 页面布局 | 路由、菜单、页面骨架 |
+| `ui-display` | 展示组件 | 卡片、表格、列表 |
+| `ui-form` | 表单组件 | 弹窗、输入、选择器 |
+| `ui-integrate` | 组件集成 | 注册、组装、连接 |
+| `test` | 测试编写 | 单元测试、集成测试 |
+| `verify` | 验证 | 运行测试、代码审查 |
+| `deliver` | 交付 | 文档、提交 |
 
 ### 3.5 质量关卡机制
 
@@ -726,18 +700,16 @@ rm .claude/workflow-state-backup-1737123456789.json
 
 ### 3.7 使用示例
 
-#### 示例1：简单任务（连续执行）
+#### 示例1：功能开发（连续执行）
 
 ```bash
 # 对话1
-/workflow-start "添加导出PDF按钮"
-# ✅ 分析为"简单任务"，生成 5 个步骤
+/workflow start "添加导出PDF按钮"
+# ✅ 生成 tech-design.md 和 tasks.md
 
-/workflow-execute  # 步骤1: 快速上下文收集
-/workflow-execute  # 步骤2: 直接编码实现
-/workflow-execute  # 步骤3: 编写单元测试
-/workflow-execute  # 步骤4: 运行验证
-/workflow-execute  # 步骤5: 代码提交
+/workflow execute  # 执行设计阶段任务
+/workflow execute  # 执行实现阶段任务
+/workflow execute  # 执行测试阶段任务
 # 🎉 完成！
 ```
 
@@ -745,30 +717,18 @@ rm .claude/workflow-state-backup-1737123456789.json
 
 ```bash
 # ========== 对话1：需求分析 + 方案设计 ==========
-/workflow-start "实现多租户权限管理系统"
-# ✅ 分析为"复杂任务"，生成 22 个步骤
+/workflow start "实现多租户权限管理系统"
+# ✅ 分析需求，生成技术方案
 
-/workflow-execute  # 步骤1: 加载上下文
-/workflow-execute  # 步骤2: 需求分析
-/workflow-execute  # 步骤3: 用户确认
-/workflow-execute  # 步骤4: 架构评估
-/workflow-execute  # 步骤5: 探索代码
-/workflow-execute  # 步骤6: 专项分析
-/workflow-execute  # 步骤7: 生成技术方案
-/workflow-execute  # 步骤8: Codex 方案审查 ⭐
-# Codex 评分：85/100 ✅ 通过
+/workflow execute  # 执行到设计完成
+# Codex 审查通过 ✅
 
 # ========== 对话2（新窗口）：开发实施 ==========
-/workflow-execute  # 自动从步骤9开始
-/workflow-execute  # 步骤10: 实现功能
-/workflow-execute  # 步骤11: 编写测试
-/workflow-execute  # 步骤12: 运行测试
+/workflow execute  # 自动从上次位置继续
+# 执行开发任务...
 
-# ========== 对话3（新窗口）：质量验证 + 交付 ==========
-/workflow-execute  # 步骤13: Codex 代码审查 ⭐
-# Codex 评分：90/100 ✅ 通过
-
-/workflow-execute  # 步骤14-22: 审查、文档、交付
+# ========== 对话3（新窗口）：验证交付 ==========
+/workflow execute  # 执行测试和验证
 # 🎉 完成！
 ```
 
@@ -776,25 +736,31 @@ rm .claude/workflow-state-backup-1737123456789.json
 
 ```bash
 # 查看当前状态和进度
-/workflow-status
+/workflow status
 
 # 重试当前步骤（质量关卡失败后）
-/workflow-retry-step
+/workflow execute --retry
 
 # 跳过当前步骤（慎用）
-/workflow-skip-step
+/workflow execute --skip
+
+# 解除依赖阻塞
+/workflow unblock api_spec
+
+# 归档已完成的工作流
+/workflow archive
 ```
 
 ### 3.9 核心优势
 
 | 对比项 | 智能工作流 | 传统手动流程 |
-|-------|-----------|------------|
-| **命令数量** | 2个 | 多个复杂命令 |
+|-------|-----------|--------------|
+| **命令入口** | 1 个统一 Skill | 多个分散命令 |
 | **步骤规划** | ✅ 自动生成 | ❌ 需手动规划 |
 | **进度记忆** | ✅ 自动持久化 | ❌ 需手动跟踪 |
 | **新对话恢复** | ✅ 无缝恢复 | ❌ 需重新开始 |
-| **质量保障** | ✅ 双重Codex审查 | ❌ 手动审查 |
-| **适用场景** | 所有复杂度 | 需预判复杂度 |
+| **质量保障** | ✅ Codex 审查 | ❌ 手动审查 |
+| **上下文管理** | ✅ 渐进加载 | ❌ 全量加载 |
 
 ---
 
@@ -834,81 +800,26 @@ rm .claude/workflow-state-backup-1737123456789.json
 
 ---
 
-### 4.2 后端工作流（/workflow-start --backend）
+### 4.2 PRD 文档工作流
 
 **适用场景**：
 - ✅ 有明确的 PRD 产品需求文档
 - ✅ 需要完整的需求分析和方案设计
-- ✅ 后端业务逻辑开发
 
-#### 工作流程
+**使用方式**：
+```bash
+# 检测到 .md 文件自动进入文档模式
+/workflow start docs/user-management-prd.md
 
-```
-PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-state.json（执行计划）
-           ↓                    ↓
-        暂停审查              暂停审查
+# 生成技术设计文档后暂停审查
+# 确认后继续执行
+/workflow execute
 ```
 
 **特点**：
-- 每生成一个文档后暂停，等待用户审查修改
-- 与 Codex 协作讨论，确保需求理解和方案设计的准确性
-- 文档存储在项目级目录，便于团队共享
-
-#### 10步后端工作流
-
-```
-阶段1：需求分析
-  1. 生成需求分析文档（xq.md）
-  2. 审查需求分析文档（暂停）
-
-阶段2：方案设计
-  3. 生成方案设计文档（fasj.md）
-  4. Codex 方案审查（质量关卡）
-  5. 审查并修订方案设计（暂停）
-
-阶段3：开发实施
-  6. 生成实施计划
-  7. 执行开发任务
-
-阶段4：验证交付
-  8. 自测与验证
-  9. Codex 代码审查（质量关卡）
-  10. 完善文档并总结
-```
-
-**文档结构**：
-
-**xq.md（需求分析文档）**：
-- 元信息、背景与业务目标
-- 范围与边界（In Scope / Out of Scope）
-- 角色与主体、关键业务流程
-- 功能需求拆解（FR-01, FR-02, ...）
-- 非功能需求、数据与接口线索
-- 风险、依赖与假设、验收标准
-
-**fasj.md（方案设计文档）**：
-- 设计目标与原则、架构与边界
-- 模块与职责划分
-- 数据模型设计（领域模型、持久化模型）
-- 接口设计（API 契约、请求响应结构）
-- 非功能设计、数据迁移与兼容性
-- 实施计划（工作项列表、里程碑）
-
-**使用示例**：
-```bash
-# 启动后端工作流
-/workflow-start --backend "docs/user-management-prd.md"
-
-# 审查 xq.md 后继续
-/workflow-execute
-
-# 审查 fasj.md 后继续
-/workflow-execute
-```
-
-**配置要求**：
-- 需要在 `project-config.json` 中配置 `backend.fasjSpecPath`（方案设计规范路径）
-- 首次使用时会自动询问配置方式
+- 自动解析 PRD 文档提取需求
+- 生成技术设计文档后暂停等待用户审查
+- 与 Codex 协作确保方案设计准确性
 
 ---
 
@@ -1012,17 +923,17 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 
 ```bash
 # 对话1：启动并开始执行
-/workflow-start "实现多租户权限管理系统，支持租户隔离和RBAC"
-# ✅ 生成执行计划
+/workflow start "实现多租户权限管理系统，支持租户隔离和RBAC"
+# ✅ 生成技术设计和任务清单
 
-/workflow-execute  # 执行各步骤
-# 双模型审查通过 ✅
+/workflow execute  # 执行各步骤
+# Codex 审查通过 ✅
 
 # 对话2（新窗口）：继续开发
-/workflow-execute  # 自动从上次位置继续
+/workflow execute  # 自动从上次位置继续
 
 # 对话3（新窗口）：验证交付
-/workflow-execute  # 完成剩余步骤
+/workflow execute  # 完成剩余步骤
 # 🎉 完成！
 ```
 
@@ -1067,10 +978,10 @@ PRD.md → xq.md（需求分析）→ fasj.md（方案设计）→ workflow-stat
 
 ```bash
 # 在新对话中
-/workflow-status
-# 显示：当前步骤、总进度、下一步建议
+/workflow status
+# 显示：当前任务、总进度、下一步建议
 
-/workflow-execute  # 继续执行
+/workflow execute  # 继续执行
 ```
 
 ---
@@ -1086,21 +997,21 @@ Bug 调试？
 有 Figma 设计稿？
   └─ 是 → /figma-ui（Gemini + Codex）
 
-有 PRD 文档的后端开发？
-  └─ 是 → /workflow-start --backend（PRD → xq.md → fasj.md）
+有 PRD 文档？
+  └─ 是 → /workflow start docs/prd.md
 
 功能开发？
-  └─ /workflow-start（自动规划执行计划）
+  └─ /workflow start（自动规划执行计划）
 ```
 
 **工作流选择表**：
 
 | 任务类型 | 推荐工作流 |
 |---------|-----------|
-| 新功能开发 | `/workflow-start` ⭐⭐⭐ |
+| 新功能开发 | `/workflow start` ⭐⭐⭐ |
 | Bug 调试 | `/debug` ⭐ |
 | UI 还原 | `/figma-ui` |
-| 后端开发（有PRD） | `/workflow-start --backend` |
+| PRD 开发 | `/workflow start docs/prd.md` |
 | 代码审查 | `/diff-review` |
 | 技术分析 | `/analyze` |
 
@@ -1110,14 +1021,14 @@ Bug 调试？
 
 ```bash
 # 对话1：分析 + 方案
-/workflow-start "需求"
-/workflow-execute × N  # 执行到方案审查完成
+/workflow start "需求"
+/workflow execute × N  # 执行到方案审查完成
 
 # 对话2：开发实施
-/workflow-execute × N  # 编码 + 测试
+/workflow execute × N  # 编码 + 测试
 
 # 对话3：验证交付
-/workflow-execute × N  # 代码审查 + 文档
+/workflow execute × N  # 代码审查 + 文档
 ```
 
 **优势**：
@@ -1127,8 +1038,8 @@ Bug 调试？
 
 ### 9.3 质量保证
 
-- ✅ 依赖质量关卡：双模型审查
-- ✅ 及时重试：审查不通过时 `/workflow-retry-step`
+- ✅ 依赖质量关卡：Codex 审查
+- ✅ 及时重试：审查不通过时 `/workflow execute --retry`
 - ✅ 记录决策：所有决策自动记录到任务记忆
 - ✅ 文档完整：技术方案、验证报告自动生成
 
@@ -1138,7 +1049,7 @@ Bug 调试？
 
 ### 10.1 如何选择工作流？
 
-**A**: 优先使用智能工作流 `/workflow-start`
+**A**: 优先使用智能工作流 `/workflow start`
 - 自动规划执行计划
 - 适用大多数场景
 - Bug 调试用 `/debug`，UI 还原用 `/figma-ui`
@@ -1155,21 +1066,21 @@ Bug 调试？
 **A**:
 1. 查看审查意见
 2. 根据建议优化内容
-3. 执行 `/workflow-retry-step` 重新审查
+3. 执行 `/workflow execute --retry` 重新审查
 
 ### 10.4 如何在新对话中恢复？
 
 **A**:
 ```bash
 # 在新对话中直接执行
-/workflow-execute
+/workflow execute
 # ✅ 自动读取任务记忆，继续下一步
 ```
 
 ### 10.5 可以跳过某个步骤吗？
 
 **A**:
-- 可以使用 `/workflow-skip-step`（慎用）
+- 可以使用 `/workflow execute --skip`（慎用）
 - 会记录跳过理由到任务记忆
 
 ### 10.6 如何解除任务阻塞？
@@ -1177,8 +1088,8 @@ Bug 调试？
 **A**:
 ```bash
 # 当后端接口或设计稿就绪时
-/workflow-unblock api_spec    # 解除 API 依赖阻塞
-/workflow-unblock design_spec # 解除设计稿依赖阻塞
+/workflow unblock api_spec    # 解除 API 依赖阻塞
+/workflow unblock design_spec # 解除设计稿依赖阻塞
 ```
 
 ---
@@ -1187,36 +1098,32 @@ Bug 调试？
 
 | 命令 | 简介 | 优先级 |
 |------|------|-------|
-| **智能工作流** |||
-| `/workflow-start "需求"` | 启动智能工作流，自动规划执行计划 | ⭐⭐⭐ |
-| `/workflow-execute` | 执行下一步（重复调用） | ⭐⭐⭐ |
-| `/workflow-status` | 查看当前状态和进度 | ⭐⭐ |
-| `/workflow-retry-step` | 重试当前步骤（质量关卡失败后） | ⭐ |
-| `/workflow-skip-step` | 跳过当前步骤（慎用） | |
-| `/workflow-unblock` | 解除任务阻塞依赖 | |
-| **其他工作流** |||
+| **智能工作流（Skill）** |||
+| `/workflow start "需求"` | 启动智能工作流 | ⭐⭐⭐ |
+| `/workflow execute` | 执行下一步 | ⭐⭐⭐ |
+| `/workflow status` | 查看当前状态和进度 | ⭐⭐ |
+| `/workflow execute --retry` | 重试失败步骤 | ⭐ |
+| `/workflow execute --skip` | 跳过当前步骤（慎用） | |
+| `/workflow unblock <dep>` | 解除任务阻塞 | |
+| `/workflow archive` | 归档已完成工作流 | |
+| **其他 Skills** |||
 | `/figma-ui "Figma URL"` | UI 还原（Gemini + Codex） | ⭐ |
-| `/workflow-start --backend "PRD路径"` | 后端工作流（PRD→xq.md→fasj.md→执行） | ⭐ |
+| `/analyze "描述"` | 双模型技术分析 | ⭐⭐ |
+| `/debug "问题"` | 多模型调试 | ⭐⭐ |
+| `/diff-review` | 多模型代码审查 | ⭐ |
+| `/diff-review --quick` | 单模型快速审查 | ⭐ |
+| `/scan` | 智能项目扫描 | ⭐ |
+| `/write-tests` | 测试编写专家 | ⭐ |
 | **CLI 工具** |||
 | `claude-workflow status` | 查看安装状态 | ⭐ |
 | `claude-workflow sync` | 同步模板到 ~/.claude | ⭐ |
 | `claude-workflow sync -f` | 强制覆盖所有文件 | |
 | `claude-workflow init` | 初始化项目配置 | ⭐ |
 | `claude-workflow doctor` | 诊断配置问题 | |
-| **分析与审查** |||
-| `/analyze "描述"` | 双模型技术分析（Codex + Gemini 并行） | ⭐⭐ |
-| `/diff-review` | 多模型并行代码审查（默认） | ⭐ |
-| `/diff-review --quick` | 单模型快速审查 | ⭐ |
-| `/diff-review --staged` | 审查已暂存变更 | ⭐ |
-| `/diff-review --branch main` | 审查整个分支 | ⭐ |
-| **调试与测试** |||
-| `/debug "问题描述"` | 多模型调试（Codex + Gemini） | ⭐⭐ |
-| `/write-tests` | Vitest 测试专家编写测试 | ⭐ |
-| **其他工具** |||
-| `/scan` | 智能项目扫描（检测技术栈 + 生成上下文报告） | ⭐ |
+| **其他命令** |||
 | `/enhance "prompt"` | Prompt 增强 | |
 | `/git-rollback` | 交互式 Git 回滚 | |
-| `/agents` | 查看所有可用 Agent 命令 | |
+| `/agents` | 查看所有可用命令 | |
 
 ---
 
@@ -1255,24 +1162,27 @@ npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
 ### 新手推荐流程
 
 ```bash
-# 1. 启动智能工作流
-/workflow-start "你的功能需求描述"
+# 1. 扫描项目（首次必须）
+/scan
 
-# 2. 重复执行（直到完成）
-/workflow-execute
-/workflow-execute
+# 2. 启动智能工作流
+/workflow start "你的功能需求描述"
+
+# 3. 重复执行（直到完成）
+/workflow execute
+/workflow execute
 # ...
 
-# 3. 随时查看状态
-/workflow-status
+# 4. 随时查看状态
+/workflow status
 ```
 
 ### 常用命令
 
 ```bash
 # 功能开发
-/workflow-start "需求描述"
-/workflow-execute
+/workflow start "需求描述"
+/workflow execute
 
 # UI 还原
 /figma-ui "Figma URL"
@@ -1290,8 +1200,8 @@ npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
 ### 进阶使用
 
 - 关键阶段在新对话中执行
-- 使用 `/workflow-status` 了解进度
-- 质量关卡失败时使用 `/workflow-retry-step`
+- 使用 `/workflow status` 了解进度
+- 质量关卡失败时使用 `/workflow execute --retry`
 - 使用 `claude-workflow doctor` 诊断配置问题
 
 ---

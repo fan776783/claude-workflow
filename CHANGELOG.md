@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-02-03
+
+### Fixed
+- **figma-ui Skill**：修复 A.2.2 步骤因目录不存在导致 Figma MCP 调用失败的问题
+  - 新增 `mkdir -p` 确保 `dirForAssetWrites` 目录存在
+  - Figma MCP 不会自动创建目录，需显式创建
+
+---
+
+## [2.1.0] - 2026-02-02
+
+### Breaking Changes
+- **Commands → Skills 架构迁移**：所有核心命令从 `commands/` 迁移到 `skills/` 目录
+  - `/workflow-start` → `/workflow start`
+  - `/workflow-execute` → `/workflow execute`
+  - `/workflow-status` → `/workflow status`
+  - `/workflow-retry-step` → `/workflow execute --retry`
+  - `/workflow-skip-step` → `/workflow execute --skip`
+  - `/workflow-unblock` → `/workflow unblock`
+  - `/workflow-backend-start` → `/workflow start --backend`
+
+### Added
+- **Skills 架构**：8 个 Skill 支持 references 渐进加载
+  - `workflow/` - 智能工作流（含 6 个 references）
+  - `analyze/` - 双模型分析（含场景路由 reference）
+  - `debug/` - 多模型调试
+  - `diff-review/` - 代码审查
+  - `scan/` - 项目扫描
+  - `write-tests/` - 测试编写
+  - `figma-ui/` - UI 还原（新增 references 目录）
+  - `perf-budget/` - 性能预算（新增）
+- **渐进披露机制**：Skill 核心 SKILL.md 保持精简，详细实现按需加载 references
+
+### Changed
+- **agents.md 精简**：从 289 行精简到 106 行，仅保留 Skill 索引
+- **figma-ui 重构**：747 行精简版，新增 references 模块化
+- **workflow Skill v3.0**：
+  - 统一入口 `/workflow <action> [args]`
+  - 新增 `archive` action 归档已完成工作流
+  - 自然语言控制（"单步执行"、"继续"、"重试"）
+
+### Removed
+- **13 个独立命令文件**：
+  - `workflow-start.md`、`workflow-execute.md`、`workflow-status.md`
+  - `workflow-retry-step.md`、`workflow-skip-step.md`、`workflow-unblock.md`
+  - `workflow-backend-start.md`
+  - `analyze.md`、`debug.md`、`diff-review.md`
+  - `scan.md`、`write-tests.md`
+- **废弃文档**：
+  - `workflow-optimization-v4.md`
+  - `backend-fasj-spec.md`、`backend-xq-spec.md`
+  - `subagent-mode.md`
+- **废弃工具模板**：
+  - `auto-init-check.md`、`config-loader.md`、`project-detector.md`
+
+---
+
 ## [2.0.0] - 2026-01-26
 
 ### Breaking Changes
