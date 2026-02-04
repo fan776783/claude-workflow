@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-02-04
+
+### figma-ui v3.0 - 轻量化重构
+
+**核心理念转变**：从"过程控制者"转向"质量守门人"
+
+#### Changed
+- **SKILL.md 精简重构** (-237 行，从 457 行减至 320 行)
+  - 移除 STRICT MODE 强制步骤约束
+  - 简化为轻量 3 阶段：设计获取 → 自由编码 → 验证修复
+  - 编码阶段给予最大自由度，验证阶段严格把关
+
+#### Removed
+- `references/chrome-validation.md` (-231 行) - Chrome 验证流程已内联
+- `references/data-structures.md` (-220 行) - 数据结构定义已简化
+
+#### Added
+- `references/figma-tools.md` - MCP 工具速查表
+- `references/visual-review.md` - 视觉审查维度详解（间距/颜色/字体/布局/可访问性）
+- `references/troubleshooting.md` - 故障排查指南
+
+### skill-creator - 新增 Skill
+
+集成 Anthropic 官方 skill-creator，用于创建和管理 Claude Skills。
+
+#### Added
+- `skill-creator/SKILL.md` - Skill 创建指南（核心原则、渐进披露、6 步创建流程）
+- `skill-creator/scripts/init_skill.py` - 初始化新 Skill 模板
+- `skill-creator/scripts/package_skill.py` - 打包 Skill 为 .skill 文件
+- `skill-creator/scripts/quick_validate.py` - 快速验证 Skill 结构
+- `skill-creator/references/output-patterns.md` - 输出模式设计指南
+- `skill-creator/references/workflows.md` - 工作流模式设计指南
+- `skill-creator/LICENSE.txt` - Apache 2.0 许可证
+
+#### 关键约束简化
+
+| 旧约束 | 新约束 |
+|--------|--------|
+| 7 条强制规则 | 4 条关键约束 |
+| 严格步骤顺序 | 灵活执行 |
+| 多个 CHECKPOINT | 单一门控 (visualFidelity ≥ 85) |
+
+---
+
 ## [2.2.0] - 2026-02-03
 
 ### Fixed
@@ -259,23 +303,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - 工作流模板 v1 → v2 重构（简化状态管理）
-
----
-
-## [Unreleased]
-
-### Added
-- **二进制安装验证**：安装后运行 `--version` 验证 `codeagent-wrapper` 可执行
-- **PATH 自动配置**：
-  - macOS/Linux：询问用户是否自动配置 PATH，自动追加到 `~/.zshrc` 或 `~/.bashrc`
-  - Windows：提供详细的图形界面步骤 + PowerShell 命令
-  - 检测是否已配置，避免重复添加
-- **安装状态跟踪**：`meta.json` 记录完整安装状态（模板、二进制、错误信息）
-- **模板目录补全**：`TEMPLATE_DIRS` 增加 `specs` 和 `project` 目录
-
-### Changed
-- 优化配置文件创建顺序，确保即使安装失败也能记录状态
-- 模板安装和二进制安装分别 try-catch，互不影响
 
 ---
 

@@ -1,457 +1,320 @@
 ---
 name: figma-ui
-description: "Translate Figma designs into production-ready code with 1:1 visual fidelity using Figma MCP workflow (design context, screenshots, assets, project-convention translation) and dual-model collaboration (Gemini + Codex) with automated visual validation. Trigger when user provides Figma URLs or node IDs, mentions 还原/切图/设计稿/UI实现, or asks to implement UI from design. Requires Figma MCP server connection."
+description: |
+  Figma 设计稿到生产代码的工作流，专注视觉还原度验证。
+  触发条件：Figma URL (figma.com/design/...)、设计稿/还原/切图/UI实现 等关键词。
+  ⚠️ 不要直接调用 mcp__figma-mcp 工具 - 本 skill 会处理 assetsDir 等必传参数。
 ---
 
 # Figma UI 实现工作流
 
-Figma 设计稿到生产代码的 3 阶段工作流，采用双模型协作 + 自动化视觉验证。
+轻量 3 阶段：设计获取 → 自由编码 → 验证修复
+
+**核心理念**：Skill 是**质量守门人**，不是过程控制者。编码阶段给予最大自由度，验证阶段严格把关。
 
 ---
 
-## ⚠️ STRICT MODE - 必读
-
-**你必须严格按 Phase A → B → C 的步骤顺序执行。**
+## 关键约束
 
 | 约束 | 要求 |
 |------|------|
-| **顺序执行** | 每一步完成并验证后，才能进入下一步 |
-| **禁止跳步** | 不得跳过任何步骤，即使认为"不需要" |
-| **失败即停** | 步骤失败时必须修复或回退，不得绕过继续 |
-| **断言检查** | 每个 Phase 结束时必须执行 CHECKPOINT，全部通过才能继续 |
-| **依赖顺序** | A.2.1 必须在 A.2.2 之前完成（assetsDir 是后续步骤的依赖） |
+| **assetsDir 必传** | 调用 `get_design_context` 前必须先获取 |
+| **视觉优先** | 像素级还原设计稿，不做"优化" |
+| **Gemini Review** | 验证阶段必须调用，不可跳过 |
+| **还原度门控** | visualFidelity ≥ 85 才能交付 |
 
-**违反以上任一约束将导致最终交付失败。**
-
----
-
-## 强制规则
-
-| 规则 | 要求 |
-|------|------|
-| MCP 优先 | 先检查 Figma MCP 连接，失败则引导配置 |
-| 元素追踪 | 提取 ElementManifest，追踪 P0/P1/P2 实现状态 |
-| 复用优先 | 检查项目现有组件，扩展而非新建 |
-| Token-First | 映射到 Design Token，禁止硬编码值 |
-| 用户确认 | 展示 BuildPlan → "Shall I proceed?" → 等待确认 |
-| 覆盖率门控 | P0/P1 覆盖率 < 100% 时阻止交付 |
-| 视觉验证 | Chrome-MCP 截图 → Gemini 多模态对比 |
-
-## 执行流程
-
-```
-Phase A: 设计获取
-├─ A.0 MCP 连接检查
-├─ A.1 解析 URL（fileKey + nodeId）
-├─ A.2.1 【先】Explore agent 获取项目配置（含 assetsDir）
-├─ A.2.2 【后】Figma MCP 获取设计上下文（依赖 assetsDir）
-├─ A.2.3 条件检查（designContext 为空 → 执行 A.3）
-├─ A.3 大节点分拆（如需要）
-├─ A.4 提取 ElementManifest
-└─ A.5 获取视觉参考截图
-→ CHECKPOINT A
-
-Phase B: 分析 + 编码
-├─ B.1 双模型并行分析
-├─ B.2 生成 BuildPlan
-├─ B.3 【HARD STOP】展示计划，等待确认
-├─ B.4 项目约定转换 + 编码
-└─ B.5 资源处理
-→ CHECKPOINT B
-
-Phase C: 验证 + 交付
-├─ C.1 覆盖率检查（门控）
-├─ C.2 验证 Checklist
-├─ C.3 Chrome-MCP 视觉验证（循环修复）
-└─ C.4 交付决策
-→ CHECKPOINT C
-```
+**参考文档**：
+- [figma-tools.md](references/figma-tools.md) - MCP 工具速查
+- [visual-review.md](references/visual-review.md) - 视觉审查维度
+- [troubleshooting.md](references/troubleshooting.md) - 故障排查
 
 ---
 
 ## Phase A: 设计获取
 
-### A.0 MCP 连接检查
-
-首次调用 Figma MCP 失败时，引导用户配置：
-
-```bash
-# 1. 添加 Figma MCP
-claude mcp add figma --url https://mcp.figma.com/mcp
-
-# 2. 登录 OAuth
-claude mcp login figma
-
-# 3. 重启 Claude Code
-```
-
-配置完成后，用户需重启 Claude Code 继续。
-
 ### A.1 解析 URL
 
-**URL 格式**：`https://figma.com/design/:fileKey/:fileName?node-id=1-2`
+从 `https://figma.com/design/:fileKey/:fileName?node-id=1-2` 提取：
+- `nodeId`: `node-id` 参数（`1-2` 在 MCP 调用时转为 `1:2`）
+
+无 URL 时使用 Figma 桌面端当前选中节点。
+
+### A.2 获取 assetsDir
 
 ```typescript
-const parseResult = {
-  fileKey: 'kL9xQn2VwM8pYrTb4ZcHjF',  // /design/ 后的段
-  nodeId: '42-15',                      // node-id 参数值
-  // 注意：node-id=1-2 在 MCP 调用时转为 nodeId="1:2"
-};
+// 1. 尝试读取缓存
+const uiConfig = await readJson('.claude/config/ui-config.json');
+if (uiConfig?.assetsDir) return uiConfig.assetsDir;
+
+// 2. 缓存未命中 → 使用默认值或询问用户
+return 'public/images';
 ```
 
-**无 URL 时**（figma-desktop MCP）：使用 Figma 桌面端当前选中的节点。
-
-### A.2.1 【先】获取项目配置（优先读缓存）
-
-> ⚠️ **必须先完成此步骤，获取 `assetsDir` 后才能执行 A.2.2**
-
-**优先级**：ui-config.json 缓存 > Explore agent
+### A.3 调用 Figma MCP
 
 ```typescript
-// 1. 尝试读取 /scan 生成的 UI 配置
-const uiConfigPath = '.claude/config/ui-config.json';
-let projectConfig = null;
-
-if (await fileExists(uiConfigPath)) {
-  const uiConfig = await readJson(uiConfigPath);
-  if (uiConfig.assetsDir) {
-    // ✅ 缓存命中，直接使用（0 tokens）
-    projectConfig = {
-      assetsDir: uiConfig.assetsDir,
-      cssFramework: uiConfig.cssFramework,
-      designTokens: uiConfig.designTokens,
-      componentsDir: uiConfig.componentsDir,
-      existingComponents: uiConfig.existingComponents
-    };
-    console.log('[figma-ui] 使用 ui-config.json 缓存');
-  }
-}
-
-// 2. 缓存未命中时提示用户先运行 /scan
-if (!projectConfig) {
-  console.log('[figma-ui] 未找到 UI 配置缓存');
-  console.log('建议先运行 /scan 生成配置，可节省后续扫描开销');
-
-  // 降级：启动 Explore agent（消耗更多 tokens）
-  projectConfig = await Task({
-    subagent_type: 'Explore',
-    prompt: '扫描项目，返回：assetsDir, cssFramework, designTokens, componentsDir, existingComponents'
-  });
-}
-
-// 3. 提取 assetsDir（必须有值）
-const assetsDir = projectConfig.assetsDir || 'public/images';
-```
-
-**缓存来源**：运行 `/scan` 时自动生成 `.claude/config/ui-config.json`。
-
-### A.2.2 【后】Figma MCP 获取设计上下文
-
-> ⚠️ **`dirForAssetWrites` 是必填参数，必须使用 A.2.1 获取的 `assetsDir`**
-
-```typescript
-// 1. 使用 A.2.1 获取的 assetsDir 构造临时目录
 const taskAssetsDir = `${assetsDir}/.figma-ui/tmp/${taskId}`;
-
-// 2. 确保目录存在（Figma MCP 不会自动创建）
 await Bash({ command: `mkdir -p "${taskAssetsDir}"` });
 
-// 3. 调用 Figma MCP（dirForAssetWrites 必填！）
 const designContext = await mcp__figma-mcp__get_design_context({
-  nodeId,                              // 必填
-  dirForAssetWrites: taskAssetsDir     // ⚠️ 必填！来自 A.2.1
+  nodeId,
+  dirForAssetWrites: taskAssetsDir,  // ⚠️ 必传
 });
-```
 
-### A.2.3 条件检查（必须执行）
-
-```
-designContext 返回结果检查：
-├─ 正常返回（有 code/布局信息）→ 继续 A.4
-├─ 返回为空或被截断 → 必须执行 A.3 分拆
-└─ 报错 → 检查 MCP 连接，修复后重试
-```
-
-**禁止在 designContext 为空时跳过 A.3 直接继续。**
-
-### A.3 大节点分拆
-
-**当 designContext 响应为空或被截断时，必须执行此步骤**：
-
-```typescript
-// 1. 获取节点结构
-const metadata = await mcp__figma-mcp__get_metadata({ nodeId });
-
-// 2. 识别主要子节点
-const childNodes = extractChildNodeIds(metadata);
-
-// 3. 分块获取每个子节点
-for (const childId of childNodes) {
-  const childContext = await mcp__figma-mcp__get_design_context({
-    nodeId: childId,
-    dirForAssetWrites: taskAssetsDir  // 使用同一个临时目录
-  });
-  mergeContext(designContext, childContext);
-}
+// 获取视觉参考
+await mcp__figma-mcp__get_screenshot({ nodeId });
 ```
 
 ### A.4 提取 ElementManifest
 
-遍历 designContext，按类型判断优先级。详见 [references/data-structures.md](references/data-structures.md)
+遍历 designContext，按类型分类：
 
-### A.5 获取视觉参考
+| 类型 | 优先级 | 说明 |
+|------|--------|------|
+| 容器/布局 | P0 | 核心结构 |
+| 文本/按钮/输入框 | P0 | 交互元素 |
+| 图片/图标 | P1 | 视觉元素 |
+| 装饰图形/分隔线 | P2 | 可选元素 |
 
-```typescript
-await mcp__figma-mcp__get_screenshot({ nodeId });
-// 保存为 ${taskAssetsDir}/design-reference.png
-```
-
-此截图作为后续验证的**视觉真相来源**。
-
-### ✅ CHECKPOINT A（必须全部通过才能进入 Phase B）
-
-```
-□ MCP 连接正常？
-  └─ 否 → 返回 A.0 引导配置
-
-□ assetsDir 已获取？（来自 ui-config.json 或 Explore）
-  └─ 否 → 检查 .claude/config/ui-config.json 或重新执行 A.2.1
-
-□ designContext 非空且包含布局/样式信息？
-  └─ 否 → 执行 A.3 分拆后重新检查
-
-□ elementManifest 已提取？（elements.length > 0）
-  └─ 否 → 返回 A.4 重新提取
-
-□ 设计参考截图已保存？
-  └─ 否 → 返回 A.5 重新获取
-```
-
-**全部通过 → 进入 Phase B**
+**输出**：ElementManifest 作为验证 checklist。
 
 ---
 
-## Phase B: 分析 + 编码
+## Phase B: 编码
 
-### B.1 双模型并行分析
+### 编码规范
 
-**Gemini**（`run_in_background: true`）- 前端专家：
-```bash
-codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
-ROLE_FILE: ~/.claude/prompts/gemini/frontend.md
-分析设计上下文，返回 JSON：
-- layoutStrategy: { type, direction, alignment }
-- tokenMapping: { colors, spacing, typography, radius, shadow }
-- responsiveStrategy: { approach, breakpoints }
-- prototypeCode: UI 样式代码
+| 规范 | 说明 |
+|------|------|
+| **视觉优先** | 像素级还原，不做主观"优化" |
+| **保留原值** | 使用 Figma 原始值 + CSS 变量 fallback |
+| **最小包装** | 避免不必要的组件包装层 |
+| **Mock 数据** | 使用设计稿原文，跳过 i18n |
 
-设计上下文：${designContext}
-项目 Tokens：${projectTokens}
-EOF
+### 样式策略
+
+```css
+/* ✅ 推荐：保留原值 + fallback */
+background: var(--fill-light-02, rgba(194, 204, 241, 0.08));
+border-radius: 16px;
+padding: 32px 24px 24px;
+
+/* ❌ 避免：强制映射到可能不准确的 Token */
+background: var(--fills-light-8);  /* 映射可能有偏差 */
 ```
 
-**Codex**（`run_in_background: true`）- 组件架构：
-```bash
-codeagent-wrapper --backend codex - ${workdir} <<'EOF'
-ROLE_FILE: ~/.claude/prompts/codex/architect.md
-分析设计上下文，返回 JSON：
-- fileStructure: { mainFile, styleFile }
-- componentReuse: { existing[], newRequired[] }
-- prototypeCode: 组件结构代码
+### 组件复用判断
 
-设计上下文：${designContext}
-现有组件：${existingComponents}
-元素清单：${elementManifest}
-EOF
+```
+现有组件完全匹配设计 → 复用
+需要大量覆盖样式 → 新建（避免样式冲突）
 ```
 
-### B.2 生成 BuildPlan
+### 资源处理
 
-合并双模型结果，生成构建计划。
-
-### B.3 展示计划（HARD STOP）
-
-向用户展示：
-1. 布局策略 + 响应式方案
-2. Token 映射摘要
-3. 组件复用情况（复用 N 个，新建 M 个）
-4. 元素统计（P0: x, P1: y, P2: z）
-
-**输出**："Shall I proceed with this plan? (Y/N)"
-
-**立即终止，等待用户确认后继续。**
-
-### B.4 项目约定转换 + 编码
-
-**UI First, Data Later** — 先实现像素级视觉还原：
-- 使用 mock data 匹配设计稿，不接入真实 API
-- 使用设计稿原文，跳过 i18n
-- 跳过复杂状态管理，专注组件结构和样式
-
-**转换原则**：
-
-1. **复用优先**：查找项目组件源码和 demo，扩展现有组件而非新建
-2. **Token 映射**：将 Figma 颜色/间距/字体映射到项目 Token
-3. **框架适配**：Figma 输出视为设计意图，转换为项目框架约定
-4. **样式一致**：使用项目 CSS 方案（Tailwind/SCSS/CSS Modules）
-
-**编码流程**：
-1. 合并双模型原型代码（Gemini 样式 + Codex 结构）
-2. Token-First 检查：替换所有硬编码值
-3. 更新 ElementManifest 状态
-4. 写入目标文件
-
-### B.5 资源处理
-
-**资源规则**：
-- Figma MCP 返回的 localhost 资源 URL **直接使用**
-- **禁止**导入新图标包，所有资源来自 Figma
-- **禁止**创建占位符
-
-**清理流程**：
 ```typescript
-// 移动已使用资源到项目资源目录
-moveUsedAssets(taskAssetsDir, assetsDir);
-// 删除临时目录
-cleanup(taskAssetsDir);
+// 1. 编码完成后，移动已使用资源到正式目录
+for (const asset of usedAssets) {
+  await moveFile(
+    `${figmaTmpDir}/${asset}`,
+    `${assetsDir}/${componentName}/${asset}`
+  );
+}
+
+// 2. 清理 Figma 临时目录
+await Bash({ command: `rm -rf "${figmaTmpDir}"` });
 ```
 
-### ✅ CHECKPOINT B（必须全部通过才能进入 Phase C）
-
-```
-□ 双模型分析结果已收集？
-  └─ 否 → 等待 TaskOutput 或重新启动分析
-
-□ BuildPlan 已生成并展示给用户？
-  └─ 否 → 返回 B.2 生成计划
-
-□ 用户已确认 "Y" 继续？
-  └─ 否 → 等待用户确认，或根据反馈调整计划
-
-□ 代码已写入目标文件？
-  └─ 否 → 返回 B.4 完成编码
-
-□ ElementManifest 状态已更新？（无 pending 的 P0/P1）
-  └─ 否 → 返回 B.4 补充实现
-
-□ 资源已清理（临时目录已删除）？
-  └─ 否 → 返回 B.5 完成清理
-```
-
-**全部通过 → 进入 Phase C**
+**⚠️ 不调用外部模型，当前模型直接编码**
 
 ---
 
-## Phase C: 验证 + 交付
+## Phase C: 验证 + 修复（核心价值）
 
-### C.1 覆盖率检查（门控）
+### C.1 覆盖率检查
+
+对照 ElementManifest，确保 P0/P1 元素 100% 实现。
 
 ```typescript
-const missingP0P1 = elementManifest.elements.filter(
+const missing = elementManifest.elements.filter(
   e => e.priority !== 'P2' && e.status === 'pending'
 );
-if (missingP0P1.length > 0) {
-  // 阻止交付，返回 Phase B 补充实现
-  throw new Error(`覆盖率不足: ${missingP0P1.map(e => e.name).join(', ')}`);
+if (missing.length > 0) {
+  // 返回 Phase B 补充实现
 }
 ```
 
-### C.2 验证 Checklist
+### C.2 Gemini Visual Review（⛔ 必须调用）
 
-在自动验证前，快速自检：
+```bash
+codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
+ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
 
-- [ ] **布局**：间距、对齐、尺寸匹配
-- [ ] **排版**：字体、大小、粗细、行高
-- [ ] **颜色**：精确匹配设计稿
-- [ ] **交互**：hover/active/disabled 状态
-- [ ] **响应式**：符合 Figma 约束
-- [ ] **资源**：图片/图标正确渲染
-- [ ] **可访问性**：符合 WCAG 标准
+审查 UI 实现与设计稿的视觉一致性。
 
-### C.3 Chrome-MCP 视觉验证
+设计参考：[附上 get_screenshot 获取的截图]
+实现代码：[附上组件代码]
 
-详见 [references/chrome-validation.md](references/chrome-validation.md)
+返回 JSON：
+{
+  "visualFidelity": {
+    "score": 0-100,
+    "issues": [
+      {
+        "element": "元素名称",
+        "category": "spacing|color|typography|layout|border|shadow",
+        "expected": "设计稿值",
+        "actual": "实现值",
+        "severity": "P0|P1|P2",
+        "suggestion": "修复建议"
+      }
+    ]
+  },
+  "accessibility": {
+    "score": 0-100,
+    "issues": [...]
+  },
+  "codeQuality": {
+    "score": 0-100,
+    "issues": [...]
+  },
+  "overall": 0-100
+}
+EOF
+```
 
-核心步骤：
-1. 确定页面访问策略（direct_url/modal/drawer）
-2. 打开页面并截图
-3. Gemini 多模态对比（设计稿 vs 实际页面）
-4. 差异修复（最多 3 次循环）
+**审查重点**（按权重排序）：
+1. **视觉还原度 (60%)**：间距、颜色、字体、布局、边框、阴影
+2. **可访问性 (25%)**：语义标签、ARIA、键盘支持
+3. **代码质量 (15%)**：结构清晰、样式隔离
+
+### C.3 修复循环
+
+```
+visualFidelity < 85 → 修复视觉问题（优先）
+accessibility < 70 → 修复可访问性
+最多 3 轮，超过请求用户指导
+```
+
+**修复优先级**：
+1. P0 视觉问题（布局错位、颜色明显偏差）
+2. P1 视觉问题（间距微调、字体细节）
+3. P0 可访问性（缺少语义标签）
+4. 其他问题
 
 ### C.4 交付决策
 
 | 条件 | 决策 |
 |------|------|
-| 覆盖率 100% + 视觉评分 ≥90 | ✅ 通过 |
-| 视觉评分 ≥80 | ⚠️ 需人工审查 |
-| 视觉评分 <80 或循环修复超限 | ❌ 报告差异，请求指导 |
+| visualFidelity ≥ 85 | ✅ 通过 |
+| visualFidelity ≥ 75 | ⚠️ 需人工审查 |
+| visualFidelity < 75 | ❌ 请求指导 |
 
-### ✅ CHECKPOINT C（最终交付检查）
+### C.5 交付摘要
 
 ```
-□ P0/P1 覆盖率 = 100%？
-  └─ 否 → 返回 Phase B 补充实现
-
-□ 验证 Checklist 全部通过？
-  └─ 否 → 修复对应问题
-
-□ Chrome-MCP 视觉验证通过（评分 ≥80）？
-  └─ 否 → 循环修复（最多 3 次）或请求指导
-
-□ 交付决策已做出？
-  └─ 否 → 根据评分执行 C.4 决策
+┌──────────────┬─────────────────────────────────────┐
+│     项目     │                内容                 │
+├──────────────┼─────────────────────────────────────┤
+│ 新建文件     │ components/xxx/ComponentName.vue    │
+│ 修改文件     │ pages/test/index.vue（添加入口）    │
+│ 资源目录     │ public/images/xxx/                  │
+├──────────────┼─────────────────────────────────────┤
+│ Visual Review│ Gemini visualFidelity: XX/100       │
+│ Accessibility│ XX/100                              │
+│ Overall      │ XX/100                              │
+├──────────────┼─────────────────────────────────────┤
+│ 清理状态     │ ✅ Figma 临时资源已清理             │
+└──────────────┴─────────────────────────────────────┘
 ```
 
-**全部通过 → 任务完成，输出交付摘要**
+### C.6 可选：像素级对比验证
+
+交付摘要输出后，**询问用户**是否需要进行像素级对比验证：
+
+```
+是否需要运行 visual-diff 进行像素级对比验证？
+- 需要启动开发服务器并提供测试页面 URL
+- 将截图实现页面与设计稿进行叠加对比
+- 输出差异图片 + 双模型验证报告
+
+选项：
+1. 运行 visual-diff（需提供页面 URL）
+2. 跳过，直接完成
+```
+
+**用户选择运行时**：
+```typescript
+// 调用 visual-diff skill
+// 设计稿截图已缓存在 .claude/cache/figma-ui/{nodeId}/design.png
+await visualDiff({
+  url: userProvidedUrl,  // 用户提供的测试页面 URL
+  design: designScreenshotPath,
+  selector: componentSelector  // 可选
+});
+```
+
+**输出**：差异图片 + 综合报告（像素差异 + Gemini + Claude 双模型验证）
 
 ---
 
-## 常见问题
+## 降级方案
 
-### Figma 输出被截断
-**原因**：设计过于复杂或嵌套层级过多
-**方案**：使用 A.3 大节点分拆策略
+### Gemini 不可用时
 
-### 设计 Token 与项目不一致
-**原因**：项目 Token 值与 Figma 设计值不同
-**方案**：优先使用项目 Token 保持一致性，微调间距/尺寸以匹配视觉
+当前模型按相同 JSON 格式自行审查，交付摘要注明：
+```
+Visual Review: 降级 visualFidelity: XX/100 (原因: Gemini 超时)
+```
 
-### 资源无法加载
-**原因**：Figma MCP 资源端点不可访问
-**方案**：确认 MCP 服务运行中，直接使用 localhost URL
+### 复杂页面
+
+对于复杂页面（多个独立区块），可分块实现：
+1. `get_metadata` 获取结构概览
+2. 按区块分别 `get_design_context`
+3. 分块编码 + 分块验证
 
 ---
 
 ## 快速参考
 
-### 必传参数速查
+### MCP 必传参数
 
 | 工具 | 必传参数 |
 |------|----------|
-| `get_design_context` | `nodeId`, **`dirForAssetWrites`**（来自 A.2.1） |
+| `get_design_context` | `nodeId`, `dirForAssetWrites` |
 | `get_screenshot` | `nodeId` |
 | `get_metadata` | `nodeId` |
 
-### 依赖顺序
+### 流程图
 
 ```
-A.2.1 读取缓存（ui-config.json）→ 命中？
-         ├─ 是 → assetsDir（0 tokens）
-         └─ 否 → Explore agent → assetsDir（~64k tokens）
-                  ↓
-A.2.2 Figma MCP（需要 assetsDir）
-                  ↓
-A.2.3 条件检查 → designContext 为空？ → A.3 分拆
+Phase A: 设计获取
+    │
+    ├─ 解析 URL → nodeId
+    ├─ 获取 assetsDir
+    ├─ get_design_context + get_screenshot
+    └─ 提取 ElementManifest
+    │
+Phase B: 编码（自由发挥）
+    │
+    ├─ 遵循编码规范
+    ├─ 保留 Figma 原始值
+    └─ 清理临时资源
+    │
+Phase C: 验证 + 修复
+    │
+    ├─ 覆盖率检查
+    ├─ Gemini Visual Review ← 核心价值
+    ├─ 修复循环（最多 3 轮）
+    ├─ 交付决策 + 摘要
+    │
+    └─ [可选] 询问用户 → 运行 visual-diff？
+                            │
+                            ├─ 是 → 像素级对比 + 双模型验证
+                            └─ 否 → 完成
 ```
 
-> 提示：先运行 `/scan` 生成 `ui-config.json`，可将 A.2.1 开销从 ~64k tokens 降至 ~0
+### 故障排查
 
-### Phase 流转条件
-
-```
-Phase A → CHECKPOINT A 通过 → Phase B
-Phase B → CHECKPOINT B 通过 → Phase C
-Phase C → CHECKPOINT C 通过 → 交付完成
-```
-
-**任一 CHECKPOINT 失败 → 返回对应阶段修复，禁止跳过。**
+见 [troubleshooting.md](references/troubleshooting.md)
