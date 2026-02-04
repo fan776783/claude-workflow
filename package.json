@@ -1,6 +1,6 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "description": "Claude Code 多模型协作工作流系统 - Skills 架构 (Codex + Gemini + Claude)",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
@@ -20,16 +20,18 @@
     "lib/",
     "scripts/",
     "templates/",
-    "README.md", 
+    "README.md",
     "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@clack/prompts": "^0.10.0",
     "commander": "^12.1.0",
     "fs-extra": "^11.2.0",
     "inquirer": "^8.2.6",
+    "picocolors": "^1.1.1",
     "semver": "^7.6.3"
   },
   "keywords": [

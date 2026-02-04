@@ -7,7 +7,21 @@ const semver = require('semver');
 const readline = require('readline');
 
 const pkg = require('../package.json');
-const { ensureClaudeHome, installFresh, upgradeFrom, installBinary } = require('../lib/installer');
+const {
+  ensureClaudeHome,
+  installFresh,
+  upgradeFrom,
+  installBinary,
+  installForAgents,
+  migrateFromLegacy,
+  getInstallationStatus,
+} = require('../lib/installer');
+const {
+  agents,
+  detectInstalledAgents,
+  getCanonicalDir,
+  parseAgentArg,
+} = require('../lib/agents');
 
 // 询问用户是否自动配置 PATH
 async function askAutoConfigurePath() {
@@ -76,16 +90,13 @@ function showWindowsPathInstructions(installDir) {
 }
 
 async function main() {
-  // 检查是否在 CI 环境或全局安装时跳过
+  // 检查是否跳过 postinstall
   if (process.env.CLAUDE_WORKFLOW_SKIP_POSTINSTALL === '1') {
     console.log('[claude-workflow] 跳过 postinstall (CLAUDE_WORKFLOW_SKIP_POSTINSTALL=1)');
     return;
   }
 
   const homeDir = os.homedir();
-  const claudeDir = path.join(homeDir, '.claude');
-  const metaDir = path.join(claudeDir, '.claude-workflow');
-  const metaFile = path.join(metaDir, 'meta.json');
   const templatesDir = path.join(__dirname, '..', 'templates');
   const packageDir = path.join(__dirname, '..');
   const currentVersion = pkg.version;
@@ -99,50 +110,112 @@ async function main() {
     binaryInstalled: false,
     binaryPath: null,
     binaryDir: null,
+    agents: {},
     errors: []
   };
 
   try {
     console.log(`\n[claude-workflow] 安装 v${currentVersion}...`);
 
-    // 1. 先读取旧版本信息（在写入新 meta 之前）
+    // 1. 确定目标 Agent
+    let targetAgents = [];
+
+    // 支持通过环境变量指定目标 Agent
+    if (process.env.CLAUDE_WORKFLOW_AGENTS) {
+      targetAgents = parseAgentArg(process.env.CLAUDE_WORKFLOW_AGENTS);
+      console.log(`[claude-workflow] 使用环境变量指定的 Agent: ${targetAgents.join(', ')}`);
+    } else {
+      // 检测已安装的 Agent
+      targetAgents = detectInstalledAgents();
+      if (targetAgents.length === 0) {
+        // 默认安装到 Claude Code
+        targetAgents = ['claude-code'];
+        console.log('[claude-workflow] 未检测到已安装的 Agent，默认安装到 Claude Code');
+      } else {
+        console.log(`[claude-workflow] 检测到 ${targetAgents.length} 个 Agent: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
+      }
+    }
+
+    // 2. 检查是否需要从旧版迁移
+    const claudeDir = path.join(homeDir, '.claude');
+    const oldMetaFile = path.join(claudeDir, '.claude-workflow', 'meta.json');
     let previousVersion = null;
-    if (await fs.pathExists(metaFile)) {
+
+    if (await fs.pathExists(oldMetaFile)) {
       try {
-        const meta = await fs.readJson(metaFile);
-        previousVersion = meta.version || null;
+        const oldMeta = await fs.readJson(oldMetaFile);
+        previousVersion = oldMeta.version || null;
+
+        // 检查是否为旧版安装（非 symlink 模式）
+        const skillsDir = path.join(claudeDir, 'skills');
+        if (await fs.pathExists(skillsDir)) {
+          const stats = await fs.lstat(skillsDir);
+          if (!stats.isSymbolicLink()) {
+            console.log(`[claude-workflow] 检测到旧版安装 v${previousVersion}，将迁移到新架构`);
+          }
+        }
       } catch {
         previousVersion = null;
       }
     }
 
-    // 2. 确保目录存在
-    await ensureClaudeHome(claudeDir, metaDir);
+    // 3. 检查新版元信息
+    const canonicalDir = getCanonicalDir(true);
+    const newMetaFile = path.join(canonicalDir, '.meta', 'meta.json');
+    let canonicalVersion = null;
 
-    try {
-      if (!previousVersion) {
-        await installFresh({ claudeDir, metaDir, templatesDir, version: currentVersion });
-      } else if (semver.lt(previousVersion, currentVersion)) {
-        await upgradeFrom({
-          fromVersion: previousVersion,
-          toVersion: currentVersion,
-          claudeDir,
-          metaDir,
-          templatesDir
-        });
-      } else if (semver.gt(previousVersion, currentVersion)) {
-        console.log(`[claude-workflow] 检测到降级: v${previousVersion} → v${currentVersion}`);
-        console.log(`[claude-workflow] 跳过自动复制，如需强制同步请运行: npx claude-workflow sync --force`);
-      } else {
-        console.log(`[claude-workflow] 版本相同 (v${currentVersion})，跳过复制`);
+    if (await fs.pathExists(newMetaFile)) {
+      try {
+        const newMeta = await fs.readJson(newMetaFile);
+        canonicalVersion = newMeta.version || null;
+      } catch {
+        canonicalVersion = null;
       }
-      installStatus.templatesInstalled = true;
-    } catch (templateErr) {
-      installStatus.errors.push(`Templates: ${templateErr.message}`);
-      console.error(`[claude-workflow] 模板安装失败: ${templateErr.message}`);
     }
 
-    // 3. 安装 codeagent-wrapper 二进制文件
+    // 4. 决定安装策略
+    const effectiveVersion = canonicalVersion || previousVersion;
+
+    if (effectiveVersion && semver.gt(effectiveVersion, currentVersion)) {
+      console.log(`[claude-workflow] 检测到降级: v${effectiveVersion} → v${currentVersion}`);
+      console.log(`[claude-workflow] 跳过自动安装，如需强制同步请运行: npx claude-workflow sync --force`);
+      installStatus.errors.push('Downgrade detected, skipped');
+    } else if (effectiveVersion && semver.eq(effectiveVersion, currentVersion)) {
+      console.log(`[claude-workflow] 版本相同 (v${currentVersion})，跳过模板复制`);
+      installStatus.templatesInstalled = true;
+    } else {
+      // 执行安装
+      try {
+        const result = await installForAgents({
+          templatesDir,
+          agents: targetAgents,
+          global: true,
+          force: false,
+        });
+
+        installStatus.templatesInstalled = true;
+        installStatus.canonicalDir = result.canonicalDir;
+        installStatus.agents = result.meta?.agents || {};
+
+        if (result.errors.length > 0) {
+          installStatus.errors.push(...result.errors);
+        }
+
+        // 输出安装结果
+        console.log(`[claude-workflow] Canonical: ${result.canonicalDir}`);
+        for (const [name, agentResult] of Object.entries(result.agents)) {
+          const displayName = agents[name]?.displayName || name;
+          const status = agentResult.success ? '✓' : '✗';
+          const mode = agentResult.links?.skills?.mode || 'unknown';
+          console.log(`  ${status} ${displayName} (${mode})`);
+        }
+      } catch (templateErr) {
+        installStatus.errors.push(`Templates: ${templateErr.message}`);
+        console.error(`[claude-workflow] 模板安装失败: ${templateErr.message}`);
+      }
+    }
+
+    // 5. 安装 codeagent-wrapper 二进制文件
     console.log(`\n[claude-workflow] 安装 codeagent-wrapper...`);
     const binaryResult = await installBinary(packageDir);
     if (!binaryResult.success) {
@@ -179,10 +252,18 @@ async function main() {
       }
     }
 
-    // 4. 更新最终元信息
-    await fs.writeJson(metaFile, installStatus, { spaces: 2 });
+    // 6. 保存兼容性元信息到旧位置（向后兼容）
+    const metaDir = path.join(claudeDir, '.claude-workflow');
+    await fs.ensureDir(metaDir);
+    await fs.writeJson(path.join(metaDir, 'meta.json'), {
+      version: currentVersion,
+      installedAt: installStatus.installedAt,
+      npmPackage: pkg.name,
+      canonicalDir: installStatus.canonicalDir,
+      migratedToCanonical: true,
+    }, { spaces: 2 });
 
-    console.log(`\n[claude-workflow] 安装位置: ${claudeDir}`);
+    console.log(`\n[claude-workflow] 安装位置: ${installStatus.canonicalDir || canonicalDir}`);
     if (installStatus.errors.length > 0) {
       console.log(`[claude-workflow] 完成 (有 ${installStatus.errors.length} 个警告)\n`);
     } else {
@@ -193,8 +274,9 @@ async function main() {
     installStatus.errors.push(`Fatal: ${err.message}`);
     // 尝试保存错误状态
     try {
+      const metaDir = path.join(homeDir, '.claude', '.claude-workflow');
       await fs.ensureDir(metaDir);
-      await fs.writeJson(metaFile, installStatus, { spaces: 2 });
+      await fs.writeJson(path.join(metaDir, 'meta.json'), installStatus, { spaces: 2 });
     } catch {}
     console.error(`[claude-workflow] postinstall 失败: ${err.message}`);
     console.error(`[claude-workflow] 可稍后运行: npx claude-workflow sync`);
