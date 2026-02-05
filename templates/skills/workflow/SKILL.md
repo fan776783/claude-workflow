@@ -1,11 +1,21 @@
 ---
 name: workflow
-description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow <action> [args]。Actions: start（启动规划）、execute（执行任务）、status（查看状态）、unblock（解除阻塞）、archive（归档）。此 skill 不会自动触发，需用户明确调用。"
+description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow <action> [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。"
 ---
 
-# 智能工作流系统 (v3.0)
+# 智能工作流系统 (v3.1)
 
 结构化开发工作流：需求分析 → 技术设计 → 任务拆分 → 自动执行。
+
+## 设计理念
+
+```
+workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（验证）
+       │
+  api_spec 阻塞
+```
+
+**职责分离**：workflow 专注业务逻辑和数据流，只阻塞 API 依赖。设计稿还原通过独立的 `/figma-ui` skill 处理。
 
 ## 调用方式
 
@@ -21,8 +31,11 @@ description: "智能工作流系统 - 需求分析、任务规划与自动化执
 /workflow status                        # 查看当前状态
 /workflow status --detail              # 详细模式
 
-/workflow unblock api_spec             # 解除后端接口依赖
-/workflow unblock design_spec          # 解除设计稿依赖
+# 增量变更（自动识别类型，统一入口）
+/workflow delta                                 # 执行 ytt 生成 API
+/workflow delta docs/prd-v2.md                  # PRD 更新
+/workflow delta 新增导出功能，支持 CSV 格式     # 需求补充
+/workflow delta packages/api/.../teamApi.ts     # API 变更 → 自动解除阻塞
 
 /workflow archive                       # 归档已完成的工作流
 ```
@@ -81,9 +94,10 @@ description: "智能工作流系统 - 需求分析、任务规划与自动化执
 |------|------|
 | start | [references/start.md](references/start.md) |
 | execute | [references/execute.md](references/execute.md) |
+| delta | [references/delta.md](references/delta.md) |
 | status | [references/status.md](references/status.md) |
-| unblock | [references/unblock.md](references/unblock.md) |
 | archive | [references/archive.md](references/archive.md) |
+| 外部依赖 | [references/external-deps.md](references/external-deps.md) |
 | 状态机 | [references/state-machine.md](references/state-machine.md) |
 | 共享工具 | [references/shared-utils.md](references/shared-utils.md) |
 

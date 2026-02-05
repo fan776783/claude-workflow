@@ -21,7 +21,7 @@ description: |
 | **assetsDir 必传** | 调用 `get_design_context` 前必须先获取 |
 | **视觉优先** | 像素级还原设计稿，不做"优化" |
 | **Gemini Review** | 验证阶段必须调用，不可跳过 |
-| **还原度门控** | visualFidelity ≥ 85 才能交付 |
+| **还原度门控** | visualFidelity ≥ 90 才能交付 |
 
 **参考文档**：
 - [figma-tools.md](references/figma-tools.md) - MCP 工具速查
@@ -125,6 +125,27 @@ for (const asset of usedAssets) {
 await Bash({ command: `rm -rf "${figmaTmpDir}"` });
 ```
 
+### 复合图形识别
+
+当导出资源包含多个叠加图层时，说明**误提取了子节点**，应获取父节点作为完整图片。
+
+**识别特征**：
+- 多个 SVG 在同一位置叠加（背景 + 图标 + 装饰）
+- 典型场景：空状态图、品牌图标、徽章、插画
+
+**处理方式**：获取父 Frame 的 nodeId，重新导出为单张图片。
+
+```
+设计稿结构：
+├── EmptyState (Frame)     ← 应获取此节点
+│   ├── blur-bg.svg        ✗ 误提取
+│   ├── search-icon.svg    ✗ 误提取
+│   └── stars.svg          ✗ 误提取
+
+✅ 正确：导出 EmptyState 父节点为单张图片
+❌ 错误：分别引用 3 个 SVG 并用 CSS 定位叠加
+```
+
 **⚠️ 不调用外部模型，当前模型直接编码**
 
 ---
@@ -191,7 +212,7 @@ EOF
 ### C.3 修复循环
 
 ```
-visualFidelity < 85 → 修复视觉问题（优先）
+visualFidelity < 90 → 修复视觉问题（优先）
 accessibility < 70 → 修复可访问性
 最多 3 轮，超过请求用户指导
 ```
@@ -206,9 +227,9 @@ accessibility < 70 → 修复可访问性
 
 | 条件 | 决策 |
 |------|------|
-| visualFidelity ≥ 85 | ✅ 通过 |
-| visualFidelity ≥ 75 | ⚠️ 需人工审查 |
-| visualFidelity < 75 | ❌ 请求指导 |
+| visualFidelity ≥ 90 | ✅ 通过 |
+| visualFidelity ≥ 80 | ⚠️ 需人工审查 |
+| visualFidelity < 80 | ❌ 请求指导 |
 
 ### C.5 交付摘要
 

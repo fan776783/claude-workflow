@@ -124,6 +124,62 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
   }
   return `[${bar}] ${usagePercent}%`;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Platform Detection - 检测平台是否支持 subagent
+// ═══════════════════════════════════════════════════════════════
+
+interface PlatformCapabilities {
+  supportsSubagent: boolean;
+  platformName: string;
+  reason: string;
+}
+
+function detectPlatformCapabilities(): PlatformCapabilities {
+  // 检测 Claude Code CLI（支持 Task tool）
+  if (process.env.CLAUDE_CODE_VERSION || process.env.CLAUDE_CLI) {
+    return {
+      supportsSubagent: true,
+      platformName: 'Claude Code',
+      reason: 'Task tool available'
+    };
+  }
+
+  // 检测 Cursor（支持 agent 模式）
+  if (process.env.CURSOR_SESSION_ID || process.env.CURSOR_TRACE_ID) {
+    return {
+      supportsSubagent: true,
+      platformName: 'Cursor',
+      reason: 'Agent mode available'
+    };
+  }
+
+  // 检测 Windsurf（支持 cascade）
+  if (process.env.WINDSURF_SESSION || process.env.CODEIUM_SESSION) {
+    return {
+      supportsSubagent: true,
+      platformName: 'Windsurf',
+      reason: 'Cascade available'
+    };
+  }
+
+  // 检测 Augment（支持 agent）
+  if (process.env.AUGMENT_SESSION_ID) {
+    return {
+      supportsSubagent: true,
+      platformName: 'Augment',
+      reason: 'Agent available'
+    };
+  }
+
+  // 默认：假设支持（因为此 skill 主要在 Claude Code 中运行）
+  // 如果实际不支持，Task 调用会失败并回退到直接执行
+  return {
+    supportsSubagent: true,
+    platformName: 'Unknown (assumed)',
+    reason: 'Default assumption for Claude-compatible platforms'
+  };
+}
 ```
 
 ---
@@ -136,7 +192,7 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 | 阶段 | 按大阶段连续执行（默认） | 阶段变化时 |
 | 连续 | 执行到质量关卡 | 质量关卡 / git_commit |
 
-> **Subagent 模式**：任务数 > 5 时自动启用，每个任务在独立 subagent 中执行，避免上下文膨胀。
+> **Subagent 模式**：平台支持时自动启用（或任务数 > 5），每个任务在独立 subagent 中执行，避免上下文膨胀。
 
 ---
 
@@ -414,9 +470,31 @@ state.contextMetrics.usagePercent = usagePercent;
 // 连续任务计数（用于兜底机制，避免上下文溢出）
 const consecutiveCount = state.consecutive_count || 0;
 
-// 确定是否使用 subagent 模式（自动检测：任务数 > 5）
-const autoSubagent = totalTaskCount > 5;
+// ═══════════════════════════════════════════════════════════════
+// Subagent 模式决策：平台检测 + 任务数量 + 上下文压力
+// ═══════════════════════════════════════════════════════════════
+const platform = detectPlatformCapabilities();
+const taskCountThreshold = totalTaskCount > 5;
+const contextPressure = usagePercent > state.contextMetrics.warningThreshold;
+
+// 启用条件（优先级从高到低）：
+// 1. 用户显式配置 state.use_subagent
+// 2. 平台支持 + 上下文压力高
+// 3. 平台支持 + 任务数量多
+const autoSubagent = platform.supportsSubagent && (contextPressure || taskCountThreshold);
 const useSubagent = state.use_subagent ?? autoSubagent;
+
+// 记录启用原因（用于日志）
+let subagentReason = '';
+if (useSubagent) {
+  if (state.use_subagent === true) {
+    subagentReason = '用户配置';
+  } else if (contextPressure) {
+    subagentReason = `上下文压力 (${usagePercent}%)`;
+  } else if (taskCountThreshold) {
+    subagentReason = `任务数 > 5 (${totalTaskCount})`;
+  }
+}
 
 console.log(`
 📂 工作流目录：${workflowDir}
@@ -425,7 +503,7 @@ console.log(`
 ⚡ 执行模式：${executionMode}${useSubagent ? ' (subagent)' : ''}
 📊 上下文使用率：${generateContextBar(usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}
 ${usagePercent > state.contextMetrics.warningThreshold ? `⚠️ 上下文使用率较高，建议减少连续执行任务数` : ''}
-${useSubagent && autoSubagent ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
+${useSubagent && autoSubagent ? `💡 已自动启用 subagent 模式（${subagentReason}，平台: ${platform.platformName}）` : ''}
 `);
 ```
 

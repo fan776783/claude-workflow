@@ -34,11 +34,12 @@ npm config set @pic:registry http://your-registry-host:4873
 ```
 
 ```bash
-# 全局安装（推荐）
-npm install -g @pic/claude-workflow
+# 一键安装（推荐，无需全局安装）
+npx @pic/claude-workflow sync
 
-# 或作为开发依赖
-npm install -D @pic/claude-workflow
+# 或全局安装后使用
+npm install -g @pic/claude-workflow
+claude-workflow sync
 ```
 
 安装后会自动：
@@ -147,6 +148,10 @@ claude-workflow doctor
 ## 升级
 
 ```bash
+# 使用 npx（推荐）
+npx @pic/claude-workflow@latest sync
+
+# 或全局安装后
 npm update -g @pic/claude-workflow
 ```
 

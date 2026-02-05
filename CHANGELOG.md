@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.0] - 2026-02-05
+
+### workflow v3.1 - Delta 统一入口
+
+**核心变更**：用 `/workflow delta` 替代 `/workflow unblock`，统一处理所有外部规格变更。
+
+#### Added
+- **delta 命令** (`references/delta.md`)：统一入口处理需求更新、API 变更
+  - 无参数：执行 `pnpm ytt` 同步全部 API
+  - `.md` 文件：PRD 更新
+  - `Api.ts` 文件：API 规格变更，自动解除 `api_spec` 阻塞
+  - 其他文本：需求描述
+- **external-deps.md**：外部依赖系统文档，明确职责分离原则
+- **平台检测** (`execute.md`)：自动检测 Claude Code / Cursor / Windsurf / Augment 平台能力
+  - 智能决策是否启用 subagent 模式
+  - 支持上下文压力 + 任务数量双重触发条件
+
+#### Changed
+- **figma-ui 还原度门控提升**：visualFidelity 阈值从 85 提升到 90
+  - 通过：≥90（原 ≥85）
+  - 需审查：≥80（原 ≥75）
+  - 请求指导：<80（原 <75）
+- **figma-ui 复合图形识别**：新增指南，避免误提取叠加图层的子节点
+- **workflow 设计理念**：明确职责分离（workflow 功能 → figma-ui 视觉 → visual-diff 验证）
+
+#### Removed
+- **unblock 命令** (`references/unblock.md`)：功能合并到 delta 命令
+
+---
+
 ## [2.3.0] - 2026-02-04
 
 ### figma-ui v3.0 - 轻量化重构
