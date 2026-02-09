@@ -61,8 +61,10 @@ const designContext = await mcp__figma-mcp__get_design_context({
   dirForAssetWrites: taskAssetsDir,  // ⚠️ 必传
 });
 
-// 获取视觉参考
-await mcp__figma-mcp__get_screenshot({ nodeId });
+// ⚠️ 不主动调用 get_screenshot
+// 图片会大量消耗上下文（20-50k tokens），容易导致上下文溢出
+// get_design_context 返回的结构化代码已包含足够的布局/样式信息
+// 仅在用户明确要求截图时才调用
 ```
 
 ### A.4 提取 ElementManifest
@@ -173,7 +175,7 @@ ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
 
 审查 UI 实现与设计稿的视觉一致性。
 
-设计参考：[附上 get_screenshot 获取的截图]
+设计参考：[附上 get_design_context 返回的结构化设计信息]
 实现代码：[附上组件代码]
 
 返回 JSON：
@@ -304,7 +306,7 @@ Visual Review: 降级 visualFidelity: XX/100 (原因: Gemini 超时)
 | 工具 | 必传参数 |
 |------|----------|
 | `get_design_context` | `nodeId`, `dirForAssetWrites` |
-| `get_screenshot` | `nodeId` |
+| `get_screenshot` | `nodeId`（本 skill 不主动调用，由 visual-diff 按需调用） |
 | `get_metadata` | `nodeId` |
 
 ### 流程图
@@ -314,7 +316,7 @@ Phase A: 设计获取
     │
     ├─ 解析 URL → nodeId
     ├─ 获取 assetsDir
-    ├─ get_design_context + get_screenshot
+    ├─ get_design_context（不调用 get_screenshot，截图逻辑在 visual-diff 中）
     └─ 提取 ElementManifest
     │
 Phase B: 编码（自由发挥）

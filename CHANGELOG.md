@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.0] - 2026-02-09
+
+### Changed
+- **diff-review Deep 模式强制执行**：明确 Deep 模式必须通过 `codeagent-wrapper` 并行调用 Codex 和 Gemini，禁止跳过外部模型调用而由 Claude 单独完成审查
+- **figma-ui 上下文优化**：移除主动调用 `get_screenshot` 的逻辑，避免图片大量消耗上下文（20-50k tokens）导致溢出，仅在用户明确要求时才调用截图
+- **README 格式规范化**：统一 markdown 表格对齐、列表前空行等格式
+
+---
+
 ## [3.1.0] - 2026-02-05
 
 ### workflow v3.1 - Delta 统一入口
