@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.0] - 2026-02-12
+
+### Added
+- **bug-batch Skill**：新增批量缺陷修复 Skill，从蓝鲸项目管理平台拉取缺陷清单，按优先级逐个独立修复
+  - 支持经办人、状态、优先级筛选
+  - 每个缺陷在独立 agent 上下文中使用 debug 流程修复，避免上下文污染
+  - 包含 Hard Stop 确认机制和汇总报告
+- **scan 蓝鲸项目关联**：`/scan` 新增 Part 1.5 蓝鲸项目关联流程
+  - 自动调用 `search_projects` 匹配蓝鲸项目
+  - 将 `bkProjectId` 写入 `project-config.json`
+- **CLI init bkProjectId**：`claude-workflow init` 生成的配置新增 `workflow.bkProjectId` 字段
+
+### Changed
+- **debug Skill 精简重构**：从双模型并行诊断改为当前模型直接修复 + 单模型审查
+  - 流程从 5 Phase 简化为 4 Phase（检索分析 → 确认方案 → 修复验证 → 模型审查）
+  - 移除 Phase 2 双模型并行诊断，改为当前模型直接分析
+  - 审查阶段按问题类型路由到 Codex（后端）或 Gemini（前端）单模型审查
+- **skill-creator 目录迁移**：从 `templates/skills/` 迁移到 `.claude/skills/`（项目级 skill，不再作为模板分发）
+- **工作流体系指南更新至 v7.0.0**：新增 visual-diff、bug-batch 章节，Skills 数量从 7 更新为 10
+
+---
+
 ## [3.2.0] - 2026-02-09
 
 ### Changed

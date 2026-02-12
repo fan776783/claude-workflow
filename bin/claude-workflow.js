@@ -266,7 +266,8 @@ program
         workflow: {
           defaultModel: 'sonnet',
           enableBKMCP: false,
-          enableFigmaMCP: false
+          enableFigmaMCP: false,
+          bkProjectId: ''
         },
         conventions: {
           commitPrefix: ['feat', 'fix', 'chore', 'refactor', 'perf', 'docs', 'style', 'test', 'revert'],

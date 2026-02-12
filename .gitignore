@@ -4,4 +4,5 @@ node_modules/
 .npmrc
 .env
 .env.local
+__pycache__/
 Claude-Code-工作流体系指南.md
