@@ -116,6 +116,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 | delta | [references/delta.md](references/delta.md) |
 | status | [references/status.md](references/status.md) |
 | archive | [references/archive.md](references/archive.md) |
+| 验证清单 | [references/acceptance-checklist.md](references/acceptance-checklist.md) |
 | 外部依赖 | [references/external-deps.md](references/external-deps.md) |
 | 状态机 | [references/state-machine.md](references/state-machine.md) |
 | 共享工具 | [references/shared-utils.md](references/shared-utils.md) |
