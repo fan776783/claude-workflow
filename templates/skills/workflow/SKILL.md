@@ -109,13 +109,38 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 ## References
 
+### 核心流程（概览）
+
+| 模块 | 路径 | 说明 |
+|------|------|------|
+| start | [references/start-overview.md](references/start-overview.md) | 启动工作流概览 |
+| execute | [references/execute-overview.md](references/execute-overview.md) | 执行任务概览 |
+| delta | [references/delta-overview.md](references/delta-overview.md) | 增量变更概览 |
+| status | [references/status.md](references/status.md) | 查看状态 |
+| archive | [references/archive.md](references/archive.md) | 归档工作流 |
+
+### 详细实现规格（按需查阅）
+
+**start 流程详情**：
+- [specs/start/phase-0-code-analysis.md](specs/start/phase-0-code-analysis.md) - Phase 0 代码分析
+- [specs/start/phase-0.5-requirement-extraction.md](specs/start/phase-0.5-requirement-extraction.md) - Phase 0.5 需求结构化提取
+- [specs/start/phase-0.6-acceptance-checklist.md](specs/start/phase-0.6-acceptance-checklist.md) - Phase 0.6 验证清单生成
+- [specs/start/phase-1-tech-design.md](specs/start/phase-1-tech-design.md) - Phase 1 技术方案生成
+- [specs/start/phase-1.5-intent-review.md](specs/start/phase-1.5-intent-review.md) - Phase 1.5 意图审查
+- [specs/start/phase-2-task-generation.md](specs/start/phase-2-task-generation.md) - Phase 2 任务清单生成
+
+**execute 流程详情**：
+- [specs/execute/execution-modes.md](specs/execute/execution-modes.md) - 执行模式详情
+- [specs/execute/helpers.md](specs/execute/helpers.md) - 辅助函数
+
+**delta 流程详情**：
+- [specs/delta/impact-analysis.md](specs/delta/impact-analysis.md) - 影响分析详情
+- [specs/delta/api-sync.md](specs/delta/api-sync.md) - API 同步详情
+
+### 其他参考
+
 | 模块 | 路径 |
 |------|------|
-| start | [references/start.md](references/start.md) |
-| execute | [references/execute.md](references/execute.md) |
-| delta | [references/delta.md](references/delta.md) |
-| status | [references/status.md](references/status.md) |
-| archive | [references/archive.md](references/archive.md) |
 | 验证清单 | [references/acceptance-checklist.md](references/acceptance-checklist.md) |
 | 外部依赖 | [references/external-deps.md](references/external-deps.md) |
 | 状态机 | [references/state-machine.md](references/state-machine.md) |

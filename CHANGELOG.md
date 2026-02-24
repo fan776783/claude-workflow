@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.3] - 2026-02-24
+
+### Changed
+- **workflow skill 文件结构优化**：重构大文件为模块化结构，符合 Progressive Disclosure 原则
+  - `start.md` (2492 行) → `start-overview.md` (288 行) + 6 个 specs 文件
+  - `execute.md` (2064 行) → `execute-overview.md` (281 行) + 2 个 specs 文件
+  - `delta.md` (550 行) → `delta-overview.md` (355 行) + 2 个 specs 文件
+  - `SKILL.md` 优化导航结构，提供分层引用（核心流程概览 + 详细实现规格）
+
+### Added
+- **specs/start/** 目录：Phase 0-2 详细实现规格
+  - `phase-0-code-analysis.md` (202 行) - 代码分析详情
+  - `phase-0.5-requirement-extraction.md` (263 行) - 需求结构化提取详情
+  - `phase-0.6-acceptance-checklist.md` (437 行) - 验证清单生成详情
+  - `phase-1-tech-design.md` (422 行) - 技术方案生成详情
+  - `phase-1.5-intent-review.md` (249 行) - 意图审查详情
+  - `phase-2-task-generation.md` (512 行) - 任务清单生成详情
+- **specs/execute/** 目录：执行流程详细实现规格
+  - `execution-modes.md` (448 行) - 执行模式详情（单步/阶段/连续/重试/跳过）
+  - `helpers.md` (616 行) - 辅助函数详情
+- **specs/delta/** 目录：增量变更详细实现规格
+  - `impact-analysis.md` (596 行) - 影响分析详情
+  - `api-sync.md` (627 行) - API 同步详情
+
+### Improved
+- **文档可读性**：所有 overview 文件 < 400 行，specs 文件 < 700 行
+- **导航体验**：清晰的分层结构，用户可从概览快速了解流程，需要时再深入查看详细规格
+- **维护性**：每个文件职责单一、聚焦，便于后续更新和扩展
+
+### Technical Details
+- 文件数量：3 个大文件 → 14 个聚焦文件
+- 最大文件：2492 行 → 627 行
+- 平均文件：~1700 行 → ~380 行
+- 架构模式：混合方案（overview + specs 分离）
+
+---
+
 ## [3.3.2] - 2026-02-24
 
 ### Added
