@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.2] - 2026-02-24
+
+### Added
+- **workflow Phase 0.6 验证清单生成系统**：将结构化需求自动转换为可执行的验收清单
+  - 7 类验证项生成：表单字段、角色权限、交互行为、业务规则、边界场景、UI展示、功能流程
+  - 任务关联映射：根据 phase/file/requirement 自动匹配验收项
+  - 验收标准定义：Must Pass（必须满足）和 Should Pass（建议满足）
+  - 生成位置：`.claude/acceptance/{name}-checklist.md`
+- **验证清单模板**：`templates/docs/acceptance-checklist-template.md`
+- **验证清单文档**：
+  - `templates/skills/workflow/references/acceptance-checklist.md` - 系统说明文档
+  - `templates/docs/acceptance-checklist-guide.md` - 使用指南（7 种常见场景 + 验收测试模板）
+  - `docs/workflow-v3.3.2-acceptance-checklist.md` - 版本说明文档
+  - `docs/acceptance-checklist-quick-reference.md` - 快速参考文档
+
+### Changed
+- **任务清单增强**：新增 `验收项` 字段，列出关联的验收项 ID（如 `AC-F1.1, AC-P1.2`）
+- **技术方案增强**：需求详情章节（1.1-1.9）展示结构化需求的表格化视图
+- **规划完成提示**：显示验证清单路径和统计信息
+- **workflow SKILL.md**：更新描述，说明 v3.3.2 新增验证清单生成系统
+
+### Technical Details
+- 新增核心函数：
+  - `generateAcceptanceChecklist()` - 将 RequirementAnalysis 转换为 AcceptanceChecklist
+  - `mapTaskToAcceptanceCriteria()` - 任务与验收项智能匹配
+  - `renderAcceptanceChecklist()` - 渲染验证清单为 Markdown
+- 新增接口定义：
+  - `AcceptanceChecklist` - 验证清单数据结构
+  - `FormValidation`, `PermissionValidation`, `InteractionValidation` 等 7 个验证项类型
+- 代码行数：~1,500 行新增代码
+
+---
+
 ## [3.3.1] - 2026-02-24
 
 ### Added
