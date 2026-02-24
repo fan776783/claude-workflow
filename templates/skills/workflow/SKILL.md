@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow <action> [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。"
+description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow action [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。"
 ---
 
 # 智能工作流系统 (v3.1)
@@ -54,7 +54,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ## 工作流程
 
 ```
-需求 ──▶ 代码分析 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
              │              │                   │                │
         codebase-       🛑 确认设计        🔍 审查意图      🛑 确认任务
         retrieval

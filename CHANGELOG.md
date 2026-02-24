@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.1] - 2026-02-24
+
+### Added
+- **workflow Phase 0.5 需求结构化提取**：在代码分析与技术方案生成之间新增条件执行阶段
+  - 9 维度深度扫描：变更记录、表单字段、角色权限、交互规格、业务规则、边界场景、UI 展示规则、功能流程、数据契约
+  - 仅对文件来源且长度 > 500 的需求执行，内联需求/短文本自动跳过（向后兼容）
+  - 覆盖率验证：PRD 行数 vs 提取条目数，空维度警告
+  - 产物自动注入 tech-design.md 的 `## 1.x 需求详情` 章节
+- **Codex reviewer 需求对齐检查**：新增 Requirement Alignment checklist，技术方案审查时验证 PRD 覆盖率（Coverage < 80% 阻断评分）
+- **tech-design-template v2**：模板升级，新增 `{{requirement_detail_sections}}` 占位符，表格类占位符从行级改为集合级（`{{related_files_table}}`、`{{implementation_plan}}`、`{{risks}}`）
+
+### Fixed
+- **Markdown 表格渲染安全**：新增 `esc()` 辅助函数，对所有 9 维度表格单元格内容转义管道符和换行符，防止 PRD 原文破坏表格结构
+- **workflow SKILL.md 描述**：`<action>` 去除尖括号避免 YAML 解析歧义
+
+---
+
 ## [3.3.0] - 2026-02-12
 
 ### Added

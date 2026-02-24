@@ -2,10 +2,10 @@
 
 > 精简接口：自动检测 `.md` 文件，无需 `--backend`/`--file` 参数
 
-三阶段强制流程：**需求 → 设计 → 意图审查 → 任务**
+四阶段强制流程：**需求 → 需求结构化 → 设计 → 意图审查 → 任务**
 
 ```
-需求文档 ──▶ 代码分析 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+需求文档 ──▶ 代码分析 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
                 │              │                   │                │
                 │         🛑 确认设计          🔍 审查意图      🛑 确认任务
                 │
@@ -192,6 +192,64 @@ console.log(`
 
 ---
 
+### Phase 0.5：需求结构化提取（条件执行）
+
+**目的**：从 PRD 中提取结构化数据，确保表单字段、角色权限、业务规则等细节不丢失
+
+> 仅对文件来源且长度 > 500 的需求执行（向后兼容：内联需求 / 短文本自动跳过）
+
+```typescript
+console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔬 Phase 0.5: 需求结构化提取
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+let requirementAnalysis: RequirementAnalysis | null = null;
+
+if (requirementSource !== 'inline' && requirementContent.length > 500) {
+  requirementAnalysis = extractStructuredRequirements(requirementContent);
+
+  const dimensions = [
+    { key: 'changeRecords', label: '变更记录' },
+    { key: 'formFields', label: '表单字段' },
+    { key: 'rolePermissions', label: '角色权限' },
+    { key: 'interactions', label: '交互规格' },
+    { key: 'businessRules', label: '业务规则' },
+    { key: 'edgeCases', label: '边界场景' },
+    { key: 'uiDisplayRules', label: 'UI展示规则' },
+    { key: 'functionalFlows', label: '功能流程' },
+    { key: 'dataContracts', label: '数据契约' },
+  ];
+
+  const stats = dimensions
+    .map(d => `${d.label}: ${requirementAnalysis[d.key]?.length || 0}`)
+    .join(' | ');
+
+  // 覆盖率验证：PRD 行数 vs 提取条目数
+  const prdLineCount = requirementContent.split('\n').length;
+  const totalExtracted = dimensions.reduce((sum, d) => sum + (requirementAnalysis[d.key]?.length || 0), 0);
+  const emptyDimensions = dimensions.filter(d => (requirementAnalysis[d.key]?.length || 0) === 0);
+  const coverageWarning = (prdLineCount > 200 && totalExtracted < 20)
+    ? `\n⚠️ 覆盖率偏低：PRD ${prdLineCount} 行，仅提取 ${totalExtracted} 条。请检查是否遗漏需求细节。`
+    : '';
+  const emptyWarning = emptyDimensions.length > 3
+    ? `\n⚠️ ${emptyDimensions.length} 个维度为空（${emptyDimensions.map(d => d.label).join('、')}），请确认 PRD 是否涉及这些维度。`
+    : '';
+
+  console.log(`
+✅ 需求结构化提取完成（9 维度）
+
+📊 ${stats}
+📈 总提取条目: ${totalExtracted} | PRD 行数: ${prdLineCount}${coverageWarning}${emptyWarning}
+`);
+} else {
+  console.log(`⏭️ 跳过（${requirementSource === 'inline' ? '内联需求' : '文本过短'}）\n`);
+}
+```
+
+---
+
 ### Phase 1：生成技术方案（强制）⚠️
 
 **目的**：在拆分任务前明确架构决策
@@ -264,6 +322,11 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
   // 尝试加载模板文件
   const techDesignTemplate = loadTemplate('tech-design-template.md');
 
+  // 预渲染需求详情章节（Phase 0.5 产物）
+  const requirementDetailSections = requirementAnalysis
+    ? renderRequirementDetailSections(requirementAnalysis)
+    : '';
+
   let techDesignContent: string;
 
   if (techDesignTemplate) {
@@ -273,6 +336,7 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
       created_at: new Date().toISOString(),
       task_name: taskName,
       requirement_summary: requirementContent,
+      requirement_detail_sections: requirementDetailSections,
       related_files_table: relatedFilesTable,
       existing_patterns: patternsContent,
       constraints: constraintsContent,
@@ -286,7 +350,7 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
   } else {
     // 模板缺失时使用简洁的内联生成
     techDesignContent = `---
-version: 1
+version: 2
 requirement_source: "${requirementSource}"
 created_at: "${new Date().toISOString()}"
 status: draft
@@ -297,6 +361,8 @@ status: draft
 ## 1. 需求摘要
 
 ${requirementContent}
+
+${requirementDetailSections}
 
 ## 2. 代码分析结果
 
@@ -503,19 +569,26 @@ if (designChoice === "手动编辑后继续") {
 if (designChoice === "Codex 审查") {
   // 调用 Codex 审查 - 使用临时文件避免 heredoc 注入
   const tempFile = `/tmp/codex-review-${Date.now()}.txt`;
+
+  // 构建审查提示词（含需求覆盖检查）
+  const requirementContext = requirementAnalysis
+    ? `\n\n<STRUCTURED_REQUIREMENTS>\n${JSON.stringify(requirementAnalysis, null, 2)}\n</STRUCTURED_REQUIREMENTS>\n\n请额外执行 Requirement Alignment 检查，验证技术方案是否覆盖上述结构化需求中的所有条目。`
+    : '';
+
   const reviewPrompt = `ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 
 <TASK>
 请审查以下技术方案文档：
 
 ${readFile(techDesignPath)}
+${requirementContext}
 
 请重点关注：
 1. 架构设计是否合理
 2. 模块划分是否清晰
 3. 接口设计是否完整
 4. 实施计划是否可行
-5. 风险评估是否充分
+5. 风险评估是否充分${requirementAnalysis ? '\n6. 需求覆盖率（Requirement Alignment）' : ''}
 
 请提供评分和改进建议。
 </TASK>
@@ -1043,6 +1116,329 @@ function classifyTaskDependencies(task: { name: string; file?: string }): string
   }
 
   return deps;
+}
+
+/**
+ * RequirementAnalysis 接口定义 (v2.1)
+ *
+ * 9 维度提取：变更记录、表单字段、角色权限、交互规格、业务规则、
+ * 边界场景、UI 展示规则、功能流程、数据契约
+ */
+interface RequirementAnalysis {
+  changeRecords: Array<{
+    id: string;
+    version: string;
+    description: string;
+    changedFields: string[];
+    ruleChange?: string;
+  }>;
+  formFields: Array<{
+    scene: string;          // 所属场景/表单（区分同名字段在不同表单中的规格差异）
+    fieldName: string;
+    type: string;           // text | textarea | image | select | switch | multi-select
+    required: boolean;
+    validationRules: string[];
+    tooltip?: string;       // 输入框内的默认文案/placeholder
+    helperText?: string;    // 常驻提示文案
+    validationMessage?: string;  // 校验失败时的提示文案（保留 PRD 原文）
+  }>;
+  rolePermissions: Array<{
+    role: string;
+    permissions: string[];
+    restrictions: string[];
+    scenarioNotes?: string; // 场景级补充说明（数据归属、条件可见性等）
+  }>;
+  interactions: Array<{
+    trigger: string;
+    element: string;
+    behavior: string;
+    message?: string;
+    condition?: string;     // 触发条件（所处页面/Tab/权限状态等前提）
+  }>;
+  businessRules: Array<{
+    id: string;
+    condition: string;
+    expectedBehavior: string;
+    relatedFields: string[];
+  }>;
+  edgeCases: Array<{
+    scenario: string;
+    expectedDisplay: string;
+    fallbackBehavior?: string;
+    context?: string;       // 发生在哪个页面/组件
+  }>;
+  uiDisplayRules: Array<{
+    context: string;        // 页面/Tab/组件
+    rule: string;           // 展示规则描述
+    detail: string;         // 具体差异说明
+  }>;
+  functionalFlows: Array<{
+    name: string;           // 流程名称
+    steps: string[];        // 步骤序列
+    conditionalPaths?: string[];  // 条件分支
+    entryPoints?: string[];      // 触发该流程的入口路径
+  }>;
+  dataContracts: Array<{
+    name: string;           // 接口/模型名称
+    type: string;           // api_endpoint | data_model | field_mapping | config
+    spec: string;           // 规格描述（方法+路径、字段定义、映射关系等）
+    constraints?: string;   // 约束说明（必填、类型、范围等）
+  }>;
+}
+
+/**
+ * 从 PRD 中提取结构化需求（9 维度深度扫描）
+ * 指令驱动：当前模型按维度扫描需求文档，提取结构化数据
+ *
+ * ⚠️ 提取原则：
+ * - 宁多勿少：宁可提取冗余条目，也不能遗漏需求细节
+ * - 按场景分组：同一字段在不同场景下的规则差异必须分别记录
+ * - 保留原文：校验规则、提示文案、tooltips 等必须保留 PRD 原文，不可改写
+ * - 穷举校验：每个场景的必填字段缺失组合及对应提示文案都要记录到 formFields.validationMessage
+ */
+function extractStructuredRequirements(content: string): RequirementAnalysis {
+  // 当前模型执行：逐维度扫描 PRD 原文，提取结构化数据
+  // 按每个维度的匹配模式逐段扫描，将匹配到的内容填入对应数组，空维度保持 []
+
+  const analysis: RequirementAnalysis = {
+    // ── 维度 1: 变更记录 ──
+    // 扫描版本变更/修改历史/changelog 标记（如 "变更01" / "V2.x" / "修订"）
+    changeRecords: [],
+
+    // ── 维度 2: 表单字段（按场景分组） ──
+    // 🔑 关键：同名字段在不同表单/场景下的规格可能不同（字符限制、必填规则等）
+    // 扫描策略：
+    //   1. 先识别所有表单/弹窗场景
+    //   2. 对每个场景逐一提取字段（输入框/选择器/上传框/开关）
+    //   3. 每个字段记录：scene + fieldName + type + required + validationRules + tooltip + helperText
+    //   4. 特别关注：字符限制、超出行为（禁止输入 vs 可输入但保存报错）、文件格式/大小限制
+    //   5. 必填规则差异：单字段必填 vs "N选一必填"
+    //   6. 校验失败提示：每个字段校验失败时的 tooltip/message 记入 validationMessage
+    formFields: [],
+
+    // ── 维度 3: 角色权限 ──
+    // 扫描角色权限差异（角色名 + 可见/不可见/可编辑/禁用）
+    // 🔑 关键：不同角色在同一功能上的行为差异要逐一记录
+    //   - 操作按钮的可见性（按角色 + 数据归属）
+    //   - "仅限自己创建的" vs "所有数据" 的权限边界
+    //   - 按钮不可用时是"不展示"还是"置灰"
+    //   - 页面/功能的准入权限
+    rolePermissions: [],
+
+    // ── 维度 4: 交互规格 ──
+    // 扫描交互规格描述（hover/tooltip/弹窗/确认/loading/错误提示）
+    // 🔑 关键：
+    //   1. 延迟参数（hover 延迟、防抖等）
+    //   2. 条件交互（权限/状态/数据归属等前提条件）
+    //   3. 弹窗层级和关闭后返回位置
+    //   4. 列表排序规则（新增数据的位置、默认排序字段和方向）
+    //   5. 展开/收起/折叠逻辑
+    //   6. 固定/吸附/悬浮位置规则
+    interactions: [],
+
+    // ── 维度 5: 业务规则 ──
+    // 扫描条件逻辑（"如果...则..." / "当...时..." / "必须" / "不允许"）
+    // 🔑 关键：
+    //   1. 唯一性校验范围（全局唯一 vs 某作用域内唯一）
+    //   2. 联动规则（A 变更时 B 如何响应）
+    //   3. 时间戳判定规则（何种操作算"更新"、何种不算）
+    //   4. 删除/禁用的影响范围（是否影响已引用数据）
+    //   5. 跨类目/跨分组的交叉选择规则
+    //   6. 组合校验规则（多字段联合校验条件及对应提示文案）
+    businessRules: [],
+
+    // ── 维度 6: 边界场景 ──
+    // 扫描边界/异常场景（未开通/无权限/为空/超出/不存在/降级）
+    // 🔑 关键：同一空状态/异常在不同上下文的展示可能不同（文案、按钮、图标差异）
+    edgeCases: [],
+
+    // ── 维度 7: UI 展示规则 ──
+    // 扫描 UI 展示差异（不同 Tab/页面/角色/数据类型下的列、字段、按钮差异）
+    // 🔑 关键：
+    //   1. 不同 Tab/分类下列表列的增减差异
+    //   2. 空值/未上传时的缺省展示
+    //   3. 文本截断规则（超出后省略号/换行/tooltip）
+    //   4. 固定列/吸附列规则
+    //   5. 时间/日期的格式规范
+    //   6. 多行信息的展示格式（如姓名+账号的排列方式）
+    //   7. 跨业务类型的兼容差异（同一功能在不同业务线的展示区别）
+    uiDisplayRules: [],
+
+    // ── 维度 8: 功能流程（含入口路径） ──
+    // 扫描多步交互流程、条件分支路径、以及触发该流程的所有入口
+    // 🔑 关键：
+    //   1. 创建/添加操作的完整步骤（含前置选择）
+    //   2. 成功/失败后的页面跳转或状态变化
+    //   3. 编辑场景中嵌套的删除/重置流程
+    //   4. 复制/克隆操作的字段继承规则（哪些带入、哪些清空）
+    //   5. 上传/删除等子流程（是否有二次确认）
+    //   6. entryPoints：同一功能可能从不同页面/按钮触发，关闭后返回位置也不同
+    functionalFlows: [],
+
+    // ── 维度 9: 数据契约 ──（API/后端类 PRD）
+    // 扫描 API 端点、数据模型、字段映射、配置项等结构化定义
+    // 🔑 关键：
+    //   1. API 端点（方法 + 路径 + 请求/响应结构）
+    //   2. 数据模型（表结构 / DTO / VO 的字段定义）
+    //   3. 字段映射关系（前端字段名 ↔ 后端字段名）
+    //   4. 枚举值/状态码定义
+    //   5. 配置项及默认值
+    dataContracts: [],
+  };
+
+  // 提取指令（每个维度）：
+  // 1. changeRecords → { id, version, description, changedFields[], ruleChange }
+  // 2. formFields → { scene, fieldName, type, required, validationRules[], tooltip, helperText, validationMessage }
+  //    ⚠️ 对每个表单场景分别提取，scene 字段标识所属场景
+  // 3. rolePermissions → { role, permissions[], restrictions[], scenarioNotes }
+  // 4. interactions → { trigger, element, behavior, message, condition }
+  // 5. businessRules → { id, condition, expectedBehavior, relatedFields[] }
+  // 6. edgeCases → { scenario, expectedDisplay, fallbackBehavior, context }
+  // 7. uiDisplayRules → { context, rule, detail }
+  // 8. functionalFlows → { name, steps[], conditionalPaths[], entryPoints[] }
+  // 9. dataContracts → { name, type, spec, constraints }
+
+  return analysis;
+}
+
+/**
+ * 将 RequirementAnalysis 渲染为 Markdown 章节（1.1-1.9）
+ * 空维度不渲染，保持文档简洁
+ */
+function renderRequirementDetailSections(analysis: RequirementAnalysis): string {
+  const sections: string[] = [];
+
+  // 1.1 变更记录
+  if (analysis.changeRecords.length > 0) {
+    sections.push(`### 1.1 变更记录
+
+| 变更 ID | 版本 | 描述 | 涉及字段 | 规则变化 |
+|---------|------|------|----------|----------|
+${analysis.changeRecords.map(r =>
+  `| ${esc(r.id)} | ${esc(r.version)} | ${esc(r.description)} | ${esc(r.changedFields.join(', '))} | ${esc(r.ruleChange || '-')} |`
+).join('\n')}`);
+  }
+
+  // 1.2 表单字段规格（按场景分组，含校验提示）
+  if (analysis.formFields.length > 0) {
+    const byScene = groupBy(analysis.formFields, 'scene');
+    const sceneTables = Object.entries(byScene).map(([scene, fields]) =>
+      `#### ${scene}
+
+| 字段名 | 类型 | 必填 | 校验规则 | 提示文案 | 校验失败提示 |
+|--------|------|------|----------|----------|-------------|
+${fields.map(f =>
+  `| ${esc(f.fieldName)} | ${esc(f.type)} | ${f.required ? '✅' : '-'} | ${esc(f.validationRules.join('; '))} | ${esc(f.tooltip || '-')} | ${esc(f.validationMessage || '-')} |`
+).join('\n')}`
+    ).join('\n\n');
+
+    sections.push(`### 1.2 表单字段规格
+
+${sceneTables}`);
+  }
+
+  // 1.3 角色权限矩阵
+  if (analysis.rolePermissions.length > 0) {
+    sections.push(`### 1.3 角色权限矩阵
+
+| 角色 | 可执行操作 | 限制 | 场景说明 |
+|------|-----------|------|----------|
+${analysis.rolePermissions.map(r =>
+  `| ${esc(r.role)} | ${esc(r.permissions.join(', '))} | ${esc(r.restrictions.join(', ') || '-')} | ${esc(r.scenarioNotes || '-')} |`
+).join('\n')}`);
+  }
+
+  // 1.4 交互规格
+  if (analysis.interactions.length > 0) {
+    sections.push(`### 1.4 交互规格
+
+| 触发方式 | 目标元素 | 行为 | 提示信息 | 触发条件 |
+|----------|----------|------|----------|----------|
+${analysis.interactions.map(i =>
+  `| ${esc(i.trigger)} | ${esc(i.element)} | ${esc(i.behavior)} | ${esc(i.message || '-')} | ${esc(i.condition || '-')} |`
+).join('\n')}`);
+  }
+
+  // 1.5 业务规则
+  if (analysis.businessRules.length > 0) {
+    sections.push(`### 1.5 业务规则
+
+| 规则 ID | 条件 | 期望行为 | 关联字段 |
+|---------|------|----------|----------|
+${analysis.businessRules.map(r =>
+  `| ${esc(r.id)} | ${esc(r.condition)} | ${esc(r.expectedBehavior)} | ${esc(r.relatedFields.join(', '))} |`
+).join('\n')}`);
+  }
+
+  // 1.6 边界场景
+  if (analysis.edgeCases.length > 0) {
+    sections.push(`### 1.6 边界场景
+
+| 场景 | 期望展示 | 兜底行为 | 所在上下文 |
+|------|----------|----------|------------|
+${analysis.edgeCases.map(e =>
+  `| ${esc(e.scenario)} | ${esc(e.expectedDisplay)} | ${esc(e.fallbackBehavior || '-')} | ${esc(e.context || '-')} |`
+).join('\n')}`);
+  }
+
+  // 1.7 UI 展示规则
+  if (analysis.uiDisplayRules.length > 0) {
+    sections.push(`### 1.7 UI 展示规则
+
+| 上下文 | 规则 | 具体差异 |
+|--------|------|----------|
+${analysis.uiDisplayRules.map(u =>
+  `| ${esc(u.context)} | ${esc(u.rule)} | ${esc(u.detail)} |`
+).join('\n')}`);
+  }
+
+  // 1.8 功能流程（含入口路径）
+  if (analysis.functionalFlows.length > 0) {
+    const flowSections = analysis.functionalFlows.map(f =>
+      `#### ${f.name}
+
+${f.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+${f.conditionalPaths?.length ? `\n**条件分支**：\n${f.conditionalPaths.map(p => `- ${p}`).join('\n')}` : ''}
+${f.entryPoints?.length ? `\n**入口路径**：\n${f.entryPoints.map((e, i) => `${i + 1}. ${e}`).join('\n')}` : ''}`
+    ).join('\n\n');
+
+    sections.push(`### 1.8 功能流程
+
+${flowSections}`);
+  }
+
+  // 1.9 数据契约
+  if (analysis.dataContracts.length > 0) {
+    sections.push(`### 1.9 数据契约
+
+| 名称 | 类型 | 规格 | 约束 |
+|------|------|------|------|
+${analysis.dataContracts.map(d =>
+  `| ${esc(d.name)} | ${esc(d.type)} | ${esc(d.spec)} | ${esc(d.constraints || '-')} |`
+).join('\n')}`);
+  }
+
+  return sections.length > 0
+    ? `## 1.x 需求详情（结构化提取）\n\n${sections.join('\n\n')}`
+    : '';
+}
+
+/**
+ * 转义 Markdown 表格单元格内容（管道符 + 换行）
+ */
+function esc(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+/**
+ * 按指定字段分组
+ */
+function groupBy<T>(arr: T[], key: keyof T): Record<string, T[]> {
+  return arr.reduce((acc, item) => {
+    const group = String(item[key] || '默认');
+    (acc[group] = acc[group] || []).push(item);
+    return acc;
+  }, {} as Record<string, T[]>);
 }
 
 function sanitize(name: string): string {

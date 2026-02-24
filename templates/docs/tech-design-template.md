@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
 status: draft  # draft | approved | superseded
@@ -11,13 +11,15 @@ status: draft  # draft | approved | superseded
 
 {{requirement_summary}}
 
+{{requirement_detail_sections}}
+
 ## 2. 代码分析结果
 
 ### 2.1 相关现有代码
 
 | 文件 | 用途 | 复用方式 |
 |------|------|----------|
-| `{{file_path}}` | {{purpose}} | {{reuse_type}} |
+{{related_files_table}}
 
 ### 2.2 现有架构模式
 
@@ -51,13 +53,13 @@ status: draft  # draft | approved | superseded
 
 | 序号 | 任务 | 文件 | 依赖 |
 |------|------|------|------|
-| {{index}} | {{task_name}} | `{{file_path}}` | {{dependencies}} |
+{{implementation_plan}}
 
 ## 5. 风险与缓解
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| {{risk}} | {{impact}} | {{mitigation}} |
+{{risks}}
 
 ## 6. 验收标准
 
