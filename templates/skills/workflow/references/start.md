@@ -250,6 +250,76 @@ if (requirementSource !== 'inline' && requirementContent.length > 500) {
 
 ---
 
+### Phase 0.6：生成验证清单（条件执行）
+
+**目的**：将结构化需求转换为可执行的验证清单，指导任务实现和验收测试
+
+> 仅在 Phase 0.5 成功提取结构化需求后执行
+
+```typescript
+console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 Phase 0.6: 生成验证清单
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`);
+
+let acceptanceChecklist: AcceptanceChecklist | null = null;
+
+if (requirementAnalysis) {
+  acceptanceChecklist = generateAcceptanceChecklist(requirementAnalysis, taskName);
+
+  const stats = [
+    `表单验证: ${acceptanceChecklist.formValidations.length}`,
+    `权限验证: ${acceptanceChecklist.permissionValidations.length}`,
+    `交互验证: ${acceptanceChecklist.interactionValidations.length}`,
+    `业务规则: ${acceptanceChecklist.businessRuleValidations.length}`,
+    `边界场景: ${acceptanceChecklist.edgeCaseValidations.length}`,
+    `UI展示: ${acceptanceChecklist.uiDisplayValidations.length}`,
+    `功能流程: ${acceptanceChecklist.functionalFlowValidations.length}`
+  ].join(' | ');
+
+  const totalItems = [
+    acceptanceChecklist.formValidations,
+    acceptanceChecklist.permissionValidations,
+    acceptanceChecklist.interactionValidations,
+    acceptanceChecklist.businessRuleValidations,
+    acceptanceChecklist.edgeCaseValidations,
+    acceptanceChecklist.uiDisplayValidations,
+    acceptanceChecklist.functionalFlowValidations
+  ].reduce((sum, arr) => sum + arr.length, 0);
+
+  console.log(`
+✅ 验证清单生成完成
+
+📊 ${stats}
+📈 总验收项: ${totalItems}
+`);
+
+  // 生成验证清单文件
+  const checklistPath = `.claude/acceptance/${sanitizedName}-checklist.md`;
+  ensureDir('.claude/acceptance');
+
+  const checklistContent = renderAcceptanceChecklist(acceptanceChecklist, {
+    taskName,
+    requirementSource,
+    techDesignPath,
+    createdAt: new Date().toISOString()
+  });
+
+  writeFile(checklistPath, checklistContent);
+
+  console.log(`
+📄 验证清单已保存: ${checklistPath}
+
+💡 任务执行时将自动关联相关验收项
+`);
+} else {
+  console.log(`⏭️ 跳过（未执行 Phase 0.5）\n`);
+}
+```
+
+---
+
 ### Phase 1：生成技术方案（强制）⚠️
 
 **目的**：在拆分任务前明确架构决策
@@ -644,7 +714,7 @@ const techDesign = readFile(techDesignPath);
 // 从技术方案提取实施计划
 const implementationPlan = extractImplementationPlan(techDesign);
 
-// 为每个任务补充详细信息（包含依赖分类）
+// 为每个任务补充详细信息（包含依赖分类 + 验证清单关联）
 const tasks = implementationPlan.map((item, index) => {
   const task = {
     id: `T${index + 1}`,
@@ -666,6 +736,11 @@ const tasks = implementationPlan.map((item, index) => {
   if (blockedBy.length > 0) {
     task.blocked_by = blockedBy;
     task.status = 'blocked';  // 有未解除依赖时标记为 blocked
+  }
+
+  // 关联验证清单（如果已生成）
+  if (acceptanceChecklist) {
+    task.acceptance_criteria = mapTaskToAcceptanceCriteria(task, acceptanceChecklist);
   }
 
   return task;
@@ -720,7 +795,7 @@ const acceptanceMarkdown = acceptanceCriteria.length > 0
   ? acceptanceCriteria.map((ac, i) => `- [ ] AC${i + 1}: ${ac}`).join('\n')
   : '- [ ] AC1: （待定义）';
 
-// 渲染任务列表
+// 渲染任务列表（包含验收项关联）
 const tasksMarkdown = tasks.map(t => `
 ## ${t.id}: ${t.name}
 <!-- id: ${t.id}, design_ref: ${t.design_ref || 'N/A'} -->
@@ -729,6 +804,7 @@ ${t.file ? `- **文件**: \`${t.file}\`` : ''}
 ${t.leverage ? `- **复用**: \`${t.leverage}\`` : ''}
 ${t.design_ref ? `- **设计参考**: tech-design.md § ${t.design_ref}` : ''}
 - **需求**: ${t.requirement}
+${t.acceptance_criteria && t.acceptance_criteria.length > 0 ? `- **验收项**: ${t.acceptance_criteria.join(', ')}` : ''}
 - **actions**: \`${t.actions}\`
 ${t.depends ? `- **依赖**: ${t.depends}` : ''}
 ${t.blocked_by ? `- **阻塞依赖**: \`${t.blocked_by.join(', ')}\`` : ''}
@@ -791,6 +867,7 @@ console.log(`
 
 📄 文件路径：${tasksPath}
 📊 任务数量：${tasks.length}
+${acceptanceChecklist ? `📋 验证清单：.claude/acceptance/${sanitizedName}-checklist.md` : ''}
 
 ${tasks.map(t => `- [ ] ${t.id}: ${t.name} (${t.phase})`).join('\n')}
 `);
@@ -809,6 +886,7 @@ console.log(`
 
 📄 技术方案：${techDesignPath}
 📋 任务清单：${tasksPath}
+${acceptanceChecklist ? `✅ 验证清单：.claude/acceptance/${sanitizedName}-checklist.md` : ''}
 📊 任务数量：${tasks.length}
 
 **请审查上述文件后执行工作流**
@@ -988,13 +1066,16 @@ console.log(`
 **任务名称**：${taskName}
 **技术方案**：${techDesignPath}
 **任务清单**：${tasksPath}
+${acceptanceChecklist ? `**验证清单**：.claude/acceptance/${sanitizedName}-checklist.md` : ''}
 **任务数量**：${tasks.length}
 ${state.mode === 'progressive' ? `**工作模式**：渐进式（${blockedTasks.length} 个任务等待依赖）` : ''}
 
 **文件结构**：
 .claude/
-└── tech-design/
-    └── ${sanitizedName}.md    ← 技术方案
+├── tech-design/
+│   └── ${sanitizedName}.md    ← 技术方案
+${acceptanceChecklist ? `├── acceptance/
+│   └── ${sanitizedName}-checklist.md  ← 验证清单` : ''}
 
 ~/.claude/workflows/${projectId}/
 ├── workflow-state.json        ← 运行时状态
@@ -1441,6 +1522,727 @@ function groupBy<T>(arr: T[], key: keyof T): Record<string, T[]> {
   }, {} as Record<string, T[]>);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Phase 0.6: 验证清单生成系统 (v3.3.2)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * AcceptanceChecklist 接口定义
+ * 将结构化需求转换为可执行的验证清单
+ */
+interface AcceptanceChecklist {
+  formValidations: FormValidation[];
+  permissionValidations: PermissionValidation[];
+  interactionValidations: InteractionValidation[];
+  businessRuleValidations: BusinessRuleValidation[];
+  edgeCaseValidations: EdgeCaseValidation[];
+  uiDisplayValidations: UiDisplayValidation[];
+  functionalFlowValidations: FunctionalFlowValidation[];
+  taskChecklistMapping: TaskChecklistMapping[];
+}
+
+interface FormValidation {
+  scene: string;
+  sceneId: string;
+  items: Array<{
+    fieldName: string;
+    checks: string[];
+    testCases: Array<{ input: string; expected: string }>;
+  }>;
+}
+
+interface PermissionValidation {
+  role: string;
+  roleId: string;
+  items: Array<{
+    scenario: string;
+    checks: string[];
+    testSteps: string[];
+  }>;
+}
+
+interface InteractionValidation {
+  category: string;
+  categoryId: string;
+  items: Array<{
+    element: string;
+    trigger: string;
+    checks: string[];
+    precondition: string;
+  }>;
+}
+
+interface BusinessRuleValidation {
+  ruleId: string;
+  description: string;
+  checks: string[];
+  relatedFields: string;
+  testScenarios: Array<{
+    scenario: string;
+    input: string;
+    expected: string;
+  }>;
+}
+
+interface EdgeCaseValidation {
+  scenario: string;
+  checks: string[];
+  context: string;
+  fallback: string;
+}
+
+interface UiDisplayValidation {
+  context: string;
+  contextId: string;
+  items: Array<{
+    rule: string;
+    checks: string[];
+    visualChecks: string[];
+  }>;
+}
+
+interface FunctionalFlowValidation {
+  flowName: string;
+  steps: string[];
+  conditionalPaths: Array<{
+    condition: string;
+    expectedBehavior: string;
+  }>;
+  entryPoints: Array<{
+    entry: string;
+    expectedResult: string;
+  }>;
+}
+
+interface TaskChecklistMapping {
+  taskId: string;
+  taskName: string;
+  acceptanceCriteria: string[];
+  verificationType: string;
+}
+
+/**
+ * 从 RequirementAnalysis 生成 AcceptanceChecklist
+ *
+ * 转换策略：
+ * 1. 表单字段 → 验证项（必填、格式、长度、联动等）
+ * 2. 角色权限 → 权限验证项（可见性、可操作性、数据范围等）
+ * 3. 交互规格 → 交互验证项（触发条件、响应行为、提示信息等）
+ * 4. 业务规则 → 业务规则验证项（条件判断、联动逻辑、唯一性等）
+ * 5. 边界场景 → 边界验证项（空状态、异常处理、降级方案等）
+ * 6. UI展示规则 → UI验证项（布局、样式、响应式、文本截断等）
+ * 7. 功能流程 → 流程验证项（步骤完整性、分支逻辑、入口路径等）
+ */
+function generateAcceptanceChecklist(
+  analysis: RequirementAnalysis,
+  taskName: string
+): AcceptanceChecklist {
+  const checklist: AcceptanceChecklist = {
+    formValidations: [],
+    permissionValidations: [],
+    interactionValidations: [],
+    businessRuleValidations: [],
+    edgeCaseValidations: [],
+    uiDisplayValidations: [],
+    functionalFlowValidations: [],
+    taskChecklistMapping: []
+  };
+
+  // ── 1. 表单字段 → 验证项 ──
+  const formByScene = groupBy(analysis.formFields, 'scene');
+  Object.entries(formByScene).forEach(([scene, fields], sceneIndex) => {
+    const items = fields.map(field => {
+      const checks: string[] = [];
+      const testCases: Array<{ input: string; expected: string }> = [];
+
+      // 必填验证
+      if (field.required) {
+        checks.push(`${field.fieldName} 为空时，显示提示: "${field.validationMessage || '此字段为必填项'}"`);
+        testCases.push({
+          input: '（空值）',
+          expected: `显示错误提示: ${field.validationMessage || '此字段为必填项'}`
+        });
+      }
+
+      // 校验规则验证
+      field.validationRules.forEach(rule => {
+        if (/字符限制|长度|最多|最少/.test(rule)) {
+          checks.push(`${field.fieldName} ${rule}`);
+          const match = rule.match(/(\d+)/);
+          if (match) {
+            const limit = parseInt(match[1]);
+            testCases.push({
+              input: `超过 ${limit} 字符的文本`,
+              expected: `禁止输入或显示错误提示`
+            });
+          }
+        } else if (/格式|正则|pattern/.test(rule)) {
+          checks.push(`${field.fieldName} 格式校验: ${rule}`);
+          testCases.push({
+            input: '不符合格式的输入',
+            expected: `显示格式错误提示`
+          });
+        } else {
+          checks.push(`${field.fieldName} ${rule}`);
+        }
+      });
+
+      // Tooltip 验证
+      if (field.tooltip) {
+        checks.push(`输入框显示 placeholder: "${field.tooltip}"`);
+      }
+
+      // Helper Text 验证
+      if (field.helperText) {
+        checks.push(`输入框下方显示提示: "${field.helperText}"`);
+      }
+
+      // 类型特定验证
+      if (field.type === 'image' || field.type === 'file') {
+        checks.push(`${field.fieldName} 支持的文件格式和大小限制符合规格`);
+        checks.push(`上传失败时显示明确的错误提示`);
+      } else if (field.type === 'select' || field.type === 'multi-select') {
+        checks.push(`${field.fieldName} 下拉选项完整且正确`);
+        checks.push(`选项排序符合规格`);
+      } else if (field.type === 'switch') {
+        checks.push(`${field.fieldName} 开关状态切换正常`);
+        checks.push(`状态变化时触发相应的联动逻辑`);
+      }
+
+      return {
+        fieldName: field.fieldName,
+        checks,
+        testCases
+      };
+    });
+
+    checklist.formValidations.push({
+      scene,
+      sceneId: `F${sceneIndex + 1}`,
+      items
+    });
+  });
+
+  // ── 2. 角色权限 → 验证项 ──
+  analysis.rolePermissions.forEach((perm, index) => {
+    const items: PermissionValidation['items'] = [];
+
+    // 权限验证项
+    perm.permissions.forEach(permission => {
+      items.push({
+        scenario: `${perm.role} - ${permission}`,
+        checks: [
+          `${perm.role} 可以执行 "${permission}" 操作`,
+          `操作按钮/入口对 ${perm.role} 可见`,
+          `执行操作后结果符合预期`
+        ],
+        testSteps: [
+          `使用 ${perm.role} 账号登录`,
+          `导航到相关功能页面`,
+          `验证 "${permission}" 操作可见且可执行`,
+          `执行操作并验证结果`
+        ]
+      });
+    });
+
+    // 限制验证项
+    perm.restrictions.forEach(restriction => {
+      items.push({
+        scenario: `${perm.role} - ${restriction}`,
+        checks: [
+          `${perm.role} 不能执行 "${restriction}" 操作`,
+          `相关按钮/入口对 ${perm.role} 不可见或置灰`,
+          `尝试执行时显示权限不足提示`
+        ],
+        testSteps: [
+          `使用 ${perm.role} 账号登录`,
+          `导航到相关功能页面`,
+          `验证 "${restriction}" 操作不可见或置灰`,
+          `（如可见）尝试执行并验证被拦截`
+        ]
+      });
+    });
+
+    // 场景说明验证
+    if (perm.scenarioNotes) {
+      items.push({
+        scenario: `${perm.role} - 数据范围`,
+        checks: [
+          `${perm.role} 只能看到符合权限范围的数据`,
+          `数据归属判定逻辑正确: ${perm.scenarioNotes}`
+        ],
+        testSteps: [
+          `使用 ${perm.role} 账号登录`,
+          `查看数据列表`,
+          `验证只显示符合权限范围的数据`,
+          `尝试访问超出权限范围的数据，验证被拦截`
+        ]
+      });
+    }
+
+    checklist.permissionValidations.push({
+      role: perm.role,
+      roleId: `P${index + 1}`,
+      items
+    });
+  });
+
+  // ── 3. 交互规格 → 验证项 ──
+  const interactionByCategory = new Map<string, typeof analysis.interactions>();
+  analysis.interactions.forEach(interaction => {
+    const category = interaction.trigger || '通用交互';
+    if (!interactionByCategory.has(category)) {
+      interactionByCategory.set(category, []);
+    }
+    interactionByCategory.get(category)!.push(interaction);
+  });
+
+  Array.from(interactionByCategory.entries()).forEach(([category, interactions], catIndex) => {
+    const items = interactions.map(interaction => {
+      const checks: string[] = [];
+
+      // 触发条件验证
+      if (interaction.condition) {
+        checks.push(`前置条件满足: ${interaction.condition}`);
+      }
+
+      // 行为验证
+      checks.push(`${interaction.trigger} ${interaction.element} 时，${interaction.behavior}`);
+
+      // 提示信息验证
+      if (interaction.message) {
+        checks.push(`显示提示信息: "${interaction.message}"`);
+      }
+
+      // 延迟参数验证（如 hover 延迟）
+      if (/hover|悬停/.test(interaction.trigger) && /延迟|delay/.test(interaction.behavior)) {
+        checks.push(`延迟时间符合规格`);
+      }
+
+      // 弹窗验证
+      if (/弹窗|modal|dialog/.test(interaction.behavior)) {
+        checks.push(`弹窗层级正确，不被其他元素遮挡`);
+        checks.push(`关闭弹窗后返回正确位置`);
+        checks.push(`弹窗内容完整且正确`);
+      }
+
+      // Loading 验证
+      if (/loading|加载/.test(interaction.behavior)) {
+        checks.push(`显示 loading 状态`);
+        checks.push(`loading 结束后状态更新正确`);
+      }
+
+      return {
+        element: interaction.element,
+        trigger: interaction.trigger,
+        checks,
+        precondition: interaction.condition || '无'
+      };
+    });
+
+    checklist.interactionValidations.push({
+      category,
+      categoryId: `I${catIndex + 1}`,
+      items
+    });
+  });
+
+  // ── 4. 业务规则 → 验证项 ──
+  analysis.businessRules.forEach(rule => {
+    const checks: string[] = [];
+    const testScenarios: BusinessRuleValidation['testScenarios'] = [];
+
+    // 条件验证
+    checks.push(`条件判断: ${rule.condition}`);
+    checks.push(`期望行为: ${rule.expectedBehavior}`);
+
+    // 关联字段联动验证
+    if (rule.relatedFields.length > 0) {
+      checks.push(`关联字段 (${rule.relatedFields.join(', ')}) 联动正确`);
+    }
+
+    // 唯一性验证
+    if (/唯一|unique|不能重复/.test(rule.condition)) {
+      checks.push(`唯一性校验范围正确`);
+      testScenarios.push({
+        scenario: '重复值测试',
+        input: '输入已存在的值',
+        expected: '显示唯一性校验错误提示'
+      });
+    }
+
+    // 联动规则验证
+    if (/联动|关联|影响/.test(rule.expectedBehavior)) {
+      testScenarios.push({
+        scenario: '联动测试',
+        input: `触发条件: ${rule.condition}`,
+        expected: `联动行为: ${rule.expectedBehavior}`
+      });
+    }
+
+    // 删除/禁用影响验证
+    if (/删除|禁用|disable/.test(rule.expectedBehavior)) {
+      checks.push(`删除/禁用后，已引用数据的处理符合规格`);
+      testScenarios.push({
+        scenario: '删除影响测试',
+        input: '删除被引用的数据',
+        expected: rule.expectedBehavior
+      });
+    }
+
+    checklist.businessRuleValidations.push({
+      ruleId: rule.id,
+      description: rule.condition,
+      checks,
+      relatedFields: rule.relatedFields.join(', '),
+      testScenarios
+    });
+  });
+
+  // ── 5. 边界场景 → 验证项 ──
+  analysis.edgeCases.forEach(edge => {
+    const checks: string[] = [];
+
+    // 场景展示验证
+    checks.push(`场景 "${edge.scenario}" 下，展示: ${edge.expectedDisplay}`);
+
+    // 兜底行为验证
+    if (edge.fallbackBehavior) {
+      checks.push(`兜底行为: ${edge.fallbackBehavior}`);
+    }
+
+    // 上下文特定验证
+    if (edge.context) {
+      checks.push(`在 ${edge.context} 上下文中验证`);
+    }
+
+    // 空状态验证
+    if (/空|无数据|empty/.test(edge.scenario)) {
+      checks.push(`空状态文案、图标、按钮符合规格`);
+      checks.push(`空状态下的操作引导正确`);
+    }
+
+    // 权限不足验证
+    if (/权限|无权限|未开通/.test(edge.scenario)) {
+      checks.push(`权限不足提示清晰明确`);
+      checks.push(`提供开通/申请权限的入口（如适用）`);
+    }
+
+    // 超出限制验证
+    if (/超出|超过|limit/.test(edge.scenario)) {
+      checks.push(`超出限制时的提示和处理符合规格`);
+    }
+
+    checklist.edgeCaseValidations.push({
+      scenario: edge.scenario,
+      checks,
+      context: edge.context || '全局',
+      fallback: edge.fallbackBehavior || '无'
+    });
+  });
+
+  // ── 6. UI展示规则 → 验证项 ──
+  const uiByContext = groupBy(analysis.uiDisplayRules, 'context');
+  Object.entries(uiByContext).forEach(([context, rules], ctxIndex) => {
+    const items = rules.map(rule => {
+      const checks: string[] = [];
+      const visualChecks: string[] = [];
+
+      // 规则验证
+      checks.push(`${rule.rule}: ${rule.detail}`);
+
+      // 列差异验证
+      if (/列|column|字段/.test(rule.rule)) {
+        visualChecks.push(`列的显示/隐藏符合规格`);
+        visualChecks.push(`列顺序正确`);
+        visualChecks.push(`列宽度合理`);
+      }
+
+      // 文本截断验证
+      if (/截断|省略|ellipsis/.test(rule.detail)) {
+        visualChecks.push(`文本超出时正确截断`);
+        visualChecks.push(`hover 显示完整内容（如适用）`);
+      }
+
+      // 时间格式验证
+      if (/时间|日期|格式/.test(rule.rule)) {
+        visualChecks.push(`时间/日期格式符合规格`);
+        visualChecks.push(`时区处理正确（如适用）`);
+      }
+
+      // 空值展示验证
+      if (/空值|未上传|缺省/.test(rule.detail)) {
+        visualChecks.push(`空值展示符合规格（占位符/默认值）`);
+      }
+
+      // 固定列验证
+      if (/固定|吸附|sticky/.test(rule.detail)) {
+        visualChecks.push(`固定列在滚动时保持固定`);
+        visualChecks.push(`固定列样式正确`);
+      }
+
+      return {
+        rule: rule.rule,
+        checks,
+        visualChecks
+      };
+    });
+
+    checklist.uiDisplayValidations.push({
+      context,
+      contextId: `U${ctxIndex + 1}`,
+      items
+    });
+  });
+
+  // ── 7. 功能流程 → 验证项 ──
+  analysis.functionalFlows.forEach(flow => {
+    const conditionalPaths = (flow.conditionalPaths || []).map(path => ({
+      condition: path,
+      expectedBehavior: '按条件分支执行'
+    }));
+
+    const entryPoints = (flow.entryPoints || []).map(entry => ({
+      entry,
+      expectedResult: '流程正常启动'
+    }));
+
+    checklist.functionalFlowValidations.push({
+      flowName: flow.name,
+      steps: flow.steps.map((step, i) => `步骤 ${i + 1}: ${step}`),
+      conditionalPaths,
+      entryPoints
+    });
+  });
+
+  return checklist;
+}
+
+/**
+ * 渲染验证清单为 Markdown
+ */
+function renderAcceptanceChecklist(
+  checklist: AcceptanceChecklist,
+  metadata: {
+    taskName: string;
+    requirementSource: string;
+    techDesignPath: string;
+    createdAt: string;
+  }
+): string {
+  const sections: string[] = [];
+
+  // 计算统计数据
+  const totalItems = [
+    checklist.formValidations,
+    checklist.permissionValidations,
+    checklist.interactionValidations,
+    checklist.businessRuleValidations,
+    checklist.edgeCaseValidations,
+    checklist.uiDisplayValidations,
+    checklist.functionalFlowValidations
+  ].reduce((sum, arr) => sum + arr.length, 0);
+
+  // 头部
+  sections.push(`---
+version: 1
+requirement_source: "${metadata.requirementSource}"
+created_at: "${metadata.createdAt}"
+tech_design: "${metadata.techDesignPath}"
+---
+
+# 验收清单: ${metadata.taskName}
+
+> 本清单由需求结构化提取自动生成，用于指导任务执行和验收测试
+
+## 📋 清单概览
+
+- **总验收项**: ${totalItems}
+- **表单验证**: ${checklist.formValidations.length} 个场景
+- **权限验证**: ${checklist.permissionValidations.length} 个角色
+- **交互验证**: ${checklist.interactionValidations.length} 个类别
+- **业务规则验证**: ${checklist.businessRuleValidations.length} 条规则
+- **边界场景验证**: ${checklist.edgeCaseValidations.length} 个场景
+- **UI展示验证**: ${checklist.uiDisplayValidations.length} 个上下文
+- **功能流程验证**: ${checklist.functionalFlowValidations.length} 个流程
+
+---`);
+
+  // 1. 表单字段验证
+  if (checklist.formValidations.length > 0) {
+    sections.push(`\n## 1. 表单字段验证\n`);
+    checklist.formValidations.forEach((validation, vIndex) => {
+      sections.push(`### 1.${vIndex + 1} ${validation.scene}\n`);
+      validation.items.forEach((item, iIndex) => {
+        sections.push(`#### AC-${validation.sceneId}.${iIndex + 1} ${item.fieldName}\n`);
+        sections.push(`**验证项**:`);
+        item.checks.forEach(check => {
+          sections.push(`- [ ] ${check}`);
+        });
+        if (item.testCases.length > 0) {
+          sections.push(`\n**测试数据**:\n`);
+          sections.push(`| 输入 | 期望结果 |`);
+          sections.push(`|------|----------|`);
+          item.testCases.forEach(tc => {
+            sections.push(`| ${esc(tc.input)} | ${esc(tc.expected)} |`);
+          });
+        }
+        sections.push('');
+      });
+    });
+    sections.push(`---`);
+  }
+
+  // 2. 角色权限验证
+  if (checklist.permissionValidations.length > 0) {
+    sections.push(`\n## 2. 角色权限验证\n`);
+    checklist.permissionValidations.forEach((validation, vIndex) => {
+      sections.push(`### 2.${vIndex + 1} ${validation.role}\n`);
+      validation.items.forEach((item, iIndex) => {
+        sections.push(`#### AC-${validation.roleId}.${iIndex + 1} ${item.scenario}\n`);
+        sections.push(`**验证项**:`);
+        item.checks.forEach(check => {
+          sections.push(`- [ ] ${check}`);
+        });
+        sections.push(`\n**测试步骤**:`);
+        item.testSteps.forEach((step, sIndex) => {
+          sections.push(`${sIndex + 1}. ${step}`);
+        });
+        sections.push('');
+      });
+    });
+    sections.push(`---`);
+  }
+
+  // 3. 交互行为验证
+  if (checklist.interactionValidations.length > 0) {
+    sections.push(`\n## 3. 交互行为验证\n`);
+    checklist.interactionValidations.forEach((validation, vIndex) => {
+      sections.push(`### 3.${vIndex + 1} ${validation.category}\n`);
+      validation.items.forEach((item, iIndex) => {
+        sections.push(`#### AC-${validation.categoryId}.${iIndex + 1} ${item.element} - ${item.trigger}\n`);
+        sections.push(`**验证项**:`);
+        item.checks.forEach(check => {
+          sections.push(`- [ ] ${check}`);
+        });
+        sections.push(`\n**前置条件**: ${item.precondition}\n`);
+      });
+    });
+    sections.push(`---`);
+  }
+
+  // 4. 业务规则验证
+  if (checklist.businessRuleValidations.length > 0) {
+    sections.push(`\n## 4. 业务规则验证\n`);
+    checklist.businessRuleValidations.forEach((validation, vIndex) => {
+      sections.push(`#### AC-B${vIndex + 1} ${validation.ruleId}: ${validation.description}\n`);
+      sections.push(`**验证项**:`);
+      validation.checks.forEach(check => {
+        sections.push(`- [ ] ${check}`);
+      });
+      sections.push(`\n**关联字段**: ${validation.relatedFields}\n`);
+      if (validation.testScenarios.length > 0) {
+        sections.push(`**测试场景**:`);
+        validation.testScenarios.forEach((scenario, sIndex) => {
+          sections.push(`- **场景 ${sIndex + 1}**: ${scenario.scenario}`);
+          sections.push(`  - 输入: ${scenario.input}`);
+          sections.push(`  - 期望: ${scenario.expected}`);
+        });
+      }
+      sections.push('');
+    });
+    sections.push(`---`);
+  }
+
+  // 5. 边界场景验证
+  if (checklist.edgeCaseValidations.length > 0) {
+    sections.push(`\n## 5. 边界场景验证\n`);
+    checklist.edgeCaseValidations.forEach((validation, vIndex) => {
+      sections.push(`#### AC-E${vIndex + 1} ${validation.scenario}\n`);
+      sections.push(`**验证项**:`);
+      validation.checks.forEach(check => {
+        sections.push(`- [ ] ${check}`);
+      });
+      sections.push(`\n**上下文**: ${validation.context}`);
+      sections.push(`**兜底行为**: ${validation.fallback}\n`);
+    });
+    sections.push(`---`);
+  }
+
+  // 6. UI展示规则验证
+  if (checklist.uiDisplayValidations.length > 0) {
+    sections.push(`\n## 6. UI展示规则验证\n`);
+    checklist.uiDisplayValidations.forEach((validation, vIndex) => {
+      sections.push(`### 6.${vIndex + 1} ${validation.context}\n`);
+      validation.items.forEach((item, iIndex) => {
+        sections.push(`#### AC-${validation.contextId}.${iIndex + 1} ${item.rule}\n`);
+        sections.push(`**验证项**:`);
+        item.checks.forEach(check => {
+          sections.push(`- [ ] ${check}`);
+        });
+        if (item.visualChecks.length > 0) {
+          sections.push(`\n**视觉检查点**:`);
+          item.visualChecks.forEach(check => {
+            sections.push(`- ${check}`);
+          });
+        }
+        sections.push('');
+      });
+    });
+    sections.push(`---`);
+  }
+
+  // 7. 功能流程验证
+  if (checklist.functionalFlowValidations.length > 0) {
+    sections.push(`\n## 7. 功能流程验证\n`);
+    checklist.functionalFlowValidations.forEach((validation, vIndex) => {
+      sections.push(`### 7.${vIndex + 1} ${validation.flowName}\n`);
+      sections.push(`**完整流程验证**:`);
+      validation.steps.forEach(step => {
+        sections.push(`- [ ] ${step}`);
+      });
+      if (validation.conditionalPaths.length > 0) {
+        sections.push(`\n**条件分支验证**:`);
+        validation.conditionalPaths.forEach(path => {
+          sections.push(`- [ ] ${path.condition}: ${path.expectedBehavior}`);
+        });
+      }
+      if (validation.entryPoints.length > 0) {
+        sections.push(`\n**入口路径验证**:`);
+        validation.entryPoints.forEach(entry => {
+          sections.push(`- [ ] 从 ${entry.entry} 触发 → ${entry.expectedResult}`);
+        });
+      }
+      sections.push('');
+    });
+    sections.push(`---`);
+  }
+
+  // 8. 验收通过标准
+  sections.push(`\n## 8. 验收通过标准\n`);
+  sections.push(`**必须满足**:`);
+  sections.push(`- 所有标记为 "必填" 的字段验证通过`);
+  sections.push(`- 所有角色权限验证通过`);
+  sections.push(`- 所有业务规则验证通过`);
+  sections.push(`- 关键功能流程验证通过`);
+  sections.push(``);
+  sections.push(`**建议满足**:`);
+  sections.push(`- 所有交互行为验证通过`);
+  sections.push(`- 所有边界场景验证通过`);
+  sections.push(`- 所有UI展示规则验证通过`);
+  sections.push(``);
+  sections.push(`---`);
+
+  // 9. 验收记录
+  sections.push(`\n## 9. 验收记录\n`);
+  sections.push(`| 验收项 ID | 验收人 | 验收时间 | 状态 | 备注 |`);
+  sections.push(`|-----------|--------|----------|------|------|`);
+  sections.push(`| - | - | - | - | - |`);
+  sections.push('');
+
+  return sections.join('\n');
+}
+
 function sanitize(name: string): string {
   return name
     .normalize('NFKD')                           // Unicode 规范化
@@ -1569,6 +2371,105 @@ function findLeverage(file: string, reusableComponents: any[]): string | null {
   });
 
   return matches.map(m => m.path).join(', ') || null;
+}
+
+/**
+ * 将任务映射到验证清单项
+ * 根据任务的 phase、file、requirement 等属性，关联相关的验收项
+ */
+function mapTaskToAcceptanceCriteria(
+  task: Task,
+  checklist: AcceptanceChecklist
+): string[] {
+  const criteria: string[] = [];
+
+  // 根据任务阶段和文件路径匹配验收项
+  const phase = task.phase;
+  const file = (task.file || '').toLowerCase();
+  const requirement = (task.requirement || '').toLowerCase();
+
+  // 表单相关任务 → 表单验证项
+  if (/form|表单|input|输入/.test(requirement) || /form|modal|dialog/.test(file)) {
+    checklist.formValidations.forEach(validation => {
+      validation.items.forEach((item, index) => {
+        if (requirement.includes(item.fieldName.toLowerCase()) ||
+            requirement.includes(validation.scene.toLowerCase())) {
+          criteria.push(`AC-${validation.sceneId}.${index + 1} ${item.fieldName}`);
+        }
+      });
+    });
+  }
+
+  // 权限相关任务 → 权限验证项
+  if (/权限|permission|role|auth/.test(requirement) || phase === 'infra') {
+    checklist.permissionValidations.forEach(validation => {
+      validation.items.forEach((item, index) => {
+        if (requirement.includes(validation.role.toLowerCase()) ||
+            requirement.includes(item.scenario.toLowerCase())) {
+          criteria.push(`AC-${validation.roleId}.${index + 1} ${validation.role} - ${item.scenario}`);
+        }
+      });
+    });
+  }
+
+  // 交互相关任务 → 交互验证项
+  if (/交互|click|hover|弹窗|modal/.test(requirement) || phase === 'ui-form') {
+    checklist.interactionValidations.forEach(validation => {
+      validation.items.forEach((item, index) => {
+        if (requirement.includes(item.element.toLowerCase()) ||
+            requirement.includes(item.trigger.toLowerCase())) {
+          criteria.push(`AC-${validation.categoryId}.${index + 1} ${item.element} - ${item.trigger}`);
+        }
+      });
+    });
+  }
+
+  // 业务规则相关任务 → 业务规则验证项
+  if (/规则|rule|校验|validation|联动/.test(requirement)) {
+    checklist.businessRuleValidations.forEach((validation, index) => {
+      if (requirement.includes(validation.ruleId.toLowerCase()) ||
+          requirement.includes(validation.description.toLowerCase())) {
+        criteria.push(`AC-B${index + 1} ${validation.ruleId}`);
+      }
+    });
+  }
+
+  // UI展示相关任务 → UI展示验证项
+  if (phase === 'ui-display' || phase === 'ui-layout' || /展示|display|列表|table/.test(requirement)) {
+    checklist.uiDisplayValidations.forEach(validation => {
+      validation.items.forEach((item, index) => {
+        if (requirement.includes(validation.context.toLowerCase()) ||
+            requirement.includes(item.rule.toLowerCase())) {
+          criteria.push(`AC-${validation.contextId}.${index + 1} ${validation.context} - ${item.rule}`);
+        }
+      });
+    });
+  }
+
+  // 边界场景相关任务 → 边界验证项
+  if (/边界|异常|error|empty|空/.test(requirement)) {
+    checklist.edgeCaseValidations.forEach((validation, index) => {
+      if (requirement.includes(validation.scenario.toLowerCase())) {
+        criteria.push(`AC-E${index + 1} ${validation.scenario}`);
+      }
+    });
+  }
+
+  // 功能流程相关任务 → 流程验证项
+  if (/流程|flow|步骤|创建|编辑/.test(requirement)) {
+    checklist.functionalFlowValidations.forEach((validation, index) => {
+      if (requirement.includes(validation.flowName.toLowerCase())) {
+        criteria.push(`Flow-${index + 1} ${validation.flowName}`);
+      }
+    });
+  }
+
+  // 如果没有匹配到任何验收项，返回通用验收标准
+  if (criteria.length === 0) {
+    criteria.push('通用验收标准：功能正常、无报错、符合设计规格');
+  }
+
+  return criteria;
 }
 ```
 

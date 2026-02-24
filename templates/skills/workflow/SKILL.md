@@ -1,9 +1,9 @@
 ---
 name: workflow
-description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow action [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。"
+description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow action [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。v3.3.2 新增：验证清单生成系统，自动将结构化需求转换为可执行的验收项，指导任务实现和验收测试。"
 ---
 
-# 智能工作流系统 (v3.1)
+# 智能工作流系统 (v3.3.2)
 
 结构化开发工作流：需求分析 → 技术设计 → 任务拆分 → 自动执行。
 
@@ -16,6 +16,24 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ```
 
 **职责分离**：workflow 专注业务逻辑和数据流，只阻塞 API 依赖。设计稿还原通过独立的 `/figma-ui` skill 处理。
+
+## 🆕 v3.3.2 新特性：验证清单生成系统
+
+在需求结构化提取（Phase 0.5）之后，自动生成详细的验证清单（Phase 0.6），包含：
+
+- **表单字段验证**：必填、格式、长度、联动等验证项 + 测试数据
+- **角色权限验证**：可见性、可操作性、数据范围等验证项 + 测试步骤
+- **交互行为验证**：触发条件、响应行为、提示信息等验证项
+- **业务规则验证**：条件判断、联动逻辑、唯一性等验证项 + 测试场景
+- **边界场景验证**：空状态、异常处理、降级方案等验证项
+- **UI展示验证**：布局、样式、响应式、文本截断等验证项 + 视觉检查点
+- **功能流程验证**：步骤完整性、分支逻辑、入口路径等验证项
+
+**验证清单特点**：
+- 自动关联到任务：每个任务自动关联相关的验收项
+- 结构化组织：按场景、角色、功能模块分组
+- 可执行性强：包含测试数据、测试步骤、测试场景
+- 持久化存储：生成独立的 `acceptance-checklist.md` 文件
 
 ## 调用方式
 
@@ -54,9 +72,9 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ## 工作流程
 
 ```
-需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
-             │              │                   │                │
-        codebase-       🛑 确认设计        🔍 审查意图      🛑 确认任务
+需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ 验证清单 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+             │              │              │                   │                │
+        codebase-       🛑 确认设计    📋 生成验收项      🔍 审查意图      🛑 确认任务
         retrieval
 ```
 
@@ -64,9 +82,10 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 ```
 项目目录/
-└── .claude/
-    ├── config/project-config.json     ← /scan 生成
-    └── tech-design/{name}.md          ← 技术方案
+├── .claude/
+│   ├── config/project-config.json     ← /scan 生成
+│   ├── tech-design/{name}.md          ← 技术方案
+│   └── acceptance/{name}-checklist.md ← 验证清单 (v3.3.2)
 
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json                ← 运行时状态
