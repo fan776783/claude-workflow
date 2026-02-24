@@ -1,6 +1,8 @@
 # Multi-Model Collaboration System (v3.0)
 
 > 双模型并行协作 (Codex + Gemini) + 当前模型编排
+>
+> **注意**: 本文件是 `@pic/claude-workflow` Skills 体系的一部分，通过 Canonical + Symlink 架构分发到多个 AI 编码工具。
 
 ---
 
@@ -118,7 +120,7 @@
 ```bash
 # HEREDOC（推荐）
 codeagent-wrapper --backend <codex|gemini> - [dir] <<'EOF'
-ROLE_FILE: ~/.claude/prompts/<codex|gemini>/<role>.md
+ROLE_FILE: ~/.agents/claude-workflow/prompts/<codex|gemini>/<role>.md
 <TASK>
 需求：<增强后的需求>
 上下文：<前序阶段收集的项目上下文>

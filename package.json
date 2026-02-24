@@ -1,7 +1,7 @@
 {
   "name": "@pic/claude-workflow",
-  "version": "3.3.3",
-  "description": "Claude Code 多模型协作工作流系统 - Skills 架构 (Codex + Gemini + Claude)",
+  "version": "3.3.4",
+  "description": "AI 编码工具通用工作流系统 - Skills 架构支持 10+ AI 工具 (Claude Code, Cursor, Codex, Gemini 等)",
   "bin": {
     "claude-workflow": "./bin/claude-workflow.js"
   },
@@ -37,13 +37,19 @@
   "keywords": [
     "claude",
     "workflow",
+    "skills",
     "cli",
     "automation",
     "codex",
     "gemini",
+    "cursor",
+    "multi-agent",
     "multi-model",
     "ai",
-    "collaboration"
+    "collaboration",
+    "code-review",
+    "testing",
+    "figma"
   ],
   "author": "PIC Team",
   "license": "MIT"

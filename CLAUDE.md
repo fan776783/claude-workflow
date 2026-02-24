@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`@pic/claude-workflow` is an npm package that installs Claude Code workflow templates (commands, agents, docs, utils) to `~/.claude/`. It provides a CLI tool (`claude-workflow`) and automatic postinstall setup.
+`@pic/claude-workflow` is an npm package that installs workflow templates (skills, commands, prompts, utils) to multiple AI coding tools. It provides a CLI tool (`claude-workflow`) and automatic postinstall setup using a Canonical + Symlink architecture.
+
+**Key Architecture**: Skills-based system supporting 10+ AI coding tools through a single source of truth at `~/.agents/claude-workflow/` with symlinks to each tool's skills directory.
 
 ## Commands
 
@@ -14,8 +16,10 @@ npm run prepublishOnly    # Runs scripts/validate.js
 
 # CLI commands (after npm install -g)
 claude-workflow status    # Show installation status
-claude-workflow sync      # Sync templates to ~/.claude
+claude-workflow sync      # Sync templates to AI coding tools
 claude-workflow sync -f   # Force overwrite all files
+claude-workflow sync -c   # Clean install (remove old files first)
+claude-workflow sync -a claude-code,cursor  # Install to specific agents
 claude-workflow init      # Init project config in current directory
 claude-workflow doctor    # Diagnose configuration issues
 
@@ -32,41 +36,87 @@ npm run release 2.0.0     # Explicit version
 ├── bin/claude-workflow.js   # CLI entry point (commander-based)
 ├── lib/
 │   ├── index.js             # Package exports
-│   └── installer.js         # Core install/upgrade logic
+│   ├── installer.js         # Core install/upgrade logic
+│   ├── agents.js            # Agent detection and configuration
+│   ├── interactive-installer.js  # Interactive install UI
+│   └── menu.js              # Interactive menu system
 ├── scripts/
 │   ├── postinstall.js       # Auto-runs on npm install
-│   └── validate.js          # Pre-publish validation
-└── templates/               # Files copied to ~/.claude/
-    ├── commands/            # Slash command definitions (.md)
+│   ├── validate.js          # Pre-publish validation
+│   └── release.sh           # Release automation
+└── templates/               # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
+    │   ├── workflow/        # Intelligent workflow system
+    │   ├── scan/            # Project scanning
+    │   ├── analyze/         # Code analysis (Codex + Gemini)
+    │   ├── debug/           # Bug fixing workflow
+    │   ├── write-tests/     # Test writing
+    │   ├── diff-review/     # Code review
+    │   ├── bug-batch/       # Batch bug fixing
+    │   ├── figma-ui/        # Figma to code
+    │   ├── visual-diff/     # Visual diff comparison
+    │   └── perf-budget/     # Performance budget validation
+    ├── commands/            # Command definitions (Claude Code specific)
     ├── prompts/             # Multi-model collaboration prompts
-    ├── docs/                # Documentation templates
-    └── utils/               # Utility templates
+    │   ├── codex/           # Codex role prompts
+    │   └── gemini/          # Gemini role prompts
+    ├── utils/               # Utility templates
+    └── specs/               # Specification documents
 ```
 
 ## Key Concepts
 
-**Template Installation Flow:**
+**Canonical + Symlink Architecture:**
+1. Single source of truth at `~/.agents/claude-workflow/`
+2. Each AI tool gets symlinks pointing to canonical location
+3. One update propagates to all tools automatically
+4. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation
+
+**Installation Flow:**
 1. `postinstall.js` triggers on npm install
-2. Checks `CLAUDE_WORKFLOW_SKIP_POSTINSTALL` env var
-3. Compares versions via `meta.json` in `~/.claude/.claude-workflow/`
-4. Fresh install: copies all templates, saves originals for diff
-5. Upgrade: 3-way merge (original → user modified → new version), conflicts saved as `.new` files
-6. Downgrades: skipped (manual sync required)
+2. Detects installed AI coding tools (Claude Code, Cursor, Codex, etc.)
+3. Copies templates to canonical location
+4. Creates symlinks in each tool's skills directory
+5. Tracks version in `.meta/meta.json`
 
-**Version Tracking:**
-- `~/.claude/.claude-workflow/meta.json` - installed version info
-- `~/.claude/.claude-workflow/originals/` - pristine copies for upgrade diffing
-- `~/.claude/.claude-workflow/backups/` - pre-upgrade backups
+**Upgrade Flow:**
+1. Compares installed version with package version
+2. Updates canonical location
+3. All symlinks automatically reflect changes
+4. Backups saved to `.meta/backups/`
 
-**Template Directories:** `TEMPLATE_DIRS = ['commands', 'agents', 'skills', 'docs', 'utils']`
+**Supported Agents:**
+- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, Kilo Code, OpenCode, Qoder
 
-## Workflow Skill
+**Template Directories:** `SYMLINK_DIRS = ['skills', 'commands', 'prompts', 'utils', 'specs']`
 
-The `/workflow` skill implements a structured development workflow:
-- `/workflow start "需求"` - Analyzes requirements, creates execution plan in `workflow-state.json`
-- `/workflow execute` - Runs next pending step (supports `--retry` and `--skip` flags)
-- `/workflow status` - Shows current progress
-- `/workflow unblock <dep>` - Unblocks tasks waiting for dependencies
-- `/workflow archive` - Archives completed workflows
-- Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)
+## Available Skills
+
+The package includes the following skills (all portable across AI coding tools):
+
+**Core Workflow:**
+- `/workflow` - Intelligent workflow system (requirement analysis → task planning → auto execution)
+  - `start` - Analyze requirements and create execution plan
+  - `execute` - Run next pending task (supports `--retry`, `--skip`)
+  - `delta` - Handle incremental changes (PRD updates, API sync)
+  - `status` - Show workflow progress
+  - `archive` - Archive completed workflows
+
+**Development Tools:**
+- `/scan` - Project scanning (tech stack detection + context report generation)
+- `/analyze` - Dual-model analysis (Codex + Gemini parallel)
+- `/debug` - Bug fixing workflow (locate → analyze → fix → review)
+- `/write-tests` - Test writing expert (unit + integration tests)
+
+**Code Review:**
+- `/diff-review` - Code review (Quick/Deep mode with multi-model)
+- `/bug-batch` - Batch bug fixing (pull from Blueking project management)
+
+**UI Development:**
+- `/figma-ui` - Figma design to code (visual fidelity validation)
+- `/visual-diff` - UI visual diff comparison (pixel-level + semantic)
+
+**Performance:**
+- `/perf-budget` - Performance budget validation (page load, bundle size, API response)
+
+Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)

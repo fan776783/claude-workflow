@@ -1,13 +1,15 @@
 # @pic/claude-workflow
 
-Claude Code 工作流工具包 - 支持多 AI 编码工具的标准化工作流命令、Agent 定义和文档。
+Claude Code 工作流工具包 - 支持多 AI 编码工具的标准化 Skills 体系，提供智能工作流、代码分析、测试编写等能力。
 
 ## 特性
 
+- **Skills 体系** - 可移植的技能定义，支持跨工具使用
 - **多 Agent 支持** - 一次安装，同时支持 10+ AI 编码工具
 - **Canonical + Symlink 架构** - 单一源文件，多处链接，便于维护
 - **交互式安装** - 友好的命令行交互体验
 - **智能检测** - 自动检测已安装的 AI 编码工具
+- **多模型协作** - 支持 Codex + Gemini 双模型并行协作
 
 ## 支持的 AI 编码工具
 
@@ -109,9 +111,21 @@ claude-workflow doctor
 ~/.agents/claude-workflow/          # Canonical Location (Single Source of Truth)
 ├── .meta/                          # 元信息
 │   └── meta.json
-├── skills/                         # 技能定义
-├── commands/                       # 命令定义
+├── skills/                         # Skills 定义（可移植）
+│   ├── workflow/                   # 智能工作流
+│   ├── scan/                       # 项目扫描
+│   ├── analyze/                    # 代码分析
+│   ├── debug/                      # Bug 修复
+│   ├── write-tests/                # 测试编写
+│   ├── diff-review/                # 代码审查
+│   ├── bug-batch/                  # 批量缺陷修复
+│   ├── figma-ui/                   # Figma 转代码
+│   ├── visual-diff/                # 视觉差异对比
+│   └── perf-budget/                # 性能预算验证
+├── commands/                       # 命令定义（Claude Code 特定）
 ├── prompts/                        # 多模型协作 Prompt
+│   ├── codex/                      # Codex 角色提示词
+│   └── gemini/                     # Gemini 角色提示词
 ├── utils/                          # 工具函数
 └── specs/                          # 规范文档
 
@@ -121,30 +135,37 @@ claude-workflow doctor
 ...
 ```
 
-## 包含内容
+## 包含的 Skills
 
-### 工作流技能 (skills/workflow/)
+### 核心工作流
 
-统一入口：`/workflow <action> [args]`
+- **`/workflow`** - 智能工作流系统（需求分析 → 任务规划 → 自动执行）
+  - `/workflow start "需求"` - 启动工作流
+  - `/workflow execute` - 执行任务
+  - `/workflow delta` - 增量变更（PRD 更新、API 同步）
+  - `/workflow status` - 查看状态
+  - `/workflow archive` - 归档完成的工作流
 
-| 动作                        | 说明                       |
-| --------------------------- | -------------------------- |
-| `/workflow start "需求"`    | 启动智能工作流（自动规划） |
-| `/workflow execute`         | 执行下一个任务             |
-| `/workflow execute --retry` | 重试当前失败步骤           |
-| `/workflow execute --skip`  | 跳过当前步骤（慎用）       |
-| `/workflow status`          | 查看工作流状态             |
-| `/workflow unblock <dep>`   | 解除任务阻塞               |
-| `/workflow archive`         | 归档已完成工作流           |
+### 开发辅助
 
-### 其他技能
+- **`/scan`** - 智能项目扫描（技术栈检测 + 上下文报告生成）
+- **`/analyze`** - 双模型技术分析（Codex + Gemini 并行）
+- **`/debug`** - Bug 修复流程（定位 → 分析 → 修复 → 审查）
+- **`/write-tests`** - 测试编写专家（单元测试 + 集成测试）
 
-- `/scan` - 智能项目扫描（检测技术栈 + 生成上下文报告）
-- `/write-tests` - 编写测试
-- `/analyze` - 代码分析
-- `/diff-review` - 差异审查
-- `/figma-ui` - Figma 设计稿转代码
-- `/visual-diff` - UI 视觉差异对比
+### 代码审查
+
+- **`/diff-review`** - 代码审查（Quick/Deep 模式）
+- **`/bug-batch`** - 批量缺陷修复（从蓝鲸拉取 Bug 列表）
+
+### UI 开发
+
+- **`/figma-ui`** - Figma 设计稿转代码（视觉还原度验证）
+- **`/visual-diff`** - UI 视觉差异对比（像素级 + 语义验证）
+
+### 性能优化
+
+- **`/perf-budget`** - 性能预算验证（页面加载、包体积、API 响应）
 
 ## 升级
 
@@ -217,9 +238,21 @@ claude-workflow sync
 ├── .meta/
 │   ├── meta.json             # 版本信息
 │   └── backups/              # 升级备份
-├── skills/                   # 技能定义
-├── commands/                 # 命令定义
+├── skills/                   # Skills 定义（可移植）
+│   ├── workflow/             # 智能工作流
+│   ├── scan/                 # 项目扫描
+│   ├── analyze/              # 代码分析
+│   ├── debug/                # Bug 修复
+│   ├── write-tests/          # 测试编写
+│   ├── diff-review/          # 代码审查
+│   ├── bug-batch/            # 批量缺陷修复
+│   ├── figma-ui/             # Figma 转代码
+│   ├── visual-diff/          # 视觉差异对比
+│   └── perf-budget/          # 性能预算验证
+├── commands/                 # 命令定义（Claude Code 特定）
 ├── prompts/                  # 多模型协作 Prompt
+│   ├── codex/                # Codex 角色提示词
+│   └── gemini/               # Gemini 角色提示词
 ├── utils/                    # 工具函数
 └── specs/                    # 规范文档
 

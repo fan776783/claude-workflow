@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.4] - 2026-02-24
+
+### Changed
+- **文档更新**：全面更新项目文档以反映 Skills 体系架构
+  - 更新 README.md：强调 Skills 体系、多 Agent 支持、可移植性
+  - 更新 CLAUDE.md：详细说明 Canonical + Symlink 架构和 10 个可用 Skills
+  - 更新 package.json：描述改为"AI 编码工具通用工作流系统"
+  - 更新 CLI 帮助文本：移除旧的 commands/agents 引用
+  - 更新 templates/CLAUDE.md：修正 prompts 路径为 canonical 位置
+
+### Improved
+- **架构说明**：清晰展示 Skills 目录结构（workflow, scan, analyze, debug 等 10 个 skills）
+- **多工具支持**：文档明确说明支持 Claude Code, Cursor, Codex, Gemini CLI 等 10+ AI 编码工具
+- **关键词优化**：添加 skills, multi-agent, code-review, testing, figma 等关键词
+
+### Technical Details
+- 移除对旧架构（commands/agents 直接复制到 ~/.claude/）的引用
+- 强调新架构：~/.agents/claude-workflow/ 作为 Single Source of Truth
+- 所有 AI 工具通过 symlink 共享同一套 Skills
+
+---
+
 ## [3.3.3] - 2026-02-24
 
 ### Changed

@@ -39,12 +39,13 @@ if (process.argv.length === 2) {
     console.log(`Claude Workflow v${pkg.version}`);
     console.log('\n使用: claude-workflow <command>\n');
     console.log('可用命令:');
-    console.log('  sync     同步工作流模板到 ~/.claude');
+    console.log('  sync     同步 Skills 到 AI 编码工具');
     console.log('  init     初始化项目配置');
     console.log('  status   查看安装状态');
     console.log('  doctor   诊断配置问题');
     console.log('\n示例:');
     console.log('  claude-workflow sync');
+    console.log('  claude-workflow sync -a claude-code,cursor');
     console.log('  claude-workflow sync -f');
   }
 } else {
@@ -54,7 +55,7 @@ const program = new Command();
 
 program
   .name('claude-workflow')
-  .description('Claude Code 工作流工具包管理器')
+  .description('AI 编码工具通用工作流系统 - Skills 架构')
   .version(pkg.version);
 
 // sync 命令：同步模板到多个 Agent
