@@ -6,9 +6,9 @@
 
 ```
 需求文档 ──▶ 代码分析 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
-                │              │                   │                │
-                │         🛑 确认设计          🔍 审查意图      🛑 确认任务
-                │
+                │              │       │          │                │
+                │      🛑 确认需求理解(条件)  🛑 确认设计      🔍 审查意图      🛑 确认任务
+                │       (非空维度≥3时)
            codebase-retrieval
 ```
 
@@ -108,6 +108,18 @@
 - 功能流程验证项
 
 **详细实现**: 参见 `specs/start/phase-0.6-acceptance-checklist.md`
+
+---
+
+### Phase 0.7：生成实现指南（条件执行）
+
+**目的**: 将验收清单转换为开发者视角的实现路径，关注"如何测试和实现"
+
+**执行条件**: 仅在 Phase 0.6 成功生成验证清单后执行
+
+**输出**: `.claude/acceptance/{task-name}-implementation-guide.md`
+
+**详细实现**: 参见 `specs/start/phase-0.7-implementation-guide.md`
 
 ---
 
@@ -283,6 +295,7 @@
 - `phase-0-code-analysis.md` - Phase 0 代码分析详情
 - `phase-0.5-requirement-extraction.md` - Phase 0.5 需求结构化提取详情
 - `phase-0.6-acceptance-checklist.md` - Phase 0.6 验证清单生成详情
+- `phase-0.7-implementation-guide.md` - Phase 0.7 实现指南生成详情
 - `phase-1-tech-design.md` - Phase 1 技术方案生成详情
 - `phase-1.5-intent-review.md` - Phase 1.5 意图审查详情
 - `phase-2-task-generation.md` - Phase 2 任务清单生成详情

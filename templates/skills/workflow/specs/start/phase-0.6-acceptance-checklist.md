@@ -2,7 +2,7 @@
 
 ## 目的
 
-将结构化需求转换为可执行的验证清单，指导任务实现和验收测试。
+将结构化需求转换为可执行的验证清单，用于验证功能交付质量。验证清单关注用户视角的验收标准，与 Phase 0.7 生成的实现指南（开发者视角）互补。
 
 ## 执行条件
 
@@ -11,10 +11,18 @@
 ```typescript
 if (requirementAnalysis) {
   acceptanceChecklist = generateAcceptanceChecklist(requirementAnalysis, taskName);
+  // Phase 0.6 完成后，自动触发 Phase 0.7 生成实现指南
 } else {
   console.log(`⏭️ 跳过（未执行 Phase 0.5）\n`);
 }
 ```
+
+## 与 Phase 0.7 的关系
+
+- **Phase 0.6 (验收清单)**: 用户视角的验收标准，用于验证交付质量
+- **Phase 0.7 (实现指南)**: 开发者视角的实现路径，提供 TDD 流程和测试模板
+
+两者互相引用，共同指导开发和验收。
 
 ## 数据结构
 

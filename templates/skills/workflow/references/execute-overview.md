@@ -135,6 +135,24 @@
 
 ---
 
+### Step 6.5：完成验证（Verification Iron Law）
+
+**铁律：没有新鲜验证证据，不得标记任务为 completed。**
+
+根据任务 action 类型执行对应验证命令，生成结构化证据（命令、退出码、输出摘要、时间戳）。验证失败则标记 `failed`，禁止继续。
+
+**详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
+
+---
+
+### Step 6.7：规格合规检查（Spec Compliance Check）
+
+对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。
+
+**详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
+
+---
+
 ### Step 7：更新任务状态
 
 执行完成后更新任务状态：

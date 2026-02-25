@@ -17,9 +17,13 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 **职责分离**：workflow 专注业务逻辑和数据流，只阻塞 API 依赖。设计稿还原通过独立的 `/figma-ui` skill 处理。
 
-## 🆕 v3.3.2 新特性：验证清单生成系统
+## 🆕 v3.3.2+ 新特性：双文档系统
 
-在需求结构化提取（Phase 0.5）之后，自动生成详细的验证清单（Phase 0.6），包含：
+在需求结构化提取（Phase 0.5）之后，自动生成两类文档：
+
+### Phase 0.6: 验收清单（用户视角）
+
+用于验证功能交付质量，包含：
 
 - **表单字段验证**：必填、格式、长度、联动等验证项 + 测试数据
 - **角色权限验证**：可见性、可操作性、数据范围等验证项 + 测试步骤
@@ -29,11 +33,23 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 - **UI展示验证**：布局、样式、响应式、文本截断等验证项 + 视觉检查点
 - **功能流程验证**：步骤完整性、分支逻辑、入口路径等验证项
 
-**验证清单特点**：
-- 自动关联到任务：每个任务自动关联相关的验收项
-- 结构化组织：按场景、角色、功能模块分组
-- 可执行性强：包含测试数据、测试步骤、测试场景
-- 持久化存储：生成独立的 `acceptance-checklist.md` 文件
+### Phase 0.7: 实现指南（开发者视角）
+
+提供测试先行的实现路径，包含：
+
+- **TDD 工作流**：Red-Green-Refactor 循环详解
+- **测试分层策略**：单元测试 70% + 集成测试 20% + E2E 测试 10%
+- **测试代码模板**：根据技术栈生成可直接使用的测试代码
+- **测试数据工厂**：自动生成有效数据和无效数据工厂方法
+- **模块实现指引**：按模块分组功能，提供测试步骤和实现提示
+- **质量门禁**：自动化检查、性能指标、安全检查
+
+**双文档特点**：
+- **职责分离**：验收清单关注"应该实现什么"，实现指南关注"如何测试和实现"
+- **互相引用**：两个文档互相引用，共同指导开发和验收
+- **技术栈适配**：实现指南根据项目配置生成对应测试框架的代码
+- **自动关联**：任务自动关联验收项和测试方法
+- **持久化存储**：生成独立的 `.md` 文件，便于查阅和归档
 
 ## 调用方式
 
@@ -72,10 +88,10 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ## 工作流程
 
 ```
-需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ 验证清单 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
-             │              │              │                   │                │
-        codebase-       🛑 确认设计    📋 生成验收项      🔍 审查意图      🛑 确认任务
-        retrieval
+需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ 验证清单 ──▶ 实现指南 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+             │              │              │              │                   │                │
+        codebase-       🛑 确认设计    📋 验收标准   📝 测试模板      🔍 审查意图      🛑 确认任务
+        retrieval                      (Phase 0.6)   (Phase 0.7)
 ```
 
 ## 文件结构
@@ -83,14 +99,16 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ```
 项目目录/
 ├── .claude/
-│   ├── config/project-config.json     ← /scan 生成
-│   ├── tech-design/{name}.md          ← 技术方案
-│   └── acceptance/{name}-checklist.md ← 验证清单 (v3.3.2)
+│   ├── config/project-config.json              ← /scan 生成
+│   ├── tech-design/{name}.md                   ← 技术方案
+│   └── acceptance/
+│       ├── {name}-checklist.md                 ← 验收清单 (Phase 0.6)
+│       └── {name}-implementation-guide.md      ← 实现指南 (Phase 0.7)
 
 ~/.claude/workflows/{projectId}/
-├── workflow-state.json                ← 运行时状态
-├── tasks-{name}.md                    ← 任务清单
-└── changes/                           ← 增量变更
+├── workflow-state.json                         ← 运行时状态
+├── tasks-{name}.md                             ← 任务清单
+└── changes/                                    ← 增量变更
     └── CHG-001/
         ├── delta.json
         ├── intent.md

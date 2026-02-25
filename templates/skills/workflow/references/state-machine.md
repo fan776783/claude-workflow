@@ -42,6 +42,8 @@
   "project_name": "my-project",
   "status": "running",
   "current_task": "T3",
+  "current_tasks": ["T3"],
+  "parallel_groups": [],
   "execution_mode": "phase",
   "mode": "progressive",
   "use_subagent": true,
@@ -134,6 +136,9 @@
 | 字段 | 说明 |
 |------|------|
 | `mode` | 工作流模式：`normal`（默认）/ `progressive`（渐进式） |
+| `current_tasks` | 当前执行中的任务 ID 数组（并行执行时包含多个）|
+| `current_task` | 向后兼容别名，等于 `current_tasks[0]` |
+| `parallel_groups` | 并行执行批次历史记录 |
 | `unblocked` | 已解除的依赖列表，如 `["api_spec"]` |
 | `sessions` | 多模型会话 ID，用于跨阶段复用上下文 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
@@ -290,6 +295,28 @@ function classifyTaskDependencies(task: Task): string[] {
 手动控制：
 - `--subagent` 强制启用
 - `--no-subagent` 强制禁用
+
+### 并行执行支持
+
+Subagent 模式下，同阶段且通过独立性检查的任务可并行执行。
+
+**parallel_groups 结构**：
+
+```typescript
+interface ParallelGroup {
+  id: string;                    // "PG-001"
+  task_ids: string[];            // ["T3", "T4", "T5"]
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  completed_at?: string;
+  conflict_detected: boolean;    // 冲突检测结果
+}
+```
+
+**状态同步规则**：
+- `current_tasks` 在并行分派时更新为所有并行任务 ID
+- `current_task` 始终等于 `current_tasks[0]`（向后兼容）
+- 并行任务全部完成后，`current_tasks` 更新为下一批任务或清空
 
 ## Delta Tracking 系统 (v3.0)
 

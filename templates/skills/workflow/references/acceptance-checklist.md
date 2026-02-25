@@ -1,17 +1,24 @@
-# 验证清单生成系统 (v3.3.2)
+# 验证清单生成系统 (v3.3.2+)
 
 > Phase 0.6: 将结构化需求转换为可执行的验证清单
 
 ## 概述
 
-验证清单生成系统在需求结构化提取（Phase 0.5）之后自动执行，将 9 维度的结构化需求转换为可执行的验收项，用于指导任务实现和验收测试。
+验证清单生成系统在需求结构化提取（Phase 0.5）之后自动执行，将 9 维度的结构化需求转换为可执行的验收项，用于验证功能交付质量。
+
+**与实现指南的关系**：
+- **验收清单（Phase 0.6）**：用户视角的验收标准，关注"应该实现什么"
+- **实现指南（Phase 0.7）**：开发者视角的实现路径，关注"如何测试和实现"
+
+两者互补，共同指导开发和验收。
 
 ## 设计目标
 
 1. **细节不丢失**：确保 PRD 中的所有验证细节（必填、格式、权限、交互等）都转换为验收项
-2. **可执行性强**：每个验收项都包含明确的验证标准和测试方法
+2. **可执行性强**：每个验收项都包含明确的验证标准
 3. **自动关联**：任务与验收项智能匹配，执行时自动引用
 4. **结构化组织**：按场景、角色、功能模块分组，便于查找和验证
+5. **职责分离**：验收清单关注验收标准，测试方法由实现指南提供
 
 ## 验证清单结构
 
@@ -257,15 +264,17 @@ grep "AC-F1.1" .claude/acceptance/xxx-checklist.md -A 10
 
 ## 文件位置
 
-- **模板文件**：`templates/docs/acceptance-checklist-template.md`
+- **规格文件**：`templates/skills/workflow/specs/start/phase-0.6-acceptance-checklist.md`
+- **模板文件**：`templates/skills/workflow/templates/acceptance-checklist-template.md`
 - **生成位置**：`.claude/acceptance/{sanitizedName}-checklist.md`
 - **关联文件**：
+  - 实现指南：`.claude/acceptance/{sanitizedName}-implementation-guide.md`
   - 技术方案：`.claude/tech-design/{sanitizedName}.md`
   - 任务清单：`~/.claude/workflows/{projectId}/tasks-{sanitizedName}.md`
 
 ## 示例
 
-完整示例请参考 `templates/docs/acceptance-checklist-template.md`。
+完整示例请参考 `templates/skills/workflow/templates/acceptance-checklist-template.md`。
 
 ## 注意事项
 
@@ -273,9 +282,36 @@ grep "AC-F1.1" .claude/acceptance/xxx-checklist.md -A 10
 2. **可执行性检查**：确保每个验收项都有明确的验证标准
 3. **关联准确性**：验证任务与验收项的关联是否准确
 4. **持续更新**：需求变更时，需要重新生成验证清单
+5. **与实现指南同步**：验收清单和实现指南应该保持一致，互相引用
+6. **防绕过机制**：执行者应参考以下合理化借口表和红旗清单进行自检
+
+## 合理化借口表
+
+> 常见的跳过验证的借口，以及为什么不能接受。
+
+| 借口 | 为什么不能接受 | 正确做法 |
+|------|----------------|----------|
+| "手动测试过了" | 手动测试不可重复，无法作为证据 | 运行自动化测试或录制操作步骤 |
+| "这个场景不会发生" | 边界场景往往在生产环境才暴露 | 按清单逐项验证，不做假设 |
+| "和之前的实现一样" | 上下文不同，行为可能不同 | 在当前上下文中重新验证 |
+| "时间不够，先跳过" | 跳过验证的技术债比重写更贵 | 至少完成 Must Pass 项 |
+| "测试框架有问题" | 工具问题不是跳过验证的理由 | 修复工具或使用替代验证方式 |
+| "改动太小不需要测试" | 小改动也可能引入回归 | 运行相关测试确认无副作用 |
+
+## 红旗清单
+
+> 出现以下信号时，说明验证流程正在被绕过。
+
+- 任务标记为 completed 但没有运行任何验证命令
+- 验收项被标记为通过但没有对应的测试输出
+- 使用"应该"、"大概"、"看起来"等模糊措辞描述验证结果
+- 只验证了正常路径，跳过了所有边界场景
+- 引用其他任务的验证结果作为当前任务的证据
+- 验证命令的输出没有被读取就声称通过
 
 ## 相关文档
 
-- [start.md](./start.md) - Phase 0.6 实现细节
-- [execute.md](./execute.md) - 任务执行时如何使用验收项
+- [implementation-guide.md](./implementation-guide.md) - 实现指南系统文档（Phase 0.7）
+- [start-overview.md](./start-overview.md) - workflow start 流程概览
+- [execute-overview.md](./execute-overview.md) - 任务执行时如何使用验收项
 - [shared-utils.md](./shared-utils.md) - 共享工具函数

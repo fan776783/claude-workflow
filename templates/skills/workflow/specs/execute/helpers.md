@@ -586,6 +586,160 @@ function formatTimestamp(isoString: string): string {
 
 ---
 
+## 并行执行函数
+
+### canRunInParallel
+
+检查两个任务是否可以并行执行。
+
+```typescript
+function canRunInParallel(
+  taskA: Task,
+  taskB: Task,
+  allTasks: Task[]
+): boolean {
+  // 1. 文件独立：操作的文件没有交集
+  if (taskA.file && taskB.file && taskA.file === taskB.file) return false;
+
+  // 2. 直接依赖检查（支持逗号分隔的多依赖）
+  const aDeps = (taskA.depends || '').split(',').map(s => s.trim()).filter(Boolean);
+  const bDeps = (taskB.depends || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (aDeps.includes(taskB.id) || bDeps.includes(taskA.id)) return false;
+
+  // 3. 传递依赖检查：A 的任何上游是否包含 B（或反之）
+  if (hasTransitiveDependency(taskA, taskB, allTasks)) return false;
+  if (hasTransitiveDependency(taskB, taskA, allTasks)) return false;
+
+  // 4. 共享状态检查：同时操作 store/config/constants/types 目录
+  const sharedPaths = ['store', 'config', 'constants', 'types', 'shared'];
+  const aIsShared = sharedPaths.some(p => (taskA.file || '').includes(`/${p}/`));
+  const bIsShared = sharedPaths.some(p => (taskB.file || '').includes(`/${p}/`));
+  if (aIsShared && bIsShared) return false;
+
+  // 5. Import 路径检查：A 创建的文件不被 B 的 requirement 引用（或反之）
+  if (taskA.file && taskB.requirement?.includes(taskA.file)) return false;
+  if (taskB.file && taskA.requirement?.includes(taskB.file)) return false;
+
+  return true;
+}
+```
+
+### hasTransitiveDependency
+
+检查传递依赖关系（A 是否间接依赖 B）。
+
+```typescript
+function hasTransitiveDependency(
+  taskA: Task,
+  taskB: Task,
+  allTasks: Task[],
+  visited: Set<string> = new Set()
+): boolean {
+  if (visited.has(taskA.id)) return false;
+  visited.add(taskA.id);
+
+  if (!taskA.depends) return false;
+
+  // 支持逗号分隔的多依赖
+  const deps = taskA.depends.split(',').map(s => s.trim()).filter(Boolean);
+
+  for (const depId of deps) {
+    if (depId === taskB.id) return true;
+
+    const upstream = allTasks.find(t => t.id === depId);
+    if (upstream && hasTransitiveDependency(upstream, taskB, allTasks, visited)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+```
+
+### findParallelGroup
+
+从当前阶段的 pending 任务中找出可并行执行的任务组。
+
+```typescript
+function findParallelGroup(
+  tasksContent: string,
+  progress: Progress,
+  allTasks: Task[]
+): string[][] {
+  // 1. 找出当前阶段所有 pending 且未阻塞的任务
+  const pendingTasks = allTasks.filter(t =>
+    !progress.completed.includes(t.id) &&
+    !progress.blocked.includes(t.id) &&
+    !progress.skipped.includes(t.id) &&
+    !progress.failed.includes(t.id)
+  );
+
+  if (pendingTasks.length < 2) return [];
+
+  // 2. 按阶段分组
+  const currentPhase = pendingTasks[0]?.phase;
+  const samePhase = pendingTasks.filter(t => t.phase === currentPhase);
+
+  if (samePhase.length < 2) return [];
+
+  // 3. 贪心分组：逐个检查独立性
+  const groups: string[][] = [];
+  const assigned = new Set<string>();
+
+  for (let i = 0; i < samePhase.length; i++) {
+    if (assigned.has(samePhase[i].id)) continue;
+
+    const group = [samePhase[i].id];
+    assigned.add(samePhase[i].id);
+
+    for (let j = i + 1; j < samePhase.length; j++) {
+      if (assigned.has(samePhase[j].id)) continue;
+
+      // 检查与组内所有任务的独立性
+      const canParallel = group.every(gId => {
+        const gTask = allTasks.find(t => t.id === gId)!;
+        return canRunInParallel(gTask, samePhase[j], allTasks);
+      });
+
+      if (canParallel) {
+        group.push(samePhase[j].id);
+        assigned.add(samePhase[j].id);
+      }
+    }
+
+    if (group.length > 1) {
+      groups.push(group);
+    }
+  }
+
+  return groups;
+}
+```
+
+### updateParallelGroupStatus
+
+更新并行执行批次状态。
+
+```typescript
+function updateParallelGroupStatus(
+  state: WorkflowState,
+  groupId: string,
+  status: 'running' | 'completed' | 'failed',
+  conflictDetected: boolean = false
+): void {
+  const group = state.parallel_groups.find(g => g.id === groupId);
+  if (group) {
+    group.status = status;
+    group.conflict_detected = conflictDetected;
+    if (status !== 'running') {
+      group.completed_at = new Date().toISOString();
+    }
+  }
+}
+```
+
+---
+
 ## 使用示例
 
 ```typescript

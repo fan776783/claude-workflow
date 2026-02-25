@@ -445,4 +445,198 @@ if (useSubagent) {
 }
 ```
 
+### 并行执行（Subagent 模式）
+
+当 Subagent 模式启用时，同阶段且通过独立性检查的任务可并行执行。
+
+**触发条件**：
+- Subagent 模式已启用
+- 当前阶段有 ≥ 2 个 pending 任务
+- 任务通过独立性检查（`findParallelGroup()`）
+
+**执行流程**：
+
+```typescript
+if (useSubagent) {
+  const allTasks = parseAllTasks(tasksContent);
+  const parallelGroups = findParallelGroup(tasksContent, state.progress, allTasks);
+
+  if (parallelGroups.length > 0) {
+    const group = parallelGroups[0];
+    const groupId = `PG-${String((state.parallel_groups || []).length + 1).padStart(3, '0')}`;
+
+    // 0. 向后兼容：确保字段存在
+    if (!state.parallel_groups) state.parallel_groups = [];
+    if (!state.current_tasks) state.current_tasks = [];
+
+    // 1. 记录并行批次
+    state.parallel_groups.push({
+      id: groupId,
+      task_ids: group,
+      status: 'running',
+      started_at: new Date().toISOString(),
+      conflict_detected: false
+    });
+    state.current_tasks = group;
+    state.current_task = group[0];
+
+    console.log(`⚡ 并行执行 ${group.length} 个任务: ${group.join(', ')}`);
+
+    // 2. 并行分派（run_in_background）
+    const taskOutputIds: string[] = [];
+    for (const taskId of group) {
+      const task = allTasks.find(t => t.id === taskId)!;
+      const outputId = await executeTaskInSubagent(task, state, tasksPath, statePath, {
+        run_in_background: true
+      });
+      taskOutputIds.push(outputId);
+    }
+
+    // 3. 等待所有任务完成，收集结果
+    const results: Array<{ taskId: string; passed: boolean }> = [];
+    for (let i = 0; i < taskOutputIds.length; i++) {
+      const output = await TaskOutput(taskOutputIds[i], { block: true, timeout: 600000 });
+      const taskPassed = output.exit_code === 0;
+      results.push({ taskId: group[i], passed: taskPassed });
+
+      // 单个任务失败：立即标记
+      if (!taskPassed) {
+        state.progress.failed.push(group[i]);
+      } else {
+        state.progress.completed.push(group[i]);
+      }
+    }
+
+    const anyFailed = results.some(r => !r.passed);
+
+    // 4. 冲突检测：运行全量测试（仅当所有任务都成功时）
+    if (!anyFailed) {
+      const testResult = await runProjectTests();
+      if (!testResult.passed) {
+        console.log('⚠️ 并行执行后检测到冲突，回退为顺序执行');
+        updateParallelGroupStatus(state, groupId, 'failed', true);
+        // 回滚：将并行任务标记回 pending，逐个重新执行
+        for (const taskId of group) {
+          state.progress.completed = state.progress.completed.filter(id => id !== taskId);
+        }
+        // 降级为顺序执行
+        for (const taskId of group) {
+          const task = allTasks.find(t => t.id === taskId)!;
+          await executeTaskInSubagent(task, state, tasksPath, statePath);
+        }
+      } else {
+        updateParallelGroupStatus(state, groupId, 'completed');
+      }
+    } else {
+      updateParallelGroupStatus(state, groupId, 'failed');
+      console.log(`⚠️ ${results.filter(r => !r.passed).map(r => r.taskId).join(', ')} 执行失败`);
+    }
+
+    // 5. 同步 current_task/current_tasks
+    state.current_tasks = [];
+    state.current_task = findNextTask(tasksContent, state.progress) || state.current_task;
+  } else {
+    // 无可并行任务，顺序执行
+    await executeTaskInSubagent(currentTask, state, tasksPath, statePath);
+  }
+}
+```
+
+**降级策略**：
+- 独立性检查不通过 → 回退为顺序执行
+- 并行执行后冲突检测失败 → 回滚并改为顺序执行
+- 任一并行任务失败 → 标记该任务 `failed`，其余正常完成
+
 详见 `specs/workflow/subagent-routing.md`。
+
+---
+
+## Post-Execution Pipeline
+
+> 所有执行模式共享的后置管线。每个任务执行完成后、标记状态前，必须经过此管线。
+
+```
+executeTask() → Step 6.5（验证铁律）→ Step 6.7（规格合规）→ Step 7（更新状态）
+```
+
+**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 和 Step 6.7 再进入 Step 7。并行执行时，每个并行任务独立经过此管线。
+
+---
+
+### Step 6.5：完成验证（Verification Iron Law）
+
+**铁律：没有新鲜验证证据，不得标记任务为 completed。**
+
+#### 验证证据格式
+
+每次验证必须产生结构化证据记录：
+
+```typescript
+interface VerificationEvidence {
+  command: string;       // 执行的验证命令
+  exit_code: number;     // 退出码
+  output_summary: string; // 输出摘要（截取关键行，≤ 500 字符）
+  timestamp: string;     // ISO 8601 时间戳
+  passed: boolean;       // 是否通过
+}
+```
+
+#### 验证命令映射
+
+根据任务 action 类型确定验证方式：
+
+| Action | 验证命令 | 通过条件 |
+|--------|----------|----------|
+| `create_file` / `edit_file` | 运行相关测试 或 语法检查 | 测试通过 或 无语法错误 |
+| `run_tests` | 读取测试输出 | 全部通过，exit_code = 0 |
+| `codex_review` | 读取审查评分 | 评分 ≥ threshold |
+| `git_commit` | `git log -1 --format="%H %s"` | commit hash 存在且消息匹配 |
+
+#### 执行流程
+
+1. **识别验证命令**：根据任务 action 类型查表
+2. **执行验证命令**：实际运行命令
+3. **读取输出**：必须读取命令输出（禁止忽略）
+4. **步骤级验证**：如果任务的 `requirement` 包含编号步骤列表（`1. ... → 预期：...`），逐项检查每个步骤的预期结果是否满足
+5. **生成证据**：填充 `VerificationEvidence`
+6. **判定结果**：
+   - 通过 → 继续 Step 6.7
+   - 失败 → 标记 `failed`，记录 `failure_reason`，禁止标记 `completed`
+
+#### 红旗清单
+
+出现以下情况说明在跳过验证：
+
+- 使用"应该没问题"、"看起来正确"等模糊措辞
+- 没有运行任何命令就标记完成
+- 只运行了部分验证就声称全部通过
+- 引用之前的测试结果而非本次运行结果
+- 验证命令的输出没有被读取就声称通过
+
+---
+
+### Step 6.7：规格合规检查（Spec Compliance Check）
+
+对 `create_file` 和 `edit_file` 类型的任务，在验证通过后执行只读规格合规检查。
+
+**跳过条件**：
+- `run_tests`、`codex_review`、`git_commit` 类型的任务跳过
+- 任务无 `acceptance_criteria` 时跳过
+
+**检查内容**：
+
+1. **验收项覆盖**：任务关联的验收项是否都被实现覆盖
+2. **设计参考一致**：实现是否与 `design_ref` 指向的技术方案章节一致
+3. **需求完整性**：`requirement` 描述的功能是否完整实现
+
+**执行方式**：
+- 当前模型直接检查（不调用外部模型，保持轻量）
+- 读取任务的验收项内容，逐项比对实现代码
+
+**检查结果**：
+
+| 结果 | 处理 |
+|------|------|
+| 全部覆盖 | 继续 Step 7 |
+| 存在偏差 | 输出偏差列表，追加补充任务到 tasks.md，当前任务仍标记 completed |
+| 严重偏差（缺失核心功能） | 标记 `failed`，提示用户 |
