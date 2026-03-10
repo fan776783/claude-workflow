@@ -171,7 +171,6 @@ interface Task {
   depends: string | null;
   blocked_by: string[] | null;
   quality_gate: boolean;
-  threshold: number;
   status: string;
 }
 
@@ -202,7 +201,6 @@ function parseTasksFromMarkdown(content: string): Task[] {
       depends: extractField(body, '依赖'),
       blocked_by,
       quality_gate: parseQualityGate(body),
-      threshold: parseInt(extractField(body, '阈值') || '80'),
       status: titleStatus || extractField(body, '状态') || 'pending'
     });
   }

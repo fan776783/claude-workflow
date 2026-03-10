@@ -1,11 +1,11 @@
 ---
 name: workflow
-description: "智能工作流系统 - 需求分析、任务规划与自动化执行。显式调用：/workflow action [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。v3.3.2 新增：验证清单生成系统，自动将结构化需求转换为可执行的验收项，指导任务实现和验收测试。"
+description: "智能工作流系统 - 需求讨论、需求分析、任务规划与自动化执行。显式调用：/workflow action [args]。Actions: start（启动规划）、execute（执行任务）、delta（增量变更/API同步）、status（查看状态）、archive（归档）。此 skill 不会自动触发，需用户明确调用。v3.5.0 新增：借鉴 Superpowers 执行纪律，强化两阶段代码审查、结构化调试协议和 TDD 执行纪律。"
 ---
 
-# 智能工作流系统 (v3.3.2)
+# 智能工作流系统 (v3.5.0)
 
-结构化开发工作流：需求分析 → 技术设计 → 任务拆分 → 自动执行。
+结构化开发工作流：需求分析 → 需求讨论 → 技术设计 → 任务拆分 → 自动执行。
 
 ## 设计理念
 
@@ -17,7 +17,36 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 **职责分离**：workflow 专注业务逻辑和数据流，只阻塞 API 依赖。设计稿还原通过独立的 `/figma-ui` skill 处理。
 
-## 🆕 v3.3.2+ 新特性：双文档系统
+## v3.5.0 新特性：执行纪律强化
+
+借鉴 Superpowers 项目核心机制，强化执行阶段的质量保障：
+
+- **两阶段代码审查** — 质量关卡升级为 Stage 1（规格合规）+ Stage 2（代码质量），问题分 Critical/Important/Minor 三级，共享 4 次总预算
+- **结构化调试协议** — 任务失败重试前强制四阶段调试（根因调查 → 模式分析 → 假设验证 → 实施修复），3 次失败触发 Hard Stop
+- **TDD 执行纪律** — 实现指南存在时，implement 阶段任务强制 Red-Green-Refactor 循环
+- **审查反馈处理协议** — READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT
+- **验证门控函数** — IDENTIFY → RUN → READ → VERIFY → ONLY THEN claim
+- **自审查步骤** — Step 6.6 单次建议性自审查，在验证和合规检查之间
+
+### Post-Execution Pipeline (v3.5.0)
+
+```
+executeTask() → Step 6.5（验证铁律 + Gate Function）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
+```
+
+质量关卡任务的 `codex_review` action 内部包含两阶段审查，详见 `specs/execute/actions/codex-review.md`。
+
+## v3.4.0 新特性：需求分析讨论
+
+在代码分析（Phase 0）之后、需求结构化提取（Phase 0.5）之前，新增交互式需求讨论阶段（Phase 0.2）：
+
+- **自动识别 Gap** — 基于代码分析结果，检测需求中的模糊点、缺失项和隐含假设
+- **逐个澄清** — 每次只问一个问题，优先选择题，支持跳过和结束
+- **方案探索** — 存在互斥实现路径时，提出 2-3 种方案供对比选择
+- **结构化工件** — 讨论结果持久化为独立 JSON，不修改原始需求，通过 side-channel 传递给后续阶段
+- **可跳过** — `--no-discuss` 标志或简短明确的内联需求自动跳过
+
+### v3.3.2 双文档系统
 
 在需求结构化提取（Phase 0.5）之后，自动生成两类文档：
 
@@ -57,6 +86,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 /workflow start "需求描述"              # 启动新工作流
 /workflow start docs/prd.md            # 自动检测 .md 文件
 /workflow start -f "需求"              # 强制覆盖已有文件
+/workflow start --no-discuss docs/prd.md  # 跳过需求讨论
 
 /workflow execute                       # 执行下一个任务（默认阶段模式）
 /workflow execute --retry              # 重试失败的任务
@@ -88,10 +118,10 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 ## 工作流程
 
 ```
-需求 ──▶ 代码分析 ──▶ 需求结构化 ──▶ 验证清单 ──▶ 实现指南 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
-             │              │              │              │                   │                │
-        codebase-       🛑 确认设计    📋 验收标准   📝 测试模板      🔍 审查意图      🛑 确认任务
-        retrieval                      (Phase 0.6)   (Phase 0.7)
+需求 ──▶ 代码分析 ──▶ 需求讨论 ──▶ 需求结构化 ──▶ 验证清单 ──▶ 实现指南 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+             │             │              │              │              │                   │                │
+        codebase-    💬 逐个澄清      🛑 确认设计    📋 验收标准   📝 测试模板      🔍 审查意图      🛑 确认任务
+        retrieval    🎯 方案选择                      (Phase 0.6)   (Phase 0.7)
 ```
 
 ## 文件结构
@@ -107,6 +137,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json                         ← 运行时状态
+├── discussion-artifact.json                    ← 讨论工件 (Phase 0.2)
 ├── tasks-{name}.md                             ← 任务清单
 └── changes/                                    ← 增量变更
     └── CHG-001/
@@ -141,6 +172,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 **start 流程详情**：
 - [specs/start/phase-0-code-analysis.md](specs/start/phase-0-code-analysis.md) - Phase 0 代码分析
+- [specs/start/phase-0.2-requirement-discussion.md](specs/start/phase-0.2-requirement-discussion.md) - Phase 0.2 需求分析讨论
 - [specs/start/phase-0.5-requirement-extraction.md](specs/start/phase-0.5-requirement-extraction.md) - Phase 0.5 需求结构化提取
 - [specs/start/phase-0.6-acceptance-checklist.md](specs/start/phase-0.6-acceptance-checklist.md) - Phase 0.6 验证清单生成
 - [specs/start/phase-1-tech-design.md](specs/start/phase-1-tech-design.md) - Phase 1 技术方案生成
@@ -149,6 +181,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 
 **execute 流程详情**：
 - [specs/execute/execution-modes.md](specs/execute/execution-modes.md) - 执行模式详情
+- [specs/execute/actions/codex-review.md](specs/execute/actions/codex-review.md) - 两阶段代码审查
 - [specs/execute/helpers.md](specs/execute/helpers.md) - 辅助函数
 
 **delta 流程详情**：
@@ -160,6 +193,7 @@ workflow（功能）  ──▶  figma-ui（视觉）  ──▶  visual-diff（
 | 模块 | 路径 |
 |------|------|
 | 验证清单 | [references/acceptance-checklist.md](references/acceptance-checklist.md) |
+| 审查反馈协议 | [references/review-feedback-protocol.md](references/review-feedback-protocol.md) |
 | 外部依赖 | [references/external-deps.md](references/external-deps.md) |
 | 状态机 | [references/state-machine.md](references/state-machine.md) |
 | 共享工具 | [references/shared-utils.md](references/shared-utils.md) |

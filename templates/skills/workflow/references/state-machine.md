@@ -30,7 +30,9 @@
 | 依赖标识 | 说明 | 解除条件 |
 |---------|------|---------|
 | `api_spec` | 后端接口规格 | `/workflow unblock api_spec` |
-| `design_spec` | 设计稿/UI 规格 | `/workflow unblock design_spec` |
+| `external` | 第三方服务/SDK | `/workflow unblock external` |
+
+> `design_spec` 已移除，设计稿依赖通过 `/figma-ui` 工作流处理。
 
 ## 状态文件结构
 
@@ -62,6 +64,13 @@
     "blocked": ["T5", "T6"],
     "failed": [],
     "skipped": []
+  },
+  "discussion": {
+    "completed": true,
+    "artifact_path": "discussion-artifact.json",
+    "clarification_count": 5,
+    "approach_selected": true,
+    "unresolved_dependencies": ["api_spec"]
   },
   "contextMetrics": {
     "estimatedTokens": 45000,
@@ -166,6 +175,67 @@
 | `delta_tracking.current_change` | 当前变更 ID，如 "CHG-001" |
 | `delta_tracking.applied_changes` | 已应用的变更 ID 列表 |
 | `delta_tracking.change_counter` | 变更 ID 计数器 |
+| `task_runtime` | Per-task 运行时状态（v3.5.0），键为任务 ID |
+| `task_runtime[id].retry_count` | 当前任务连续重试次数，成功后重置为 0 |
+| `task_runtime[id].last_failure_stage` | 最后一次失败的阶段 |
+| `task_runtime[id].last_failure_reason` | 最后一次失败的原因 |
+| `task_runtime[id].hard_stop_triggered` | 是否触发了 Hard Stop（retry_count ≥ 3） |
+| `task_runtime[id].debugging_phases_completed` | 已完成的调试阶段 |
+| `quality_gates` | 质量关卡审查结果（v3.5.0），键为关卡任务 ID |
+
+## 执行纪律接口定义（v3.5.0）
+
+### TaskRuntime
+
+```typescript
+interface TaskRuntime {
+  retry_count: number;
+  last_failure_stage: 'execution' | 'verification' | 'self_review' | 'spec_compliance' | 'review_stage1' | 'review_stage2';
+  last_failure_reason: string;
+  hard_stop_triggered: boolean;
+  debugging_phases_completed: ('investigation' | 'pattern' | 'hypothesis' | 'implementation')[];
+}
+```
+
+**重置规则**：
+- `retry_count`：任务转为 `completed` 时重置为 0
+- `debugging_phases_completed`：成功后清空
+- `hard_stop_triggered`：需用户确认后才能重置
+
+### QualityGateResult
+
+```typescript
+interface QualityGateResult {
+  gate_task_id: string;
+  commit_hash: string;             // 关卡通过时的 HEAD commit hash
+  diff_window: {
+    from_task: string | null;      // null = 工作流起点
+    to_task: string;
+    files_changed: number;
+  };
+  stage1: {
+    passed: boolean;
+    attempts: number;
+    issues_found: number;
+    completed_at: string;          // ISO 8601
+  };
+  stage2?: {                       // Stage 1 未通过时可缺省
+    passed: boolean;
+    attempts: number;
+    assessment: 'approved' | 'needs_fixes' | 'rejected';
+    critical_count: number;
+    important_count: number;
+    minor_count: number;
+    completed_at: string;          // ISO 8601
+  };
+  overall_passed: boolean;
+}
+```
+
+**失败态约定**：
+- Stage 1 失败时，`stage2` 缺省（由 `markGateFailed` 不填充该字段）
+- Stage 2 失败时，`stage2` 填充实际审查结果（`assessment: 'rejected'` 或 `'needs_fixes'`）
+- 消费方（如 `status.md` 模板）须用 `{{#if stage2}}` 条件渲染
 
 ## 约束系统（v2.1）
 
@@ -255,7 +325,10 @@ completed → archived (/workflow archive 执行)
 ## 任务依赖自动分类规则
 
 ```typescript
-function classifyTaskDependencies(task: Task): string[] {
+function classifyTaskDependencies(
+  task: Task,
+  discussionArtifact?: DiscussionArtifact
+): string[] {
   const deps: string[] = [];
   const name = task.name.toLowerCase();
   const file = (task.file || '').toLowerCase();
@@ -266,13 +339,19 @@ function classifyTaskDependencies(task: Task): string[] {
     deps.push('api_spec');
   }
 
-  // 需要设计稿的任务
-  if (/ui|样式|组件|还原|视觉|布局|卡片|弹窗|表单/.test(name) ||
-      /\.vue$|\.tsx$|\.jsx$|\.css$|\.scss$/.test(file) ||
-      /components\/|pages\/|views\//.test(file)) {
-    // 排除骨架类任务
-    if (!/骨架|skeleton|mock|stub/.test(name)) {
-      deps.push('design_spec');
+  // 从 Phase 0.2 讨论工件中映射未就绪依赖
+  if (discussionArtifact?.unresolvedDependencies) {
+    for (const dep of discussionArtifact.unresolvedDependencies) {
+      if (dep.status === 'not_started' && !deps.includes(dep.type)) {
+        deps.push(dep.type);
+      }
+    }
+  } else {
+    // 回退：Phase 0.2 被跳过时，正则检测 external 依赖
+    if (/第三方|sdk|外部服务|third.party|payment|sms|oauth|oss/.test(name)) {
+      if (!deps.includes('external')) {
+        deps.push('external');
+      }
     }
   }
 

@@ -193,7 +193,6 @@ function analyzePrdDelta(
         file: `src/components/forms/${req.scene}Form.vue`,
         requirement: `添加 ${req.fieldName} 字段，类型：${req.fieldType}，校验规则：${req.validationRules.join(', ')}`,
         actions: 'edit_file',
-        blocked_by: ['design_spec'],
         rationale: `PRD 新增表单字段`
       });
     } else if (req.type === 'business_rule') {
@@ -212,7 +211,6 @@ function analyzePrdDelta(
         file: `src/components/${req.componentName}.vue`,
         requirement: req.description,
         actions: 'create_file',
-        blocked_by: ['design_spec'],
         rationale: `PRD 新增 UI 组件`
       });
     }

@@ -206,9 +206,19 @@ dataContracts: Array<{
 ## 实现函数
 
 ```typescript
-function extractStructuredRequirements(content: string): RequirementAnalysis {
+function extractStructuredRequirements(
+  content: string,
+  discussionArtifact?: DiscussionArtifact
+): RequirementAnalysis {
   // 当前模型执行：逐维度扫描 PRD 原文，提取结构化数据
   // 按每个维度的匹配模式逐段扫描，将匹配到的内容填入对应数组，空维度保持 []
+  //
+  // 如果 discussionArtifact 存在：
+  // - 将 clarifications 中已确认的信息补充到对应维度
+  //   例：dimension === 'permission' 的澄清 → 补充到 rolePermissions
+  //   例：dimension === 'edge-case' 的澄清 → 补充到 edgeCases
+  //   例：dimension === 'behavior' 的澄清 → 补充到 interactions 或 businessRules
+  // - 将 unresolvedDependencies 中的 api_spec → 补充到 dataContracts（标记为待确认）
 
   const analysis: RequirementAnalysis = {
     changeRecords: [],

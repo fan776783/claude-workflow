@@ -2,13 +2,13 @@
 
 > 精简接口：自动检测 `.md` 文件，无需 `--backend`/`--file` 参数
 
-四阶段强制流程：**需求 → 需求结构化 → 设计 → 意图审查 → 任务**
+五阶段强制流程：**需求 → 需求讨论 → 需求结构化 → 设计 → 意图审查 → 任务**
 
 ```
-需求文档 ──▶ 代码分析 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
-                │              │       │          │                │
-                │      🛑 确认需求理解(条件)  🛑 确认设计      🔍 审查意图      🛑 确认任务
-                │       (非空维度≥3时)
+需求文档 ──▶ 代码分析 ──▶ 需求讨论 ──▶ 需求结构化 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md ──▶ 执行
+                │             │              │       │          │                │
+                │       💬 逐个澄清    🛑 确认需求理解  🛑 确认设计      🔍 审查意图      🛑 确认任务
+                │       🎯 方案选择     (非空维度≥3时)
            codebase-retrieval
 ```
 
@@ -30,6 +30,7 @@
 - 内联需求：`/workflow start "实现用户认证功能"`
 - 文件需求：`/workflow start docs/prd.md`（自动检测 `.md` 文件）
 - 强制覆盖：`/workflow start -f "强制覆盖已有文件"`
+- 跳过讨论：`/workflow start --no-discuss docs/prd.md`
 
 **详细实现**: 参见 `specs/start/phase-0-code-analysis.md`
 
@@ -66,6 +67,24 @@
 5. 需要注意的依赖关系
 
 **详细实现**: 参见 `specs/start/phase-0-code-analysis.md`
+
+---
+
+### Phase 0.2：需求分析讨论（条件执行）
+
+**目的**: 通过交互式对话发现需求中的模糊点、缺失项和隐含假设
+
+**执行条件**: 非内联短需求（内联 ≤ 100 字符跳过），可通过 `--no-discuss` 跳过
+
+**讨论流程**:
+1. **需求预分析** — 基于代码分析结果，自动识别待澄清事项（范围边界、行为未定义、边界场景、技术约束冲突、外部依赖）
+2. **逐个澄清** — 每次只问一个问题，优先选择题，用户可随时结束
+3. **方案探索**（条件） — 存在互斥实现路径时，提出 2-3 种方案供选择
+4. **持久化讨论工件** — 结构化 side-channel（不修改原始需求），供后续阶段显式消费
+
+**跳过机制**: `--no-discuss` 标志 或 内联短需求自动跳过
+
+**详细实现**: 参见 `specs/start/phase-0.2-requirement-discussion.md`
 
 ---
 
@@ -199,14 +218,13 @@
 - requirement: 需求描述
 - actions: 执行动作（create_file, edit_file, run_tests, codex_review, git_commit）
 - depends: 依赖任务 ID
-- blocked_by: 阻塞依赖（api_spec, design_spec）
+- blocked_by: 阻塞依赖（api_spec, external）
 - quality_gate: 是否为质量关卡
-- threshold: 质量阈值（默认 80）
 - status: 任务状态（pending, blocked）
 - acceptance_criteria: 关联的验收项（如有验证清单）
 
 **自动添加**:
-- 标准质量关卡（Codex 代码审查）
+- 标准质量关卡（两阶段代码审查）
 - 提交任务（git_commit）
 
 **详细实现**: 参见 `specs/start/phase-2-task-generation.md`
@@ -259,7 +277,7 @@
 - 零决策审计（passed, antiPatterns, remainingAmbiguities）
 - 上下文感知指标（estimatedTokens, warningThreshold, dangerThreshold）
 - 边界调度（enabled, currentBoundary, boundaryProgress）
-- 质量关卡（threshold, actual_score, passed）
+- 质量关卡（gate_task_id, commit_hash, stage1, stage2, overall_passed）
 - Delta Tracking（enabled, changes_dir, current_change, applied_changes）
 
 **Genesis Change**: 创建初始变更记录（delta.json）
@@ -283,7 +301,7 @@
 
 # 解除阻塞依赖
 /workflow unblock api_spec    # 后端接口已就绪
-/workflow unblock design_spec # 设计稿已就绪
+/workflow unblock external    # 第三方服务/SDK 已就绪
 ```
 
 ---
@@ -293,6 +311,7 @@
 所有详细的函数实现、数据结构定义、算法细节请参见 `specs/start/` 目录：
 
 - `phase-0-code-analysis.md` - Phase 0 代码分析详情
+- `phase-0.2-requirement-discussion.md` - Phase 0.2 需求分析讨论详情
 - `phase-0.5-requirement-extraction.md` - Phase 0.5 需求结构化提取详情
 - `phase-0.6-acceptance-checklist.md` - Phase 0.6 验证清单生成详情
 - `phase-0.7-implementation-guide.md` - Phase 0.7 实现指南生成详情

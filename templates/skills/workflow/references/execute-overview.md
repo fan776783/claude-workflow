@@ -124,7 +124,7 @@
 - `create_file`: 创建新文件
 - `edit_file`: 编辑现有文件
 - `run_tests`: 运行测试
-- `codex_review`: Codex 代码审查
+- `codex_review`: 两阶段代码审查（规格合规 + 代码质量）
 - `git_commit`: Git 提交
 
 **执行方式**：
@@ -145,9 +145,17 @@
 
 ---
 
+### Step 6.6：自审查（Self-Review Checklist）
+
+对 `create_file` / `edit_file` 类型任务，在验证通过后执行单次建议性自审查：完整性（测试覆盖）、正确性（红绿转换）、质量（DRY、错误处理）、安全（输入验证）、一致性（设计对齐）。永不阻塞，始终继续 Step 6.7。
+
+**详细实现**: 参见 `specs/execute/execution-modes.md` → Step 6.6
+
+---
+
 ### Step 6.7：规格合规检查（Spec Compliance Check）
 
-对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。
+对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`codex_review` 类型任务跳过（由两阶段审查的 Stage 1 接管）。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
 
@@ -194,8 +202,9 @@
 
 重试失败的任务：
 1. 检查工作流状态是否为 `failed`
-2. 重新执行当前任务
-3. 成功后继续工作流
+2. 启动结构化调试协议（四阶段：根因调查 → 模式分析 → 假设验证 → 实施修复）
+3. 修复后重新执行当前任务
+4. 连续 3 次失败触发 Hard Stop，质疑架构
 
 **详细实现**: 参见 `specs/execute/execution-modes.md`
 
@@ -212,11 +221,16 @@
 
 ## 质量关卡处理
 
-当遇到质量关卡任务时：
-1. 执行 Codex 代码审查
-2. 检查评分是否达到阈值（默认 80）
-3. 如果未达标，标记为失败并暂停
-4. 如果达标，继续执行
+当遇到质量关卡任务时，执行两阶段代码审查：
+
+1. **Stage 1：规格合规审查** — 验证实现是否完整匹配需求（当前模型，确定性）
+2. **Stage 2：代码质量审查** — 验证架构、DRY、错误处理、安全性（Codex subagent）
+3. Stage 2 必须在 Stage 1 通过后才能启动
+4. 两阶段共享 4 次总预算，耗尽则标记失败
+
+问题严重级别：Critical（必须修复）/ Important（应当修复）/ Minor（建议修复）
+
+**详细实现**: 参见 `specs/execute/actions/codex-review.md`
 
 **详细实现**: 参见 `specs/workflow/quality-gate.md`
 
@@ -295,5 +309,5 @@
 
 # 解除阻塞依赖
 /workflow unblock api_spec
-/workflow unblock design_spec
+/workflow unblock external
 ```

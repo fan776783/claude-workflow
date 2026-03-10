@@ -305,7 +305,7 @@ Delta 命令与渐进式工作流无缝集成：
 
 # 解除阻塞（手动）
 /workflow unblock api_spec
-/workflow unblock design_spec
+/workflow unblock external
 ```
 
 ---

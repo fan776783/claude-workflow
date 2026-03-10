@@ -16,14 +16,16 @@
 const args = $ARGUMENTS.join(' ');
 let requirement = '';
 let forceOverwrite = false;   // --force / -f: 强制覆盖已有文件
+let noDiscuss = false;        // --no-discuss: 跳过需求分析讨论
 
 // 解析标志
-const flags = args.match(/--force|-f/g) || [];
+const flags = args.match(/--force|-f|--no-discuss/g) || [];
 forceOverwrite = flags.some(f => f === '--force' || f === '-f');
+noDiscuss = flags.some(f => f === '--no-discuss');
 
 // 移除标志，获取需求内容
 requirement = args
-  .replace(/--force|-f/g, '')
+  .replace(/--force|-f|--no-discuss/g, '')
   .replace(/^["']|["']$/g, '')
   .trim();
 
@@ -33,8 +35,9 @@ if (!requirement) {
 
 用法：
   /workflow start "实现用户认证功能"
-  /workflow start docs/prd.md        # 自动检测 .md 文件
+  /workflow start docs/prd.md           # 自动检测 .md 文件
   /workflow start -f "强制覆盖已有文件"
+  /workflow start --no-discuss docs/prd.md  # 跳过需求讨论
   `);
   return;
 }
@@ -197,6 +200,7 @@ function extractDependencies(codeContext: string): Dependency[] {
 ## 输出
 
 分析结果将用于后续阶段：
+- Phase 0.2: 需求分析讨论（识别需求与现有架构的冲突、发现缺失项）
 - Phase 0.5: 需求结构化提取（提供代码上下文）
 - Phase 0.6: 验证清单生成（提供验证参考）
 - Phase 0.7: 实现指南生成（提供技术栈信息）

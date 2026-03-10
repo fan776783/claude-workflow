@@ -69,7 +69,6 @@ const tasks = implementationPlan.map((item, index) => {
     actions: determineActions(item),
     depends: item.depends ? `T${item.depends}` : null,
     quality_gate: item.isQualityGate || false,
-    threshold: item.threshold || 80,
     status: 'pending'
   };
 
@@ -94,20 +93,21 @@ const tasks = implementationPlan.map((item, index) => {
 ```typescript
 // 添加标准质量关卡（如果没有）
 if (!tasks.some(t => t.quality_gate)) {
-  const lastImplTask = tasks.filter(t => t.phase === 'implement').pop();
-  if (lastImplTask) {
+  // 找到最后一个代码产出阶段的任务（不仅是 implement）
+  const codeProducingPhases = ['implement', 'ui-layout', 'ui-display', 'ui-form', 'ui-integrate', 'test'];
+  const lastCodeTask = tasks.filter(t => codeProducingPhases.includes(t.phase)).pop();
+  if (lastCodeTask) {
     tasks.push({
       id: `T${tasks.length + 1}`,
-      name: 'Codex 代码审查',
+      name: '两阶段代码审查',
       phase: 'verify',
       file: null,
       leverage: null,
       design_ref: null,
-      requirement: `审查 ${lastImplTask.id} 及之前的代码实现`,
+      requirement: `审查 ${lastCodeTask.id} 及之前的所有代码实现（聚合 diff 窗口）`,
       actions: 'codex_review',
-      depends: lastImplTask.id,
+      depends: lastCodeTask.id,
       quality_gate: true,
-      threshold: 80,
       status: 'pending'
     });
   }
@@ -162,7 +162,7 @@ ${t.acceptance_criteria && t.acceptance_criteria.length > 0 ? `- **验收项**: 
 - **actions**: \`${t.actions}\`
 ${t.depends ? `- **依赖**: ${t.depends}` : ''}
 ${t.blocked_by ? `- **阻塞依赖**: \`${t.blocked_by.join(', ')}\`` : ''}
-${t.quality_gate ? `- **质量关卡**: true\n- **阈值**: ${t.threshold}` : ''}
+${t.quality_gate ? `- **质量关卡**: true（两阶段代码审查）` : ''}
 - **状态**: ${t.status}
 `).join('\n');
 
@@ -267,15 +267,13 @@ ${tasks.map(t => `- [ ] ${t.id}: ${t.name} (${t.phase})`).join('\n')}
 
 阻塞依赖，数组格式，支持：
 - `api_spec`: 等待后端接口规格
-- `design_spec`: 等待设计稿
+- `external`: 等待第三方服务/SDK 就绪
+
+> `design_spec` 已移除，设计稿依赖通过 `/figma-ui` 工作流处理。
 
 ### quality_gate
 
-是否为质量关卡（布尔值）。
-
-### threshold
-
-质量阈值（0-100），默认 80。
+是否为质量关卡（布尔值）。质量关卡执行两阶段代码审查（规格合规 + 代码质量）。
 
 ### status
 
@@ -305,7 +303,6 @@ function extractImplementationPlan(techDesign: string): Array<{
   section?: string;
   description?: string;
   isQualityGate?: boolean;
-  threshold?: number;
 }> {
   // 解析技术方案中的"4. 实施计划"表格
   // 返回任务数组
@@ -399,10 +396,16 @@ function findLeverage(file: string, reusableComponents: any[]): string | null {
 
 ### classifyTaskDependencies
 
-自动分类任务依赖（api_spec / design_spec）。
+自动分类任务依赖（api_spec / external）。
+
+> `design_spec` 已移除，设计稿依赖通过 `/figma-ui` 工作流处理。
+> `external` 优先从 Phase 0.2 讨论工件驱动，跳过 Phase 0.2 时回退到正则检测。
 
 ```typescript
-function classifyTaskDependencies(task: { name: string; file?: string }): string[] {
+function classifyTaskDependencies(
+  task: { name: string; file?: string },
+  discussionArtifact?: DiscussionArtifact
+): string[] {
   const deps: string[] = [];
   const name = task.name.toLowerCase();
   const file = (task.file || '').toLowerCase();
@@ -413,13 +416,19 @@ function classifyTaskDependencies(task: { name: string; file?: string }): string
     deps.push('api_spec');
   }
 
-  // 需要设计稿的任务
-  if (/ui|样式|组件|还原|视觉|布局|卡片|弹窗|表单|界面|页面/.test(name) ||
-      /\.vue$|\.tsx$|\.jsx$|\.css$|\.scss$/.test(file) ||
-      /components\/|pages\/|views\//.test(file)) {
-    // 排除骨架类任务（这些可以先做）
-    if (!/骨架|skeleton|mock|stub|placeholder/.test(name)) {
-      deps.push('design_spec');
+  // 从 Phase 0.2 讨论工件中映射未就绪依赖
+  if (discussionArtifact?.unresolvedDependencies) {
+    for (const dep of discussionArtifact.unresolvedDependencies) {
+      if (dep.status === 'not_started' && !deps.includes(dep.type)) {
+        deps.push(dep.type);  // 'api_spec' | 'external'
+      }
+    }
+  } else {
+    // 回退：Phase 0.2 被跳过时（--no-discuss 或内联短需求），正则检测 external 依赖
+    if (/第三方|sdk|外部服务|third.party|payment|sms|oauth|oss/.test(name)) {
+      if (!deps.includes('external')) {
+        deps.push('external');
+      }
     }
   }
 

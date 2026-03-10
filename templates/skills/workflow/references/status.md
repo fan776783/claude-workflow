@@ -254,13 +254,13 @@ if (isJsonMode) {
 | 依赖类型 | 状态 |
 |---------|------|
 | api_spec (后端接口) | {{unblocked.includes('api_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
-| design_spec (设计稿) | {{unblocked.includes('design_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+| external (第三方服务) | {{unblocked.includes('external') ? '✅ 已就绪' : '⏳ 等待中'}} |
 
 {{#if (unblocked.length < 2)}}
 💡 **解除阻塞**：
 \`\`\`bash
 {{#unless unblocked.includes('api_spec')}}/workflow unblock api_spec    # 后端接口已就绪{{/unless}}
-{{#unless unblocked.includes('design_spec')}}/workflow unblock design_spec # 设计稿已就绪{{/unless}}
+{{#unless unblocked.includes('external')}}/workflow unblock external    # 第三方服务/SDK 已就绪{{/unless}}
 \`\`\`
 {{/if}}
 {{/if}}
@@ -334,7 +334,7 @@ if (isJsonMode) {
 **动作**：`{{actions}}`
 
 {{#if quality_gate}}
-⚠️ **这是质量关卡**：评分需 ≥ {{threshold}}
+⚠️ **这是质量关卡**：两阶段代码审查（规格合规 + 代码质量）
 {{/if}}
 {{/with}}
 {{/if}}
@@ -345,10 +345,11 @@ if (isJsonMode) {
 
 {{#each state.quality_gates}}
 **{{@key}}**：
-- 任务ID：{{task_id}}
-- 阈值：{{threshold}}
-- 评分：{{actual_score || '待执行'}}
-- 状态：{{passed === true ? '✅ 通过' : (passed === false ? '❌ 失败' : '⏸️ 待执行')}}
+- 任务ID：{{gate_task_id}}
+- diff 窗口：{{diff_window.from_task || '起点'}} → {{diff_window.to_task}}（{{diff_window.files_changed}} 个文件）
+- Stage 1（规格合规）：{{stage1.passed ? '✅ 通过' : '❌ 未通过'}}（{{stage1.attempts}} 次尝试）
+{{#if stage2}}- Stage 2（代码质量）：{{stage2.passed ? '✅ ' + stage2.assessment : '❌ ' + stage2.assessment}}（{{stage2.attempts}} 次尝试，Critical: {{stage2.critical_count}} / Important: {{stage2.important_count}} / Minor: {{stage2.minor_count}}）{{else}}- Stage 2（代码质量）：⏸️ 未执行（Stage 1 未通过）{{/if}}
+- 总体：{{overall_passed ? '✅ 通过' : '❌ 未通过'}}
 {{/each}}
 
 {{#if hasFailedGates}}
@@ -493,7 +494,7 @@ _（未定义成功标准）_
 | 依赖类型 | 状态 |
 |---------|------|
 | api_spec (后端接口) | {{unblocked.includes('api_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
-| design_spec (设计稿) | {{unblocked.includes('design_spec') ? '✅ 已就绪' : '⏳ 等待中'}} |
+| external (第三方服务) | {{unblocked.includes('external') ? '✅ 已就绪' : '⏳ 等待中'}} |
 
 {{#if blocked}}
 **阻塞的任务**：{{blocked}} 个（等待依赖解除后可执行）
@@ -524,7 +525,7 @@ _（未定义成功标准）_
 **解除阻塞**：
 \```bash
 {{#unless unblocked.includes('api_spec')}}/workflow unblock api_spec    # 后端接口已就绪{{/unless}}
-{{#unless unblocked.includes('design_spec')}}/workflow unblock design_spec # 设计稿已就绪{{/unless}}
+{{#unless unblocked.includes('external')}}/workflow unblock external    # 第三方服务/SDK 已就绪{{/unless}}
 \```
 
 {{else if hasFailedTask}}
@@ -550,7 +551,7 @@ _（未定义成功标准）_
 \```
 
 {{#if currentTask.quality_gate}}
-💡 **提示**：下一步是质量关卡，评分需达到 {{currentTask.threshold}} 分
+💡 **提示**：下一步是质量关卡（两阶段代码审查）
 {{/if}}
 {{/if}}
 
@@ -594,7 +595,6 @@ function parseTasksFromMarkdown(content: string): Task[] {
       depends: extractField(body, '依赖'),
       blocked_by,  // 渐进式工作流：任务的阻塞依赖
       quality_gate: parseQualityGate(body),
-      threshold: parseInt(extractField(body, '阈值') || '80'),
       status: titleStatus || extractField(body, '状态') || 'pending'
     });
   }

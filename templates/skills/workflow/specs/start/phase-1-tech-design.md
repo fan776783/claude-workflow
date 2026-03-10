@@ -86,6 +86,11 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
     ? renderRequirementDetailSections(requirementAnalysis)
     : '';
 
+  // 预渲染需求澄清摘要章节（Phase 0.2 产物）
+  const discussionSummarySection = discussionArtifact
+    ? renderDiscussionSummarySection(discussionArtifact)
+    : '';
+
   let techDesignContent: string;
 
   if (techDesignTemplate) {
@@ -96,6 +101,7 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
       task_name: taskName,
       requirement_summary: requirementContent,
       requirement_detail_sections: requirementDetailSections,
+      discussion_summary_section: discussionSummarySection,
       related_files_table: relatedFilesTable,
       existing_patterns: patternsContent,
       constraints: constraintsContent,
@@ -113,6 +119,7 @@ if (!fileExists(techDesignPath) || existingChoice === "重新生成") {
       requirementSource,
       requirementContent,
       requirementDetailSections,
+      discussionSummarySection,
       relatedFilesTable,
       patternsContent,
       constraintsContent
@@ -329,6 +336,48 @@ function replaceVars(template: string, data: Record<string, string>): string {
 
 详见 `phase-0.5-requirement-extraction.md`。
 
+### renderDiscussionSummarySection
+
+将 DiscussionArtifact 渲染为 Markdown 章节。
+
+```typescript
+function renderDiscussionSummarySection(artifact: DiscussionArtifact): string {
+  if (!artifact || artifact.clarifications.length === 0) return '';
+
+  let section = `## 1.x 需求澄清摘要\n\n`;
+  section += `> 来源：Phase 0.2 需求讨论（${artifact.timestamp}）\n\n`;
+
+  // 按维度分组展示澄清结果
+  const grouped = groupBy(artifact.clarifications, 'dimension');
+  for (const [dimension, items] of Object.entries(grouped)) {
+    section += `### ${dimension}\n\n`;
+    for (const item of items) {
+      section += `- **Q**: ${item.question}\n  **A**: ${item.answer}\n\n`;
+    }
+  }
+
+  // 选定方案
+  if (artifact.selectedApproach) {
+    section += `### 选定方案\n\n`;
+    section += `**${artifact.selectedApproach.name}**: ${artifact.selectedApproach.reason}\n\n`;
+    if (artifact.selectedApproach.rejectedAlternatives.length > 0) {
+      section += `排除方案：${artifact.selectedApproach.rejectedAlternatives.map(a => a.name).join('、')}\n\n`;
+    }
+  }
+
+  // 未就绪依赖
+  if (artifact.unresolvedDependencies.length > 0) {
+    section += `### 未就绪依赖\n\n`;
+    for (const dep of artifact.unresolvedDependencies) {
+      section += `- **${dep.type}**: ${dep.description}（状态：${dep.status}）\n`;
+    }
+    section += '\n';
+  }
+
+  return section;
+}
+```
+
 ### generateInlineTechDesign
 
 模板缺失时使用的内联生成函数。
@@ -339,6 +388,7 @@ function generateInlineTechDesign(params: {
   requirementSource: string;
   requirementContent: string;
   requirementDetailSections: string;
+  discussionSummarySection: string;
   relatedFilesTable: string;
   patternsContent: string;
   constraintsContent: string;
@@ -357,6 +407,8 @@ status: draft
 ${params.requirementContent}
 
 ${params.requirementDetailSections}
+
+${params.discussionSummarySection}
 
 ## 2. 代码分析结果
 

@@ -177,8 +177,9 @@ if (executionMode === 'quality_gate') {
 
 **行为**：
 - 检查工作流状态是否为 `failed`
-- 重新执行失败的任务
-- 成功后继续工作流（根据原执行模式）
+- 启动结构化调试协议定位根因
+- 修复后重新执行失败的任务
+- 连续 3 次失败触发 Hard Stop
 
 **适用场景**：
 - 任务执行失败后修复问题
@@ -188,10 +189,8 @@ if (executionMode === 'quality_gate') {
 **实现**：
 ```typescript
 async function executeRetryMode() {
-  // 读取状态
   const state = JSON.parse(readFile(statePath));
 
-  // 检查状态
   if (state.status !== 'failed') {
     console.log(`
 ⚠️ 当前工作流状态不是 failed，无需重试
@@ -204,21 +203,6 @@ async function executeRetryMode() {
     return;
   }
 
-  console.log(`
-🔄 重试模式
-
-失败任务：${state.current_task}
-失败原因：${state.failure_reason || '未知'}
-
-开始重试...
-  `);
-
-  // 重置状态
-  state.status = 'running';
-  state.failure_reason = null;
-  writeFile(statePath, JSON.stringify(state, null, 2));
-
-  // 重新执行当前任务
   const tasksContent = readFile(tasksPath);
   const currentTask = extractCurrentTask(tasksContent, state.current_task);
 
@@ -227,31 +211,130 @@ async function executeRetryMode() {
     return;
   }
 
+  // 初始化 per-task runtime state
+  if (!state.task_runtime) state.task_runtime = {};
+  if (!state.task_runtime[currentTask.id]) {
+    state.task_runtime[currentTask.id] = {
+      retry_count: 0,
+      last_failure_stage: 'execution',
+      last_failure_reason: state.failure_reason || '',
+      hard_stop_triggered: false,
+      debugging_phases_completed: [],
+    };
+  }
+
+  const runtime = state.task_runtime[currentTask.id];
+  runtime.retry_count++;
+
+  // Hard Stop 检查
+  if (runtime.retry_count >= 3) {
+    runtime.hard_stop_triggered = true;
+    writeFile(statePath, JSON.stringify(state, null, 2));
+    console.log(`
+🛑 Hard Stop：任务 ${currentTask.id} 已连续失败 ${runtime.retry_count} 次
+
+这通常意味着架构层面的问题，而非简单 bug。
+
+请检查：
+- 当前方案是否根本可行？
+- 是否需要重新设计此部分？
+- 是否存在未识别的外部依赖？
+
+建议与用户讨论后再决定下一步。
+使用 /workflow execute --skip 跳过此任务。
+    `);
+    return;
+  }
+
+  console.log(`
+🔄 重试模式（第 ${runtime.retry_count} 次）
+
+失败任务：${currentTask.id}
+失败原因：${runtime.last_failure_reason}
+失败阶段：${runtime.last_failure_stage}
+
+📋 启动结构化调试流程...
+  `);
+
+  // 结构化调试协议
+  await structuredDebugging(currentTask, state, runtime);
+
+  // 重置状态并重试
+  state.status = 'running';
+  state.failure_reason = null;
+  writeFile(statePath, JSON.stringify(state, null, 2));
+
   try {
     await executeTask(currentTask, state, tasksPath, statePath);
-
-    console.log(`
-✅ 重试成功
-
-任务 ${currentTask.id} 已完成
-
-💡 继续执行：/workflow execute
-    `);
+    console.log(`✅ 重试成功：任务 ${currentTask.id} 已完成`);
+    runtime.retry_count = 0; // 成功后重置
+    runtime.debugging_phases_completed = [];
+    writeFile(statePath, JSON.stringify(state, null, 2));
   } catch (error) {
+    state.status = 'failed';
+    state.failure_reason = error.message;
+    runtime.last_failure_reason = error.message;
+    writeFile(statePath, JSON.stringify(state, null, 2));
+
     console.log(`
-❌ 重试失败
+❌ 重试失败（第 ${runtime.retry_count} 次）
 
 错误信息：${error.message}
 
-请修复问题后再次重试：/workflow execute --retry
+请使用 /workflow execute --retry 再次重试
     `);
-
-    state.status = 'failed';
-    state.failure_reason = error.message;
-    writeFile(statePath, JSON.stringify(state, null, 2));
   }
 }
 ```
+
+#### 结构化调试协议
+
+> 借鉴 Superpowers systematic-debugging 的四阶段调试流程。
+
+**铁律：没有根因调查，不得尝试修复。症状修复等于失败。**
+
+```
+任务失败
+  ↓
+Phase 1：根因调查
+  ├─ 仔细阅读完整错误信息
+  ├─ 复现问题
+  ├─ 检查最近变更（git diff HEAD~3 -- <file>）
+  └─ 从错误点向上追溯数据流
+  ↓
+Phase 2：模式分析
+  ├─ 在代码库中找到类似的正常工作的代码
+  ├─ 对比正常代码与出错代码的差异
+  └─ 列出每一个差异，无论多小
+  ↓
+Phase 3：假设验证
+  ├─ 形成单一假设："我认为 X 是根因，因为 Y"
+  ├─ 做最小可能的变更来验证
+  └─ 一次只测试一个变量
+  ↓
+Phase 4：实施修复
+  ├─ 先写失败测试用例
+  ├─ 实施单一修复（针对根因，非症状）
+  └─ 验证修复 + 确认无回归
+```
+
+#### 升级阈值
+
+| 重试次数 | 行为 |
+|----------|------|
+| 第 1 次 | 执行四阶段调试流程 |
+| 第 2 次 | 加强 Phase 2（扩大模式搜索范围） |
+| **第 3 次** | **Hard Stop：质疑架构，与用户讨论** |
+
+#### 调试红旗清单
+
+- "先快速修一下，回头再调查"
+- "试试改这个看看行不行"
+- "同时改几个地方，跑一下测试"
+- 在没有追踪数据流的情况下提出修复方案
+- 已经失败 2 次以上仍然"再试一次"
+
+**以上任何一条触发：停下来，回到 Phase 1。**
 
 ---
 
@@ -556,10 +639,10 @@ if (useSubagent) {
 > 所有执行模式共享的后置管线。每个任务执行完成后、标记状态前，必须经过此管线。
 
 ```
-executeTask() → Step 6.5（验证铁律）→ Step 6.7（规格合规）→ Step 7（更新状态）
+executeTask() → Step 6.5（验证铁律）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
 ```
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 和 Step 6.7 再进入 Step 7。并行执行时，每个并行任务独立经过此管线。
+**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `codex_review` action 内部包含两阶段审查（详见 `specs/execute/actions/codex-review.md`）。并行执行时，每个并行任务独立经过此管线。
 
 ---
 
@@ -578,6 +661,7 @@ interface VerificationEvidence {
   output_summary: string; // 输出摘要（截取关键行，≤ 500 字符）
   timestamp: string;     // ISO 8601 时间戳
   passed: boolean;       // 是否通过
+  artifact_ref?: string; // 关联产物引用（如 quality_gates.T8）
 }
 ```
 
@@ -589,7 +673,7 @@ interface VerificationEvidence {
 |--------|----------|----------|
 | `create_file` / `edit_file` | 运行相关测试 或 语法检查 | 测试通过 或 无语法错误 |
 | `run_tests` | 读取测试输出 | 全部通过，exit_code = 0 |
-| `codex_review` | 读取审查评分 | 评分 ≥ threshold |
+| `codex_review` | 读取两阶段审查结果 | `quality_gates[taskId].overall_passed === true` |
 | `git_commit` | `git log -1 --format="%H %s"` | commit hash 存在且消息匹配 |
 
 #### 执行流程
@@ -603,15 +687,83 @@ interface VerificationEvidence {
    - 通过 → 继续 Step 6.7
    - 失败 → 标记 `failed`，记录 `failure_reason`，禁止标记 `completed`
 
+#### 验证门控函数（Gate Function）
+
+在声称任何状态前，必须通过此门控：
+
+```
+1. IDENTIFY：什么命令能证明此声明？
+2. RUN：执行完整命令（新鲜的、完整的）
+3. READ：完整输出，检查退出码，计数失败
+4. VERIFY：输出是否确认了声明？
+5. ONLY THEN：发表声明
+```
+
+| 声明 | 需要的证据 | 不充分的证据 |
+|------|-----------|-------------|
+| "测试通过" | 测试命令输出：0 failures | 之前的运行、"应该通过" |
+| "Lint 干净" | Linter 输出：0 errors | 部分检查、推测 |
+| "构建成功" | 构建命令：exit 0 | Linter 通过 ≠ 构建通过 |
+| "Bug 已修复" | 原始症状测试通过 | "代码改了" |
+| "需求已满足" | 逐项对照验收清单 | 测试通过 ≠ 需求满足 |
+
 #### 红旗清单
 
 出现以下情况说明在跳过验证：
 
-- 使用"应该没问题"、"看起来正确"等模糊措辞
+**模糊措辞**：
+- 使用"应该没问题"、"看起来正确"、"大概通过了"
+- 使用"应该"、"可能"、"似乎"等不确定措辞
+- 在验证前表达满意（"好了！"、"完成！"）
+
+**验证缺失**：
 - 没有运行任何命令就标记完成
 - 只运行了部分验证就声称全部通过
 - 引用之前的测试结果而非本次运行结果
 - 验证命令的输出没有被读取就声称通过
+
+**过早满足**：
+- 代码编译通过就声称完成（编译 ≠ 正确）
+- Linter 通过就声称构建成功（Linter ≠ 编译器）
+- 单元测试通过就声称需求已满足（测试通过 ≠ 需求覆盖）
+
+**信任代理报告**：
+- 信任 subagent 的成功报告而不独立验证
+- 信任外部工具的"success"输出而不检查细节
+
+**以上任何一条触发：运行验证命令，读取输出，然后才能声称结果。**
+
+---
+
+### Step 6.6：自审查（Self-Review Checklist）
+
+> 单次建议性检查。在验证通过后、规格合规检查前捕获明显问题，减少后续审查循环。
+
+**适用条件**：`create_file` 和 `edit_file` 类型任务
+**跳过条件**：`run_tests`、`codex_review`、`git_commit` 类型任务
+
+#### 自审查清单
+
+| 类别 | 检查项 |
+|------|--------|
+| **完整性** | 每个新函数/方法都有测试？ |
+| **完整性** | 边界条件和错误路径都有覆盖？ |
+| **正确性** | 测试用例的失败原因是功能缺失（非语法错误）？ |
+| **正确性** | 每个测试都观察到了红-绿转换？ |
+| **质量** | 代码中无硬编码的魔法数字/字符串？ |
+| **质量** | 错误处理覆盖了所有外部调用？ |
+| **质量** | 无重复代码（DRY）？ |
+| **安全** | 用户输入都有验证和清理？ |
+| **安全** | 无敏感信息硬编码？ |
+| **一致性** | 命名风格与项目现有代码一致？ |
+| **一致性** | 实现与 `design_ref` 指向的技术方案一致？ |
+
+#### 执行方式
+
+- 单次通过，运行一次即结束
+- 输出未通过项的警告
+- **永不阻塞**：无论结果如何，始终继续 Step 6.7
+- 目的：提前发现明显问题，减少外部审查循环次数
 
 ---
 
@@ -620,7 +772,8 @@ interface VerificationEvidence {
 对 `create_file` 和 `edit_file` 类型的任务，在验证通过后执行只读规格合规检查。
 
 **跳过条件**：
-- `run_tests`、`codex_review`、`git_commit` 类型的任务跳过
+- `run_tests`、`git_commit` 类型的任务跳过
+- `codex_review` 类型任务跳过（由两阶段审查的 Stage 1 接管，详见 `specs/execute/actions/codex-review.md`）
 - 任务无 `acceptance_criteria` 时跳过
 
 **检查内容**：
@@ -640,3 +793,129 @@ interface VerificationEvidence {
 | 全部覆盖 | 继续 Step 7 |
 | 存在偏差 | 输出偏差列表，追加补充任务到 tasks.md，当前任务仍标记 completed |
 | 严重偏差（缺失核心功能） | 标记 `failed`，提示用户 |
+
+---
+
+## TDD 执行纪律（TDD Enforcement）
+
+> 借鉴 Superpowers test-driven-development 的 Iron Law。
+
+**适用条件**（全部满足才触发）：
+1. 任务 `phase` 为 `implement`、`ui-layout`、`ui-display`、`ui-form`、`ui-integrate`
+2. 项目存在实现指南（`.claude/acceptance/{name}-implementation-guide.md`，Phase 0.7 产物）
+3. 项目有可执行的测试命令（`project-config.json` 的 `testCommand`）
+4. 任务 actions 包含 `create_file` 或 `edit_file`
+5. 文件类型为可测试代码（排除豁免列表）
+
+**豁免列表**：
+- 配置文件：`*.json`, `*.yaml`, `*.yml`, `*.toml`, `*.ini`, `*.env`
+- 文档：`*.md`, `*.txt`, `*.rst`
+- 数据库迁移：`*.sql`, `*.migration`
+- 生成文件：`*.generated.*`, `*.auto.*`
+- 纯类型定义：`types.ts`, `interfaces.ts`, `constants.ts`
+- TypeScript 声明：`*.d.ts`
+- 桶文件：`index.ts`, `barrel.ts`（纯 re-export）
+
+**不满足任一条件时**：退化为现有行为（直接执行，不强制 TDD）。
+
+### Iron Law
+
+```
+没有失败的测试，不得编写生产代码。
+```
+
+### Red-Green-Refactor 执行流程
+
+```typescript
+async function executeWithTdd(task: Task, guideContent: string): Promise<void> {
+  const testTemplates = extractRelevantTests(guideContent, task);
+
+  if (testTemplates.length === 0) {
+    return executeTaskDirect(task); // 无相关测试模板，退化
+  }
+
+  let completedCycles = 0;
+  const MAX_RETRIES_PER_PHASE = 3;
+
+  for (const template of testTemplates) {
+    // ── RED：编写失败测试 ──
+    await writeTestFromTemplate(template);
+    let redResult = await runTest(template.filePath);
+
+    // 测试直接通过 = 在测试已有行为，修正测试使其失败
+    let redRetries = 0;
+    while (redResult.passed && redRetries < MAX_RETRIES_PER_PHASE) {
+      await adjustTestToFail(template); // 修正测试以测试新行为
+      redResult = await runTest(template.filePath);
+      redRetries++;
+    }
+    if (redResult.passed) {
+      continue; // 无法使测试失败，跳过此模板
+    }
+
+    // 语法错误 → 修复后重新 RED
+    let syntaxRetries = 0;
+    while (redResult.error_type === 'syntax' && syntaxRetries < MAX_RETRIES_PER_PHASE) {
+      await fixTestSyntax(template);
+      redResult = await runTest(template.filePath);
+      syntaxRetries++;
+    }
+    if (redResult.error_type === 'syntax') {
+      continue; // 语法错误无法修复，跳过此模板
+    }
+
+    // ── GREEN：编写最小实现 ──
+    await executeTaskAction(task);
+    let greenResult = await runTest(template.filePath);
+
+    // GREEN 失败 → 修复实现（不修改测试）
+    let greenRetries = 0;
+    while (!greenResult.passed && greenRetries < MAX_RETRIES_PER_PHASE) {
+      await fixImplementation(task, greenResult);
+      greenResult = await runTest(template.filePath);
+      greenRetries++;
+    }
+    if (!greenResult.passed) {
+      continue; // 无法通过测试，跳过此模板
+    }
+
+    // ── REFACTOR：清理代码 ──
+    const refactorResult = await runAllRelatedTests(task);
+    if (!refactorResult.passed) {
+      // 撤销重构，保持 GREEN 状态
+      await revertLastChange();
+    }
+
+    completedCycles++;
+  }
+
+  // 完成性检查：至少一个模板完成了完整的 Red→Green 循环
+  if (completedCycles === 0) {
+    throw new Error(
+      `TDD 执行失败：${testTemplates.length} 个测试模板均未完成 Red→Green 循环。` +
+      `违反 Iron Law，无法验证实现的正确性。`
+    );
+  }
+}
+```
+
+### 合理化借口检测
+
+| 借口 | 现实 |
+|------|------|
+| "太简单了，不需要测试" | 简单代码也会出错，测试只需 30 秒 |
+| "写完再补测试" | 事后测试直接通过 = 什么也没证明 |
+| "事后测试效果一样" | 事后测试回答"它做了什么"；先行测试回答"它应该做什么" |
+| "已经手动测试过了" | 手动测试不可重复、无记录 |
+| "需要先探索" | 可以探索，但之后必须删掉，从 TDD 重来 |
+| "测试太难写" | 难测 = 难用 = 设计有问题 |
+
+### 红旗清单
+
+- 先写了生产代码再补测试
+- 测试直接通过（没看到它失败）
+- 说不清测试为什么失败
+- 测试"稍后补"
+- "保留当参考"或"基于已有代码改"
+
+**以上任何一条触发：删除代码，从 TDD 重来。**

@@ -172,7 +172,7 @@ if (generateSummary) {
 `;
 
   for (const [gateName, gate] of Object.entries(state.quality_gates || {})) {
-    summaryContent += `- **${gateName}**: ${gate.passed ? '✅ 通过' : '❌ 未通过'} (${gate.actual_score || '-'}/${gate.threshold})\n`;
+    summaryContent += `- **${gateName}**: ${gate.overall_passed ? '✅ 通过' : '❌ 未通过'} (Stage 1: ${gate.stage1.attempts} attempts${gate.stage2 ? ', Stage 2: ' + gate.stage2.assessment : ''})\n`;
   }
 
   writeFile(summaryPath, summaryContent);
