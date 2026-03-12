@@ -37,7 +37,7 @@ npm config set @pic:registry http://your-registry-host:4873
 
 ```bash
 # 一键安装（推荐，无需全局安装）
-npx --registry http://10.10.19.68:4873 @pic/claude-workflow@latest sync
+npx --registry http://your-registry-host:4873 @pic/claude-workflow@latest sync
 # 或全局安装后使用
 npm install -g @pic/claude-workflow
 claude-workflow sync
