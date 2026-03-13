@@ -2,9 +2,9 @@
 
 > 基于 Skills 架构的智能化开发工作流体系 - 支持 10+ AI 编码工具
 
-**文档版本**：v8.0.0
-**最后更新**：2026-02-24
-**包版本**：@pic/claude-workflow v3.3.4
+**文档版本**：v9.0.0
+**最后更新**：2026-03-13
+**包版本**：@pic/claude-workflow v3.4.1
 
 ---
 
@@ -13,6 +13,8 @@
 - [1. 概述](#1-概述)
 - [2. 工作流安装与配置](#2-工作流安装与配置)
 - [3. 智能工作流](#3-智能工作流)
+  - [3.10 需求讨论阶段](#310-需求讨论阶段phase-02)
+  - [3.11 执行纪律强化](#311-执行纪律强化)
 - [4. 其他工作流](#4-其他工作流)
   - [4.1 UI 还原工作流](#41-ui-还原工作流figma-ui)
   - [4.2 视觉差异验证](#42-视觉差异验证visual-diff)
@@ -58,7 +60,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│         @pic/claude-workflow (v3.3.4)                        │
+│         @pic/claude-workflow (v3.4.1)                        │
 │     npm 包工作流工具集 - Skills 架构，支持 10+ AI 工具        │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -114,7 +116,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 
 ### 1.4 命令总览
 
-项目核心命令（v3.3.4 使用 Skills 架构）：
+项目核心命令（v3.4.1 使用 Skills 架构）：
 
 | 类别 | 核心命令 | 说明 |
 |------|---------|------|
@@ -541,10 +543,10 @@ claude-workflow init
 #### 启动阶段（/workflow start）
 
 ```
-需求 ──▶ 代码分析 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md
-              │              │                   │              │
-         codebase-       Hard Stop:          审查意图       Hard Stop:
-         retrieval       确认设计方案        是否对齐        确认任务清单
+需求 ──▶ 代码分析 ──▶ 需求讨论 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md
+              │              │              │                   │              │
+         codebase-       💬 逐个澄清     Hard Stop:          审查意图       Hard Stop:
+         retrieval       🎯 方案选择     确认设计方案        是否对齐       确认任务清单
 ```
 
 1. 使用 codebase-retrieval 分析需求和代码上下文
@@ -552,17 +554,23 @@ claude-workflow init
    - 获取依赖关系图
    - 评估实现复杂度
 
-2. 生成技术设计文档（`.claude/tech-design/{name}.md`）
+2. 交互式需求讨论（Phase 0.2，可跳过）
+   - 自动识别需求中的模糊点、缺失项
+   - 逐个澄清，支持方案探索
+   - 讨论结果持久化为独立 JSON
+   - 使用 `--no-discuss` 跳过
+
+3. 生成技术设计文档（`.claude/tech-design/{name}.md`）
    - 需求分析和范围边界
    - 架构设计和模块划分
    - **Hard Stop**：展示方案，等待用户确认
 
-3. Intent Review（意图审查）
+4. Intent Review（意图审查）
    - 审查技术设计是否对齐用户需求
    - 增量变更时自动生成 intent 文档
    - 确认后进入任务生成
 
-4. 创建任务清单（`~/.claude/workflows/{id}/tasks-{name}.md`）
+5. 创建任务清单（`~/.claude/workflows/{id}/tasks-{name}.md`）
    - 分阶段任务拆分
    - 标记质量关卡任务（`quality_gate: true`）
    - **Hard Stop**：展示任务清单，等待用户确认
@@ -615,11 +623,17 @@ claude-workflow init
       "quality_gate": false
     },
     "T-008": {
-      "name": "代码审查",
+      "name": "两阶段代码审查",
       "phase": "verify",
       "status": "pending",
-      "quality_gate": true,
-      "threshold": 80
+      "quality_gate": true
+    }
+  },
+
+  "task_runtime": {
+    "T-003": {
+      "retry_count": 0,
+      "debug_history": []
     }
   },
 
@@ -627,8 +641,14 @@ claude-workflow init
     "design_review": {
       "task_id": "T-005",
       "passed": true,
-      "actual_score": 85
+      "stage1_passed": true,
+      "stage2_passed": true
     }
+  },
+
+  "discussion": {
+    "artifact_path": "discussion-artifact.json",
+    "skipped": false
   },
 
   "completed": ["T-001", "T-002"],
@@ -667,7 +687,14 @@ claude-workflow init
 
 ### 3.5 质量关卡机制
 
-任务清单中标记了 `quality_gate: true` 的任务会触发质量关卡，通过 `codeagent-wrapper` 调用外部模型审查。
+任务清单中标记了 `quality_gate: true` 的任务会触发质量关卡。从 v3.4.0 起，质量关卡升级为**两阶段代码审查**：
+
+| 阶段 | 审查重点 | 执行者 |
+|------|---------|--------|
+| **Stage 1：规格合规** | 任务是否符合技术方案规格 | 当前模型 |
+| **Stage 2：代码质量** | 代码可读性、可维护性、安全性 | Codex subagent |
+
+**问题分级**：Critical（阻断）、Important（必修）、Minor（建议），共享 4 次总审查预算。
 
 #### Codex 方案审查（设计阶段）
 
@@ -694,10 +721,15 @@ EOF
 # 评分 ≥ 80 → 通过，继续执行
 ```
 
-#### Codex 代码审查（验证阶段）
+#### Codex 代码审查（验证阶段 - 两阶段审查）
 
 ```bash
-# 复用会话审查代码实现
+# Stage 1：规格合规审查（当前模型执行）
+# 检查代码实现是否符合技术方案规格
+# 验证可复用组件是否正确使用
+# 检查接口契约一致性
+
+# Stage 2：代码质量审查（Codex subagent 执行）
 codeagent-wrapper --backend codex resume <session_id> - <<'EOF'
 ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 <TASK>
@@ -707,18 +739,19 @@ ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
 修改的文件：<file_list>
 
 重点关注：
-1. 代码实现是否符合技术方案
-2. 是否正确使用可复用组件
-3. 错误处理是否完善
-4. 代码质量（可读性、可维护性）
+1. 代码可读性和可维护性
+2. 错误处理是否完善
+3. 安全漏洞和性能问题
+4. 代码风格一致性
 
-请提供代码质量评分（0-100分）
+问题分级：Critical / Important / Minor
 </TASK>
-OUTPUT: JSON { "score": number, "issues": string[] }
+OUTPUT: JSON { "issues": [{ "severity": string, "description": string }] }
 EOF
 
-# 评分 < 80 → 自动阻止交付
-# 评分 ≥ 80 → 通过，可交付
+# 存在 Critical 问题 → 阻断交付
+# 仅 Minor 问题 → 通过，可交付
+# 共享 4 次总审查预算（Stage 1 + Stage 2 合计）
 ```
 
 ### 3.6 任务保护机制
@@ -846,8 +879,94 @@ cp ~/.claude/workflows/{projectId}/workflow-state-backup-xxx.json \
 | **步骤规划** | ✅ 自动生成 | ❌ 需手动规划 |
 | **进度记忆** | ✅ 自动持久化 | ❌ 需手动跟踪 |
 | **新对话恢复** | ✅ 无缝恢复 | ❌ 需重新开始 |
-| **质量保障** | ✅ Codex 审查 | ❌ 手动审查 |
+| **质量保障** | ✅ 两阶段代码审查 | ❌ 手动审查 |
 | **上下文管理** | ✅ 渐进加载 | ❌ 全量加载 |
+
+### 3.10 需求讨论阶段（Phase 0.2）
+
+> v3.4.0 新增
+
+在代码分析（Phase 0）之后、需求结构化提取（Phase 0.5）之前，新增交互式需求讨论阶段。
+
+**核心能力**：
+
+| 能力 | 说明 |
+|------|------|
+| **Gap 识别** | 基于代码分析结果，自动检测需求中的模糊点、缺失项和隐含假设 |
+| **逐个澄清** | 每次只问一个问题，优先选择题，支持跳过和结束 |
+| **方案探索** | 存在互斥实现路径时，提出 2-3 种方案供对比选择 |
+| **结构化工件** | 讨论结果持久化为独立 JSON（`discussion-artifact.json`），不修改原始需求 |
+
+**使用方式**：
+
+```bash
+# 默认启用需求讨论
+/workflow start docs/prd.md
+
+# 跳过需求讨论（短需求或明确需求）
+/workflow start --no-discuss "添加导出按钮"
+```
+
+**自动跳过条件**：
+- 使用 `--no-discuss` 标志
+- 简短的内联需求（非文件来源）
+- 需求内容清晰完整，无模糊点
+
+**讨论工件流向**：
+
+```
+Phase 0.2 讨论 → discussion-artifact.json
+                       │
+                       ├──▶ Phase 0.5 需求提取（参考澄清结果）
+                       ├──▶ Phase 1 技术方案（渲染为"需求澄清摘要"章节）
+                       └──▶ Phase 2 任务生成（映射未就绪依赖）
+```
+
+### 3.11 执行纪律强化
+
+> v3.4.0 新增，借鉴 Superpowers 项目核心机制
+
+**两阶段代码审查**：
+
+质量关卡从单一评分制升级为两阶段审查：
+
+| 阶段 | 审查重点 | 执行者 | 问题分级 |
+|------|---------|--------|---------|
+| **Stage 1：规格合规** | 实现是否符合技术方案 | 当前模型 | Critical / Important / Minor |
+| **Stage 2：代码质量** | 可读性、安全性、性能 | Codex subagent | Critical / Important / Minor |
+
+- 存在 Critical 问题 → 阻断后续执行
+- 共享 4 次总审查预算（Stage 1 + Stage 2 合计）
+
+**结构化调试协议**：
+
+任务失败重试前强制执行四阶段调试：
+
+```
+根因调查 → 模式分析 → 假设验证 → 实施修复
+```
+
+- 连续 3 次重试失败 → 触发 **Hard Stop**，暂停工作流等待人工介入
+
+**TDD 执行纪律**：
+
+- 实现指南（Phase 0.7）存在时，implement 阶段任务强制 **Red-Green-Refactor** 循环
+- 先写失败测试 → 最小实现通过 → 重构优化
+
+**Post-Execution Pipeline**：
+
+```
+executeTask() → Step 6.5（验证铁律 + Gate Function）
+             → Step 6.6（自审查，建议性，永不阻塞）
+             → Step 6.7（规格合规检查）
+             → Step 7（更新状态）
+```
+
+**审查反馈处理协议**：
+
+```
+READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT
+```
 
 ---
 

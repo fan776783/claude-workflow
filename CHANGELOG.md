@@ -7,17 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4.1] - 2026-03-10
+
+### Fixed
+- **sync 命令增量合并**：修复已存在目录时新增 skill 无法同步的问题
+
+### Changed
+- **版本号体系统一**：workflow skill 不再维护独立版本号（原 v3.5.0/v3.4.0），统一跟随包版本
+- **工作流体系指南更新至 v3.4.1**：补充 3.4.0 执行纪律强化和需求讨论阶段等新特性说明
+
+---
+
 ## [3.4.0] - 2026-03-10
 
 ### Added
-- **workflow v3.5.0 执行纪律强化**：借鉴 Superpowers 项目 8 项核心机制，全面提升执行阶段质量保障
+- **执行纪律强化**：借鉴 Superpowers 项目 8 项核心机制，全面提升执行阶段质量保障
   - **两阶段代码审查**：质量关卡升级为 Stage 1（规格合规，当前模型）+ Stage 2（代码质量，Codex subagent），问题分 Critical/Important/Minor 三级，共享 4 次总预算
   - **结构化调试协议**：任务失败重试前强制四阶段调试（根因调查 → 模式分析 → 假设验证 → 实施修复），连续 3 次失败触发 Hard Stop
   - **TDD 执行纪律**：实现指南存在时，implement 阶段任务强制 Red-Green-Refactor 循环
   - **自审查步骤**（Step 6.6）：`create_file`/`edit_file` 任务在验证通过后执行单次建议性自审查，永不阻塞
   - **审查反馈处理协议**：READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT
   - **验证门控函数**：IDENTIFY → RUN → READ → VERIFY → ONLY THEN claim
-- **workflow v3.4.0 需求分析讨论阶段**（Phase 0.2）：在代码分析后、需求结构化提取前新增交互式需求讨论
+- **需求分析讨论阶段**（Phase 0.2）：在代码分析后、需求结构化提取前新增交互式需求讨论
   - 自动识别 Gap：基于代码分析结果检测需求中的模糊点、缺失项和隐含假设
   - 逐个澄清：每次只问一个问题，优先选择题，支持跳过和结束
   - 方案探索：存在互斥实现路径时，提出 2-3 种方案供对比选择
@@ -32,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **execute-overview.md**：`codex_review` action 升级为两阶段审查；新增 Step 6.6 自审查；重试模式增加结构化调试协议
 - **execution-modes.md**：重构重试模式实现，集成 per-task runtime state 和 Hard Stop 机制
 - **start-overview.md**：新增 Phase 0.2 需求讨论阶段流程
-- **SKILL.md**：版本号更新至 v3.5.0，新增特性说明和 `--no-discuss` 参数
+- **SKILL.md**：新增特性说明和 `--no-discuss` 参数
 - **phase-1-tech-design.md**：集成讨论工件到技术设计
 - **phase-2-task-generation.md**：任务生成考虑讨论结果
 
