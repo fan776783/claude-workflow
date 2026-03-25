@@ -262,6 +262,24 @@ grep "AC-F1.1" .claude/acceptance/xxx-checklist.md -A 10
 
 完成开发后，按照验证清单逐项验收，确保所有需求细节都已实现。
 
+## 模板变量契约
+
+验收清单模板依赖 `replaceVars(template, vars)` 渲染，变量必须在渲染前全部准备完成，不允许模板内部再推导。
+
+### 核心变量
+
+- 标识与路径：`task_name`、`sanitized_name`、`requirement_source`、`created_at`、`requirement_baseline_path`、`implementation_guide_path`、`tech_design_path`、`tasks_file_path`
+- 覆盖率摘要：`requirement_coverage_summary`、`requirement_total_count`、`requirement_in_scope_count`、`requirement_full_coverage_count`、`requirement_partial_coverage_count`、`requirement_none_coverage_count`
+- 验收映射：`requirement_to_acceptance_mapping`、`partially_covered_requirements`、`uncovered_requirements`
+- 分类验收块：`form_validation_items`、`permission_validation_items`、`interaction_validation_items`、`business_rule_validation_items`、`edge_case_validation_items`、`ui_display_validation_items`、`functional_flow_validation_items`
+- 优先级与命令：`total_count`、`p0_count`、`p1_count`、`p2_count`、`quality_gate_command`、`coverage_command`、`performance_check_command`
+
+### 生成约束
+
+- 所有 `*_items` 字段必须先转换成 Markdown 字符串，再写入模板
+- `quality_gate_command / coverage_command / performance_check_command` 必须来自项目配置推导，不能写死在模板中
+- 若模板新增变量，必须同时更新 `phase-0.6-acceptance-checklist.md` 中的渲染映射示例
+
 ## 文件位置
 
 - **规格文件**：`templates/skills/workflow/specs/start/phase-0.6-acceptance-checklist.md`

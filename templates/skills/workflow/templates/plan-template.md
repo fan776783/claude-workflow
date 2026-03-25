@@ -2,6 +2,7 @@
 version: 1
 requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
+requirement_baseline: "{{requirement_baseline_path}}"
 spec_file: "{{spec_file}}"
 acceptance_checklist: "{{acceptance_checklist_path}}"
 implementation_guide: "{{implementation_guide_path}}"
@@ -15,6 +16,7 @@ role: plan
 
 ## 1. Plan Context
 
+- **Requirement Baseline**: `{{requirement_baseline_path}}`
 - **Spec**: `{{spec_file}}`
 - **Requirement Source**: `{{requirement_source}}`
 - **Acceptance Checklist**: `{{acceptance_checklist_path}}`
@@ -66,6 +68,10 @@ role: plan
 - TDD 要求：
 - 必须保留的现有行为：
 
+### 3.4 Non-Negotiable Requirement Constraints
+
+{{non_negotiable_requirement_constraints}}
+
 ---
 
 ## 4. Atomic Steps
@@ -76,16 +82,8 @@ role: plan
 
 - **Goal**:
 - **Spec Ref**:
-- **Files**:
-- **Action Type**:
-- **Expected Result**:
-- **Verification**:
-- **Depends On**:
-
-### Step P2
-
-- **Goal**:
-- **Spec Ref**:
+- **Requirement IDs**:
+- **Critical Constraints**:
 - **Files**:
 - **Action Type**:
 - **Expected Result**:
@@ -108,20 +106,26 @@ role: plan
 
 ### 5.3 Acceptance Coverage
 
-| Plan Step | Acceptance Criteria | Verification |
-|-----------|---------------------|--------------|
-| P1 | AC-1 | `pnpm test ...` |
+| Plan Step | Requirement IDs | Acceptance Criteria | Verification |
+|-----------|-----------------|---------------------|--------------|
+| P1 | R-001 | AC-1 | `pnpm test ...` |
 
 ---
 
-## 6. Quality Gates and Commit Points
+## 6. Requirement Coverage by Step
 
-### 6.1 Quality Gates
+{{requirement_coverage_by_step}}
+
+---
+
+## 7. Quality Gates and Commit Points
+
+### 7.1 Quality Gates
 
 - Gate 1:
 - Gate 2:
 
-### 6.2 Commit Strategy
+### 7.2 Commit Strategy
 
 - 提交节点：
 - Commit 粒度：
@@ -129,7 +133,7 @@ role: plan
 
 ---
 
-## 7. Risks and Fallbacks
+## 8. Risks and Fallbacks
 
 - 风险 1：
 - 风险 2：
@@ -137,8 +141,8 @@ role: plan
 
 ---
 
-## 8. Task Compilation Notes
+## 9. Task Compilation Notes
 
 - 任务编译器应从本 Plan 生成 `steps[]`
-- 每个步骤必须能映射到 `spec_ref` 与 `acceptance_criteria`
-- `tasks.md` 仅写入 V2 字段，不再生成旧任务摘要字段
+- 每个步骤必须能映射到 `spec_ref`、`acceptance_criteria`、`requirement_ids`
+- `tasks.md` 必须写入 `requirement_ids` 与 `critical_constraints`

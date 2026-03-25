@@ -1,1602 +1,811 @@
-# AI 编码工具通用工作流体系指南
+# Claude Code 工作流体系指南
 
-> 基于 Skills 架构的智能化开发工作流体系 - 支持 10+ AI 编码工具
+> 以 `workflow` skill 为核心的 AI 编码工作流说明文档
 
-**文档版本**：v9.0.0
-**最后更新**：2026-03-13
-**包版本**：@justinfan/agent-workflow v3.4.1
+**文档版本**：v10.1.0  
+**最后更新**：2026-03-25  
+**适用仓库**：`@justinfan/agent-workflow` v3.4.1
 
 ---
 
-## 📖 目录
+## 目录
 
-- [1. 概述](#1-概述)
-- [2. 工作流安装与配置](#2-工作流安装与配置)
-- [3. 智能工作流](#3-智能工作流)
-  - [3.10 需求讨论阶段](#310-需求讨论阶段phase-02)
-  - [3.11 执行纪律强化](#311-执行纪律强化)
-- [4. 其他工作流](#4-其他工作流)
-  - [4.1 UI 还原工作流](#41-ui-还原工作流figma-ui)
-  - [4.2 视觉差异验证](#42-视觉差异验证visual-diff)
-  - [4.3 PRD 文档工作流](#43-prd-文档工作流)
-- [5. 智能分析命令](#5-智能分析命令)
-- [6. 审查命令](#6-审查命令)
-- [7. 调试命令](#7-调试命令)
-- [8. 批量缺陷修复](#8-批量缺陷修复)
-- [9. 典型场景实战](#9-典型场景实战)
-- [10. 最佳实践](#10-最佳实践)
+- [1. 文档定位](#1-文档定位)
+- [2. 安装与同步](#2-安装与同步)
+- [3. workflow skill 总览](#3-workflow-skill-总览)
+- [4. workflow 完整流程](#4-workflow-完整流程)
+- [5. `/workflow start` 规划流程详解](#5-workflow-start-规划流程详解)
+- [6. `/workflow execute` 执行流程详解](#6-workflow-execute-执行流程详解)
+- [7. 运行中的辅助命令](#7-运行中的辅助命令)
+- [8. 工作流产物与状态文件](#8-工作流产物与状态文件)
+- [9. 其他 skills 的核心功能](#9-其他-skills-的核心功能)
+- [10. 推荐使用方式](#10-推荐使用方式)
 - [11. 常见问题](#11-常见问题)
-- [附录 A：命令速查表](#附录-a命令速查表)
-- [附录 B：Prompt 模板](#附录-bprompt-模板)
-- [附录 C：快速入门](#附录-c快速入门)
+- [附录：命令速查](#附录命令速查)
 
 ---
 
-## 1. 概述
+## 1. 文档定位
 
-### 1.1 什么是工作流体系
+这份文档以 `workflow` skill 为重点，说明整个工作流体系中最核心、最推荐的使用方式：先通过 `workflow` 完成需求理解、需求追溯建模、规格沉淀、计划生成与任务执行，再按需接入其他专项 skill 完成 UI 还原、代码审查、调试、测试或批量缺陷处理。
 
-AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开发流程，通过可移植的技能定义支持 10+ AI 编码工具，涵盖从需求分析到质量验证的完整开发生命周期。
-
-**核心价值**：
-- ✅ **Skills 体系**：可移植的技能定义，支持跨工具使用
-- ✅ **多 Agent 支持**：一次安装，同时支持 10+ AI 编码工具（Claude Code、Cursor、Codex、Gemini CLI 等）
-- ✅ **Canonical + 受管链接架构**：单一源文件（~/.agents/agent-workflow/），通过逐个 skill 挂载和目录级链接分发，便于维护和更新
-- ✅ **交互式安装**：友好的命令行交互体验，智能检测已安装的 Agent
-- ✅ **渐进加载**：按需加载 references 减少上下文占用
-- ✅ **npm 包安装**：`npm install -g @justinfan/agent-workflow` 一行命令完成安装
-- ✅ **智能升级**：自动备份、保留用户修改
-- ✅ **CLI 工具**：`agent-workflow status/sync/init/doctor` 命令行管理
-- ✅ **多模型协作**：Gemini（前端） + Codex（后端）双模型并行协作
-- ✅ **零配置体验**：首次使用自动检测并初始化项目
-- ✅ **用户级存储**：工作流状态存储在 `~/.claude/`，完全避免 Git 冲突
-- ✅ **极简使用**：仅需 2 个命令即可完成复杂任务
-- ✅ **智能规划**：根据需求自动生成执行计划
-- ✅ **自动记忆**：任务进度持久化，支持新对话恢复
-- ✅ **质量保证**：内置双模型审查机制
-- ✅ **多项目管理**：自动识别和隔离不同项目的工作流状态
-
-### 1.2 整体架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│         @justinfan/agent-workflow (v3.4.1)                        │
-│     npm 包工作流工具集 - Skills 架构，支持 10+ AI 工具        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  多 Agent 支持   │  │ Canonical 架构   │  │ CLI 工具         │
-├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • Claude Code   │  │ • ~/.agents/    │  │ • status 状态    │
-│ • Cursor        │  │   claude-       │  │ • sync 同步      │
-│ • Codex         │  │   workflow/     │  │ • init 初始化    │
-│ • Gemini CLI    │  │ • 受管链接       │  │ • doctor 诊断    │
-│ • Antigravity   │  │ • 单一源文件     │  │ • -a 指定 Agent  │
-│ • Droid         │  │ • 自动更新       │  │ • -a 指定 Agent  │
-│ • GitHub Copilot│  │                 │  │                 │
-│ • Kilo Code     │  │                 │  │                 │
-│ • OpenCode      │  │                 │  │                 │
-│ • Qoder         │  │                 │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ Skills (10 个)   │  │  任务记忆管理    │  │  质量关卡系统   │
-├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ • workflow      │  │ • 进度持久化     │  │ • Codex 方案审查 │
-│ • scan          │  │ • 新对话恢复     │  │ • Codex 代码审查 │
-│ • analyze       │  │ • 决策记录       │  │ • Gemini UI审查  │
-│ • debug         │  │ • 项目隔离       │  │ • 评分门槛控制   │
-│ • diff-review   │  │                 │  │                 │
-│ • write-tests   │  │                 │  │                 │
-│ • bug-batch     │  │                 │  │                 │
-│ • figma-ui      │  │                 │  │                 │
-│ • visual-diff   │  │                 │  │                 │
-│ • perf-budget   │  │                 │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-```
-
-### 1.3 支持的 AI 编码工具
-
-| Agent | 全局目录 | 项目目录 |
-|-------|----------|----------|
-| Antigravity | `~/.gemini/antigravity/skills` | `.agent/skills` |
-| Claude Code | `~/.claude/skills` | `.claude/skills` |
-| Codex | `~/.codex/skills` | `.codex/skills` |
-| Cursor | `~/.cursor/skills` | `.cursor/skills` |
-| Droid | `~/.factory/skills` | `.factory/skills` |
-| Gemini CLI | `~/.gemini/skills` | `.gemini/skills` |
-| GitHub Copilot | `~/.copilot/skills` | `.github/skills` |
-| Kilo Code | `~/.kilocode/skills` | `.kilocode/skills` |
-| OpenCode | `~/.config/opencode/skills` | `.opencode/skills` |
-| Qoder | `~/.qoder/skills` | `.qoder/skills` |
-
-### 1.4 命令总览
-
-项目核心命令（v3.4.1 使用 Skills 架构）：
-
-| 类别 | 核心命令 | 说明 |
-|------|---------|------|
-| **智能工作流** ⭐⭐⭐ | `/workflow start`, `/workflow execute` | 自动规划和执行（推荐） |
-| **工作流辅助** | `/workflow status`, `/workflow execute --retry`, `/workflow execute --skip`, `/workflow delta` | 状态查看、重试、跳过、增量变更 |
-| **项目扫描** | `/scan` | 智能项目扫描（检测技术栈 + 蓝鲸项目关联） |
-| **UI 还原** | `/figma-ui` | Figma 设计稿 → 前端代码（Skill） |
-| **视觉验证** | `/visual-diff` | UI 视觉差异对比（像素级 + 双模型语义） |
-| **CLI 工具** | `agent-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
-| **智能分析** | `/analyze` | 双模型技术分析（Codex + Gemini 并行） |
-| **代码审查** | `/diff-review`, `/diff-review --quick` | 多模型并行审查 / 单模型快速审查 |
-| **调试** | `/debug` | Bug 修复流程 + 模型审查（Codex/Gemini） |
-| **批量修复** | `/bug-batch` | 从蓝鲸拉取缺陷清单，先全量分析并编排 FixUnit，再分批修复 |
-| **测试** | `/write-tests` | 测试编写专家 |
-| **其他工具** | `/enhance`, `/git-rollback`, `/skill-creator` | Prompt 增强、Git 回滚、Skill 创建 |
-| **帮助** | `/agents` | 查看所有可用 Agent 命令 |
-
----
-
-## 2. 工作流安装与配置
-
-### 2.1 npm 包安装（推荐）
-
-`@justinfan/agent-workflow` 是一个 npm 包，提供基于 Skills 架构的标准化工作流，支持 10+ AI 编码工具。
-
-#### 全局安装
+如果只记一个入口，请记住下面这一组命令：
 
 ```bash
-# 全局安装（推荐）
-npm install -g @justinfan/agent-workflow --registry http://your-registry-host:4873
-
-# 或作为开发依赖
-npm install -D @justinfan/agent-workflow --registry http://your-registry-host:4873
-```
-
-**安装过程会自动：**
-1. ✅ 检测已安装的 AI 编码工具（Claude Code、Cursor、Codex 等）
-2. ✅ 复制 Skills 到 canonical 位置 (`~/.agents/agent-workflow/`)
-3. ✅ 为每个检测到的工具创建受管链接：`skills` 目录按 skill 逐个挂载，`commands/prompts/utils/specs` 使用目录级链接
-4. ✅ 检测版本变化，智能合并用户修改
-
-#### 升级
-
-```bash
-npm update -g @justinfan/agent-workflow --registry http://your-registry-host:4873
-```
-
-**升级时会自动**：
-1. 更新 canonical 位置的 Skills
-2. 所有 Agent 通过受管链接自动获得更新
-3. 备份旧版本到 `~/.agents/agent-workflow/.meta/backups/`
-
-### 2.2 CLI 命令
-
-安装后可使用 `agent-workflow` 命令行工具：
-
-#### 交互式安装（推荐）
-
-```bash
-# 启动交互式安装向导
-agent-workflow sync
-
-# 或显式指定交互模式
-agent-workflow sync -i
-```
-
-交互式安装会引导你：
-1. 选择要安装到的 Agent
-2. 选择安装作用域（全局/项目级）
-3. 确认安装摘要
-
-#### 命令行安装
-
-```bash
-# 安装到所有检测到的 Agent
-agent-workflow sync -y
-
-# 安装到指定 Agent
-agent-workflow sync -a claude-code,cursor
-
-# 安装到所有支持的 Agent
-agent-workflow sync -a '*' -y
-
-# 项目级安装（当前目录）
-agent-workflow sync --project
-
-# 使用旧版安装模式（仅 Claude Code，不使用受管链接）
-agent-workflow sync --legacy
-```
-
-#### 其他命令
-
-```bash
-# 查看安装状态
-agent-workflow status
-
-# 初始化项目配置
-agent-workflow init
-
-# 诊断配置问题
-agent-workflow doctor
-```
-
-#### 命令说明
-
-| 命令 | 说明 |
-|------|------|
-| `status` | 显示已安装版本、Agent 状态、逐个 skill 挂载状态 |
-| `sync` | 同步模板到多个 Agent，默认覆盖 canonical 内容并刷新受管链接 |
-| `sync -a/--agent` | 指定目标 Agent（逗号分隔，* 表示全部） |
-| `sync --project` | 项目级安装（当前目录） |
-| `init` | 在当前项目创建 `.claude/config/project-config.json` |
-| `doctor` | 诊断配置问题，检测受管挂载状态和缺失文件 |
-
-### 2.3 目录结构
-
-安装完成后的目录结构：
-
-```
-~/.agents/agent-workflow/          # Canonical 位置（Single Source of Truth）
-├── .meta/                          # 元信息
-│   ├── meta.json                   # 版本信息
-│   └── backups/                    # 升级备份
-├── skills/                         # 10 个 Skills（支持 references 渐进加载）
-│   ├── workflow/                   # 智能工作流（含 6 个 references）
-│   ├── scan/                       # 项目扫描（含蓝鲸关联）
-│   ├── analyze/                    # 双模型分析
-│   ├── debug/                      # 调试与修复
-│   ├── diff-review/                # 代码审查
-│   ├── write-tests/                # 测试编写
-│   ├── bug-batch/                  # 批量缺陷修复
-│   ├── figma-ui/                   # UI 还原
-│   ├── visual-diff/                # 视觉差异验证
-│   └── perf-budget/                # 性能预算
-├── commands/                       # 工具命令（enhance, git-rollback, agents）
-├── prompts/                        # 双模型协作 Prompt 模板
-│   ├── codex/                      # Codex 角色提示词
-│   └── gemini/                     # Gemini 角色提示词
-├── utils/                          # 工具函数
-└── specs/                          # 规范文档
-
-# 受管链接（自动创建）
-~/.claude/skills/workflow  → ~/.agents/agent-workflow/skills/workflow
-~/.claude/skills/debug     → ~/.agents/agent-workflow/skills/debug
-~/.cursor/skills/workflow  → ~/.agents/agent-workflow/skills/workflow
-~/.cursor/commands         → ~/.agents/agent-workflow/commands
-...
-
-# 工作流状态（按项目隔离）
-~/.claude/workflows/                # 工作流状态
-├── a13dcda9d96c/                   # 项目 1（基于 cwd hash）
-│   ├── workflow-state.json         # 工作流记忆
-│   └── .project-meta.json          # 项目元数据
-└── b2c3d4e5f6a1/                   # 项目 2
-```
-
-### 2.4 环境变量
-
-| 变量 | 说明 |
-|------|------|
-| `CLAUDE_WORKFLOW_SKIP_POSTINSTALL=1` | 跳过 postinstall 自动安装 |
-| `CLAUDE_WORKFLOW_AGENTS=agent1,agent2` | 指定目标 Agent（逗号分隔） |
-| `CLAUDE_CONFIG_DIR` | 自定义 Claude Code 配置目录 |
-| `CODEX_HOME` | 自定义 Codex 配置目录 |
-| `XDG_CONFIG_HOME` | XDG 配置目录（影响 OpenCode 等） |
-
-### 2.5 依赖检测
-
-工具包会自动检测以下依赖：
-
-| 级别 | 依赖 | 用途 | 缺失时处理 |
-|------|------|------|-----------|
-| **必需** | Node.js >= 18 | 运行环境 | ❌ 安装失败 |
-| **推荐** | Claude Code | AI 辅助编程工具 | ⚠️ 显示警告 |
-| **推荐** | Git | 版本控制 | ⚠️ 显示警告 |
-| **可选** | codeagent-wrapper | 多模型协作（调用 Codex/Gemini CLI） | ℹ️ 双模型功能不可用 |
-| **可选** | Figma MCP | 设计稿解析 | ℹ️ 提示功能受限 |
-| **可选** | BK-MCP | 蓝鲸工作项集成 | ℹ️ 提示功能受限 |
-| **可选** | Chrome MCP | 浏览器自动化截图 | ℹ️ visual-diff 不可用 |
-
-**工作流自动适配**：
-- 缺少 codeagent-wrapper → 跳过双模型协作步骤，当前模型独立完成
-- 缺少 Figma MCP → UI 还原需手动提供设计规范
-- 缺少 BK-MCP → Bug 修复工作流跳过缺陷信息获取和状态流转
-
-#### MCP 服务安装指引
-
-**BK-MCP（蓝鲸工作项集成）**：
-
-BK-MCP 用于集成蓝鲸 DevOps 平台的工作项系统，支持：
-- ✅ 自动获取缺陷/需求详情
-- ✅ 自动流转工作项状态
-- ✅ 批量创建子任务
-- ✅ 上传附件和添加评论
-
-**安装教程**：
-- 📚 完整安装指南：[BK-MCP 安装配置教程（钉钉文档）](https://applink.dingtalk.com/page/link?target=workbench&url=http%3A%2F%2Faihub.300624.cn%3A5613%2Fexperience%2F841)
-
-**快速验证**：
-
-```bash
-# 1. 配置完成后，在 Claude Code 中执行
-/debug "p328_600"
-
-# 2. 如果配置成功，系统会自动：
-#    - 从蓝鲸获取工单 p328_600 的详情
-#    - 执行 debug 流程定位修复
-#    - 修复完成后路由模型审查
-
-# 3. 如果配置失败，系统会提示并跳过 BK-MCP 相关步骤
-```
-
----
-
-**codeagent-wrapper（多模型协作）**：
-
-`codeagent-wrapper` 是多模型协作的核心工具，封装了 Codex CLI 和 Gemini CLI 的调用：
-- ✅ 统一接口调用 Codex/Gemini 后端
-- ✅ 多轮对话与会话持久化（SESSION_ID + resume）
-- ✅ 并行任务执行支持（`--parallel` 模式）
-- ✅ HEREDOC 标准输入，支持 ROLE_FILE 角色注入
-
-**安装**：独立二进制文件，安装到 `~/.local/bin/`（需确保在 PATH 中）。
-
-**验证安装**：
-```bash
-codeagent-wrapper --version
-# 成功标志：显示版本号
-
-# 后端可用性检查
-codeagent-wrapper --backend codex "echo test" .
-codeagent-wrapper --backend gemini "echo test" .
-```
-
-**使用语法**：
-```bash
-# 单次调用
-codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.agents/agent-workflow/prompts/codex/analyzer.md
-<TASK>分析任务描述</TASK>
-OUTPUT: Unified Diff Patch ONLY
-EOF
-
-# 恢复会话
-codeagent-wrapper --backend codex resume <session_id> - <<'EOF'
-<follow-up task>
-EOF
-```
-
----
-
-**其他 MCP 服务**：
-
-- **Figma MCP** - 设计稿解析：配置后可启用 `/figma-ui` 自动获取设计稿信息
-- **Chrome MCP** - 浏览器自动化：用于 `/visual-diff` 页面截图和 UI 测试
-
-#### 多模型协作机制
-
-工作流体系通过 `codeagent-wrapper` 实现 **Codex + Gemini 双模型协作**：
-
-| 模型 | 擅长领域 | 使用场景 |
-|------|---------|---------|
-| **Codex** | 后端逻辑、API 设计、安全、性能、代码审查 | 业务逻辑、Debug、Review |
-| **Gemini** | 前端代码、UI 设计、CSS、组件、可访问性 | 组件原型、样式调整、需求分析 |
-
-**协作原则**：
-1. 前端任务 → 优先调用 Gemini 获取原型代码
-2. 后端任务 → 调用 Codex 获取实现方案
-3. 全栈任务 → Codex ∥ Gemini 并行，当前模型整合
-4. 两者输出为"脏原型"，最终代码由当前模型重构
-
-### 2.6 用户级存储架构
-
-**重要变更**：工作流状态从项目目录迁移到用户目录，完全避免 Git 冲突！
-
-#### 目录结构
-
-```
-~/.agents/agent-workflow/              # Canonical 位置（通过受管链接共享给各 Agent）
-├── skills/                            # 10 个 Skills（渐进加载）
-├── commands/                          # 工具命令（3 个：agents、enhance、git-rollback）
-├── prompts/                           # 双模型协作 Prompt（codex/ + gemini/）
-├── utils/                             # 工具函数（workflow-helpers.sh）
-├── specs/                             # 技术规范（shared/ + workflow/）
-└── .meta/                             # 版本元信息 + 备份
-
-~/.claude/workflows/                    # 工作流运行时状态（按项目隔离，不提交 Git）
-├── a13dcda9d96c/                      # 项目 1（基于 cwd MD5 hash）
-│   ├── workflow-state.json            # 工作流状态机
-│   ├── tasks-{name}.md                # 任务清单
-│   ├── changes/                       # 增量变更记录
-│   │   └── CHG-001/
-│   │       ├── delta.json
-│   │       ├── intent.md
-│   │       └── review-status.json
-│   └── .project-meta.json             # 项目元数据
-└── b2c3d4e5f6a1/                      # 项目 2
-```
-
-#### 项目识别机制
-
-基于当前工作目录（cwd）的 MD5 hash 自动识别项目：
-
-```typescript
-// 例如：/Users/ws/dev/skymediafrontend → a13dcda9d96c
-const projectId = crypto.createHash('md5')
-  .update(process.cwd())
-  .digest('hex')
-  .substring(0, 12);
-```
-
-#### 核心优势
-
-- ✅ **完全避免 Git 冲突** - 工作流状态不在项目目录
-- ✅ **多人协作无冲突** - 每个开发者管理自己的状态
-- ✅ **自动项目识别** - 无需配置，基于 cwd 自动识别
-- ✅ **用户完全自主** - 不提交到 Git，完全由用户管理
-
-### 2.7 自动初始化
-
-**零配置体验**：首次执行工作流时自动检测并初始化项目！
-
-#### 工作流程
-
-```bash
-# 1. 直接在任意项目中执行工作流
-cd /path/to/your/project
-/workflow start "添加用户认证功能"
-
-# 2. 系统自动检测项目未初始化，提示：
-# ⚠️ 检测到项目未初始化
-#
-# 📋 当前项目: your-project
-# 📍 项目路径: /path/to/your/project
-#
-# 是否自动初始化项目配置？
-#   1️⃣ 自动初始化（推荐）← 选择这个
-#   2️⃣ 手动配置
-#   3️⃣ 取消
-
-# 3. 选择"自动初始化"后，系统自动：
-# 🔍 自动检测到项目信息：
-#   项目名称: your-project
-#   项目类型: single
-#   包管理器: npm
-#   框架: react
-#
-# ✅ 项目配置已创建
-# 📁 配置文件: .claude/config/project-config.json
-#
-# ✅ 初始化完成，继续执行工作流...
-```
-
-#### 自动检测功能
-
-- **项目类型**：monorepo / single
-- **包管理器**：pnpm / yarn / npm
-- **框架**：react / vue / nextjs / nuxtjs 等
-
-#### 手动初始化（可选）
-
-如果您想预先配置项目：
-
-```bash
-cd /path/to/your/project
-agent-workflow init
-```
-
-或使用 `/scan` 命令进行完整扫描（包含蓝鲸项目关联）。
-
-### 2.8 项目配置文件
-
-**最小配置**（`.claude/config/project-config.json`）：
-
-```json
-{
-  "project": {
-    "name": "my-project",
-    "type": "single",
-    "rootDir": ".",
-    "bkProjectId": ""
-  },
-  "tech": {
-    "packageManager": "npm",
-    "framework": "react"
-  },
-  "workflow": {
-    "defaultModel": "sonnet",
-    "enableBKMCP": false
-  }
-}
-```
-
-**注意**：
-- 项目配置应提交到 Git，供团队共享；工作流状态存储在 `~/.claude/`，不提交 Git
-- `bkProjectId` 通过 `/scan` 自动关联蓝鲸项目，也可手动填写
-
----
-
-## 3. 智能工作流
-
-### 3.1 核心概念
-
-**智能工作流 = 自动规划 + 自动记忆 + 智能执行**
-
-只需记住 **1 个 Skill 入口**：
-```bash
-/workflow start "功能需求"    # 启动：分析需求并生成执行计划
-/workflow execute             # 执行：自动执行下一步（可重复调用）
-/workflow status              # 状态：查看当前进度
-/workflow delta               # 增量：处理需求更新、API 变更
-```
-
-### 3.2 工作原理
-
-#### 启动阶段（/workflow start）
-
-```
-需求 ──▶ 代码分析 ──▶ 需求讨论 ──▶ tech-design.md ──▶ Intent Review ──▶ tasks.md
-              │              │              │                   │              │
-         codebase-       💬 逐个澄清     Hard Stop:          审查意图       Hard Stop:
-         retrieval       🎯 方案选择     确认设计方案        是否对齐       确认任务清单
-```
-
-1. 使用 codebase-retrieval 分析需求和代码上下文
-   - 自动检测相关模块
-   - 获取依赖关系图
-   - 评估实现复杂度
-
-2. 交互式需求讨论（Phase 0.2，可跳过）
-   - 自动识别需求中的模糊点、缺失项
-   - 逐个澄清，支持方案探索
-   - 讨论结果持久化为独立 JSON
-   - 使用 `--no-discuss` 跳过
-
-3. 生成技术设计文档（`.claude/tech-design/{name}.md`）
-   - 需求分析和范围边界
-   - 架构设计和模块划分
-   - **Hard Stop**：展示方案，等待用户确认
-
-4. Intent Review（意图审查）
-   - 审查技术设计是否对齐用户需求
-   - 增量变更时自动生成 intent 文档
-   - 确认后进入任务生成
-
-5. 创建任务清单（`~/.claude/workflows/{id}/tasks-{name}.md`）
-   - 分阶段任务拆分
-   - 标记质量关卡任务（`quality_gate: true`）
-   - **Hard Stop**：展示任务清单，等待用户确认
-
-#### 执行阶段（/workflow execute）
-
-```
-1. 读取工作流状态，找到当前待执行任务
-2. 根据执行模式决定执行范围
-   ├─ step → 执行单个任务
-   ├─ phase → 执行当前阶段所有任务（默认）
-   └─ quality_gate → 执行到下一个质量关卡暂停
-3. 根据任务阶段执行相应操作
-   ├─ design → 接口设计、架构设计
-   ├─ infra → Store、工具函数
-   ├─ ui → 组件实现
-   ├─ test → 测试编写
-   └─ verify → 验证和交付
-4. 遇到 quality_gate 任务 → 调用 codeagent-wrapper 审查
-5. 更新任务状态，提示继续或完成
-```
-
-**自然语言控制**：执行时可描述意图，自动切换模式
-
-| 用户说 | 系统理解 |
-|--------|----------|
-| "单步执行" | step 模式，只执行一个任务 |
-| "继续" / "下一阶段" | phase 模式（默认） |
-| "执行到质量关卡" | quality_gate 模式 |
-| "重试" / "跳过" | retry / skip 模式 |
-
-### 3.3 任务状态文件
-
-**路径**：`~/.claude/workflows/{project-hash}/workflow-state.json`
-
-```json
-{
-  "name": "多租户权限管理",
-  "status": "running",
-  "current_task": "T-003",
-  "current_phase": "design",
-  "execution_mode": "phase",
-  "consecutive_count": 2,
-
-  "tasks": {
-    "T-003": {
-      "name": "设计权限接口",
-      "phase": "design",
-      "status": "in_progress",
-      "quality_gate": false
-    },
-    "T-008": {
-      "name": "两阶段代码审查",
-      "phase": "verify",
-      "status": "pending",
-      "quality_gate": true
-    }
-  },
-
-  "task_runtime": {
-    "T-003": {
-      "retry_count": 0,
-      "debug_history": []
-    }
-  },
-
-  "quality_gates": {
-    "design_review": {
-      "task_id": "T-005",
-      "passed": true,
-      "stage1_passed": true,
-      "stage2_passed": true
-    }
-  },
-
-  "discussion": {
-    "artifact_path": "discussion-artifact.json",
-    "skipped": false
-  },
-
-  "completed": ["T-001", "T-002"],
-  "failed": [],
-  "skipped": []
-}
-```
-
-**状态机**：
-
-| 状态 | 说明 |
-|------|------|
-| `idle` | 初始状态 |
-| `planned` | 规划完成，等待执行 |
-| `intent_review` | Intent 文档已生成，等待审查 |
-| `running` | 执行中 |
-| `blocked` | 等待外部依赖（如 API spec） |
-| `failed` | 任务失败 |
-| `completed` | 全部完成 |
-
-### 3.4 执行阶段
-
-工作流任务按阶段组织，每个阶段聚焦特定类型的工作：
-
-| 阶段 | 说明 | 任务类型 |
-|------|------|----------|
-| `design` | 接口设计、架构设计 | 类型定义、API 契约 |
-| `infra` | 基础设施搭建 | Store、工具函数、守卫 |
-| `ui-layout` | 页面布局 | 路由、菜单、页面骨架 |
-| `ui-display` | 展示组件 | 卡片、表格、列表 |
-| `ui-form` | 表单组件 | 弹窗、输入、选择器 |
-| `ui-integrate` | 组件集成 | 注册、组装、连接 |
-| `test` | 测试编写 | 单元测试、集成测试 |
-| `verify` | 验证 | 运行测试、代码审查 |
-| `deliver` | 交付 | 文档、提交 |
-
-### 3.5 质量关卡机制
-
-任务清单中标记了 `quality_gate: true` 的任务会触发质量关卡。从 v3.4.0 起，质量关卡升级为**两阶段代码审查**：
-
-| 阶段 | 审查重点 | 执行者 |
-|------|---------|--------|
-| **Stage 1：规格合规** | 任务是否符合技术方案规格 | 当前模型 |
-| **Stage 2：代码质量** | 代码可读性、可维护性、安全性 | Codex subagent |
-
-**问题分级**：Critical（阻断）、Important（必修）、Minor（建议），共享 4 次总审查预算。
-
-#### Codex 方案审查（设计阶段）
-
-```bash
-# 通过 codeagent-wrapper 调用 Codex 审查技术方案
-codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
-<TASK>
-审查技术方案文档：.claude/tech-design/xxx.md
-
-重点关注：
-1. 需求拆解是否完整
-2. 架构设计是否合理
-3. 实施计划是否可行
-4. 风险评估是否充分
-5. 验收标准是否明确
-
-请提供综合评分（0-100分）
-</TASK>
-OUTPUT: JSON { "score": number, "issues": string[] }
-EOF
-
-# 评分 < 80 → 自动阻止进入开发阶段
-# 评分 ≥ 80 → 通过，继续执行
-```
-
-#### Codex 代码审查（验证阶段 - 两阶段审查）
-
-```bash
-# Stage 1：规格合规审查（当前模型执行）
-# 检查代码实现是否符合技术方案规格
-# 验证可复用组件是否正确使用
-# 检查接口契约一致性
-
-# Stage 2：代码质量审查（Codex subagent 执行）
-codeagent-wrapper --backend codex resume <session_id> - <<'EOF'
-ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
-<TASK>
-审查代码实现
-
-技术方案：.claude/tech-design/xxx.md
-修改的文件：<file_list>
-
-重点关注：
-1. 代码可读性和可维护性
-2. 错误处理是否完善
-3. 安全漏洞和性能问题
-4. 代码风格一致性
-
-问题分级：Critical / Important / Minor
-</TASK>
-OUTPUT: JSON { "issues": [{ "severity": string, "description": string }] }
-EOF
-
-# 存在 Critical 问题 → 阻断交付
-# 仅 Minor 问题 → 通过，可交付
-# 共享 4 次总审查预算（Stage 1 + Stage 2 合计）
-```
-
-### 3.6 任务保护机制
-
-**问题**：如果重新执行 `/workflow start` 会不会覆盖之前的任务进度？
-
-**答案**：不会！系统内置了自动保护机制。
-
-#### 自动检测和备份
-
-启动新任务时，系统会自动检测并保护现有任务：
-
-```typescript
-const stateDir = `~/.claude/workflows/${projectId}`;
-const statePath = `${stateDir}/workflow-state.json`;
-
-// Step 0：检测现有任务（自动执行）
-if (fileExists(statePath)) {
-  const existingState = readFile(statePath);
-
-  if (existingState.status !== 'completed') {
-    // 1. 自动备份到带时间戳的文件
-    const backupPath = `${stateDir}/workflow-state-backup-${Date.now()}.json`;
-    backup(existingState, backupPath);
-
-    // 2. 询问用户如何处理
-    const choice = askUser({
-      question: "检测到未完成的任务，如何处理？",
-      options: [
-        "继续执行旧任务",
-        "开始新任务（备份旧任务）",
-        "取消操作"
-      ]
-    });
-  }
-}
-```
-
-#### 保护策略
-
-| 现有任务状态 | 系统行为 | 备份位置 |
-|-------------|---------|----------|
-| **运行中** (`running`/`blocked`) | 询问用户确认 | `~/.claude/workflows/{id}/workflow-state-backup-{ts}.json` |
-| **已完成** (`completed`) | 自动归档 | 通过 `/workflow archive` 归档 |
-| **不存在** | 直接创建 | - |
-
-#### 恢复备份
-
-```bash
-# 1. 查看项目工作流目录
-ls -lh ~/.claude/workflows/
-
-# 2. 查看特定项目的备份
-ls -lh ~/.claude/workflows/{projectId}/workflow-state-*.json
-
-# 3. 恢复特定备份
-cp ~/.claude/workflows/{projectId}/workflow-state-backup-xxx.json \
-   ~/.claude/workflows/{projectId}/workflow-state.json
-
-# 4. 继续执行
+/workflow start "需求描述"
 /workflow execute
-```
-
-### 3.7 使用示例
-
-#### 示例1：功能开发（连续执行）
-
-```bash
-# 对话1
-/workflow start "添加导出PDF按钮"
-# ✅ 生成 tech-design.md 和 tasks.md
-
-/workflow execute  # 执行设计阶段任务
-/workflow execute  # 执行实现阶段任务
-/workflow execute  # 执行测试阶段任务
-# 🎉 完成！
-```
-
-#### 示例2：复杂任务（新对话分批执行）
-
-```bash
-# ========== 对话1：需求分析 + 方案设计 ==========
-/workflow start "实现多租户权限管理系统"
-# ✅ 分析需求，生成技术方案
-
-/workflow execute  # 执行到设计完成
-# Codex 审查通过 ✅
-
-# ========== 对话2（新窗口）：开发实施 ==========
-/workflow execute  # 自动从上次位置继续
-# 执行开发任务...
-
-# ========== 对话3（新窗口）：验证交付 ==========
-/workflow execute  # 执行测试和验证
-# 🎉 完成！
-```
-
-### 3.8 辅助命令
-
-```bash
-# 查看当前状态和进度
 /workflow status
-
-# 重试当前步骤（质量关卡失败后）
-/workflow execute --retry
-
-# 跳过当前步骤（慎用）
-/workflow execute --skip
-
-# 增量变更（替代原 unblock）
-/workflow delta                     # 无参数：执行 pnpm ytt 同步全部 API
-/workflow delta docs/prd-update.md  # PRD 更新
-/workflow delta src/api/UserApi.ts  # API 规格变更，自动解除 api_spec 阻塞
-/workflow delta "新增导出权限需求"    # 需求描述
-
-# 归档已完成的工作流
+/workflow delta
 /workflow archive
 ```
 
-### 3.9 核心优势
+其中：
 
-| 对比项 | 智能工作流 | 传统手动流程 |
-|-------|-----------|--------------|
-| **命令入口** | 1 个统一 Skill | 多个分散命令 |
-| **步骤规划** | ✅ 自动生成 | ❌ 需手动规划 |
-| **进度记忆** | ✅ 自动持久化 | ❌ 需手动跟踪 |
-| **新对话恢复** | ✅ 无缝恢复 | ❌ 需重新开始 |
-| **质量保障** | ✅ 两阶段代码审查 | ❌ 手动审查 |
-| **上下文管理** | ✅ 渐进加载 | ❌ 全量加载 |
+- `start` 负责从需求进入规划。
+- `execute` 负责按编排后的任务继续推进。
+- `status` 负责查看当前进度和阻塞点。
+- `delta` 负责处理需求变更、PRD 更新和 API 变更。
+- `archive` 负责在完成后归档工作流。
 
-### 3.10 需求讨论阶段（Phase 0.2）
-
-> v3.4.0 新增
-
-在代码分析（Phase 0）之后、需求结构化提取（Phase 0.5）之前，新增交互式需求讨论阶段。
-
-**核心能力**：
-
-| 能力 | 说明 |
-|------|------|
-| **Gap 识别** | 基于代码分析结果，自动检测需求中的模糊点、缺失项和隐含假设 |
-| **逐个澄清** | 每次只问一个问题，优先选择题，支持跳过和结束 |
-| **方案探索** | 存在互斥实现路径时，提出 2-3 种方案供对比选择 |
-| **结构化工件** | 讨论结果持久化为独立 JSON（`discussion-artifact.json`），不修改原始需求 |
-
-**使用方式**：
-
-```bash
-# 默认启用需求讨论
-/workflow start docs/prd.md
-
-# 跳过需求讨论（短需求或明确需求）
-/workflow start --no-discuss "添加导出按钮"
-```
-
-**自动跳过条件**：
-- 使用 `--no-discuss` 标志
-- 简短的内联需求（非文件来源）
-- 需求内容清晰完整，无模糊点
-
-**讨论工件流向**：
-
-```
-Phase 0.2 讨论 → discussion-artifact.json
-                       │
-                       ├──▶ Phase 0.5 需求提取（参考澄清结果）
-                       ├──▶ Phase 1 技术方案（渲染为"需求澄清摘要"章节）
-                       └──▶ Phase 2 任务生成（映射未就绪依赖）
-```
-
-### 3.11 执行纪律强化
-
-> v3.4.0 新增，借鉴 Superpowers 项目核心机制
-
-**两阶段代码审查**：
-
-质量关卡从单一评分制升级为两阶段审查：
-
-| 阶段 | 审查重点 | 执行者 | 问题分级 |
-|------|---------|--------|---------|
-| **Stage 1：规格合规** | 实现是否符合技术方案 | 当前模型 | Critical / Important / Minor |
-| **Stage 2：代码质量** | 可读性、安全性、性能 | Codex subagent | Critical / Important / Minor |
-
-- 存在 Critical 问题 → 阻断后续执行
-- 共享 4 次总审查预算（Stage 1 + Stage 2 合计）
-
-**结构化调试协议**：
-
-任务失败重试前强制执行四阶段调试：
-
-```
-根因调查 → 模式分析 → 假设验证 → 实施修复
-```
-
-- 连续 3 次重试失败 → 触发 **Hard Stop**，暂停工作流等待人工介入
-
-**TDD 执行纪律**：
-
-- 实现指南（Phase 0.7）存在时，implement 阶段任务强制 **Red-Green-Refactor** 循环
-- 先写失败测试 → 最小实现通过 → 重构优化
-
-**Post-Execution Pipeline**：
-
-```
-executeTask() → Step 6.5（验证铁律 + Gate Function）
-             → Step 6.6（自审查，建议性，永不阻塞）
-             → Step 6.7（规格合规检查）
-             → Step 7（更新状态）
-```
-
-**审查反馈处理协议**：
-
-```
-READ → UNDERSTAND → VERIFY → EVALUATE → RESPOND → IMPLEMENT
-```
+整个体系的定位可以概括为一句话：`workflow` 负责主线，其他 skill 负责专项增强。
 
 ---
 
-## 4. 其他工作流
+## 2. 安装与同步
 
-### 4.1 UI 还原工作流（/figma-ui）
+本指南不再以 npm 全局安装为主，而是改为推荐直接克隆仓库后执行同步命令。
 
-**适用场景**：
-- ✅ 有明确的 Figma 设计稿
-- ✅ 需要高保真还原设计
-- ✅ 注重组件复用和代码质量
+### 2.1 克隆项目
 
-**关键特性**：
-- 🎨 自动提取 Figma 设计规范
-- 🤖 轻量 3 阶段：设计获取 → 自由编码 → 验证修复
-- 📐 智能识别可复用组件
-- ✅ **Gemini 审查**：visualFidelity ≥ 90 才能交付
-
-**使用方式**：
 ```bash
-# 直接使用 Figma URL
-/figma-ui "https://figma.com/design/xxx?node-id=123:456"
-
-# 或在对话中提及 Figma 相关关键词
-# 系统会自动检测并调用 figma-ui skill
+git clone <仓库地址> claude-workflow
+cd claude-workflow
+npm install
 ```
 
-**触发条件**（自动检测）：
-- 检测到 `figma.com/design` URL
-- 提及关键词：还原、切图、设计稿、UI实现、前端开发、Figma
+### 2.2 执行同步
 
-**还原度门控**：
+首次安装推荐直接运行：
 
-| visualFidelity | 判定 |
-|----------------|------|
-| ≥ 90 | 通过，可交付 |
-| ≥ 80 | 需人工审查 |
-| < 80 | 请求指导 |
-
-**重要原则**：
-- ✅ **Gemini 审查必须执行**：Phase C 的 Gemini 视觉审查不可跳过
-- ✅ **还原度 ≥ 90**：低于 90 分需修复视觉问题后重新验证
-- ✅ 编码阶段给予最大自由度，验证阶段严格把关
-- ❌ 严禁直接调用 Figma MCP 工具，必须通过 figma-ui skill
-
----
-
-### 4.2 视觉差异验证（/visual-diff）
-
-**适用场景**：
-- ✅ 需要验证 UI 还原度（figma-ui 完成后衔接）
-- ✅ 需要像素级对比设计稿与实现页面
-- ✅ 需要双模型语义验证（Gemini + Claude）
-
-**关键特性**：
-- 📐 像素级差异分析（overlay、diff highlight、并排对比）
-- 🤖 **Gemini + Claude 双模型语义验证**
-- 📊 结构化报告（差异百分比、评分、问题列表）
-- 🔗 与 figma-ui 自动衔接
-
-**使用方式**：
 ```bash
-# 独立调用
-/visual-diff http://localhost:3000/page --design ./design.png
-
-# 指定元素选择器
-/visual-diff http://localhost:3000/page --selector ".dialog-container"
-
-# 自定义差异阈值
-/visual-diff http://localhost:3000/page --threshold 20
+npm run sync
 ```
 
-**判定标准**：
+如果需要把 skill 同步到指定 Agent，可追加参数：
 
-| 条件 | 结果 | 置信度 |
-|------|------|--------|
-| 像素 PASS + 双模型 ≥80 | ✅ PASS | HIGH |
-| 像素 PASS/REVIEW + 任一模型 ≥70 | ⚠️ REVIEW | MEDIUM |
-| 其他 | ❌ FAIL | LOW |
-
----
-
-### 4.3 PRD 文档工作流
-
-**适用场景**：
-- ✅ 有明确的 PRD 产品需求文档
-- ✅ 需要完整的需求分析和方案设计
-
-**使用方式**：
 ```bash
-# 检测到 .md 文件自动进入文档模式
-/workflow start docs/user-management-prd.md
+npm run sync -- -a claude-code,cursor
+```
 
-# 生成技术设计文档后暂停审查
-# 确认后继续执行
+如果需要项目级安装：
+
+```bash
+npm run sync -- --project
+```
+
+如果需要无交互同步到所有已检测到的 Agent：
+
+```bash
+npm run sync -- -y
+```
+
+### 2.3 同步后你会得到什么
+
+同步动作会完成以下事情：
+
+1. 将模板内容写入 canonical 位置。
+2. 为不同 AI 编码工具建立受管挂载。
+3. 将 `skills` 逐个挂载到对应工具目录。
+4. 将 `commands`、`prompts`、`utils`、`specs` 作为目录级资源提供给工具使用。
+
+### 2.4 常用本地 CLI 调用方式
+
+如果你是在仓库目录中本地使用 CLI，可以直接执行：
+
+```bash
+node bin/agent-workflow.js status
+node bin/agent-workflow.js doctor
+node bin/agent-workflow.js sync -a claude-code,cursor
+```
+
+### 2.5 推荐初始化顺序
+
+完成同步后，推荐按下面顺序开始：
+
+```bash
+/scan
+/workflow start "需求描述"
 /workflow execute
 ```
 
-**特点**：
-- 自动解析 PRD 文档提取需求
-- 生成技术设计文档后暂停等待用户审查
-- 与 Codex 协作确保方案设计准确性
+其中 `/scan` 用于生成项目配置，能让后续 `workflow`、`bug-batch`、`figma-ui` 等 skill 获得稳定的项目信息。
 
 ---
 
-## 5. 智能分析命令
+## 3. workflow skill 总览
 
-### 5.1 双模型分析：`/analyze`
+`workflow` 是整个体系的主控 skill，负责把“一个模糊需求”变成“可执行、可追踪、可恢复”的工作流。
 
-`/analyze` 使用 **Codex + Gemini 双模型并行分析**，交叉验证后综合见解。
+它不是简单的任务清单生成器，而是一个包含以下能力的结构化执行系统：
 
-**使用方式**：
-```bash
-/analyze "描述你想分析的内容"
-```
+- 需求分析与上下文检索
+- 交互式需求澄清
+- Requirement Baseline 建模
+- 技术设计与规范沉淀
+- Plan 生成与任务编排
+- 执行模式控制
+- 质量关卡控制
+- 状态持久化与恢复
+- 增量变更处理
+- 完成归档
 
-**执行流程**：
-1. Codex 并行分析（后端视角：架构、性能、安全）
-2. Gemini 并行分析（前端视角：UI/UX、可访问性）
-3. 当前模型交叉验证，综合两方见解
+### 3.1 workflow 的核心原则
 
-**适用场景**：
-- 架构设计评审
-- 技术方案可行性分析
-- 代码质量深度分析
-- 性能瓶颈诊断
+`workflow` 当前版本不只是强调“把文档写完整”，而是强调 **Traceability-first**，也就是：原始需求必须在整个流程里持续可追溯。
 
----
+这意味着：
 
-## 6. 审查命令
+- 长 PRD 不会直接被下游文档自由概括，而是会先归一化为 Requirement Baseline。
+- 每条需求都需要明确范围状态，例如 `in_scope`、`partially_in_scope`、`out_of_scope`、`blocked`。
+- 容易丢失的细节约束，例如按钮文案、字段名、表格列、命名规则、条件分支、数量限制、显隐规则，都需要被显式保留。
+- `acceptance checklist`、`implementation guide`、`tech-design`、`spec`、`plan`、`tasks` 都需要消费 baseline，而不是各自重新摘要原始 PRD。
+- Spec Review 与 Plan Review 现在不仅检查结构完整性，也检查追溯完整性与关键约束保留情况。
 
-### 6.1 Diff 审查：`/diff-review`
+### 3.2 workflow 的五层规划工件
 
-基于 git diff 的代码审查，**默认使用多模型并行审查**。
-
-**使用方式**：
-
-| 参数 | 来源 | 示例 |
+| 层级 | 产物 | 作用 |
 |------|------|------|
-| (默认) | 未暂存变更 | `/diff-review` |
-| `--staged` | 已暂存变更 | `/diff-review --staged` |
-| `--all` | 全部未提交 | `/diff-review --all` |
-| `--branch <base>` | 对比分支 | `/diff-review --branch main` |
-| `--quick` | 单模型快速审查 | `/diff-review --quick` |
+| 基线层 | `requirement-baseline.md` | 定义 requirement IDs、scope status、critical constraints，是需求真相源 |
+| 设计层 | `tech-design.md` | 定义架构决策、边界、风险、技术约束，并体现 traceability |
+| 规范层 | `spec.md` | 定义最终范围、行为、模块与验收映射 |
+| 计划层 | `plan.md` | 定义实施顺序、原子步骤、验证要求 |
+| 编排层 | `tasks.md` | 定义运行时任务、依赖推进、质量关卡，并保留 requirement 映射 |
 
-**审查分工**（多模型模式）：
-
-| 模型 | 审查重点 |
-|------|----------|
-| **Codex** | 后端逻辑、安全漏洞、性能问题、并发安全 |
-| **Gemini** | 前端组件设计、可访问性、响应式设计、样式一致性 |
-| **Claude** | 综合两方反馈，生成最终报告 |
-
-**输出格式**：结构化 Markdown（Summary + Findings），包含：
-- 优先级（P0-P3）
-- 置信度（0.00-1.00）
-- 行范围
-- 修复建议
-
-**优先级定义**：
-
-| 级别 | 含义 | 标准 |
-|------|------|------|
-| P0 | 紧急阻塞 | 阻塞发布/运营，不依赖任何输入假设的普遍问题 |
-| P1 | 紧急 | 应在下个周期处理 |
-| P2 | 正常 | 最终需要修复 |
-| P3 | 低优先级 | 有则更好 |
-
----
-
-## 7. 调试命令
-
-### 7.1 调试与修复：`/debug`
-
-Bug 修复全流程：问题定位 → 影响分析 → 确认方案 → 修复 → 模型审查。修复完成后根据问题类型路由到 Codex（后端）或 Gemini（前端）进行单模型审查。
-
-**使用方式**：
-```bash
-/debug "问题描述"
-/debug "p328_600"  # 支持蓝鲸工单号
-```
-
-**执行流程**：
-1. 检索上下文 + 问题分析（识别前端/后端/全栈）
-2. 影响分析 + 确认方案（Hard Stop）
-3. 修复实施 + 验证
-4. 模型审查（Codex 或 Gemini 二选一）
-
-**问题类型路由**：
-
-| 关键词 | 类型 | 审查模型 |
-|--------|------|----------|
-| 白屏、渲染、样式、组件、状态 | 前端 | Gemini |
-| API、数据库、500、超时、权限 | 后端 | Codex |
-| 混合特征 | 全栈 | Codex（优先后端视角） |
-
-**适用场景**：
-- 复杂 Bug 定位
-- 跨前后端问题排查
-- 性能问题诊断
-- 蓝鲸工单处理（自动获取工单详情）
-
----
-
-## 8. 批量缺陷修复
-
-### 8.1 批量修复：`/bug-batch`
-
-从蓝鲸项目管理平台拉取缺陷清单后，先完成全量分析、重复/关联关系识别与修复单元编排，再按 `FixUnit` 顺序执行修复。修复完成后先流转到 `处理中`，人工确认后再流转到 `待验证`。
-
-**前置条件**：
-- 已执行 `/scan` 并关联蓝鲸项目（`project.bkProjectId` 已配置）
-- BK-MCP 已安装配置
-
-**使用方式**：
-```bash
-/bug-batch <operator_user>
-/bug-batch fanjj
-/bug-batch fanjj --state 待处理 --priority HIGH
-```
-
-**参数**：
-- `operator_user`（必填）：经办人用户名
-- `--state`：缺陷状态筛选，默认 "待处理"
-- `--priority`：优先级筛选（HIGH/中/低），默认全部
-
-**执行流程**：
-
-```text
-Phase 0: 读取项目配置（project.bkProjectId）
-Phase 1: 拉取缺陷清单（list_issues）
-Phase 2: 获取详情并标准化 IssueRecord
-Phase 3: 全量分析（根因初判 / 重复识别 / 耦合识别 / 依赖分析）
-Phase 4: 编排 FixUnit 并等待批量确认（Hard Stop）
-Phase 5: 按 FixUnit 顺序执行修复（复用 debug 单修复单元协议）
-Phase 6: 修复完成后流转到“处理中”并进入人工确认卡点
-Phase 7: 人工确认后流转到“待验证”
-Phase 8: 输出汇总报告
-```
-
-**关键原则**：
-1. **先分析，后修复** — 进入编码前必须完成全量关系分析
-2. **FixUnit 优先** — 执行粒度是修复单元，不是原始缺陷列表
-3. **重复不重复修** — 重复缺陷只归并，不单独创建编码动作
-4. **依赖显式化** — 阻塞关系必须在编排阶段表达为执行顺序
-5. **双重卡点** — 批量开始前和流转到待验证前都必须人工确认
-6. **状态流转有纪律** — 修复完成后先到 `处理中`，人工确认后才进入 `待验证`
-7. **失败容错** — 单个修复单元失败只阻塞其依赖链，不阻塞无关单元
-
----
-
-## 9. 典型场景实战
-
-### 9.1 场景A：复杂功能开发（智能工作流）
-
-**任务**：实现多租户权限管理系统
+### 3.3 workflow 的核心命令
 
 ```bash
-# 对话1：启动并开始执行
-/workflow start "实现多租户权限管理系统，支持租户隔离和RBAC"
-# ✅ 生成技术设计和任务清单
+/workflow start "需求描述"
+/workflow start docs/prd.md
+/workflow start --no-discuss docs/prd.md
+/workflow start -f "覆盖已有流程"
 
-/workflow execute  # 执行各步骤
-# Codex 审查通过 ✅
+/workflow execute
+/workflow execute --retry
+/workflow execute --skip
 
-# 对话2（新窗口）：继续开发
-/workflow execute  # 自动从上次位置继续
-
-# 对话3（新窗口）：验证交付
-/workflow execute  # 完成剩余步骤
-# 🎉 完成！
-```
-
-### 9.2 场景B：UI 还原（figma-ui skill）
-
-**任务**：还原 Figma 用户设置页面
-
-```bash
-/figma-ui "https://www.figma.com/design/xxxxx?node-id=123:456"
-# ✅ 自动获取设计规范
-# ✅ 自由编码实现
-# ✅ Gemini 视觉审查（visualFidelity ≥ 90）
-```
-
-### 9.3 场景C：Bug 调试（debug 命令）
-
-**任务**：修复用户头像上传失败问题
-
-```bash
-# 带工作项编号（自动获取缺陷信息）
-/debug "p328_600"
-# ✅ 自动获取蓝鲸工作项详情
-# ✅ 问题分析 + 影响评估
-# ✅ 确认方案（Hard Stop）
-# ✅ 修复实施 + 模型审查（Codex 或 Gemini）
-
-# 无工作项编号
-/debug "用户头像上传失败，返回 413 错误"
-```
-
-### 9.4 场景D：代码审查
-
-```bash
-# 多模型并行审查（默认）
-/diff-review --branch main
-
-# 单模型快速审查
-/diff-review --quick --staged
-```
-
-### 9.5 场景E：批量缺陷修复
-
-**任务**：处理当前经办人的所有待处理缺陷
-
-```bash
-/bug-batch fanjj
-# ✅ 自动拉取缺陷清单
-# ✅ 全量分析缺陷关系并编排 FixUnit
-# ✅ 批量确认后按修复单元执行修复
-# ✅ 修复后先流转处理中，人工确认后再转待验证
-# ✅ 输出汇总报告
-```
-
-### 9.6 场景F：视觉差异验证
-
-**任务**：验证 UI 还原度
-
-```bash
-# figma-ui 完成后衔接
-/visual-diff http://localhost:3000/user-settings --design ./design.png
-# ✅ 像素级差异分析
-# ✅ Gemini + Claude 双模型语义验证
-# ✅ 输出差异图片 + 综合报告
-```
-
-### 9.7 场景G：查看进度并继续
-
-```bash
-# 在新对话中
 /workflow status
-# 显示：当前任务、总进度、下一步建议
+/workflow status --detail
 
-/workflow execute  # 继续执行
+/workflow delta
+/workflow delta docs/prd-v2.md
+/workflow delta "新增导出功能，支持 CSV"
+/workflow delta packages/api/teamApi.ts
+
+/workflow archive
 ```
+
+### 3.4 什么时候优先使用 workflow
+
+下面这几类场景优先使用 `workflow`：
+
+- 新功能开发
+- 复杂重构
+- 多阶段交付
+- 需要明确验收标准的需求
+- 需要中断后继续推进的任务
+- 存在 PRD 更新或 API 变化的增量需求
+- 需求较长、约束较多、容易漏项的 PRD 场景
+
+如果问题只是单个小 Bug、单个页面视觉还原或一次性代码审查，不一定要先进入 `workflow` 主线，可以直接使用对应专项 skill。
 
 ---
 
-## 10. 最佳实践
+## 4. workflow 完整流程
 
-### 10.1 工作流选择
+下面这张图展示了从准备项目到完成归档的完整主线。
 
+```mermaid
+flowchart TD
+    A["准备项目"] --> B["/scan 生成项目配置"]
+    B --> C["/workflow start 输入需求"]
+    C --> D["Phase 0 代码分析"]
+    D --> E{"是否存在歧义或缺失"}
+    E -->|是| F["Phase 0.2 需求讨论"]
+    E -->|否| G["Phase 0.5 需求结构化"]
+    F --> G
+    G --> H["Phase 0.55 Requirement Baseline"]
+    H --> I["Phase 0.6 生成验收清单"]
+    I --> J["Phase 0.7 生成实现指南"]
+    J --> K["Phase 1 生成 tech-design"]
+    K --> L["Phase 1.2 Traceability Review / Spec Review"]
+    L --> M["Phase 1.3 生成 spec"]
+    M --> N["Phase 1.4 用户确认 Spec"]
+    N --> O["Phase 1.5 Intent Review"]
+    O --> P["Phase 2 生成 plan"]
+    P --> Q["Phase 2.5 Plan Review"]
+    Q --> R["Phase 3 编译 tasks"]
+    R --> S["/workflow execute"]
+    S --> T["按任务阶段执行"]
+    T --> U{"是否触发质量关卡"}
+    U -->|是| V["两阶段审查 + 追溯守卫"]
+    U -->|否| W["更新任务状态"]
+    V --> W
+    W --> X{"是否全部完成"}
+    X -->|否| S
+    X -->|是| Y["/workflow archive"]
 ```
-Bug 调试？
-  └─ 单个 → /debug（支持 BK-MCP 集成）
-  └─ 批量 → /bug-batch（先分析全部缺陷，再按 FixUnit 执行）
 
-有 Figma 设计稿？
-  └─ 是 → /figma-ui（Gemini 审查）
-  └─ 验证还原度 → /visual-diff（像素级 + 双模型语义）
+### 4.1 这条主线的关键特点
 
-有 PRD 文档？
-  └─ 是 → /workflow start docs/prd.md
+一是 `start` 不只是“列计划”，而是会生成多个中间工件。  
+二是 `Requirement Baseline` 成为下游所有文档共享的需求真相源。  
+三是 `Spec Review` 与 `Plan Review` 已经升级为带有追溯检查的质量门槛。  
+四是 `execute` 不只是“执行下一个待办”，而是带有执行模式、质量门控、失败重试和追溯守卫。  
+五是整个过程可中断、可恢复、可增量更新，不依赖单次对话记忆。
 
-功能开发？
-  └─ /workflow start（自动规划执行计划）
-```
+---
 
-**工作流选择表**：
+## 5. `/workflow start` 规划流程详解
 
-| 任务类型 | 推荐工作流 |
-|---------|-----------|
-| 新功能开发 | `/workflow start` ⭐⭐⭐ |
-| Bug 调试 | `/debug` ⭐ |
-| 批量缺陷修复 | `/bug-batch` ⭐ |
-| UI 还原 | `/figma-ui` |
-| 还原度验证 | `/visual-diff` |
-| PRD 开发 | `/workflow start docs/prd.md` |
-| 代码审查 | `/diff-review` |
-| 技术分析 | `/analyze` |
+`/workflow start` 的目标，是把原始需求编译为后续可执行的任务体系。
 
-### 10.2 新对话执行模式
-
-**推荐做法**：关键阶段在新对话中执行
+### 5.1 典型输入形式
 
 ```bash
-# 对话1：分析 + 方案
-/workflow start "需求"
-/workflow execute × N  # 执行到方案审查完成
-
-# 对话2：开发实施
-/workflow execute × N  # 编码 + 测试
-
-# 对话3：验证交付
-/workflow execute × N  # 代码审查 + 文档
+/workflow start "实现多租户权限管理"
+/workflow start docs/prd.md
+/workflow start --no-discuss docs/prd.md
+/workflow start -f "重新生成已有工作流"
 ```
 
-**优势**：
-- ✅ 每个对话上下文独立
-- ✅ 审查上下文充足
-- ✅ 可随时暂停和恢复
+### 5.2 start 阶段总览
 
-### 10.3 质量保证
+| 阶段 | 名称 | 作用 | 主要输出 | 是否可能停顿 |
+|------|------|------|----------|--------------|
+| Phase 0 | 代码分析 | 理解现有代码、依赖与约束 | 上下文分析结果 | 否 |
+| Phase 0.2 | 需求讨论 | 澄清歧义、确认互斥方案 | discussion artifact | 可能 |
+| Phase 0.5 | 需求结构化 | 将自然语言整理为结构化需求 | requirement items 草案 | 否 |
+| Phase 0.55 | Requirement Baseline | 生成需求真相源与追溯基线 | `requirement-baseline.md` | 否 |
+| Phase 0.6 | 验收清单 | 生成用户视角验证项 | acceptance checklist | 否 |
+| Phase 0.7 | 实现指南 | 生成开发者视角实现路径 | implementation guide | 否 |
+| Phase 1 | 技术设计 | 输出架构与边界说明 | `tech-design.md` | 是 |
+| Phase 1.2 | Traceability Review / Spec Review | 检查设计质量与需求追溯完整性 | 审查结论 | 是 |
+| Phase 1.3 | Spec Generation | 生成正式规格文档 | `spec.md` | 否 |
+| Phase 1.4 | User Spec Review | 用户确认范围与验收映射 | spec review result | 是 |
+| Phase 1.5 | Intent Review | 审查变更意图与方向是否一致 | intent review result | 是 |
+| Phase 2 | Plan Generation | 生成实施计划 | `plan.md` | 否 |
+| Phase 2.5 | Plan Review | 审查计划粒度、覆盖率与可执行性 | 审查结论 | 是 |
+| Phase 3 | Task Compilation | 编译运行时任务 | `tasks.md` | 是 |
 
-- ✅ 依赖质量关卡：Codex 审查
-- ✅ 及时重试：审查不通过时 `/workflow execute --retry`
-- ✅ 记录决策：所有决策自动记录到任务记忆
-- ✅ 文档完整：技术方案、验证报告自动生成
+### 5.3 Phase 0：代码分析
+
+这一阶段会围绕当前需求做代码库检索，目标不是立刻给方案，而是识别：
+
+- 相关模块在哪里
+- 现有实现模式是什么
+- 依赖和约束有哪些
+- 哪些地方会成为风险点
+
+如果项目还没执行 `/scan`，通常应先完成扫描，以便 `workflow` 获得更稳定的项目上下文。
+
+### 5.4 Phase 0.2：需求讨论
+
+当系统识别到需求存在模糊点、缺失项或互斥实现路径时，会进入交互式需求讨论。
+
+这一阶段的特点是：
+
+- 一次只澄清一个关键问题
+- 优先给出可选择的方案
+- 讨论结果不会覆盖原始需求，而是单独持久化为工件
+- 可以通过 `--no-discuss` 显式跳过
+
+适合在下面几类场景启用：
+
+- 需求只说了目标，没有说边界
+- 存在多个实现路径，需要用户确认
+- 需求与现有代码约束之间有明显冲突
+
+### 5.5 Phase 0.5：需求结构化
+
+在需求讨论之后，系统会把自然语言需求转成更稳定的 requirement items 草案。这个阶段的重点是从原始 PRD 中拆出真正可追踪的需求单元，而不是只保留抽象摘要。
+
+这一层通常会开始显式区分：
+
+- 功能要求
+- 交互要求
+- 展示要求
+- 数据要求
+- 外部依赖
+- 约束与例外情况
+
+### 5.6 Phase 0.55：Requirement Baseline
+
+这是本轮最新变更中最重要的升级点之一。
+
+在需求结构化之后，`workflow` 会自动生成 Requirement Baseline，用于把需求正式冻结成后续工件共享的真相源。
+
+它通常包含以下信息：
+
+- Requirement IDs：每条需求的稳定编号
+- Scope Classification：`in_scope / partially_in_scope / out_of_scope / blocked`
+- Critical Constraints：容易在后续文档中丢失的细节约束
+- Ownership：frontend / backend / shared / infra 的归属
+- Traceability Source：供 acceptance、spec、plan、tasks 统一消费的来源
+
+可以把它理解为：从这一层开始，后续所有文档都不应该再“自由发挥式理解 PRD”，而应该显式引用 baseline。
+
+### 5.7 Phase 0.6：验收清单
+
+验收清单从用户视角组织验证标准，常见内容包括：
+
+- 表单字段验证
+- 角色权限验证
+- 交互行为验证
+- 业务规则验证
+- 边界场景验证
+- UI 展示验证
+- 功能流程验证
+- Requirement-to-Acceptance Mapping
+
+这个文档的意义在于，让 `workflow` 后续生成 `spec`、`plan` 和最终验证时始终围绕可验收结果推进，并且明确每个 requirement 是否被覆盖。
+
+### 5.8 Phase 0.7：实现指南
+
+实现指南从开发者视角给出落地路径，重点包括：
+
+- TDD 工作流建议
+- 测试分层策略
+- 模块划分建议
+- 测试数据组织方式
+- 自动化校验与质量门禁
+- Related Requirement IDs / Related Acceptance IDs
+- Critical Constraints by Module
+
+当实现指南存在时，执行阶段会更容易对齐“先验证、后编码、再重构”的节奏。
+
+### 5.9 Phase 1 到 Phase 3：从设计到任务编排
+
+这是 `workflow` 真正把需求编译为任务系统的核心部分：
+
+1. 先生成 `tech-design.md`，明确边界、模块和关键决策，并体现 traceability。  
+2. 再通过 `Traceability Review / Spec Review` 检查结构完整性、需求覆盖与关键约束保留情况。  
+3. 然后生成用户友好的 `spec.md`，并进入用户确认。  
+4. 接着在 `intent review` 中确认当前变更方向没有偏离。  
+5. 再基于 `spec + baseline + acceptance + implementation-guide` 生成 `plan.md`。  
+6. 最后通过 `plan review` 和任务编译得到 `tasks.md`，并将 requirement IDs 映射带入运行时任务。
+
+### 5.10 start 阶段的几个 Hard Stop
+
+`workflow` 在规划期间不会一路静默到底，而是会在关键节点停下来等待确认。典型 Hard Stop 包括：
+
+- 技术设计确认
+- Traceability Review / Spec Review
+- 用户确认 Spec
+- Intent Review
+- Plan Review
+- 任务清单确认
+
+这样做的目的，是防止需求偏差和需求漏项在执行阶段才暴露。
+
+---
+
+## 6. `/workflow execute` 执行流程详解
+
+`/workflow execute` 的目标，是读取当前工作流状态，找到下一批合适的任务，并按规则推进。
+
+### 6.1 基本调用方式
+
+```bash
+/workflow execute
+/workflow execute --retry
+/workflow execute --skip
+```
+
+### 6.2 execute 的核心运行逻辑
+
+```mermaid
+flowchart TD
+    A["/workflow execute"] --> B["读取 workflow-state.json"]
+    B --> C["定位当前任务与当前阶段"]
+    C --> D["判断执行模式"]
+    D --> E["执行本轮任务"]
+    E --> F{"任务是否失败"}
+    F -->|是| G["记录失败与调试信息"]
+    G --> H{"是否允许重试"}
+    H -->|是| I["/workflow execute --retry"]
+    H -->|否| J["进入阻塞或 Hard Stop"]
+    F -->|否| K{"是否到达质量关卡"}
+    K -->|是| L["执行两阶段审查"]
+    K -->|否| M["更新任务状态"]
+    L --> M
+    M --> N{"当前阶段是否完成"}
+    N -->|否| E
+    N -->|是| O{"全部任务是否完成"}
+    O -->|否| P["等待下一次 execute"]
+    O -->|是| Q["标记 completed 并可 archive"]
+```
+
+### 6.3 执行模式
+
+`execute` 支持多种推进模式，默认是按阶段推进。
+
+| 模式 | 含义 | 适合场景 |
+|------|------|----------|
+| `step` | 只执行一个任务 | 需要精细控制变更节奏 |
+| `phase` | 执行当前阶段全部任务 | 常规开发推进，默认模式 |
+| `quality_gate` | 执行到下一个质量关卡为止 | 希望先完成一段实现再审查 |
+| `retry` | 重试失败任务 | 修复后再次推进 |
+| `skip` | 跳过当前任务 | 明确不需要执行该任务时 |
+
+### 6.4 自然语言控制映射
+
+在实际对话中，常见表达会自动映射为不同模式：
+
+| 用户表达 | 系统理解 |
+|----------|----------|
+| “单步执行” | `step` |
+| “继续” / “下一阶段” | `phase` |
+| “执行到质量关卡” | `quality_gate` |
+| “重试” | `retry` |
+| “跳过” | `skip` |
+
+### 6.5 任务阶段划分
+
+运行时任务会按阶段组织，常见阶段如下：
+
+| 阶段 | 说明 |
+|------|------|
+| `design` | 接口设计、类型与架构落地 |
+| `infra` | 基础设施、工具函数、store、守卫 |
+| `ui-layout` | 页面骨架、布局、路由 |
+| `ui-display` | 列表、卡片、表格等展示组件 |
+| `ui-form` | 表单、弹窗、输入和交互组件 |
+| `ui-integrate` | 组件装配、状态连接、页面集成 |
+| `test` | 单元测试、集成测试、用例补齐 |
+| `verify` | 验证、审查、质量门控 |
+| `deliver` | 交付收尾、文档、提交准备 |
+
+除了阶段划分本身，当前版本还要求任务尽可能保留 `requirement_ids` 与关键约束映射，这样执行阶段才能回答“当前任务在实现哪条需求”。
+
+### 6.6 质量关卡机制
+
+这是 `workflow execute` 最关键的质量控制环节。
+
+从当前版本开始，质量关卡采用两阶段审查，并叠加追溯守卫：
+
+| 阶段 | 重点 | 执行角色 |
+|------|------|----------|
+| Stage 1 | 规格合规、需求覆盖、关键约束对齐 | 当前主会话 |
+| Stage 2 | 代码质量、安全、可维护性 | 子 agent / 审查能力 |
+
+审查问题通常会被分为三类：
+
+- `Critical`：阻断问题，必须修复
+- `Important`：高优先级问题，应尽快修复
+- `Minor`：建议优化项
+
+### 6.7 失败重试与结构化调试
+
+当某个任务失败时，不建议直接机械重跑。`workflow` 的期望处理方式是：
+
+1. 先定位根因。  
+2. 再分析是否是模式性错误。  
+3. 然后验证修复假设。  
+4. 最后执行修复并重试。
+
+如果连续失败次数过多，会触发更强的停止条件，避免错误被无限放大。
+
+### 6.8 追溯守卫
+
+这是最新版本在执行阶段新增的一个重要理解方式。
+
+所谓追溯守卫，指的是任何执行任务或质量关卡，都应该能回溯到 requirement IDs 与 critical constraints。它要解决的不是“代码写没写出来”，而是“写出来的东西是否仍然对着最初那条需求”。
+
+在实际理解里，可以把它拆成三个检查点：
+
+- 当前任务对应哪些 requirement IDs
+- 当前实现是否覆盖了这些 requirement 的核心行为
+- baseline 中记录的关键约束是否在实现或验证中被保留
+
+### 6.9 子 Agent 路由
+
+执行阶段支持按平台能力路由子 agent：
+
+- Claude Code / Cursor：适合子 agent 并行执行独立任务
+- Codex：可映射到对应的 agent 执行模式
+- 不支持子 agent 的平台：回退为当前会话顺序执行
+
+启用并行的前提是任务之间彼此独立、没有共享状态、不会同时编辑同一组文件。
+
+### 6.10 execute 阶段的最佳节奏
+
+更推荐的节奏不是一次性把所有事情做完，而是：
+
+- 用 `start` 先把规划做对
+- 用 `execute` 一段一段推进
+- 在质量关卡或关键阶段主动确认
+- 失败时优先用 `retry` 而不是手工偏离流程
+- 遇到需求变化时优先回到 `delta`，而不是直接绕过上游工件修改实现
+
+---
+
+## 7. 运行中的辅助命令
+
+### 7.1 `/workflow status`
+
+用于查看当前工作流状态、当前阶段、当前任务、失败记录和质量关卡状态。
+
+```bash
+/workflow status
+/workflow status --detail
+```
+
+适用场景：
+
+- 新对话中恢复上下文
+- 不确定当前推进到哪里
+- 想确认是否已进入阻塞或失败状态
+- 想查看当前任务对应的阶段、关卡和推进状态
+
+### 7.2 `/workflow delta`
+
+用于处理“已经在进行中的工作流”发生了新增需求或外部变化的情况。
+
+```bash
+/workflow delta
+/workflow delta docs/prd-v2.md
+/workflow delta "新增导出功能，支持 CSV"
+/workflow delta packages/api/teamApi.ts
+```
+
+适合下面几类变化：
+
+- PRD 更新
+- API 同步
+- 中途增加功能点
+- 外部依赖变化导致原计划失效
+
+在新版工作流中，`delta` 的意义更强了，因为它不仅要更新任务，还要保证 baseline、spec、plan、tasks 的追溯链路继续成立。
+
+### 7.3 `/workflow archive`
+
+当工作流已经完成并确认不再继续推进时，可以归档：
+
+```bash
+/workflow archive
+```
+
+归档的意义在于：
+
+- 清理当前活跃工作流
+- 保留历史轨迹和上下文
+- 为下一个需求建立干净的执行环境
+
+---
+
+## 8. 工作流产物与状态文件
+
+### 8.1 项目目录中的关键产物
+
+| 路径 | 作用 |
+|------|------|
+| `.claude/config/project-config.json` | 项目配置，由 `/scan` 生成 |
+| `.claude/analysis/{name}-requirement-baseline.md` | 需求基线文档，记录 requirement IDs、scope 与关键约束 |
+| `.claude/tech-design/{name}.md` | 技术设计文档 |
+| `.claude/specs/{name}.md` | 规格文档 |
+| `.claude/plans/{name}.md` | 实施计划 |
+| `.claude/acceptance/{name}-checklist.md` | 验收清单 |
+| `.claude/acceptance/{name}-implementation-guide.md` | 实现指南 |
+
+### 8.2 用户级运行时产物
+
+| 路径 | 作用 |
+|------|------|
+| `~/.claude/workflows/{projectId}/workflow-state.json` | 工作流当前状态 |
+| `~/.claude/workflows/{projectId}/discussion-artifact.json` | 需求讨论结果 |
+| `~/.claude/workflows/{projectId}/requirement-baseline.json` | requirement items 的运行时 JSON 表示 |
+| `~/.claude/workflows/{projectId}/tasks-{name}.md` | 任务编排结果 |
+| `~/.claude/workflows/{projectId}/changes/{changeId}/` | 增量变更工件 |
+| `~/.claude/workflows/{projectId}/archive/` | 已归档历史记录 |
+
+### 8.3 常见状态机
+
+| 状态 | 含义 |
+|------|------|
+| `planned` | 规划完成，等待执行 |
+| `spec_review` | 已到规格确认节点 |
+| `intent_review` | 已到意图审查节点 |
+| `running` | 正在执行 |
+| `paused` | 暂停，等待用户或外部动作 |
+| `blocked` | 被外部依赖阻塞 |
+| `failed` | 任务失败 |
+| `completed` | 全部任务完成 |
+| `archived` | 工作流已归档 |
+
+### 8.4 为什么状态文件很重要
+
+这套状态文件机制的作用，不只是“记住做到哪一步了”，更重要的是：
+
+- 可以在新对话中恢复工作流
+- 可以区分规划态、执行态、阻塞态和完成态
+- 可以支持 `delta` 做增量改动
+- 可以让 `execute` 不是盲目继续，而是按状态机继续
+- 可以把 baseline、任务与执行状态连接起来，维持追溯链路
+
+---
+
+## 9. 其他 skills 的核心功能
+
+下面这些 skill 都很重要，但在整个体系里它们更像专项能力，通常围绕 `workflow` 主线按需使用。
+
+### 9.1 总览
+
+| Skill | 核心功能 | 典型使用时机 | 与 workflow 的关系 |
+|------|----------|--------------|--------------------|
+| `/scan` | 扫描技术栈，生成项目配置与上下文 | 新项目接入前 | `workflow` 的前置准备 |
+| `/analyze` | 双模型技术分析，不直接改代码 | 架构分析、性能分析、方案对比 | 规划前的分析增强 |
+| `/debug` | 单问题调试与修复流程 | 单个缺陷定位与修复 | 可独立使用，也可作为执行补充 |
+| `/diff-review` | 基于 diff 的结构化审查 | 提交前、PR 前、修复后 | 是 `workflow` 质量关卡之外的专项审查 |
+| `/write-tests` | 编写和补齐测试 | 需要新增测试或提高覆盖率 | 可作为 `test` 阶段补充 |
+| `/figma-ui` | 从 Figma 设计稿实现 UI | 设计稿还原开发 | 偏视觉实现，不替代 `workflow` 主线 |
+| `/visual-diff` | 页面与设计稿视觉对比 | UI 完成后的还原度验证 | 常与 `figma-ui` 配套 |
+| `/bug-batch` | 批量缺陷拉取、诊断、分组修复 | 清理积压缺陷 | 是面向缺陷治理的独立流程 |
+
+### 9.2 各 skill 的一句话理解
+
+`/scan`：解决“项目是什么、技术栈是什么、配置在哪里”的问题。  
+`/analyze`：解决“先分析，不急着动代码”的问题。  
+`/debug`：解决“我已经知道这是个 Bug，要系统修”的问题。  
+`/diff-review`：解决“我要看这次改动是否安全、是否合理”的问题。  
+`/write-tests`：解决“要把验证补齐并形成可回归的测试资产”的问题。  
+`/figma-ui`：解决“把设计稿还原成代码”的问题。  
+`/visual-diff`：解决“还原结果到底像不像设计稿”的问题。  
+`/bug-batch`：解决“不是一个 Bug，而是一批 Bug 需要统筹处理”的问题。
+
+---
+
+## 10. 推荐使用方式
+
+如果你准备把这套体系真正用起来，推荐遵循下面这条主线。
+
+### 10.1 新功能开发
+
+```bash
+/scan
+/workflow start "需求描述或 PRD 路径"
+/workflow execute
+/workflow status
+/workflow execute
+/workflow archive
+```
+
+### 10.2 长 PRD 或复杂需求开发
+
+如果输入是一份较长 PRD，或者包含大量业务规则、字段和边界条件，更推荐让 `workflow` 完整走过 baseline 主线：
+
+```bash
+/scan
+/workflow start docs/prd.md
+/workflow status
+/workflow execute
+```
+
+这一类场景下，真正重要的不只是生成计划，而是先把 Requirement Baseline 建好，避免后面出现“文档看起来完整，但关键需求漏掉了”的问题。
+
+### 10.3 UI 需求开发
+
+如果任务核心是业务功能，同时又有设计稿：
+
+```bash
+/scan
+/workflow start "页面功能需求"
+/workflow execute
+/figma-ui "Figma URL"
+/visual-diff http://localhost:3000/page --design ./design.png
+```
+
+这里的建议是：业务逻辑和任务推进仍由 `workflow` 主导，视觉还原由 `figma-ui` 与 `visual-diff` 处理。
+
+### 10.4 需求变更
+
+```bash
+/workflow status
+/workflow delta docs/prd-v2.md
+/workflow execute
+```
+
+不要在已有工作流中绕开 `delta` 直接硬改，因为这会让 `baseline`、`spec`、`plan`、`tasks` 和实际执行状态失去同步。
+
+### 10.5 单点问题处理
+
+如果不是复杂需求，而只是明确的单点问题：
+
+- 单 Bug：优先 `/debug`
+- 单次审查：优先 `/diff-review`
+- 单次分析：优先 `/analyze`
+- 单次补测：优先 `/write-tests`
 
 ---
 
 ## 11. 常见问题
 
-### 11.1 如何选择工作流？
+### 11.1 为什么推荐先 `/scan`
 
-**A**: 优先使用智能工作流 `/workflow start`
-- 自动规划执行计划
-- 适用大多数场景
-- Bug 调试用 `/debug`，批量缺陷用 `/bug-batch`（先分析、再按 FixUnit 修复）
-- UI 还原用 `/figma-ui`，验证还原度用 `/visual-diff`
+因为很多 skill 都依赖项目配置。没有配置时，虽然部分能力仍可工作，但效果通常不稳定，也更容易丢失上下文边界。
 
-### 11.2 任务记忆文件在哪？
+### 11.2 `workflow` 和其他 skill 的关系是什么
 
-**A**: `~/.claude/workflows/{project-hash}/workflow-state.json`
-- 记录所有步骤状态和进度
-- 支持新对话恢复
-- 包含审查结果和决策记录
+可以理解为：`workflow` 是主线编排器，其他 skill 是专项工具箱。
 
-### 11.3 质量关卡失败怎么办？
+### 11.3 为什么现在多了 Requirement Baseline
 
-**A**:
-1. 查看审查意见
-2. 根据建议优化内容
-3. 执行 `/workflow execute --retry` 重新审查
+因为长 PRD 场景下，最常见的问题不是“没有计划”，而是“需求被下游文档悄悄丢失”。Requirement Baseline 的作用就是把需求先冻结成统一真相源，让后续 acceptance、spec、plan、tasks 都围绕同一份 requirement items 工作。
 
-### 11.4 如何在新对话中恢复？
+### 11.4 什么时候应该用 `delta`
 
-**A**:
-```bash
-# 在新对话中直接执行
-/workflow execute
-# ✅ 自动读取任务记忆，继续下一步
-```
+当需求、PRD、接口、外部依赖在执行过程中发生变化时，就应该优先使用 `delta`，而不是跳过规划层直接改实现。
 
-### 11.5 可以跳过某个步骤吗？
+### 11.5 什么时候应该用 `archive`
 
-**A**:
-- 可以使用 `/workflow execute --skip`（慎用）
-- 会记录跳过理由到任务记忆
+当一个工作流已经完成、确认不再继续推进，或者你要开始一个新的独立需求时，应该归档当前工作流。
 
-### 11.6 如何处理外部依赖变更？
+### 11.6 如果执行失败怎么办
 
-**A**:
-```bash
-# 无参数：同步全部 API（执行 pnpm ytt）
-/workflow delta
+优先使用 `/workflow execute --retry`，并结合结构化调试思路定位根因；如果问题本质上是单个缺陷，也可以切换到 `/debug` 处理后再回到主线。
 
-# PRD 更新
-/workflow delta docs/prd-update.md
+### 11.7 Traceability Review 在检查什么
 
-# API 规格变更（自动解除 api_spec 阻塞）
-/workflow delta src/api/UserApi.ts
-
-# 需求描述
-/workflow delta "新增导出权限需求"
-```
+它不只检查“文档写没写完”，更检查三件事：需求是否被覆盖、范围状态是否明确、关键约束是否在下游文档中被保留下来。
 
 ---
 
-## 附录 A：命令速查表
+## 附录：命令速查
 
-| 命令 | 简介 | 优先级 |
-|------|------|-------|
-| **智能工作流（Skill）** |||
-| `/workflow start "需求"` | 启动智能工作流 | ⭐⭐⭐ |
-| `/workflow execute` | 执行下一步 | ⭐⭐⭐ |
-| `/workflow status` | 查看当前状态和进度 | ⭐⭐ |
-| `/workflow delta` | 增量变更（需求更新、API 同步） | ⭐ |
-| `/workflow execute --retry` | 重试失败步骤 | ⭐ |
-| `/workflow execute --skip` | 跳过当前步骤（慎用） | |
-| `/workflow archive` | 归档已完成工作流 | |
-| **其他 Skills** |||
-| `/figma-ui "Figma URL"` | UI 还原（Gemini 审查） | ⭐ |
-| `/visual-diff "URL"` | 视觉差异验证（像素级 + 双模型） | ⭐ |
-| `/analyze "描述"` | 双模型技术分析 | ⭐⭐ |
-| `/debug "问题"` | Bug 修复流程 + 模型审查 | ⭐⭐ |
-| `/bug-batch <user>` | 批量缺陷修复（全量分析 + FixUnit 编排） | ⭐ |
-| `/diff-review` | 多模型代码审查 | ⭐ |
-| `/diff-review --quick` | 单模型快速审查 | ⭐ |
-| `/scan` | 智能项目扫描 + 蓝鲸关联 | ⭐ |
-| `/write-tests` | 测试编写专家 | ⭐ |
-| **CLI 工具** |||
-| `agent-workflow status` | 查看安装状态和 Agent 状态 | ⭐ |
-| `agent-workflow sync` | 同步模板到多个 Agent | ⭐ |
-| `agent-workflow sync -a` | 指定目标 Agent | |
-| `agent-workflow init` | 初始化项目配置 | ⭐ |
-| `agent-workflow doctor` | 诊断配置问题 | |
-| **其他命令** |||
-| `/enhance "prompt"` | Prompt 增强 | |
-| `/git-rollback` | 交互式 Git 回滚 | |
-| `/skill-creator` | Skill 创建指南 | |
-| `/agents` | 查看所有可用命令 | |
-
----
-
-## 附录 B：Prompt 模板
-
-项目使用双模型协作，Prompt 模板位于 `~/.agents/agent-workflow/prompts/`：
-
-| 目录 | 专长 | 使用场景 |
-|------|------|----------|
-| **codex/** | 后端架构、算法、调试、安全 | API 设计、数据库、性能优化、代码审查 |
-| **gemini/** | 前端 UI、CSS、组件、可访问性 | React/Vue 组件、样式、响应式设计 |
-
-**角色提示词**：
-
-| 角色 | Codex | Gemini |
-|------|-------|--------|
-| 分析 | `codex/analyzer.md` | `gemini/analyzer.md` |
-| 架构/前端 | `codex/architect.md` | `gemini/frontend.md` |
-| 审查 | `codex/reviewer.md` | `gemini/reviewer.md` |
-| 调试 | `codex/debugger.md` | `gemini/debugger.md` |
-| 测试 | `codex/tester.md` | `gemini/tester.md` |
-| 优化 | `codex/optimizer.md` | `gemini/optimizer.md` |
-
-**使用方式**：通过 `codeagent-wrapper` 的 `ROLE_FILE` 指令在 HEREDOC 中显式指定角色：
+### A. 安装与同步
 
 ```bash
-codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.agents/agent-workflow/prompts/codex/reviewer.md
-<TASK>审查任务</TASK>
-EOF
+git clone <仓库地址> claude-workflow
+cd claude-workflow
+npm install
+npm run sync
+npm run sync -- -a claude-code,cursor
+npm run sync -- --project
 ```
 
----
-
-## 附录 C：快速入门
-
-### 安装
+### B. workflow 主线命令
 
 ```bash
-npm install -g @justinfan/agent-workflow --registry http://your-registry-host:4873
-```
-
-### 新手推荐流程
-
-```bash
-# 1. 交互式安装（首次推荐）
-agent-workflow sync
-
-# 2. 扫描项目
-/scan
-
-# 3. 启动智能工作流
-/workflow start "你的功能需求描述"
-
-# 4. 重复执行（直到完成）
-/workflow execute
-/workflow execute
-# ...
-
-# 5. 随时查看状态
-/workflow status
-```
-
-### 常用 CLI 命令
-
-```bash
-# 查看安装状态
-agent-workflow status
-
-# 同步到所有检测到的 Agent
-agent-workflow sync -y
-
-# 安装到指定 Agent
-agent-workflow sync -a claude-code,cursor -y
-
-# 诊断问题
-agent-workflow doctor
-```
-
-### 常用命令
-
-```bash
-# 功能开发
 /workflow start "需求描述"
+/workflow start docs/prd.md
+/workflow start --no-discuss docs/prd.md
+
 /workflow execute
+/workflow execute --retry
+/workflow execute --skip
 
-# 增量变更
-/workflow delta                # 同步 API
-/workflow delta docs/prd.md    # PRD 更新
+/workflow status
+/workflow status --detail
 
-# UI 还原
-/figma-ui "Figma URL"
+/workflow delta
+/workflow delta docs/prd-v2.md
+/workflow delta "新增导出功能，支持 CSV"
 
-# 视觉验证
-/visual-diff http://localhost:3000/page --design ./design.png
-
-# Bug 调试
-/debug "问题描述"
-
-# 批量缺陷修复
-/bug-batch <经办人>
-
-# 代码审查
-/diff-review --branch main
-
-# 技术分析
-/analyze "分析内容"
+/workflow archive
 ```
 
-### 进阶使用
-
-- 关键阶段在新对话中执行
-- 使用 `/workflow status` 了解进度
-- 质量关卡失败时使用 `/workflow execute --retry`
-- 使用 `agent-workflow doctor` 诊断配置问题
-- 使用 `agent-workflow sync` 刷新默认覆盖安装并同步受管链接
-
-### 从旧版本迁移
-
-如果你之前使用的是旧版（直接复制到 `~/.claude/`），运行以下命令迁移到新架构：
+### C. 其他常用 skills
 
 ```bash
-agent-workflow sync
+/scan
+/analyze "分析某个模块的架构风险"
+/debug "某个功能报错或异常现象"
+/diff-review --branch main
+/write-tests "为某个模块补测试"
+/figma-ui "Figma URL"
+/visual-diff http://localhost:3000/page --design ./design.png
+/bug-batch <经办人>
 ```
-
-迁移会：
-1. 备份现有文件
-2. 复制到 canonical 位置
-3. 将受管目录迁移为逐个 skill 挂载 + 目录级链接
-4. 保持向后兼容
 
 ---
 
-**文档结束**
-
-如有疑问，请参考：
-- 安装状态：`agent-workflow status`
-- 诊断问题：`agent-workflow doctor`
-- 命令索引：`/agents`
-- 项目规范：`CLAUDE.md`
+如果你把这份指南只保留一条主线结论，那么应该是：先用 `/scan` 建立项目上下文，再用 `workflow` 完成从需求到交付的主流程，并通过 Requirement Baseline 与 Traceability Review 保证需求不会在规划和执行过程中丢失，最后根据具体问题接入专项 skill 做增强。

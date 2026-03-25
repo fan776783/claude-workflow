@@ -6,3 +6,4 @@ node_modules/
 .env.local
 __pycache__/
 Claude-Code-工作流体系指南.md
+Claude-Code-入门配置指南.md

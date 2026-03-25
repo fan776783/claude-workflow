@@ -370,6 +370,31 @@ const markdown = renderImplementationGuide({
 3. 查看实现提示，了解技术要点
 4. 查看验收标准，了解交付要求
 
+## 模板变量契约
+
+实现指南模板同样通过 `replaceVars(template, vars)` 渲染，模板只接收已经字符串化完成的输入。
+
+### 核心变量
+
+- 标识与上下文：`task_name`、`sanitized_name`、`requirement_source`、`created_at`、`requirement_baseline_path`、`acceptance_checklist_path`、`project_type`
+- 技术栈：`backend_framework`、`frontend_framework`、`backend_test_framework`、`frontend_test_framework`、`file_extension`
+- 汇总信息：`module_count`、`p0_count`、`p1_count`、`p2_count`、`requirement_coverage_summary`、`requirement_to_module_mapping`
+- 测试与工厂：`test_command`、`unit_test_templates`、`integration_test_templates`、`e2e_test_templates`、`factory_code`、`factory_usage_example`
+- 模块与质量：`module_guides`、`automated_checks`、`performance_metrics`、`security_checks`
+- 命令与顺序：`install_command`、`setup_test_env_command`、`test_all_command`、`test_unit_command`、`test_integration_command`、`test_e2e_command`、`test_watch_command`、`p0_implementation_order`、`p1_implementation_order`、`p2_implementation_order`
+
+### Helper 约束
+
+- `resolveTestFileExtension(techStack)`：根据默认测试框架产出单个文件扩展名字符串
+- `renderRequirementToModuleMapping(moduleGuides)`：输出 Requirement → Module 映射表
+- `renderModuleGuides(moduleGuides)`：输出模板可直接插入的模块实现指引 Markdown
+- 所有 `test_*` / `*_templates` / `*_order` 字段都必须在 helper 层完成字符串化
+
+### 生成约束
+
+- 模板中不应保留结构化对象占位符，只保留字符串占位符
+- 若新增模板变量，必须同步更新 `phase-0.7-implementation-guide.md` 中的变量映射与 helper 说明
+
 ## 文件位置
 
 - **规格文件**：`templates/skills/workflow/specs/start/phase-0.7-implementation-guide.md`

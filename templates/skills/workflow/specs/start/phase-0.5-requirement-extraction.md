@@ -2,7 +2,7 @@
 
 ## 目的
 
-从 PRD 中提取结构化数据，确保表单字段、角色权限、业务规则等细节不丢失。
+从 PRD 中提取结构化数据，确保表单字段、角色权限、业务规则等细节不丢失，并为 `Phase 0.55 Requirement Baseline` 提供可归一化的 requirement item 输入。
 
 ## 执行条件
 
@@ -46,14 +46,14 @@ changeRecords: Array<{
 
 ```typescript
 formFields: Array<{
-  scene: string;          // 所属场景/表单（区分同名字段在不同表单中的规格差异）
+  scene: string;
   fieldName: string;
-  type: string;           // text | textarea | image | select | switch | multi-select
+  type: string;
   required: boolean;
   validationRules: string[];
-  tooltip?: string;       // 输入框内的默认文案/placeholder
-  helperText?: string;    // 常驻提示文案
-  validationMessage?: string;  // 校验失败时的提示文案（保留 PRD 原文）
+  tooltip?: string;
+  helperText?: string;
+  validationMessage?: string;
 }>
 ```
 
@@ -72,7 +72,7 @@ rolePermissions: Array<{
   role: string;
   permissions: string[];
   restrictions: string[];
-  scenarioNotes?: string; // 场景级补充说明（数据归属、条件可见性等）
+  scenarioNotes?: string;
 }>
 ```
 
@@ -94,7 +94,7 @@ interactions: Array<{
   element: string;
   behavior: string;
   message?: string;
-  condition?: string;     // 触发条件（所处页面/Tab/权限状态等前提）
+  condition?: string;
 }>
 ```
 
@@ -130,7 +130,7 @@ edgeCases: Array<{
   scenario: string;
   expectedDisplay: string;
   fallbackBehavior?: string;
-  context?: string;       // 发生在哪个页面/组件
+  context?: string;
 }>
 ```
 
@@ -149,9 +149,9 @@ edgeCases: Array<{
 
 ```typescript
 uiDisplayRules: Array<{
-  context: string;        // 页面/Tab/组件
-  rule: string;           // 展示规则描述
-  detail: string;         // 具体差异说明
+  context: string;
+  rule: string;
+  detail: string;
 }>
 ```
 
@@ -169,10 +169,10 @@ uiDisplayRules: Array<{
 
 ```typescript
 functionalFlows: Array<{
-  name: string;           // 流程名称
-  steps: string[];        // 步骤序列
-  conditionalPaths?: string[];  // 条件分支
-  entryPoints?: string[];      // 触发该流程的入口路径
+  name: string;
+  steps: string[];
+  conditionalPaths?: string[];
+  entryPoints?: string[];
 }>
 ```
 
@@ -189,19 +189,76 @@ functionalFlows: Array<{
 
 ```typescript
 dataContracts: Array<{
-  name: string;           // 接口/模型名称
-  type: string;           // api_endpoint | data_model | field_mapping | config
-  spec: string;           // 规格描述（方法+路径、字段定义、映射关系等）
-  constraints?: string;   // 约束说明（必填、类型、范围等）
+  name: string;
+  type: string;
+  spec: string;
+  constraints?: string;
 }>
 ```
 
+## RequirementItem 归一化输出
+
+除上述 9 个维度外，本阶段还必须输出一个可供 `Phase 0.55` 消费的归一化 requirement item 列表。此列表不是最终 baseline，而是 baseline 的直接输入。
+
+### RequirementItem
+
+```typescript
+interface RequirementItem {
+  id: string;
+  source_text: string;
+  normalized_summary: string;
+  category:
+    | 'change_record'
+    | 'form_field'
+    | 'permission'
+    | 'interaction'
+    | 'business_rule'
+    | 'edge_case'
+    | 'ui_display'
+    | 'functional_flow'
+    | 'data_contract'
+    | 'export_rule'
+    | 'dependency';
+  scope_owner: 'frontend' | 'backend' | 'shared' | 'product' | 'infra';
+  scope_status: 'in_scope' | 'partially_in_scope' | 'out_of_scope' | 'blocked';
+  critical_constraints: string[];
+  dependency_tags: string[];
+  risk_of_loss?: string;
+}
+```
+
+### 归一化目标
+
+- 让长 PRD 中的“细节需求”从维度型提取结果中被重新组织为逐条 requirement item
+- 为 baseline / acceptance / spec / plan 提供统一 requirement IDs
+- 让高风险需求在后续文档中不再依赖摘要质量“碰运气”保留
+
+### 拆分规则
+
+以下情况必须拆成独立 requirement item，而不能只保留在同一功能块下：
+
+- 明确按钮文案、列名、sheet 命名、字段名
+- 精确条件分支（有数据 / 无数据、需要 / 不需要、仅在...时）
+- 排序、位置、显隐、颜色状态、主体标识等 UI 规则
+- 导出规则、报表规则、对比口径、粒度定义
+- 权限边界、数据归属边界、依赖边界
+
+### risk_of_loss 标注建议
+
+若条目满足以下特征，建议写入 `risk_of_loss`：
+
+- 容易被抽象标题吞并
+- 很像“展示细节”但其实影响业务逻辑或验收
+- 若丢失会导致范围误判或验收不成立
+- 同一段原文中同时出现多个 if / then / 展示规则
+
 ## 提取原则
 
-⚠️ **宁多勿少**：宁可提取冗余条目，也不能遗漏需求细节
-⚠️ **按场景分组**：同一字段在不同场景下的规则差异必须分别记录
-⚠️ **保留原文**：校验规则、提示文案、tooltips 等必须保留 PRD 原文，不可改写
-⚠️ **穷举校验**：每个场景的必填字段缺失组合及对应提示文案都要记录到 formFields.validationMessage
+⚠️ **宁多勿少**：宁可提取冗余条目，也不能遗漏需求细节  
+⚠️ **按场景分组**：同一字段在不同场景下的规则差异必须分别记录  
+⚠️ **保留原文**：校验规则、提示文案、tooltips 等必须保留 PRD 原文，不可改写  
+⚠️ **穷举校验**：每个场景的必填字段缺失组合及对应提示文案都要记录到 `formFields.validationMessage`  
+⚠️ **高风险条目单列**：按钮、导出、条件分支、位置与视觉状态等容易丢失的信息必须拆成独立 requirement item
 
 ## 实现函数
 
@@ -215,10 +272,7 @@ function extractStructuredRequirements(
   //
   // 如果 discussionArtifact 存在：
   // - 将 clarifications 中已确认的信息补充到对应维度
-  //   例：dimension === 'permission' 的澄清 → 补充到 rolePermissions
-  //   例：dimension === 'edge-case' 的澄清 → 补充到 edgeCases
-  //   例：dimension === 'behavior' 的澄清 → 补充到 interactions 或 businessRules
-  // - 将 unresolvedDependencies 中的 api_spec → 补充到 dataContracts（标记为待确认）
+  // - 将 unresolvedDependencies 中的 api_spec 补充到 dataContracts（标记为待确认）
 
   const analysis: RequirementAnalysis = {
     changeRecords: [],
@@ -230,89 +284,53 @@ function extractStructuredRequirements(
     uiDisplayRules: [],
     functionalFlows: [],
     dataContracts: [],
+    requirementItems: []
   };
 
-  // 提取指令（每个维度）：
-  // 1. changeRecords → { id, version, description, changedFields[], ruleChange }
-  // 2. formFields → { scene, fieldName, type, required, validationRules[], tooltip, helperText, validationMessage }
-  //    ⚠️ 对每个表单场景分别提取，scene 字段标识所属场景
-  // 3. rolePermissions → { role, permissions[], restrictions[], scenarioNotes }
-  // 4. interactions → { trigger, element, behavior, message, condition }
-  // 5. businessRules → { id, condition, expectedBehavior, relatedFields[] }
-  // 6. edgeCases → { scenario, expectedDisplay, fallbackBehavior, context }
-  // 7. uiDisplayRules → { context, rule, detail }
-  // 8. functionalFlows → { name, steps[], conditionalPaths[], entryPoints[] }
-  // 9. dataContracts → { name, type, spec, constraints }
-
   return analysis;
+}
+```
+
+```typescript
+function normalizeRequirementItems(params: {
+  requirementAnalysis: RequirementAnalysis;
+  requirementContent: string;
+  discussionArtifact?: DiscussionArtifact;
+}): RequirementItem[] {
+  const items: RequirementItem[] = [];
+
+  // 1. 先把 9 维度中的条目转换为统一 requirement item
+  // 2. 对包含多个高风险细节的条目进一步拆分
+  // 3. 为每个 item 生成稳定 ID（R-001, R-002, ...）
+  // 4. 补充 critical_constraints、dependency_tags、risk_of_loss
+  // 5. 输出给 Phase 0.55 做最终 baseline 判定
+
+  return items;
 }
 ```
 
 ## 覆盖率验证
 
 ```typescript
-// 覆盖率验证：PRD 行数 vs 提取条目数
 const prdLineCount = requirementContent.split('\n').length;
 const totalExtracted = dimensions.reduce((sum, d) => sum + (requirementAnalysis[d.key]?.length || 0), 0);
+const itemCount = requirementAnalysis.requirementItems?.length || 0;
 const emptyDimensions = dimensions.filter(d => (requirementAnalysis[d.key]?.length || 0) === 0);
 
 const coverageWarning = (prdLineCount > 200 && totalExtracted < 20)
   ? `\n⚠️ 覆盖率偏低：PRD ${prdLineCount} 行，仅提取 ${totalExtracted} 条。请检查是否遗漏需求细节。`
   : '';
 
-const emptyWarning = emptyDimensions.length > 3
-  ? `\n⚠️ ${emptyDimensions.length} 个维度为空（${emptyDimensions.map(d => d.label).join('、')}），请确认 PRD 是否涉及这些维度。`
+const itemWarning = (prdLineCount > 200 && itemCount < 12)
+  ? `\n⚠️ RequirementItem 数量偏低：长 PRD 仅归一化 ${itemCount} 条，可能存在过度聚合。`
   : '';
 ```
 
-## Hard Gate：需求理解确认
+## 输出要求
 
-Phase 0.5 完成后，**条件触发**用户确认：
+生成的 `requirementAnalysis` 必须满足：
 
-**触发条件**：非空维度 ≥ 3 时触发（短需求 / 提取维度少时静默通过）
-
-```typescript
-const nonEmptyDimensions = dimensions.filter(d => (analysis[d.key]?.length || 0) > 0);
-if (nonEmptyDimensions.length >= 3) {
-  // 展示摘要并等待确认
-} else {
-  // 静默通过，继续 Phase 0.6
-}
-```
-
-触发时展示结构化提取结果摘要：
-
-```
-## 需求理解确认
-
-### 提取摘要
-- **表单场景**: {N} 个（{场景列表}）
-- **角色权限**: {N} 个角色（{角色列表}）
-- **交互规格**: {N} 条
-- **业务规则**: {N} 条
-- **边界场景**: {N} 个
-- **UI展示规则**: {N} 条
-- **功能流程**: {N} 个
-
-### 关键业务规则
-1. {最重要的 3 条业务规则}
-
-### 可能的遗漏
-- {基于分析识别的潜在遗漏点}
-
-## 以上理解是否准确？需要补充或修正吗？(Y/N)
-```
-
-**立即终止，禁止继续执行 Phase 0.6。**
-
-用户确认后才可继续。如果用户提出修正：
-1. 更新结构化提取结果
-2. 重新展示摘要
-3. 再次等待确认
-
-## 输出
-
-结构化需求将用于：
-- Phase 0.6: 生成验证清单
-- Phase 1: 技术方案生成（填充"需求详情"章节）
-- Phase 2 / 3: Plan 生成与任务编译（关联验收项、生成 steps[] 与 acceptance_criteria）
+- 9 个维度保持兼容
+- 新增 `requirementItems` 作为归一化输出
+- 高风险需求被拆成独立条目
+- 下游可直接将 `requirementItems` 输入 `Phase 0.55 Requirement Baseline`

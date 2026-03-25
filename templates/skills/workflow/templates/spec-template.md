@@ -2,6 +2,7 @@
 version: 1
 requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
+requirement_baseline: "{{requirement_baseline_path}}"
 tech_design: "{{tech_design_path}}"
 acceptance_checklist: "{{acceptance_checklist_path}}"
 status: draft
@@ -38,9 +39,7 @@ role: spec
 
 ### 2.2 Out of Scope
 
-- 不在本次交付中的功能：
-- 明确不做的优化项：
-- 后续迭代再考虑的内容：
+{{out_of_scope_summary}}
 
 ### 2.3 Subsystem Boundaries
 
@@ -51,44 +50,64 @@ role: spec
 
 ---
 
-## 3. User-facing Behavior
+## 3. Requirement Traceability
 
-### 3.1 Primary Flow
+{{requirement_traceability}}
+
+### 3.1 Requirement Coverage Summary
+
+{{requirement_coverage_summary}}
+
+### 3.2 Out-of-Scope / Partial Decisions
+
+{{scope_decision_summary}}
+
+---
+
+## 4. Critical Requirement Constraints
+
+{{critical_requirement_constraints}}
+
+---
+
+## 5. User-facing Behavior
+
+### 5.1 Primary Flow
 
 - 入口：
 - 关键步骤：
 - 成功结果：
 
-### 3.2 Error and Edge Flows
+### 5.2 Error and Edge Flows
 
 - 异常输入：
 - 空状态 / 无权限 / 外部依赖失败：
 - 降级与提示：
 
-### 3.3 Observable Outcomes
+### 5.3 Observable Outcomes
 
 - 页面 / 接口 / 日志 / 状态变化：
 - 用户可感知反馈：
 
 ---
 
-## 4. Architecture and Module Design
+## 6. Architecture and Module Design
 
 {{architecture_summary}}
 
-### 4.1 Module Responsibilities
+### 6.1 Module Responsibilities
 
 - 模块 A：
 - 模块 B：
 - 模块 C：
 
-### 4.2 Data and Interface Boundaries
+### 6.2 Data and Interface Boundaries
 
 - 核心数据对象：
 - 输入输出契约：
 - 跨模块调用关系：
 
-### 4.3 Risks and Trade-offs
+### 6.3 Risks and Trade-offs
 
 - 风险：
 - 权衡：
@@ -96,72 +115,76 @@ role: spec
 
 ---
 
-## 5. File Structure
+## 7. File Structure
 
 {{file_structure}}
 
-### 5.1 Files to Create
+### 7.1 Files to Create
 
 - `path/to/new-file`
 
-### 5.2 Files to Modify
+### 7.2 Files to Modify
 
 - `path/to/existing-file`
 
-### 5.3 Files to Test
+### 7.3 Files to Test
 
 - `tests/example.test.ts`
 
 ---
 
-## 6. Acceptance Mapping
+## 8. Acceptance Mapping
 
 {{acceptance_mapping}}
 
-### 6.1 Capability → Acceptance
+### 8.1 Capability → Acceptance
 
 | Capability | Acceptance Criteria | Notes |
 |------------|---------------------|-------|
 | 示例能力 | AC-1 | 说明 |
 
-### 6.2 Gaps to Resolve
+### 8.2 Gaps to Resolve
 
 - 若验收清单未覆盖的内容，需在进入 Plan 前补充：
 
 ---
 
-## 7. Implementation Slices
+## 9. Implementation Slices
 
 {{implementation_slices}}
 
-### 7.1 Slice 1
+### 9.1 Slice 1
 
 - 目标：
 - 交付边界：
 - 验证方式：
+- Related Requirement IDs:
 
-### 7.2 Slice 2
-
-- 目标：
-- 交付边界：
-- 验证方式：
-
-### 7.3 Slice 3
+### 9.2 Slice 2
 
 - 目标：
 - 交付边界：
 - 验证方式：
+- Related Requirement IDs:
+
+### 9.3 Slice 3
+
+- 目标：
+- 交付边界：
+- 验证方式：
+- Related Requirement IDs:
 
 ---
 
-## 8. Open Questions
+## 10. Open Questions
 
 - 问题 1：
 - 问题 2：
 
 ---
 
-## 9. References
+## 11. References
 
+- Requirement Baseline：`{{requirement_baseline_path}}`
 - 技术设计：`{{tech_design_path}}`
 - 验收清单：`{{acceptance_checklist_path}}`

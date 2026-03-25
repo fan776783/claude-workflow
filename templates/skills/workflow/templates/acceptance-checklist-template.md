@@ -1,25 +1,46 @@
 ---
 version: 1
-requirement_source: "{source}"
-created_at: "{timestamp}"
-implementation_guide: ".claude/acceptance/{name}-implementation-guide.md"
-tech_design: ".claude/tech-design/{name}.md"
+requirement_source: "{{requirement_source}}"
+created_at: "{{created_at}}"
+requirement_baseline: "{{requirement_baseline_path}}"
+implementation_guide: "{{implementation_guide_path}}"
+tech_design: "{{tech_design_path}}"
 ---
 
-# 验收清单: {TaskName}
+# 验收清单: {{task_name}}
 
-> 本清单用于验证功能交付质量，测试方法参考 [实现指南](./{name}-implementation-guide.md)
+> 本清单是 Requirement Baseline 的验收派生视图，用于验证功能交付质量，测试方法参考 [实现指南](./{{sanitized_name}}-implementation-guide.md)
 
 ## 📋 清单概览
 
-- **总验收项**: {total_count}
-- **P0 验收项**: {p0_count} - 必须通过
-- **P1 验收项**: {p1_count} - 重要功能
-- **P2 验收项**: {p2_count} - 优化功能
+- **总验收项**: {{total_count}}
+- **P0 验收项**: {{p0_count}} - 必须通过
+- **P1 验收项**: {{p1_count}} - 重要功能
+- **P2 验收项**: {{p2_count}} - 优化功能
 
 ---
 
-## 1. 质量门禁
+## 1. Requirement Coverage Summary
+
+{{requirement_coverage_summary}}
+
+### 1.1 Requirement Coverage Metrics
+
+| 指标 | 数量 |
+|------|------|
+| 总 Requirement 数 | {{requirement_total_count}} |
+| In Scope Requirement 数 | {{requirement_in_scope_count}} |
+| Full Coverage | {{requirement_full_coverage_count}} |
+| Partial Coverage | {{requirement_partial_coverage_count}} |
+| No Coverage | {{requirement_none_coverage_count}} |
+
+### 1.2 Requirement-to-Acceptance Mapping
+
+{{requirement_to_acceptance_mapping}}
+
+---
+
+## 2. 质量门禁
 
 ### 自动化检查
 
@@ -30,7 +51,7 @@ tech_design: ".claude/tech-design/{name}.md"
 - [ ] 类型检查通过（0 errors）
 - [ ] Linter 无 error
 
-**验证方法**: 参考 [实现指南 - 质量门禁](./{name}-implementation-guide.md#6-质量门禁)
+**验证方法**: 参考 [实现指南 - 质量门禁](./{{sanitized_name}}-implementation-guide.md#7-质量门禁)
 
 ### 性能指标
 
@@ -38,8 +59,6 @@ tech_design: ".claude/tech-design/{name}.md"
 - [ ] 首屏加载时间 < 2s
 - [ ] API 响应时间 < 500ms
 - [ ] 页面交互响应 < 100ms
-
-**测量方法**: 参考 [实现指南 - 性能指标](./{name}-implementation-guide.md#6-质量门禁)
 
 ### 安全检查
 
@@ -49,43 +68,53 @@ tech_design: ".claude/tech-design/{name}.md"
 - [ ] 权限验证完整
 - [ ] 敏感数据加密
 
-**检查方法**: 参考 [实现指南 - 安全检查](./{name}-implementation-guide.md#6-质量门禁)
+---
+
+## 3. 功能验收项
+
+### 3.1 表单字段验证
+
+{{form_validation_items}}
+
+### 3.2 角色权限验证
+
+{{permission_validation_items}}
+
+### 3.3 交互行为验证
+
+{{interaction_validation_items}}
+
+### 3.4 业务规则验证
+
+{{business_rule_validation_items}}
+
+### 3.5 边界场景验证
+
+{{edge_case_validation_items}}
+
+### 3.6 UI 展示验证
+
+{{ui_display_validation_items}}
+
+### 3.7 功能流程验证
+
+{{functional_flow_validation_items}}
 
 ---
 
-## 2. 功能验收项
+## 4. Partially Covered Requirements
 
-### 2.1 表单字段验证
-
-{form_validation_items}
-
-### 2.2 角色权限验证
-
-{permission_validation_items}
-
-### 2.3 交互行为验证
-
-{interaction_validation_items}
-
-### 2.4 业务规则验证
-
-{business_rule_validation_items}
-
-### 2.5 边界场景验证
-
-{edge_case_validation_items}
-
-### 2.6 UI 展示验证
-
-{ui_display_validation_items}
-
-### 2.7 功能流程验证
-
-{functional_flow_validation_items}
+{{partially_covered_requirements}}
 
 ---
 
-## 3. 验收通过标准
+## 5. Uncovered Requirements
+
+{{uncovered_requirements}}
+
+---
+
+## 6. 验收通过标准
 
 ### 必须满足（Must Pass）
 
@@ -93,7 +122,8 @@ tech_design: ".claude/tech-design/{name}.md"
 
 - 所有 P0 验收项通过
 - 所有质量门禁检查通过
-- 所有必填字段验证通过
+- 所有 `in_scope` 且标记为 `full` 的 requirement 对应验收项通过
+- 所有关键约束相关验收项通过
 - 所有角色权限验证通过
 - 所有业务规则验证通过
 - 关键功能流程验证通过
@@ -106,6 +136,7 @@ tech_design: ".claude/tech-design/{name}.md"
 - 所有交互行为验证通过
 - 所有边界场景验证通过
 - 所有 UI 展示规则验证通过
+- 所有 `partial` requirement 的剩余缺口有明确记录
 
 ### 可选满足（Nice to Have）
 
@@ -117,30 +148,31 @@ tech_design: ".claude/tech-design/{name}.md"
 
 ---
 
-## 4. 验收流程
+## 7. 验收流程
 
 ### 阶段 1: 自动化验证
 
 1. **运行质量门禁**
    ```bash
-   {quality_gate_command}
+   {{quality_gate_command}}
    ```
 
 2. **检查测试覆盖率**
    ```bash
-   {coverage_command}
+   {{coverage_command}}
    ```
 
 3. **验证性能指标**
    ```bash
-   {performance_check_command}
+   {{performance_check_command}}
    ```
 
 ### 阶段 2: 功能验收
 
 1. **按模块验收**
-   - 参考 [实现指南 - 模块实现指引](./{name}-implementation-guide.md#5-模块实现指引)
+   - 参考 [实现指南 - 模块实现指引](./{{sanitized_name}}-implementation-guide.md#6-模块实现指引)
    - 逐项验证功能验收项
+   - 必须同步核对 requirement IDs 是否覆盖完成
 
 2. **记录验收结果**
    - 在下方"验收记录"表格中记录
@@ -156,9 +188,9 @@ tech_design: ".claude/tech-design/{name}.md"
 
 ---
 
-## 5. 验收记录
+## 8. 验收记录
 
-### 5.1 质量门禁验收
+### 8.1 质量门禁验收
 
 | 检查项 | 验收人 | 验收时间 | 状态 | 备注 |
 |--------|--------|----------|------|------|
@@ -171,136 +203,17 @@ tech_design: ".claude/tech-design/{name}.md"
 | 性能指标 | - | - | - | - |
 | 安全检查 | - | - | - | - |
 
-### 5.2 功能验收记录
+### 8.2 功能验收记录
 
-| 验收项 ID | 优先级 | 验收人 | 验收时间 | 状态 | 备注 |
-|-----------|--------|--------|----------|------|------|
-| - | - | - | - | - | - |
-
-**状态说明**:
-- ✅ 通过
-- ❌ 失败
-- ⏸️ 阻塞
-- ⏭️ 跳过
+| 验收项 ID | Related Requirement IDs | 优先级 | 验收人 | 验收时间 | 状态 | 备注 |
+|-----------|-------------------------|--------|--------|----------|------|------|
+| - | - | - | - | - | - | - |
 
 ---
 
-## 6. 遗留问题
+## 9. 相关文档
 
-### 6.1 已知问题
-
-| 问题 ID | 描述 | 优先级 | 负责人 | 计划解决时间 |
-|---------|------|--------|--------|--------------|
-| - | - | - | - | - |
-
-### 6.2 技术债务
-
-| 债务描述 | 影响范围 | 优先级 | 计划偿还时间 |
-|----------|----------|--------|--------------|
-| - | - | - | - |
-
----
-
-## 7. 验收签字
-
-### 开发负责人
-
-- **姓名**: _______________
-- **日期**: _______________
-- **签字**: _______________
-
-### 测试负责人
-
-- **姓名**: _______________
-- **日期**: _______________
-- **签字**: _______________
-
-### 产品负责人
-
-- **姓名**: _______________
-- **日期**: _______________
-- **签字**: _______________
-
----
-
-## 8. 相关文档
-
-- [实现指南](./{name}-implementation-guide.md) - 测试先行实现路径
-- [技术方案](../tech-design/{name}.md) - 架构设计
-- [任务清单](~/.claude/workflows/{projectId}/tasks-{name}.md) - 任务拆分
-- [项目配置](../../project-config.json) - 项目技术栈配置
-
----
-
-## 附录: 验收项详细说明
-
-### A. 表单字段验证说明
-
-表单字段验证项来源于需求中的表单规格，包括：
-- 必填验证：字段为空时的提示信息
-- 格式验证：正则、类型、长度限制
-- 交互验证：placeholder、helper text、tooltip
-- 类型特定验证：文件上传、下拉选项、开关联动等
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### B. 角色权限验证说明
-
-角色权限验证项来源于需求中的权限规格，包括：
-- 可见性验证：按钮/入口对角色的可见性
-- 可操作性验证：角色能否执行操作
-- 结果验证：操作结果是否符合预期
-- 数据范围验证：角色能访问的数据范围
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### C. 交互行为验证说明
-
-交互行为验证项来源于需求中的交互规格，包括：
-- 触发条件验证：前置条件是否满足
-- 行为验证：交互行为是否符合预期
-- 提示信息验证：提示文案是否正确
-- 特殊交互验证：hover 延迟、弹窗层级、loading 状态等
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### D. 业务规则验证说明
-
-业务规则验证项来源于需求中的业务规则，包括：
-- 条件判断验证：条件是否正确判断
-- 期望行为验证：行为是否符合预期
-- 关联字段验证：字段联动是否正确
-- 特殊规则验证：唯一性、删除影响等
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### E. 边界场景验证说明
-
-边界场景验证项来源于需求中的边界场景，包括：
-- 空状态验证：空状态文案、图标、按钮
-- 权限不足验证：提示清晰性、开通入口
-- 超出限制验证：提示和处理
-- 异常情况验证：网络错误、服务异常等
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### F. UI 展示验证说明
-
-UI 展示验证项来源于需求中的 UI 规格，包括：
-- 列差异验证：不同上下文显示不同列
-- 文本截断验证：超长文本截断和 hover 显示
-- 时间格式验证：时间格式和时区
-- 空值展示验证：占位符和默认值
-- 固定列验证：滚动时固定列的表现
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
-
-### G. 功能流程验证说明
-
-功能流程验证项来源于需求中的功能流程，包括：
-- 步骤完整性验证：所有步骤是否完整
-- 条件分支验证：分支逻辑是否正确
-- 入口路径验证：不同入口是否正常启动
-- 返回位置验证：流程结束后返回位置是否正确
-
-**测试方法**: 参考 [实现指南 - 测试代码模板](./{name}-implementation-guide.md#3-测试代码模板)
+- [Requirement Baseline](../analysis/{{sanitized_name}}-requirement-baseline.md) - 需求基线
+- [实现指南](./{{sanitized_name}}-implementation-guide.md) - 测试先行实现路径
+- [技术方案](../tech-design/{{sanitized_name}}.md) - 架构设计
+- [任务清单]({{tasks_file_path}}) - 任务拆分

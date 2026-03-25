@@ -2,7 +2,7 @@
 
 ## 目的
 
-将 `spec.md + plan.md + acceptance checklist` 编译为运行时 `tasks.md`，为执行系统提供依赖明确、步骤清晰、可验证的任务编排清单。
+将 `spec.md + plan.md + acceptance checklist + requirement baseline` 编译为运行时 `tasks.md`，为执行系统提供依赖明确、步骤清晰、可验证的任务编排清单。
 
 ## 执行时机
 
@@ -12,6 +12,7 @@
 
 - `spec.md`
 - `plan.md`
+- `requirement baseline`
 - `acceptance checklist`（如有）
 - `analysisResult`
 - `discussion-artifact.json`（如有，用于 blocked_by 分类）
@@ -27,6 +28,7 @@
 - 任务的事实来源是 `plan.md`
 - 任务的范围与章节引用来自 `spec.md`
 - 任务的验收映射来自 `acceptance checklist`
+- 任务的 requirement IDs 与关键约束来自 `requirement baseline`
 - `tasks.md` 只写入 V2 任务字段，执行链路不再消费旧任务格式
 
 ## 实现细节
@@ -34,14 +36,9 @@
 ### Step 1: 读取输入文档
 
 ```typescript
-console.log(`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 Phase 3: Task Compilation
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`);
-
 const specContent = readFile(specPath);
 const planContent = readFile(planPath);
+const baselineContent = requirementBaselinePath ? readFile(requirementBaselinePath) : '';
 const acceptanceContent = acceptanceChecklistPath ? readFile(acceptanceChecklistPath) : '';
 ```
 
@@ -69,12 +66,16 @@ const tasks = planSteps.map((step, index) => {
     leverage: findLeverage(step.files[0], analysisResult.reusableComponents)?.split(', ') || [],
     spec_ref: step.specRef,
     plan_ref: step.id,
+    requirement_ids: step.requirement_ids || [],
+    critical_constraints: step.critical_constraints || [],
     actions: [mapActionType(step.actionType)],
     steps: [{
       id: step.id,
       description: step.goal,
       expected: step.expected,
-      verification: step.verification
+      verification: step.verification,
+      requirement_ids: step.requirement_ids || [],
+      critical_constraints: step.critical_constraints || []
     }],
     verification: step.verification
       ? { commands: [step.verification], expected_output: ['命令成功执行'], notes: [] }
@@ -91,7 +92,11 @@ const tasks = planSteps.map((step, index) => {
     ...(task.files.modify || []),
     ...(task.files.test || [])
   ];
-  const blockedBy = classifyTaskDependencies({ name: task.name, files: taskFiles }, discussionArtifact);
+  const blockedBy = classifyTaskDependencies({
+    name: task.name,
+    files: taskFiles,
+    requirement_ids: task.requirement_ids
+  }, discussionArtifact);
   if (blockedBy.length > 0) {
     task.blocked_by = blockedBy;
     task.status = 'blocked';
@@ -124,12 +129,16 @@ if (!tasks.some(t => t.quality_gate)) {
       leverage: [],
       spec_ref: codeTask.spec_ref,
       plan_ref: 'QUALITY_GATE',
+      requirement_ids: codeTask.requirement_ids,
+      critical_constraints: codeTask.critical_constraints,
       actions: ['quality_review'],
       steps: [{
         id: 'Q1',
         description: '执行两阶段代码审查',
         expected: '规格合规与代码质量均通过',
-        verification: 'quality_review'
+        verification: 'quality_review',
+        requirement_ids: codeTask.requirement_ids,
+        critical_constraints: codeTask.critical_constraints
       }],
       depends: [codeTask.id],
       blocked_by: [],
@@ -150,14 +159,18 @@ tasks.push({
   phase: 'deliver',
   files: {},
   leverage: [],
-  spec_ref: '§7 Implementation Slices',
+  spec_ref: '§9 Implementation Slices',
   plan_ref: 'COMMIT',
+  requirement_ids: [],
+  critical_constraints: [],
   actions: ['git_commit'],
   steps: [{
     id: 'C1',
     description: '提交本次改动',
     expected: '生成清晰且可追溯的提交',
-    verification: 'git status 应仅剩未跟踪文档或为空'
+    verification: 'git status 应仅剩未跟踪文档或为空',
+    requirement_ids: [],
+    critical_constraints: []
   }],
   depends: [tasks[tasks.length - 1].id],
   blocked_by: [],
@@ -178,6 +191,7 @@ const tasksContent = generateTasksDocument({
   techDesignPath,
   specPath,
   planPath,
+  requirementBaselinePath,
   changeId,
   tasksMarkdown
 });
@@ -194,6 +208,11 @@ state.tech_design = techDesignPath;
 state.spec_file = specPath;
 state.plan_file = planPath;
 state.tasks_file = tasksPath;
+state.traceability = {
+  baseline_path: requirementBaselinePath,
+  mappings: buildTraceabilityMappings(tasks, acceptanceContent, baselineContent),
+  coverage_summary: summarizeTaskCoverage(tasks)
+};
 state.review_status.plan_review.status = 'passed';
 writeFile(statePath, JSON.stringify(state, null, 2));
 ```
@@ -205,6 +224,8 @@ interface ParsedPlanStep {
   id: string;
   goal: string;
   specRef: string;
+  requirement_ids: string[];
+  critical_constraints: string[];
   files: string[];
   actionType: 'create_file' | 'edit_file' | 'run_tests' | 'quality_review' | 'git_commit';
   expected: string;
@@ -212,97 +233,3 @@ interface ParsedPlanStep {
   dependsOn?: string[];
 }
 ```
-
-## 辅助函数
-
-### parsePlanSteps
-
-```typescript
-function parsePlanSteps(planContent: string): ParsedPlanStep[] {
-  const blocks = [...planContent.matchAll(/### Step (P\d+)[\s\S]*?(?=\n### Step P\d+|$)/g)];
-  return blocks.map(match => {
-    const block = match[0];
-    return {
-      id: match[1],
-      goal: extractBulletValue(block, 'Goal') || '未命名步骤',
-      specRef: extractBulletValue(block, 'Spec Ref') || '§7 Implementation Slices',
-      files: splitCommaList(extractBulletValue(block, 'Files')),
-      actionType: (extractBulletValue(block, 'Action Type') as any) || 'edit_file',
-      expected: extractBulletValue(block, 'Expected Result') || '达到预期结果',
-      verification: extractBulletValue(block, 'Verification') || undefined,
-      dependsOn: splitCommaList(extractBulletValue(block, 'Depends On'))
-    };
-  });
-}
-```
-
-### classifyFiles
-
-```typescript
-function classifyFiles(files: string[]): { create?: string[]; modify?: string[]; test?: string[] } {
-  return {
-    create: files.filter(f => !/test|spec\./.test(f) && !/existing|index/.test(f)),
-    modify: files.filter(f => /existing|index|src\//.test(f)),
-    test: files.filter(f => /test|spec\./.test(f))
-  };
-}
-```
-
-### determinePhaseFromPlanStep
-
-```typescript
-function determinePhaseFromPlanStep(step: ParsedPlanStep): string {
-  if (step.actionType === 'run_tests') return 'test';
-  if (step.actionType === 'quality_review') return 'verify';
-  if (step.actionType === 'git_commit') return 'deliver';
-  if (/接口|类型|schema|model|contract/i.test(step.goal)) return 'design';
-  if (/store|hook|middleware|guard|util|helper/i.test(step.goal)) return 'infra';
-  if (/page|layout|route|menu/i.test(step.goal)) return 'ui-layout';
-  if (/table|list|card|display/i.test(step.goal)) return 'ui-display';
-  if (/form|modal|dialog|input|select/i.test(step.goal)) return 'ui-form';
-  return 'implement';
-}
-```
-
-### mapActionType
-
-```typescript
-function mapActionType(actionType: ParsedPlanStep['actionType']) {
-  return actionType;
-}
-```
-
-### renderWorkflowTaskV2
-
-```typescript
-function renderWorkflowTaskV2(task: WorkflowTaskV2): string {
-  const createFiles = task.files.create?.join(', ') || '';
-  const modifyFiles = task.files.modify?.join(', ') || '';
-  const testFiles = task.files.test?.join(', ') || '';
-
-  return `## ${task.id}: ${task.name}
-- **阶段**: ${task.phase}
-${createFiles ? `- **创建文件**: \`${createFiles}\`` : ''}
-${modifyFiles ? `- **修改文件**: \`${modifyFiles}\`` : ''}
-${testFiles ? `- **测试文件**: \`${testFiles}\`` : ''}
-${task.leverage?.length ? `- **复用**: \`${task.leverage.join(', ')}\`` : ''}
-- **Spec 参考**: ${task.spec_ref}
-- **Plan 参考**: ${task.plan_ref}
-${task.acceptance_criteria?.length ? `- **验收项**: ${task.acceptance_criteria.join(', ')}` : ''}
-- **actions**: \`${task.actions.join(',')}\`
-${task.depends?.length ? `- **依赖**: ${task.depends.join(', ')}` : ''}
-${task.blocked_by?.length ? `- **阻塞依赖**: \`${task.blocked_by.join(', ')}\`` : ''}
-${task.quality_gate ? `- **质量关卡**: true（两阶段代码审查）` : ''}
-- **状态**: ${task.status}
-${task.verification?.commands?.length ? `- **验证命令**: \`${task.verification.commands.join(', ')}\`` : ''}
-${task.verification?.expected_output?.length ? `- **验证期望**: ${task.verification.expected_output.join(', ')}` : ''}
-- **步骤**:
-${task.steps.map(s => `  - ${s.id}: ${s.description} → ${s.expected}${s.verification ? `（验证：${s.verification}）` : ''}`).join('\n')}`;
-}
-```
-
-## 输出要求
-
-- `tasks.md` 仅写入 V2 字段
-- 文档中必须保留 `Spec 参考` 与 `Plan 参考`
-- `files{}`、`actions[]`、`steps[]`、`verification` 是执行链路的唯一任务数据来源

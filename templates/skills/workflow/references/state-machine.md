@@ -1,4 +1,16 @@
-# 工作流状态机 (v4.0)
+# 工作流状态机 (v4.1)
+
+## 快速导航
+
+- 状态定义
+- 任务状态与依赖
+- 状态文件结构
+- 审查状态接口
+- Traceability 接口
+- WorkflowTaskV2
+- 状态转换
+- 任务依赖自动分类规则
+- 执行模式
 
 ## 状态定义
 
@@ -55,11 +67,33 @@
   "tech_design": ".claude/tech-design/example.md",
   "spec_file": ".claude/specs/example.md",
   "plan_file": ".claude/plans/example.md",
+  "requirement_baseline": {
+    "generated": true,
+    "path": ".claude/analysis/example-requirement-baseline.md",
+    "json_path": "requirement-baseline.json",
+    "total_requirements": 18,
+    "in_scope_count": 12,
+    "partial_count": 3,
+    "out_of_scope_count": 2,
+    "blocked_count": 1,
+    "uncovered_requirements": []
+  },
   "review_status": {
     "spec_review": {
       "status": "passed",
       "reviewed_at": "2026-03-24T10:20:00Z",
       "reviewer": "subagent"
+    },
+    "traceability_review": {
+      "status": "passed",
+      "reviewed_at": "2026-03-24T10:21:00Z",
+      "reviewer": "subagent",
+      "metrics": {
+        "in_scope_total": 12,
+        "mapped_in_design": 12,
+        "mapped_critical_constraints": 9,
+        "uncovered_requirement_ids": []
+      }
     },
     "user_spec_review": {
       "status": "approved",
@@ -74,7 +108,24 @@
     "plan_review": {
       "status": "passed",
       "reviewed_at": "2026-03-24T10:42:00Z",
-      "reviewer": "subagent"
+      "reviewer": "subagent",
+      "metrics": {
+        "covered_requirement_ids": ["R-001", "R-002"],
+        "uncovered_requirement_ids": [],
+        "critical_constraints_covered": 9
+      }
+    }
+  },
+  "traceability": {
+    "baseline_path": ".claude/analysis/example-requirement-baseline.md",
+    "mappings": [],
+    "coverage_summary": {
+      "spec_full": 10,
+      "spec_partial": 2,
+      "plan_full": 9,
+      "plan_partial": 3,
+      "task_full": 8,
+      "task_partial": 4
     }
   },
   "unblocked": [],
@@ -156,7 +207,10 @@
 | `spec_file` | Spec 文档路径 |
 | `plan_file` | Plan 文档路径 |
 | `tasks_file` | 运行时任务清单路径 |
-| `review_status.spec_review` | Phase 1.2 审查状态 |
+| `requirement_baseline` | Requirement Baseline 路径与统计信息 |
+| `traceability` | 跨文档追溯映射与覆盖率统计 |
+| `review_status.spec_review` | Phase 1.2 结构审查状态 |
+| `review_status.traceability_review` | Phase 1.2 追溯审查状态 |
 | `review_status.user_spec_review` | Phase 1.4 用户 Spec 审查状态 |
 | `review_status.intent_review` | Phase 1.5 Intent 审查状态 |
 | `review_status.plan_review` | Phase 2.5 Plan 审查状态 |
@@ -174,18 +228,81 @@
 ## 审查状态接口
 
 ```typescript
-interface ReviewCheckpoint {
+interface SpecReviewMetrics {
+  completeness: number;
+  traceabilityCompleteness: number;
+  criticalConstraintPreservation: number;
+  scopeDecisionExplicitness: number;
+}
+
+interface TraceabilityReviewMetrics {
+  in_scope_total: number;
+  mapped_in_design: number;
+  mapped_critical_constraints: number;
+  uncovered_requirement_ids: string[];
+}
+
+interface PlanReviewMetrics {
+  covered_requirement_ids: string[];
+  uncovered_requirement_ids: string[];
+  critical_constraints_covered: number;
+}
+
+interface ReviewCheckpointBase<TMetrics = Record<string, any>> {
   status: 'pending' | 'passed' | 'approved' | 'revise_required' | 'rejected';
   reviewed_at?: string;
   reviewer?: 'user' | 'subagent' | 'system';
   notes?: string[];
+  metrics?: TMetrics;
 }
 
 interface ReviewStatus {
-  spec_review: ReviewCheckpoint;
-  user_spec_review: ReviewCheckpoint;
-  intent_review: ReviewCheckpoint;
-  plan_review: ReviewCheckpoint;
+  spec_review: ReviewCheckpointBase<SpecReviewMetrics>;
+  traceability_review: ReviewCheckpointBase<TraceabilityReviewMetrics>;
+  user_spec_review: ReviewCheckpointBase;
+  intent_review: ReviewCheckpointBase;
+  plan_review: ReviewCheckpointBase<PlanReviewMetrics>;
+}
+```
+
+## Traceability 接口定义
+
+```typescript
+interface RequirementBaselineStatus {
+  generated: boolean;
+  path?: string;
+  json_path?: string;
+  total_requirements: number;
+  in_scope_count: number;
+  partial_count: number;
+  out_of_scope_count: number;
+  blocked_count: number;
+  uncovered_requirements: string[];
+}
+
+interface TraceabilityMapping {
+  requirement_id: string;
+  acceptance_ids?: string[];
+  spec_refs?: string[];
+  tech_design_refs?: string[];
+  plan_step_ids?: string[];
+  task_ids?: string[];
+  coverage_level: 'full' | 'partial' | 'none';
+  scope_status: 'in_scope' | 'partially_in_scope' | 'out_of_scope' | 'blocked';
+  notes?: string;
+}
+
+interface TraceabilityState {
+  baseline_path?: string;
+  mappings: TraceabilityMapping[];
+  coverage_summary: {
+    spec_full: number;
+    spec_partial: number;
+    plan_full: number;
+    plan_partial: number;
+    task_full: number;
+    task_partial: number;
+  };
 }
 ```
 
@@ -219,6 +336,8 @@ interface QualityGateResult {
     to_task: string;
     files_changed: number;
   };
+  protected_requirement_ids?: string[];
+  protected_constraints?: string[];
   stage1: {
     passed: boolean;
     attempts: number;
@@ -255,6 +374,8 @@ interface WorkflowTaskV2 {
   leverage?: string[];
   spec_ref: string;
   plan_ref: string;
+  requirement_ids?: string[];
+  critical_constraints?: string[];
   acceptance_criteria?: string[];
   depends?: string[];
   blocked_by?: string[];
@@ -266,6 +387,8 @@ interface WorkflowTaskV2 {
     description: string;
     expected: string;
     verification?: string;
+    requirement_ids?: string[];
+    critical_constraints?: string[];
   }>;
   verification?: {
     commands?: string[];
@@ -281,6 +404,8 @@ interface WorkflowTaskV2 {
 - 执行链路直接消费 `files{}`、`steps[]`、`verification`
 - `spec_ref` 指向 `spec.md` 的章节
 - `plan_ref` 指向 `plan.md` 的步骤或任务段落
+- `requirement_ids` 指向 Requirement Baseline 的 requirement items
+- `critical_constraints` 用于保护容易在执行期被弱化的非协商约束
 - `acceptance_criteria` 持续映射到 Phase 0.6 验收项
 
 ## 术语基础类型
@@ -300,6 +425,7 @@ type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
 ```
 idle → planned (workflow-start 完成基础规划)
 planned → spec_review (spec 文档生成，等待用户确认)
+planned → spec_review (traceability 审查不通过时回退修订)
 spec_review → planned (spec 已批准，继续 intent / plan / task 编译)
 planned → intent_review (intent 文档生成)
 intent_review → planned (intent 批准)
@@ -322,7 +448,7 @@ completed → archived (/workflow archive 执行)
 
 ```typescript
 function classifyTaskDependencies(
-  task: { name: string; files?: string[] },
+  task: { name: string; files?: string[]; requirement_ids?: string[] },
   discussionArtifact?: DiscussionArtifact
 ): string[] {
   const deps: string[] = [];
@@ -358,90 +484,4 @@ function classifyTaskDependencies(
 |------|------|--------|
 | step | `--step` | 每个任务后 |
 | phase | `--phase` | 阶段变化时 |
-| quality_gate | `--all` | 质量关卡 / git_commit |
-
-## Subagent 模式
-
-自动检测：
-- Claude Code / Cursor：优先启用 `Task` 子 agent
-- Codex：检测到多 agent 能力时启用 `spawn_agent`
-- 任务数 > 5 或上下文压力过高时默认建议启用
-
-手动控制：
-- `--subagent` 强制启用
-- `--no-subagent` 强制禁用
-
-### 并行执行支持
-
-Subagent 模式下，同阶段且通过独立性检查的任务可并行执行。
-
-```typescript
-interface ParallelGroup {
-  id: string;
-  task_ids: string[];
-  status: 'running' | 'completed' | 'failed';
-  started_at: string;
-  completed_at?: string;
-  conflict_detected: boolean;
-}
-```
-
-**状态同步规则**：
-- `current_tasks` 在并行分派时更新为所有并行任务 ID
-- 顺序执行时，`current_tasks` 仅保留当前任务 ID
-- 并行任务全部完成后，`current_tasks` 更新为下一批任务或清空
-
-## Delta Tracking 系统 (v3.0)
-
-### 接口定义
-
-```typescript
-interface DeltaTracking {
-  enabled: boolean;
-  changes_dir: string;
-  current_change: string | null;
-  applied_changes: string[];
-  change_counter: number;
-}
-
-interface DeltaSpec {
-  id: string;
-  parent_change: string | null;
-  created_at: string;
-  status: 'draft' | 'reviewed' | 'applied' | 'archived';
-  trigger: {
-    type: 'new_requirement' | 'bug_fix' | 'design_change' | 'review_feedback';
-    description: string;
-    source: string;
-  };
-  spec_deltas: Array<{
-    operation: 'ADDED' | 'MODIFIED' | 'REMOVED';
-    section: string;
-    before: string | null;
-    after: string | null;
-    rationale: string;
-  }>;
-  task_deltas: Array<{
-    operation: 'ADDED' | 'MODIFIED' | 'REMOVED';
-    task_id: string;
-    field_changes?: Record<string, { before: any; after: any }>;
-    full_task?: object;
-    rationale: string;
-  }>;
-}
-```
-
-### 目录结构
-
-```
-~/.claude/workflows/{projectId}/
-├── workflow-state.json
-├── tasks-{name}.md
-├── changes/
-│   └── CHG-001/
-│       ├── delta.json
-│       ├── intent.md
-│       └── review-status.json
-└── archive/
-    └── CHG-001/
-```
+| quality_gate | `--quality-gate` | 质量关卡后 |
