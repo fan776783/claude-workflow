@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`@pic/claude-workflow` is an npm package that installs workflow templates (skills, commands, prompts, utils) to multiple AI coding tools. It provides a CLI tool (`claude-workflow`) and automatic postinstall setup using a canonical + managed-links architecture.
+`@justinfan/agent-workflow` is an npm package that installs workflow templates (skills, commands, prompts, utils) to multiple AI coding tools. It provides a CLI tool (`agent-workflow`) and automatic postinstall setup using a canonical + managed-links architecture.
 
-**Key Architecture**: Skills-based system supporting 10+ AI coding tools through a single source of truth at `~/.agents/claude-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
+**Key Architecture**: Skills-based system supporting 10+ AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
 
 ## Commands
 
@@ -15,11 +15,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run prepublishOnly    # Runs scripts/validate.js
 
 # CLI commands (after npm install -g)
-claude-workflow status    # Show installation status
-claude-workflow sync      # Sync templates to AI coding tools
-claude-workflow sync -a claude-code,cursor  # Install to specific agents
-claude-workflow init      # Init project config in current directory
-claude-workflow doctor    # Diagnose configuration issues
+agent-workflow status    # Show installation status
+agent-workflow sync      # Sync templates to AI coding tools
+agent-workflow sync -a claude-code,cursor  # Install to specific agents
+agent-workflow init      # Init project config in current directory
+agent-workflow doctor    # Diagnose configuration issues
 
 # Release (auto: version bump + publish + git tag + push)
 npm run release:patch     # Bug fixes: 1.0.0 -> 1.0.1
@@ -31,7 +31,7 @@ npm run release 2.0.0     # Explicit version
 ## Architecture
 
 ```
-├── bin/claude-workflow.js   # CLI entry point (commander-based)
+├── bin/agent-workflow.js   # CLI entry point (commander-based)
 ├── lib/
 │   ├── index.js             # Package exports
 │   ├── installer.js         # Core install/upgrade logic
@@ -65,7 +65,7 @@ npm run release 2.0.0     # Explicit version
 ## Key Concepts
 
 **Canonical + Managed Links Architecture:**
-1. Single source of truth at `~/.agents/claude-workflow/`
+1. Single source of truth at `~/.agents/agent-workflow/`
 2. Each AI tool keeps its own `skills` root directory, while managed skills are mounted individually from the canonical location
 3. `commands`, `prompts`, `utils`, and `specs` are linked at the directory level
 4. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation

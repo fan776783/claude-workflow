@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Technical Details
 - 移除对旧架构（commands/agents 直接复制到 ~/.claude/）的引用
-- 强调新架构：~/.agents/claude-workflow/ 作为 Single Source of Truth
+- 强调新架构：~/.agents/agent-workflow/ 作为 Single Source of Truth
 - 所有 AI 工具通过 symlink 共享同一套 Skills
 
 ---
@@ -168,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **scan 蓝鲸项目关联**：`/scan` 新增 Part 1.5 蓝鲸项目关联流程
   - 自动调用 `search_projects` 匹配蓝鲸项目
   - 将 `bkProjectId` 写入 `project-config.json`
-- **CLI init bkProjectId**：`claude-workflow init` 生成的配置新增 `workflow.bkProjectId` 字段
+- **CLI init bkProjectId**：`agent-workflow init` 生成的配置新增 `workflow.bkProjectId` 字段
 
 ### Changed
 - **debug Skill 精简重构**：从双模型并行诊断改为当前模型直接修复 + 单模型审查
@@ -410,7 +410,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.8] - 2026-01-08
 
 ### Added
-- **交互式菜单**：无参数运行 `claude-workflow` 时显示交互式菜单（TTY 环境）
+- **交互式菜单**：无参数运行 `agent-workflow` 时显示交互式菜单（TTY 环境）
 - **模块索引与扫描统计**：`/scan` 命令新增 `modules` 和 `scanStats` 字段
 - **specs 模板目录**：新增 `templates/specs/shared/` 和 `templates/specs/workflow/`
 - **Linux ARM64 支持**：新增 `codeagent-wrapper-linux-arm64` 二进制
@@ -592,7 +592,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - 初始项目结构
-- CLI 工具 `claude-workflow`
+- CLI 工具 `agent-workflow`
 - 命令：`sync`, `init`, `status`, `doctor`
 - 模板目录：`commands`, `agents`, `utils`, `prompts`
 - 自动 postinstall 安装

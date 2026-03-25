@@ -16,7 +16,7 @@
 
 ## 工作流
 
-本项目使用 Claude Workflow Toolkit 提供的通用工作流：
+本项目使用 Agent Workflow Toolkit 提供的通用工作流：
 
 - `/workflow start "需求"` - 启动智能工作流
 - `/workflow execute` - 执行下一个任务

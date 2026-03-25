@@ -4,7 +4,7 @@
 
 **文档版本**：v9.0.0
 **最后更新**：2026-03-13
-**包版本**：@pic/claude-workflow v3.4.1
+**包版本**：@justinfan/agent-workflow v3.4.1
 
 ---
 
@@ -41,12 +41,12 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 **核心价值**：
 - ✅ **Skills 体系**：可移植的技能定义，支持跨工具使用
 - ✅ **多 Agent 支持**：一次安装，同时支持 10+ AI 编码工具（Claude Code、Cursor、Codex、Gemini CLI 等）
-- ✅ **Canonical + 受管链接架构**：单一源文件（~/.agents/claude-workflow/），通过逐个 skill 挂载和目录级链接分发，便于维护和更新
+- ✅ **Canonical + 受管链接架构**：单一源文件（~/.agents/agent-workflow/），通过逐个 skill 挂载和目录级链接分发，便于维护和更新
 - ✅ **交互式安装**：友好的命令行交互体验，智能检测已安装的 Agent
 - ✅ **渐进加载**：按需加载 references 减少上下文占用
-- ✅ **npm 包安装**：`npm install -g @pic/claude-workflow` 一行命令完成安装
+- ✅ **npm 包安装**：`npm install -g @justinfan/agent-workflow` 一行命令完成安装
 - ✅ **智能升级**：自动备份、保留用户修改
-- ✅ **CLI 工具**：`claude-workflow status/sync/init/doctor` 命令行管理
+- ✅ **CLI 工具**：`agent-workflow status/sync/init/doctor` 命令行管理
 - ✅ **多模型协作**：Gemini（前端） + Codex（后端）双模型并行协作
 - ✅ **零配置体验**：首次使用自动检测并初始化项目
 - ✅ **用户级存储**：工作流状态存储在 `~/.claude/`，完全避免 Git 冲突
@@ -60,7 +60,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│         @pic/claude-workflow (v3.4.1)                        │
+│         @justinfan/agent-workflow (v3.4.1)                        │
 │     npm 包工作流工具集 - Skills 架构，支持 10+ AI 工具        │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -125,7 +125,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 | **项目扫描** | `/scan` | 智能项目扫描（检测技术栈 + 蓝鲸项目关联） |
 | **UI 还原** | `/figma-ui` | Figma 设计稿 → 前端代码（Skill） |
 | **视觉验证** | `/visual-diff` | UI 视觉差异对比（像素级 + 双模型语义） |
-| **CLI 工具** | `claude-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
+| **CLI 工具** | `agent-workflow status/sync/init/doctor` | 状态查看、同步、初始化、诊断 |
 | **智能分析** | `/analyze` | 双模型技术分析（Codex + Gemini 并行） |
 | **代码审查** | `/diff-review`, `/diff-review --quick` | 多模型并行审查 / 单模型快速审查 |
 | **调试** | `/debug` | Bug 修复流程 + 模型审查（Codex/Gemini） |
@@ -140,47 +140,47 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 
 ### 2.1 npm 包安装（推荐）
 
-`@pic/claude-workflow` 是一个 npm 包，提供基于 Skills 架构的标准化工作流，支持 10+ AI 编码工具。
+`@justinfan/agent-workflow` 是一个 npm 包，提供基于 Skills 架构的标准化工作流，支持 10+ AI 编码工具。
 
 #### 全局安装
 
 ```bash
 # 全局安装（推荐）
-npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
+npm install -g @justinfan/agent-workflow --registry http://your-registry-host:4873
 
 # 或作为开发依赖
-npm install -D @pic/claude-workflow --registry http://your-registry-host:4873
+npm install -D @justinfan/agent-workflow --registry http://your-registry-host:4873
 ```
 
 **安装过程会自动：**
 1. ✅ 检测已安装的 AI 编码工具（Claude Code、Cursor、Codex 等）
-2. ✅ 复制 Skills 到 canonical 位置 (`~/.agents/claude-workflow/`)
+2. ✅ 复制 Skills 到 canonical 位置 (`~/.agents/agent-workflow/`)
 3. ✅ 为每个检测到的工具创建受管链接：`skills` 目录按 skill 逐个挂载，`commands/prompts/utils/specs` 使用目录级链接
 4. ✅ 检测版本变化，智能合并用户修改
 
 #### 升级
 
 ```bash
-npm update -g @pic/claude-workflow --registry http://your-registry-host:4873
+npm update -g @justinfan/agent-workflow --registry http://your-registry-host:4873
 ```
 
 **升级时会自动**：
 1. 更新 canonical 位置的 Skills
 2. 所有 Agent 通过受管链接自动获得更新
-3. 备份旧版本到 `~/.agents/claude-workflow/.meta/backups/`
+3. 备份旧版本到 `~/.agents/agent-workflow/.meta/backups/`
 
 ### 2.2 CLI 命令
 
-安装后可使用 `claude-workflow` 命令行工具：
+安装后可使用 `agent-workflow` 命令行工具：
 
 #### 交互式安装（推荐）
 
 ```bash
 # 启动交互式安装向导
-claude-workflow sync
+agent-workflow sync
 
 # 或显式指定交互模式
-claude-workflow sync -i
+agent-workflow sync -i
 ```
 
 交互式安装会引导你：
@@ -192,32 +192,32 @@ claude-workflow sync -i
 
 ```bash
 # 安装到所有检测到的 Agent
-claude-workflow sync -y
+agent-workflow sync -y
 
 # 安装到指定 Agent
-claude-workflow sync -a claude-code,cursor
+agent-workflow sync -a claude-code,cursor
 
 # 安装到所有支持的 Agent
-claude-workflow sync -a '*' -y
+agent-workflow sync -a '*' -y
 
 # 项目级安装（当前目录）
-claude-workflow sync --project
+agent-workflow sync --project
 
 # 使用旧版安装模式（仅 Claude Code，不使用受管链接）
-claude-workflow sync --legacy
+agent-workflow sync --legacy
 ```
 
 #### 其他命令
 
 ```bash
 # 查看安装状态
-claude-workflow status
+agent-workflow status
 
 # 初始化项目配置
-claude-workflow init
+agent-workflow init
 
 # 诊断配置问题
-claude-workflow doctor
+agent-workflow doctor
 ```
 
 #### 命令说明
@@ -236,7 +236,7 @@ claude-workflow doctor
 安装完成后的目录结构：
 
 ```
-~/.agents/claude-workflow/          # Canonical 位置（Single Source of Truth）
+~/.agents/agent-workflow/          # Canonical 位置（Single Source of Truth）
 ├── .meta/                          # 元信息
 │   ├── meta.json                   # 版本信息
 │   └── backups/                    # 升级备份
@@ -259,10 +259,10 @@ claude-workflow doctor
 └── specs/                          # 规范文档
 
 # 受管链接（自动创建）
-~/.claude/skills/workflow  → ~/.agents/claude-workflow/skills/workflow
-~/.claude/skills/debug     → ~/.agents/claude-workflow/skills/debug
-~/.cursor/skills/workflow  → ~/.agents/claude-workflow/skills/workflow
-~/.cursor/commands         → ~/.agents/claude-workflow/commands
+~/.claude/skills/workflow  → ~/.agents/agent-workflow/skills/workflow
+~/.claude/skills/debug     → ~/.agents/agent-workflow/skills/debug
+~/.cursor/skills/workflow  → ~/.agents/agent-workflow/skills/workflow
+~/.cursor/commands         → ~/.agents/agent-workflow/commands
 ...
 
 # 工作流状态（按项目隔离）
@@ -355,7 +355,7 @@ codeagent-wrapper --backend gemini "echo test" .
 ```bash
 # 单次调用
 codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.agents/claude-workflow/prompts/codex/analyzer.md
+ROLE_FILE: ~/.agents/agent-workflow/prompts/codex/analyzer.md
 <TASK>分析任务描述</TASK>
 OUTPUT: Unified Diff Patch ONLY
 EOF
@@ -395,7 +395,7 @@ EOF
 #### 目录结构
 
 ```
-~/.agents/claude-workflow/              # Canonical 位置（通过受管链接共享给各 Agent）
+~/.agents/agent-workflow/              # Canonical 位置（通过受管链接共享给各 Agent）
 ├── skills/                            # 10 个 Skills（渐进加载）
 ├── commands/                          # 工具命令（3 个：agents、enhance、git-rollback）
 ├── prompts/                           # 双模型协作 Prompt（codex/ + gemini/）
@@ -482,7 +482,7 @@ cd /path/to/your/project
 
 ```bash
 cd /path/to/your/project
-claude-workflow init
+agent-workflow init
 ```
 
 或使用 `/scan` 命令进行完整扫描（包含蓝鲸项目关联）。
@@ -1450,11 +1450,11 @@ Bug 调试？
 | `/scan` | 智能项目扫描 + 蓝鲸关联 | ⭐ |
 | `/write-tests` | 测试编写专家 | ⭐ |
 | **CLI 工具** |||
-| `claude-workflow status` | 查看安装状态和 Agent 状态 | ⭐ |
-| `claude-workflow sync` | 同步模板到多个 Agent | ⭐ |
-| `claude-workflow sync -a` | 指定目标 Agent | |
-| `claude-workflow init` | 初始化项目配置 | ⭐ |
-| `claude-workflow doctor` | 诊断配置问题 | |
+| `agent-workflow status` | 查看安装状态和 Agent 状态 | ⭐ |
+| `agent-workflow sync` | 同步模板到多个 Agent | ⭐ |
+| `agent-workflow sync -a` | 指定目标 Agent | |
+| `agent-workflow init` | 初始化项目配置 | ⭐ |
+| `agent-workflow doctor` | 诊断配置问题 | |
 | **其他命令** |||
 | `/enhance "prompt"` | Prompt 增强 | |
 | `/git-rollback` | 交互式 Git 回滚 | |
@@ -1465,7 +1465,7 @@ Bug 调试？
 
 ## 附录 B：Prompt 模板
 
-项目使用双模型协作，Prompt 模板位于 `~/.agents/claude-workflow/prompts/`：
+项目使用双模型协作，Prompt 模板位于 `~/.agents/agent-workflow/prompts/`：
 
 | 目录 | 专长 | 使用场景 |
 |------|------|----------|
@@ -1487,7 +1487,7 @@ Bug 调试？
 
 ```bash
 codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.agents/claude-workflow/prompts/codex/reviewer.md
+ROLE_FILE: ~/.agents/agent-workflow/prompts/codex/reviewer.md
 <TASK>审查任务</TASK>
 EOF
 ```
@@ -1499,14 +1499,14 @@ EOF
 ### 安装
 
 ```bash
-npm install -g @pic/claude-workflow --registry http://your-registry-host:4873
+npm install -g @justinfan/agent-workflow --registry http://your-registry-host:4873
 ```
 
 ### 新手推荐流程
 
 ```bash
 # 1. 交互式安装（首次推荐）
-claude-workflow sync
+agent-workflow sync
 
 # 2. 扫描项目
 /scan
@@ -1527,16 +1527,16 @@ claude-workflow sync
 
 ```bash
 # 查看安装状态
-claude-workflow status
+agent-workflow status
 
 # 同步到所有检测到的 Agent
-claude-workflow sync -y
+agent-workflow sync -y
 
 # 安装到指定 Agent
-claude-workflow sync -a claude-code,cursor -y
+agent-workflow sync -a claude-code,cursor -y
 
 # 诊断问题
-claude-workflow doctor
+agent-workflow doctor
 ```
 
 ### 常用命令
@@ -1574,15 +1574,15 @@ claude-workflow doctor
 - 关键阶段在新对话中执行
 - 使用 `/workflow status` 了解进度
 - 质量关卡失败时使用 `/workflow execute --retry`
-- 使用 `claude-workflow doctor` 诊断配置问题
-- 使用 `claude-workflow sync` 刷新默认覆盖安装并同步受管链接
+- 使用 `agent-workflow doctor` 诊断配置问题
+- 使用 `agent-workflow sync` 刷新默认覆盖安装并同步受管链接
 
 ### 从旧版本迁移
 
 如果你之前使用的是旧版（直接复制到 `~/.claude/`），运行以下命令迁移到新架构：
 
 ```bash
-claude-workflow sync
+agent-workflow sync
 ```
 
 迁移会：
@@ -1596,7 +1596,7 @@ claude-workflow sync
 **文档结束**
 
 如有疑问，请参考：
-- 安装状态：`claude-workflow status`
-- 诊断问题：`claude-workflow doctor`
+- 安装状态：`agent-workflow status`
+- 诊断问题：`agent-workflow doctor`
 - 命令索引：`/agents`
 - 项目规范：`CLAUDE.md`

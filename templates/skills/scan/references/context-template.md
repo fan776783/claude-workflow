@@ -165,7 +165,7 @@
 
 ## 附录：扫描元数据
 
-- **扫描工具**：Claude Workflow /scan
+- **扫描工具**：Agent Workflow /scan
 - **扫描时间**：{{SCAN_DURATION}}
 - **分析文件数**：{{TOTAL_FILES}}
 ```

@@ -90,7 +90,7 @@ await mcp__chrome-mcp__take_screenshot({
 
 ```bash
 # 推荐：uv run 自动安装依赖
-uv run "$CLAUDE_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" \
+uv run "$AGENT_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" \
   <design.png> <impl.png> \
   --output <output_dir> \
   --threshold 30 \
@@ -98,7 +98,7 @@ uv run "$CLAUDE_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py"
 
 # 或手动安装依赖后运行
 pip install pillow numpy
-python "$CLAUDE_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" ...
+python "$AGENT_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" ...
 ```
 
 **输出**：
@@ -272,7 +272,7 @@ await mcp__chrome-mcp__wait_for({
 
 使用 `uv run` 自动处理依赖（推荐）：
 ```bash
-uv run "$CLAUDE_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" ...
+uv run "$AGENT_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" ...
 ```
 
 或手动安装：
