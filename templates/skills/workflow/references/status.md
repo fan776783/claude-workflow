@@ -148,17 +148,23 @@ console.log(`
 
 ```typescript
 const state = JSON.parse(readFile(statePath));
+const preTaskStatuses = ['planned', 'spec_review', 'intent_review'];
 
-// 使用统一路径安全函数校验 tasks_file
-const tasksPath = resolveUnder(workflowDir, state.tasks_file);
-if (!tasksPath) {
+// 在 Task Compilation 之前，planned / spec_review / intent_review 阶段可能尚未生成 tasks_file
+const tasksFile = state.tasks_file || '';
+const tasksPath = tasksFile ? resolveUnder(workflowDir, tasksFile) : null;
+if (tasksFile && !tasksPath) {
   console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
   return;
 }
 
-// 检查任务文件
-if (!fileExists(tasksPath)) {
-  console.log(`
+let tasksContent = '';
+let tasks: WorkflowTaskV2[] = [];
+let totalTasks = 0;
+
+if (tasksPath) {
+  if (!fileExists(tasksPath)) {
+    console.log(`
 ⚠️ 任务清单不存在：${tasksPath}
 
 状态文件存在，但任务清单缺失。
@@ -167,18 +173,15 @@ if (!fileExists(tasksPath)) {
 💡 建议：重新启动工作流
   /workflow start "原始需求"
   `);
-  return;
-}
+    return;
+  }
 
-const tasksContent = readFile(tasksPath);
+  tasksContent = readFile(tasksPath);
+  tasks = parseWorkflowTasksV2FromMarkdown(tasksContent);
+  totalTasks = tasks.length;
 
-// 解析任务
-const tasks = parseTasksFromMarkdown(tasksContent);
-const totalTasks = tasks.length;
-
-// 如果没有解析到任务，输出诊断信息
-if (totalTasks === 0) {
-  console.log(`
+  if (totalTasks === 0) {
+    console.log(`
 ⚠️ 无法解析任务清单
 
 任务文件：${tasksPath}
@@ -188,6 +191,16 @@ if (totalTasks === 0) {
 
 💡 请检查文件格式是否符合 tasks.md 模板
   `);
+    return;
+  }
+} else if (!preTaskStatuses.includes(state.status)) {
+  console.log(`
+⚠️ 当前状态缺少任务清单引用
+
+当前状态：${state.status}
+
+💡 建议：检查工作流是否完整生成，或重新执行 /workflow start
+  `);
   return;
 }
 
@@ -196,7 +209,7 @@ const completed = state.progress.completed.length;
 const skipped = state.progress.skipped.length;
 const failed = state.progress.failed.length;
 const blocked = state.progress.blocked?.length || 0;  // 渐进式工作流：阻塞任务
-const pending = totalTasks - completed - skipped - failed - blocked;
+const pending = Math.max(0, totalTasks - completed - skipped - failed - blocked);
 
 // 计算进度（安全版本：防止 NaN）
 const progressPercent = totalTasks > 0
@@ -295,22 +308,30 @@ if (isJsonMode) {
 
 ---
 
-## 📄 设计文档
+## 📄 规划产物
 
 📐 **技术方案**：`{{state.tech_design}}`
+{{#if state.spec_file}}📘 **Spec**：`{{state.spec_file}}`{{/if}}
+{{#if state.plan_file}}🧭 **Plan**：`{{state.plan_file}}`{{/if}}
 
 ---
 
 ## 📋 任务清单
 
+{{#if tasksPath}}
 📝 **任务文件**：`{{tasksPath}}`
 
 {{#each tasks}}
 {{statusIcon(this.status)}} **{{this.id}}**: {{this.name}}
-   {{#if this.file}}文件: `{{this.file}}`{{/if}}
+   {{#if this.files.create}}创建: `{{this.files.create.join(', ')}}`{{/if}}
+   {{#if this.files.modify}}修改: `{{this.files.modify.join(', ')}}`{{/if}}
+   {{#if this.files.test}}测试: `{{this.files.test.join(', ')}}`{{/if}}
    {{#if this.blocked_by}}⏳ 等待: `{{this.blocked_by.join(', ')}}`{{/if}}
    阶段: {{this.phase}}
 {{/each}}
+{{else}}
+⏳ 当前阶段尚未生成 `tasks.md`，将在 Plan Review 通过后进入 Task Compilation。
+{{/if}}
 
 ---
 
@@ -326,12 +347,15 @@ if (isJsonMode) {
 **任务 {{id}}**：{{name}}
 **阶段**：{{phase}}
 **状态**：{{status}}
-{{#if file}}**文件**：`{{file}}`{{/if}}
+{{#if files.create}}**创建文件**：`{{files.create.join(', ')}}`{{/if}}
+{{#if files.modify}}**修改文件**：`{{files.modify.join(', ')}}`{{/if}}
+{{#if files.test}}**测试文件**：`{{files.test.join(', ')}}`{{/if}}
 {{#if leverage}}**复用**：`{{leverage}}`{{/if}}
-{{#if design_ref}}**设计参考**：{{design_ref}}{{/if}}
+{{#if spec_ref}}**Spec 参考**：{{spec_ref}}{{/if}}
+{{#if plan_ref}}**Plan 参考**：{{plan_ref}}{{/if}}
 
-**需求**：{{requirement}}
-**动作**：`{{actions}}`
+**步骤摘要**：{{#each steps}}`{{id}}` {{description}}{{#unless @last}}；{{/unless}}{{/each}}
+**动作**：`{{actions.join(', ')}}`
 
 {{#if quality_gate}}
 ⚠️ **这是质量关卡**：两阶段代码审查（规格合规 + 代码质量）
@@ -463,8 +487,11 @@ _（未定义成功标准）_
 | 类型 | 路径 |
 |------|------|
 | 技术方案 | `{{state.tech_design}}` |
-| 任务清单 | `{{tasksPath}}` |
-{{#each state.artifacts}}
+{{#if state.spec_file}}| Spec | `{{state.spec_file}}` |
+{{/if}}{{#if state.plan_file}}| Plan | `{{state.plan_file}}` |
+{{/if}}{{#if tasksPath}}| 任务清单 | `{{tasksPath}}` |
+{{/if}}{{#if state.delta_tracking.current_change}}| 当前变更 | `changes/{{state.delta_tracking.current_change}}/intent.md` |
+{{/if}}{{#each state.artifacts}}
 | {{@key}} | `{{this}}` |
 {{/each}}
 
@@ -481,12 +508,14 @@ _（未定义成功标准）_
 
 **产物文件**：
 - 技术方案：`{{state.tech_design}}`
-- 任务清单：`{{tasksPath}}`
-
+{{#if state.spec_file}}- Spec：`{{state.spec_file}}`
+{{/if}}{{#if state.plan_file}}- Plan：`{{state.plan_file}}`
+{{/if}}{{#if tasksPath}}- 任务清单：`{{tasksPath}}`
+{{/if}}
 {{else if state.status === 'planned'}}
 ### 📋 规划完成，等待执行
 
-工作流已完成规划阶段，请审查技术方案和任务清单后开始执行。
+工作流已完成规划阶段，请审查技术方案、Spec、Plan 和任务清单后开始执行。
 
 {{#if isProgressive}}
 🔄 **工作模式**：渐进式
@@ -502,7 +531,11 @@ _（未定义成功标准）_
 {{/if}}
 
 **技术方案**：`{{state.tech_design}}`
-**任务清单**：`{{tasksPath}}`
+{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
+{{/if}}{{#if state.plan_file}}**Plan**：`{{state.plan_file}}`
+{{/if}}{{#if tasksPath}}**任务清单**：`{{tasksPath}}`
+{{else}}**任务清单**：尚未生成
+{{/if}}
 
 **开始执行**：
 \```bash
@@ -514,6 +547,43 @@ _（未定义成功标准）_
 {{else}}
 💡 执行后将自动复用规划阶段的模型会话上下文。
 {{/if}}
+
+{{else if state.status === 'spec_review'}}
+### 🧾 等待 Spec 确认
+
+当前工作流停在 Spec 审查阶段，请先确认范围、模块边界和验收映射。
+
+{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
+{{/if}}**技术方案**：`{{state.tech_design}}`
+
+**建议操作**：
+1. 审查 `spec.md` 是否准确反映本次需求
+2. 如需回退，修改 Spec 或技术方案后重新进入 `/workflow start`
+3. 确认无误后继续后续 Hard Stop
+
+{{else if state.status === 'intent_review'}}
+### 🔍 等待 Intent 确认
+
+当前工作流停在 Intent Review，请先确认本次变更方向。
+
+{{#if state.delta_tracking.current_change}}**当前变更**：`{{state.delta_tracking.current_change}}`
+{{/if}}{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
+{{/if}}
+
+💡 若在 Intent Review 中选择“取消”，当前 `changes/{changeId}` 下的临时 Intent 工件会被清理，不会进入归档目录。
+
+{{else if state.status === 'paused'}}
+### ⏸️ 工作流已暂停
+
+当前工作流暂停，通常表示等待用户处理文档、确认质量关卡，或决定下一步操作。
+
+{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
+{{/if}}{{#if state.plan_file}}**Plan**：`{{state.plan_file}}`
+{{/if}}{{#if tasksPath}}**任务清单**：`{{tasksPath}}`
+{{else}}**任务清单**：尚未生成
+{{/if}}
+
+**继续方式**：根据当前阶段处理文档后，再执行 `/workflow execute` 或重新进入 `/workflow start`。
 
 {{else if state.status === 'blocked'}}
 ### ⏳ 工作流等待依赖
@@ -528,7 +598,15 @@ _（未定义成功标准）_
 {{#unless unblocked.includes('external')}}/workflow unblock external    # 第三方服务/SDK 已就绪{{/unless}}
 \```
 
-{{else if hasFailedTask}}
+{{else if state.status === 'archived'}}
+### 📦 工作流已归档
+
+当前工作流已经结束并进入归档状态，活动执行链路已关闭。
+
+{{#if state.delta_tracking.current_change}}**最后变更**：`{{state.delta_tracking.current_change}}`
+{{/if}}💡 如需继续新需求，请重新执行 `/workflow start`。
+
+{{else if hasFailedTask || state.status === 'failed'}}
 ### ⚠️ 存在失败任务
 
 **失败任务**：{{failedTaskId}}
@@ -563,49 +641,115 @@ _（未定义成功标准）_
 ## 📦 辅助函数
 
 ```typescript
-function parseTasksFromMarkdown(content: string): Task[] {
-  const tasks: Task[] = [];
-
-  // 新正则：捕获完整标题，后续处理 emoji
-  const regex = /##+ (T\d+):\s*(.+?)\s*\n(?:\s*<\!-- id: T\d+[^>]*-->\s*\n)?([\s\S]*?)(?=\n##+ T\d+:|$)/gm;
-
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    const [, id, rawTitle, body] = match;
-
-    // 从标题提取状态
-    const titleStatus = extractStatusFromTitle(rawTitle);
-    const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
-
-    // 解析阻塞依赖（渐进式工作流）
-    const blockedByField = extractField(body, '阻塞依赖');
-    const blocked_by = blockedByField
-      ? blockedByField.split(',').map(s => s.trim()).filter(Boolean)
-      : null;
-
-    tasks.push({
-      id,
-      name,
-      phase: extractField(body, '阶段'),
-      file: extractField(body, '文件'),
-      leverage: extractField(body, '复用'),
-      design_ref: extractField(body, '设计参考'),
-      requirement: extractField(body, '需求') || extractField(body, '内容'),
-      actions: extractField(body, 'actions'),
-      depends: extractField(body, '依赖'),
-      blocked_by,  // 渐进式工作流：任务的阻塞依赖
-      quality_gate: parseQualityGate(body),
-      status: titleStatus || extractField(body, '状态') || 'pending'
-    });
-  }
-
-  return tasks;
+interface WorkflowTaskV2 {
+  id: string;
+  name: string;
+  phase: string;
+  files: {
+    create?: string[];
+    modify?: string[];
+    test?: string[];
+  };
+  leverage?: string[];
+  spec_ref: string;
+  plan_ref: string;
+  acceptance_criteria?: string[];
+  depends?: string[];
+  blocked_by?: string[];
+  quality_gate?: boolean;
+  status: string;
+  actions: string[];
+  steps: Array<{
+    id: string;
+    description: string;
+    expected: string;
+    verification?: string;
+  }>;
+  verification?: {
+    commands?: string[];
+    expected_output?: string[];
+    notes?: string[];
+  };
 }
 
 function extractField(body: string, fieldName: string): string | null {
   const regex = new RegExp(`\\*\\*${fieldName}\\*\\*:\\s*\`?([^\`\\n]+)\`?`);
   const match = body.match(regex);
   return match ? match[1].trim() : null;
+}
+
+function extractTaskBlock(content: string, taskId: string): string {
+  const escapedId = escapeRegExp(taskId);
+  const taskRegex = new RegExp(`##+ ${escapedId}:[\\s\\S]*?(?=\\n##+ T\\d+:|$)`, 'm');
+  return content.match(taskRegex)?.[0] || '';
+}
+
+function extractListField(body: string, fieldName: string): string[] {
+  const value = extractField(body, fieldName);
+  return value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+function extractAcceptanceCriteriaFromTaskBlock(content: string, taskId: string): string[] {
+  const raw = extractField(extractTaskBlock(content, taskId), '验收项');
+  return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+function extractStepsFromTaskBlock(content: string, taskId: string): WorkflowTaskV2['steps'] {
+  const taskBlock = extractTaskBlock(content, taskId);
+  const stepsSection = taskBlock.match(/- \*\*步骤\*\*:[\s\S]*$/)?.[0] || '';
+  const stepMatches = [...stepsSection.matchAll(/-\s+([A-Z]\d+):\s+(.+?)\s+→\s+(.+?)(?:（验证：(.*?)）)?$/gm)];
+  return stepMatches.map(match => ({
+    id: match[1],
+    description: match[2],
+    expected: match[3],
+    verification: match[4] || undefined
+  }));
+}
+
+function parseTaskFiles(body: string): WorkflowTaskV2['files'] {
+  return {
+    create: extractListField(body, '创建文件'),
+    modify: extractListField(body, '修改文件'),
+    test: extractListField(body, '测试文件')
+  };
+}
+
+function parseTaskVerification(body: string): WorkflowTaskV2['verification'] {
+  const commands = extractListField(body, '验证命令');
+  const expected_output = extractListField(body, '验证期望');
+  const notes = extractListField(body, '验证备注');
+  return commands.length || expected_output.length || notes.length
+    ? { commands, expected_output, notes }
+    : undefined;
+}
+
+function parseWorkflowTasksV2FromMarkdown(content: string): WorkflowTaskV2[] {
+  const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
+  return taskIds.map(taskId => {
+    const body = extractTaskBlock(content, taskId);
+    const titleMatch = body.match(/##+ (T\d+):\s*(.+?)\s*\n/m);
+    const rawTitle = titleMatch?.[2] || taskId;
+    const titleStatus = extractStatusFromTitle(rawTitle);
+    const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
+
+    return {
+      id: taskId,
+      name,
+      phase: extractField(body, '阶段') || 'implement',
+      files: parseTaskFiles(body),
+      leverage: extractListField(body, '复用'),
+      spec_ref: extractField(body, 'Spec 参考') || '§Unknown',
+      plan_ref: extractField(body, 'Plan 参考') || 'P-UNKNOWN',
+      acceptance_criteria: extractAcceptanceCriteriaFromTaskBlock(content, taskId),
+      depends: extractListField(body, '依赖'),
+      blocked_by: extractListField(body, '阻塞依赖'),
+      quality_gate: parseQualityGate(body),
+      status: titleStatus || extractField(body, '状态') || 'pending',
+      actions: extractListField(body, 'actions'),
+      steps: extractStepsFromTaskBlock(content, taskId),
+      verification: parseTaskVerification(body)
+    };
+  });
 }
 
 function generateProgressBar(percent: number): string {

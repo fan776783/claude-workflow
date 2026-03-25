@@ -6,7 +6,7 @@
 
 ## 执行条件
 
-**条件执行**：仅对文件来源且长度 > 500 的需求执行（向后兼容：内联需求 / 短文本自动跳过）
+**条件执行**：仅对文件来源且长度 > 500 的需求执行；内联需求或短文本直接跳过此阶段。
 
 ```typescript
 if (requirementSource !== 'inline' && requirementContent.length > 500) {
@@ -315,4 +315,4 @@ if (nonEmptyDimensions.length >= 3) {
 结构化需求将用于：
 - Phase 0.6: 生成验证清单
 - Phase 1: 技术方案生成（填充"需求详情"章节）
-- Phase 2: 任务生成（关联验收项）
+- Phase 2 / 3: Plan 生成与任务编译（关联验收项、生成 steps[] 与 acceptance_criteria）

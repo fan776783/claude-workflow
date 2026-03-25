@@ -129,13 +129,17 @@ function calculateDynamicMaxTasks(
   return baseLimit;
 }
 
-function detectTaskComplexity(task: Task): 'simple' | 'medium' | 'complex' {
-  const actions = (task.actions || '').split(',').length;
-  const hasMultipleFiles = (task.file || '').includes(',');
-  const isQualityGate = task.quality_gate;
-  const hasDesignRef = !!task.design_ref;
+function detectTaskComplexity(task: WorkflowTaskV2): 'simple' | 'medium' | 'complex' {
+  const actions = task.actions.length;
+  const fileCount = [
+    ...(task.files.create || []),
+    ...(task.files.modify || []),
+    ...(task.files.test || [])
+  ].length;
+  const isQualityGate = !!task.quality_gate;
+  const hasStructuredSteps = task.steps.length > 0;
 
-  if (isQualityGate || hasDesignRef || hasMultipleFiles) return 'complex';
+  if (isQualityGate || hasStructuredSteps || fileCount > 1) return 'complex';
   if (actions > 2) return 'medium';
   return 'simple';
 }
@@ -158,65 +162,124 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 
 ## 任务解析
 
+> `tasks.md` 仅使用 V2 任务模型。状态页、执行链路、delta 流程都直接消费 `files{}`、`actions[]`、`steps[]`、`spec_ref`、`plan_ref`、`acceptance_criteria` 等字段，不再维护旧任务格式的映射层。
+
 ```typescript
-interface Task {
+interface WorkflowTaskV2 {
   id: string;
   name: string;
   phase: string;
-  file: string | null;
-  leverage: string | null;
-  design_ref: string | null;
-  requirement: string;
-  actions: string;
-  depends: string | null;
-  blocked_by: string[] | null;
-  quality_gate: boolean;
-  status: string;
+  files: {
+    create?: string[];
+    modify?: string[];
+    test?: string[];
+  };
+  leverage?: string[];
+  spec_ref: string;
+  plan_ref: string;
+  acceptance_criteria?: string[];
+  depends?: string[];
+  blocked_by?: string[];
+  quality_gate?: boolean;
+  status: 'pending' | 'blocked' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  actions: Array<'create_file' | 'edit_file' | 'run_tests' | 'quality_review' | 'git_commit'>;
+  steps: Array<{
+    id: string;
+    description: string;
+    expected: string;
+    verification?: string;
+  }>;
+  verification?: {
+    commands?: string[];
+    expected_output?: string[];
+    notes?: string[];
+  };
 }
 
-function parseTasksFromMarkdown(content: string): Task[] {
-  const tasks: Task[] = [];
-  const regex = /##+ (T\d+):\s*(.+?)\s*\n(?:\s*<\!-- id: T\d+[^>]*-->\s*\n)?([\s\S]*?)(?=\n##+ T\d+:|$)/gm;
+function extractTaskBlock(content: string, taskId: string): string {
+  const escapedId = escapeRegExp(taskId);
+  const taskRegex = new RegExp(`##+ ${escapedId}:[\\s\\S]*?(?=\\n##+ T\\d+:|$)`, 'm');
+  return content.match(taskRegex)?.[0] || '';
+}
 
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    const [, id, rawTitle, body] = match;
+function extractListField(body: string, fieldName: string): string[] {
+  const value = extractField(body, fieldName);
+  return value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+function parseTaskFiles(body: string): WorkflowTaskV2['files'] {
+  return {
+    create: extractListField(body, '创建文件'),
+    modify: extractListField(body, '修改文件'),
+    test: extractListField(body, '测试文件')
+  };
+}
+
+function extractAcceptanceCriteriaFromTaskBlock(content: string, taskId: string): string[] {
+  const raw = extractField(extractTaskBlock(content, taskId), '验收项');
+  return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+function extractStepsFromTaskBlock(content: string, taskId: string): WorkflowTaskV2['steps'] {
+  const taskBlock = extractTaskBlock(content, taskId);
+  const stepsSection = taskBlock.match(/- \*\*步骤\*\*:[\s\S]*$/)?.[0] || '';
+  const stepMatches = [...stepsSection.matchAll(/-\s+([A-Z]\d+):\s+(.+?)\s+→\s+(.+?)(?:（验证：(.*?)）)?$/gm)];
+  return stepMatches.map(match => ({
+    id: match[1],
+    description: match[2],
+    expected: match[3],
+    verification: match[4] || undefined
+  }));
+}
+
+function parseTaskVerification(body: string): WorkflowTaskV2['verification'] {
+  const commands = extractListField(body, '验证命令');
+  const expected_output = extractListField(body, '验证期望');
+  const notes = extractListField(body, '验证备注');
+  return commands.length || expected_output.length || notes.length
+    ? { commands, expected_output, notes }
+    : undefined;
+}
+
+function parseWorkflowTasksV2FromMarkdown(content: string): WorkflowTaskV2[] {
+  const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
+
+  return taskIds.map(taskId => {
+    const body = extractTaskBlock(content, taskId);
+    const titleMatch = body.match(/##+ (T\d+):\s*(.+?)\s*\n/m);
+    const rawTitle = titleMatch?.[2] || taskId;
     const titleStatus = extractStatusFromTitle(rawTitle);
     const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
 
-    const blockedByField = extractField(body, '阻塞依赖');
-    const blocked_by = blockedByField
-      ? blockedByField.split(',').map(s => s.trim()).filter(Boolean)
-      : null;
-
-    tasks.push({
-      id,
+    return {
+      id: taskId,
       name,
-      phase: extractField(body, '阶段'),
-      file: extractField(body, '文件'),
-      leverage: extractField(body, '复用'),
-      design_ref: extractField(body, '设计参考'),
-      requirement: extractField(body, '需求') || extractField(body, '内容'),
-      actions: extractField(body, 'actions'),
-      depends: extractField(body, '依赖'),
-      blocked_by,
+      phase: extractField(body, '阶段') || 'implement',
+      files: parseTaskFiles(body),
+      leverage: extractListField(body, '复用'),
+      spec_ref: extractField(body, 'Spec 参考') || '§Unknown',
+      plan_ref: extractField(body, 'Plan 参考') || 'P-UNKNOWN',
+      acceptance_criteria: extractAcceptanceCriteriaFromTaskBlock(content, taskId),
+      depends: extractListField(body, '依赖'),
+      blocked_by: extractListField(body, '阻塞依赖'),
       quality_gate: parseQualityGate(body),
-      status: titleStatus || extractField(body, '状态') || 'pending'
-    });
-  }
-
-  return tasks;
+      status: (titleStatus || extractField(body, '状态') || 'pending') as WorkflowTaskV2['status'],
+      actions: extractListField(body, 'actions') as WorkflowTaskV2['actions'],
+      steps: extractStepsFromTaskBlock(content, taskId),
+      verification: parseTaskVerification(body)
+    };
+  });
 }
 
 function findNextTask(content: string, progress: Progress): string | null {
-  const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
+  const tasks = parseWorkflowTasksV2FromMarkdown(content);
 
-  for (const id of taskIds) {
-    if (!progress.completed.includes(id) &&
-        !progress.skipped.includes(id) &&
-        !progress.failed.includes(id) &&
-        !progress.blocked?.includes(id)) {
-      return id;
+  for (const task of tasks) {
+    if (!progress.completed.includes(task.id) &&
+        !progress.skipped.includes(task.id) &&
+        !progress.failed.includes(task.id) &&
+        !progress.blocked?.includes(task.id)) {
+      return task.id;
     }
   }
 
@@ -224,9 +287,10 @@ function findNextTask(content: string, progress: Progress): string | null {
 }
 
 function countTasks(content: string): number {
-  return (content.match(/##+ T\d+:/g) || []).length;
+  return parseWorkflowTasksV2FromMarkdown(content).length;
 }
 ```
+
 
 ## Markdown 状态更新
 

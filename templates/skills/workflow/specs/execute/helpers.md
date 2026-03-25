@@ -73,6 +73,64 @@ function countTasks(content: string): number {
 }
 ```
 
+### extractCurrentTaskV2
+
+按 V2 任务模型提取当前任务。
+
+```typescript
+function extractCurrentTaskV2(
+  tasksContent: string,
+  taskId: string
+): WorkflowTaskV2 | null {
+  const tasks = parseWorkflowTasksV2FromMarkdown(tasksContent);
+  return tasks.find(task => task.id === taskId) || null;
+}
+```
+
+### normalizeTaskActions
+
+统一读取 V2 动作字段。
+
+```typescript
+function normalizeTaskActions(task: WorkflowTaskV2): string[] {
+  return task.actions;
+}
+```
+
+### getTaskFiles
+
+统一读取 V2 文件集合。
+
+```typescript
+function getTaskFiles(task: WorkflowTaskV2): string[] {
+  return [
+    ...(task.files?.create || []),
+    ...(task.files?.modify || []),
+    ...(task.files?.test || [])
+  ].filter(Boolean);
+}
+```
+
+### getTaskDepends
+
+统一读取 V2 依赖字段。
+
+```typescript
+function getTaskDepends(task: WorkflowTaskV2): string[] {
+  return task.depends || [];
+}
+```
+
+### getTaskIntentText
+
+任务语义匹配直接基于 `steps[]`。
+
+```typescript
+function getTaskIntentText(task: WorkflowTaskV2): string {
+  return task.steps.map(step => `${step.id} ${step.description} ${step.expected}`).join(' ');
+}
+```
+
 ---
 
 ## 状态更新函数
@@ -158,7 +216,7 @@ function extractStatusFromTitle(title: string): string | null {
 
 ```typescript
 function extractField(body: string, fieldName: string): string | null {
-  // 兼容两种格式：
+  // 支持两种 markdown 字段书写方式：
   // 1. - **字段**: 值
   // 2. **字段**: 值
   const regex = new RegExp(
@@ -232,7 +290,7 @@ function completeWorkflow(
   // 更新状态
   state.status = 'completed';
   state.phase = 'done';
-  state.current_task = null;
+  state.current_tasks = [];
   state.updated_at = new Date().toISOString();
   state.completed_at = new Date().toISOString();
 
@@ -318,25 +376,19 @@ function validateTaskId(taskId: string): boolean {
 
 ```typescript
 function checkTaskDependencies(
-  task: Task,
+  task: WorkflowTaskV2,
   progress: {
     completed: string[];
     skipped: string[];
     failed: string[];
   }
 ): { satisfied: boolean; missing: string[] } {
-  if (!task.depends) {
+  const dependencies = getTaskDepends(task);
+  if (dependencies.length === 0) {
     return { satisfied: true, missing: [] };
   }
 
-  const dependencies = task.depends.split(',').map(d => d.trim());
-  const missing: string[] = [];
-
-  for (const dep of dependencies) {
-    if (!progress.completed.includes(dep)) {
-      missing.push(dep);
-    }
-  }
+  const missing = dependencies.filter(dep => !progress.completed.includes(dep));
 
   return {
     satisfied: missing.length === 0,
@@ -351,14 +403,15 @@ function checkTaskDependencies(
 
 ```typescript
 function checkBlockedDependencies(
-  task: Task,
+  task: WorkflowTaskV2,
   unblocked: string[]
 ): { satisfied: boolean; missing: string[] } {
-  if (!task.blocked_by || task.blocked_by.length === 0) {
+  const blockedBy = task.blocked_by || [];
+  if (blockedBy.length === 0) {
     return { satisfied: true, missing: [] };
   }
 
-  const missing = task.blocked_by.filter(dep => !unblocked.includes(dep));
+  const missing = blockedBy.filter(dep => !unblocked.includes(dep));
 
   return {
     satisfied: missing.length === 0,
@@ -415,13 +468,15 @@ function recordContextUsage(
 检测任务复杂度。
 
 ```typescript
-function detectTaskComplexity(task: Task): 'simple' | 'medium' | 'complex' {
-  const actions = (task.actions || '').split(',').length;
-  const hasMultipleFiles = (task.file || '').includes(',');
-  const isQualityGate = task.quality_gate;
-  const hasDesignRef = !!task.design_ref;
+function detectTaskComplexity(task: WorkflowTaskV2): 'simple' | 'medium' | 'complex' {
+  const actions = normalizeTaskActions(task).length;
+  const files = getTaskFiles(task);
+  const hasMultipleFiles = files.length > 1;
+  const isQualityGate = !!task.quality_gate;
+  const hasReference = !!task.spec_ref || !!task.plan_ref;
+  const hasStructuredSteps = Array.isArray(task.steps) && task.steps.length > 0;
 
-  if (isQualityGate || hasDesignRef || hasMultipleFiles) return 'complex';
+  if (isQualityGate || hasReference || hasMultipleFiles || hasStructuredSteps) return 'complex';
   if (actions > 2) return 'medium';
   return 'simple';
 }
@@ -484,7 +539,7 @@ function generateProgressBar(percent: number): string {
 ```typescript
 function handleTaskError(
   error: Error,
-  task: Task,
+  task: WorkflowTaskV2,
   state: any,
   statePath: string
 ): void {
@@ -503,6 +558,7 @@ function handleTaskError(
   state.status = 'failed';
   state.failure_reason = error.message;
   state.updated_at = new Date().toISOString();
+  state.current_tasks = [task.id];
 
   // 记录失败任务
   addUnique(state.progress.failed, task.id);
@@ -594,16 +650,19 @@ function formatTimestamp(isoString: string): string {
 
 ```typescript
 function canRunInParallel(
-  taskA: Task,
-  taskB: Task,
-  allTasks: Task[]
+  taskA: WorkflowTaskV2,
+  taskB: WorkflowTaskV2,
+  allTasks: WorkflowTaskV2[]
 ): boolean {
-  // 1. 文件独立：操作的文件没有交集
-  if (taskA.file && taskB.file && taskA.file === taskB.file) return false;
+  const filesA = getTaskFiles(taskA);
+  const filesB = getTaskFiles(taskB);
 
-  // 2. 直接依赖检查（支持逗号分隔的多依赖）
-  const aDeps = (taskA.depends || '').split(',').map(s => s.trim()).filter(Boolean);
-  const bDeps = (taskB.depends || '').split(',').map(s => s.trim()).filter(Boolean);
+  // 1. 文件独立：操作的文件没有交集
+  if (filesA.some(file => filesB.includes(file))) return false;
+
+  // 2. 直接依赖检查
+  const aDeps = getTaskDepends(taskA);
+  const bDeps = getTaskDepends(taskB);
   if (aDeps.includes(taskB.id) || bDeps.includes(taskA.id)) return false;
 
   // 3. 传递依赖检查：A 的任何上游是否包含 B（或反之）
@@ -612,13 +671,15 @@ function canRunInParallel(
 
   // 4. 共享状态检查：同时操作 store/config/constants/types 目录
   const sharedPaths = ['store', 'config', 'constants', 'types', 'shared'];
-  const aIsShared = sharedPaths.some(p => (taskA.file || '').includes(`/${p}/`));
-  const bIsShared = sharedPaths.some(p => (taskB.file || '').includes(`/${p}/`));
+  const aIsShared = filesA.some(file => sharedPaths.some(p => file.includes(`/${p}/`)));
+  const bIsShared = filesB.some(file => sharedPaths.some(p => file.includes(`/${p}/`)));
   if (aIsShared && bIsShared) return false;
 
-  // 5. Import 路径检查：A 创建的文件不被 B 的 requirement 引用（或反之）
-  if (taskA.file && taskB.requirement?.includes(taskA.file)) return false;
-  if (taskB.file && taskA.requirement?.includes(taskB.file)) return false;
+  // 5. 语义引用检查：B 的 steps 引用了 A 操作的文件（或反之）
+  const intentA = getTaskIntentText(taskA);
+  const intentB = getTaskIntentText(taskB);
+  if (filesA.some(file => intentB.includes(file))) return false;
+  if (filesB.some(file => intentA.includes(file))) return false;
 
   return true;
 }
@@ -630,18 +691,16 @@ function canRunInParallel(
 
 ```typescript
 function hasTransitiveDependency(
-  taskA: Task,
-  taskB: Task,
-  allTasks: Task[],
+  taskA: WorkflowTaskV2,
+  taskB: WorkflowTaskV2,
+  allTasks: WorkflowTaskV2[],
   visited: Set<string> = new Set()
 ): boolean {
   if (visited.has(taskA.id)) return false;
   visited.add(taskA.id);
 
-  if (!taskA.depends) return false;
-
-  // 支持逗号分隔的多依赖
-  const deps = taskA.depends.split(',').map(s => s.trim()).filter(Boolean);
+  const deps = getTaskDepends(taskA);
+  if (deps.length === 0) return false;
 
   for (const depId of deps) {
     if (depId === taskB.id) return true;
@@ -664,7 +723,7 @@ function hasTransitiveDependency(
 function findParallelGroup(
   tasksContent: string,
   progress: Progress,
-  allTasks: Task[]
+  allTasks: WorkflowTaskV2[]
 ): string[][] {
   // 1. 找出当前阶段所有 pending 且未阻塞的任务
   const pendingTasks = allTasks.filter(t =>
@@ -695,7 +754,6 @@ function findParallelGroup(
     for (let j = i + 1; j < samePhase.length; j++) {
       if (assigned.has(samePhase[j].id)) continue;
 
-      // 检查与组内所有任务的独立性
       const canParallel = group.every(gId => {
         const gTask = allTasks.find(t => t.id === gId)!;
         return canRunInParallel(gTask, samePhase[j], allTasks);

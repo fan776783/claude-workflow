@@ -22,10 +22,10 @@ interface ImpactAnalysis {
 interface TaskToAdd {
   name: string;
   phase: string;
-  file: string;
-  requirement: string;
-  actions: string;
-  depends?: string;
+  files: string[];
+  steps: string[];
+  actions: string[];
+  depends?: string[];
   blocked_by?: string[];
   rationale: string;
 }
@@ -34,8 +34,8 @@ interface TaskToModify {
   id: string;
   name: string;
   changes: string;
-  before: Partial<Task>;
-  after: Partial<Task>;
+  before: Partial<WorkflowTaskV2>;
+  after: Partial<WorkflowTaskV2>;
   rationale: string;
 }
 
@@ -58,7 +58,7 @@ interface TaskToRemove {
 ```typescript
 function analyzeApiDelta(
   apiContent: string,
-  existingTasks: Task[],
+  existingTasks: WorkflowTaskV2[],
   apiContext: ApiContext | null
 ): ImpactAnalysis {
   // 1. 解析新 API 文件
@@ -86,9 +86,9 @@ function analyzeApiDelta(
     impact.tasksToAdd.push({
       name: `实现 ${api.name} 接口调用`,
       phase: 'ui-integrate',
-      file: `src/services/${api.module}Service.ts`,
-      requirement: `调用 ${api.method} ${api.path}，处理请求和响应`,
-      actions: 'edit_file',
+      files: [`src/services/${api.module}Service.ts`],
+      steps: [`调用 ${api.method} ${api.path}，处理请求和响应`],
+      actions: ['edit_file'],
       blocked_by: ['api_spec'],
       rationale: `新增接口 ${api.name}`
     });
@@ -99,10 +99,10 @@ function analyzeApiDelta(
       impact.tasksToAdd.push({
         name: `集成 ${api.name} 到 ${relatedComponent.name}`,
         phase: 'ui-integrate',
-        file: relatedComponent.file,
-        requirement: `在 ${relatedComponent.name} 中调用 ${api.name} 接口`,
-        actions: 'edit_file',
-        depends: `T${existingTasks.length + impact.tasksToAdd.length}`,
+        files: relatedComponent.files?.modify || relatedComponent.files?.create || [],
+        steps: [`在 ${relatedComponent.name} 中调用 ${api.name} 接口`],
+        actions: ['edit_file'],
+        depends: [`T${existingTasks.length + impact.tasksToAdd.length}`],
         rationale: `新增接口需要集成到现有组件`
       });
     }
@@ -129,8 +129,8 @@ function analyzeApiDelta(
         id: task.id,
         name: task.name,
         changes: api.changes,
-        before: { requirement: task.requirement },
-        after: { requirement: `${task.requirement}（已更新：${api.changes}）` },
+        before: { steps: task.steps },
+        after: { steps: [...task.steps, { id: 'D1', description: `接口变化：${api.changes}`, expected: '相关调用与类型已同步' }] },
         rationale: `接口 ${api.name} 签名变更`
       });
     }
@@ -158,7 +158,7 @@ function analyzeApiDelta(
 function analyzePrdDelta(
   prdContent: string,
   techDesign: string,
-  existingTasks: Task[]
+  existingTasks: WorkflowTaskV2[]
 ): ImpactAnalysis {
   // 1. 提取结构化需求（如果长度 > 500）
   let newRequirements: RequirementAnalysis | null = null;
@@ -190,27 +190,27 @@ function analyzePrdDelta(
       impact.tasksToAdd.push({
         name: `添加表单字段：${req.fieldName}`,
         phase: 'ui-form',
-        file: `src/components/forms/${req.scene}Form.vue`,
-        requirement: `添加 ${req.fieldName} 字段，类型：${req.fieldType}，校验规则：${req.validationRules.join(', ')}`,
-        actions: 'edit_file',
+        files: [`src/components/forms/${req.scene}Form.vue`],
+        steps: [`添加 ${req.fieldName} 字段，类型：${req.fieldType}，校验规则：${req.validationRules.join(', ')}`],
+        actions: ['edit_file'],
         rationale: `PRD 新增表单字段`
       });
     } else if (req.type === 'business_rule') {
       impact.tasksToAdd.push({
         name: `实现业务规则：${req.ruleName}`,
         phase: 'infra',
-        file: `src/utils/businessRules.ts`,
-        requirement: req.description,
-        actions: 'edit_file',
+        files: ['src/utils/businessRules.ts'],
+        steps: [req.description],
+        actions: ['edit_file'],
         rationale: `PRD 新增业务规则`
       });
     } else if (req.type === 'ui_component') {
       impact.tasksToAdd.push({
         name: `创建组件：${req.componentName}`,
         phase: 'ui-display',
-        file: `src/components/${req.componentName}.vue`,
-        requirement: req.description,
-        actions: 'create_file',
+        files: [`src/components/${req.componentName}.vue`],
+        steps: [req.description],
+        actions: ['create_file'],
         rationale: `PRD 新增 UI 组件`
       });
     }
@@ -237,8 +237,8 @@ function analyzePrdDelta(
         id: task.id,
         name: task.name,
         changes: req.changes,
-        before: { requirement: task.requirement },
-        after: { requirement: req.after.description },
+        before: { steps: task.steps },
+        after: { steps: [{ id: 'D1', description: req.after.description, expected: '需求变化已实现' }] },
         rationale: `需求变更：${req.changes}`
       });
     }
@@ -266,7 +266,7 @@ function analyzePrdDelta(
 function analyzeRequirementDelta(
   requirement: string,
   techDesign: string,
-  existingTasks: Task[]
+  existingTasks: WorkflowTaskV2[]
 ): ImpactAnalysis {
   // 1. 使用 codebase-retrieval 分析需求
   const analysisResult = await mcp__auggie-mcp__codebase-retrieval({
@@ -300,9 +300,9 @@ function analyzeRequirementDelta(
     impact.tasksToAdd.push({
       name: module.name,
       phase: determinePhase(module),
-      file: module.file,
-      requirement: module.description,
-      actions: determineActions(module),
+      files: [module.file],
+      steps: [module.description],
+      actions: [determineActions(module)],
       rationale: `需求变更：${requirement.substring(0, 100)}`
     });
   }
@@ -316,8 +316,8 @@ function analyzeRequirementDelta(
         id: task.id,
         name: task.name,
         changes: module.changes,
-        before: { requirement: task.requirement },
-        after: { requirement: `${task.requirement}\n\n**变更**：${module.changes}` },
+        before: { steps: task.steps },
+        after: { steps: [...task.steps, { id: 'D1', description: module.changes, expected: '模块变更已同步' }] },
         rationale: `需求变更影响现有模块`
       });
     }
@@ -519,14 +519,18 @@ function estimateEffort(impact: ImpactAnalysis): string {
 根据 API 名称查找相关任务。
 
 ```typescript
-function findTasksByApi(apiName: string, tasks: Task[]): Task[] {
+function findTasksByApi(apiName: string, tasks: WorkflowTaskV2[]): WorkflowTaskV2[] {
   return tasks.filter(task => {
-    const req = task.requirement?.toLowerCase() || '';
-    const file = task.file?.toLowerCase() || '';
+    const stepText = task.steps.map(step => `${step.description} ${step.expected}`).join(' ').toLowerCase();
+    const fileText = [
+      ...(task.files.create || []),
+      ...(task.files.modify || []),
+      ...(task.files.test || [])
+    ].join(' ').toLowerCase();
     const name = task.name?.toLowerCase() || '';
 
-    return req.includes(apiName.toLowerCase()) ||
-           file.includes(apiName.toLowerCase()) ||
+    return stepText.includes(apiName.toLowerCase()) ||
+           fileText.includes(apiName.toLowerCase()) ||
            name.includes(apiName.toLowerCase());
   });
 }
@@ -537,13 +541,13 @@ function findTasksByApi(apiName: string, tasks: Task[]): Task[] {
 根据需求查找相关任务。
 
 ```typescript
-function findTasksByRequirement(req: Requirement, tasks: Task[]): Task[] {
+function findTasksByRequirement(req: Requirement, tasks: WorkflowTaskV2[]): WorkflowTaskV2[] {
   return tasks.filter(task => {
-    const taskReq = task.requirement?.toLowerCase() || '';
+    const taskText = task.steps.map(step => `${step.description} ${step.expected}`).join(' ').toLowerCase();
     const reqDesc = req.description?.toLowerCase() || '';
 
-    return taskReq.includes(reqDesc) ||
-           reqDesc.includes(taskReq);
+    return taskText.includes(reqDesc) ||
+           reqDesc.includes(taskText);
   });
 }
 ```
@@ -553,8 +557,12 @@ function findTasksByRequirement(req: Requirement, tasks: Task[]): Task[] {
 根据文件路径查找相关任务。
 
 ```typescript
-function findTasksByFile(filePath: string, tasks: Task[]): Task[] {
-  return tasks.filter(task => task.file === filePath);
+function findTasksByFile(filePath: string, tasks: WorkflowTaskV2[]): WorkflowTaskV2[] {
+  return tasks.filter(task =>
+    (task.files.create || []).includes(filePath) ||
+    (task.files.modify || []).includes(filePath) ||
+    (task.files.test || []).includes(filePath)
+  );
 }
 ```
 

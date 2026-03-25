@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bug Batch"
+  short_description: "Help with batch bug fixing and fix-unit planning"
+  default_prompt: "Use $bug-batch to analyze all bugs first, group duplicates and coupled issues into fix units, then execute repair with verification gates."

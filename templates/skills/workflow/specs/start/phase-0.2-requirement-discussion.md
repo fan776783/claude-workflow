@@ -622,7 +622,7 @@ Phase 0.5 的函数签名已扩展为 `extractStructuredRequirements(content, di
 
 任务依赖分类函数已扩展为 `classifyTaskDependencies(task, discussionArtifact?)`，
 消费 `unresolvedDependencies` 映射到 `blocked_by`。
-详见 `specs/start/phase-2-task-generation.md`。
+详见 `specs/start/phase-3-task-compilation.md`。
 
 ### 状态机适配
 
@@ -634,5 +634,5 @@ Phase 0.5 的函数签名已扩展为 `extractStructuredRequirements(content, di
 讨论工件持久化为 `~/.claude/workflows/{projectId}/discussion-artifact.json`，用于：
 - Phase 0.5: 结构化提取时参考澄清结果（覆盖率更高）
 - Phase 1: 技术方案生成（新增澄清摘要章节 + 方案选择作为架构起点）
-- Phase 2: 任务生成（unresolvedDependencies 映射到 blocked_by）
+- Phase 3: 任务编译（unresolvedDependencies 映射到 blocked_by）
 - 审计追溯：讨论过程可回溯

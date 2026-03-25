@@ -158,10 +158,12 @@ function extractCategory(content: string, funcName: string): string {
 当任务解除阻塞后，注入可用 API 信息：
 
 ```typescript
-function enrichTaskWithApi(task: Task, apiInfo: { interfaces: ApiInterface[] }): Task {
-  // 根据任务需求匹配相关接口
+function enrichTaskWithApi(task: WorkflowTaskV2, apiInfo: { interfaces: ApiInterface[] }): WorkflowTaskV2 {
+  // 根据任务名称与步骤描述匹配相关接口
   const relevantApis = apiInfo.interfaces.filter(api => {
-    const taskKeywords = extractKeywords(task.name + ' ' + task.requirement);
+    const taskKeywords = extractKeywords(
+      task.name + ' ' + task.steps.map(step => step.description).join(' ')
+    );
     return taskKeywords.some(kw =>
       api.path.includes(kw) ||
       api.description.includes(kw) ||
@@ -213,10 +215,14 @@ function enrichTaskWithApi(task: Task, apiInfo: { interfaces: ApiInterface[] }):
 更新 `classifyTaskDependencies` 只检测 API 依赖：
 
 ```typescript
-function classifyTaskDependencies(task: Task): string[] {
+function classifyTaskDependencies(task: WorkflowTaskV2): string[] {
   const deps: string[] = [];
   const name = task.name.toLowerCase();
-  const file = (task.file || '').toLowerCase();
+  const file = [
+    ...(task.files.create || []),
+    ...(task.files.modify || []),
+    ...(task.files.test || [])
+  ].join(' ').toLowerCase();
 
   // API 依赖检测
   const apiPatterns = [

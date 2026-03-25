@@ -83,39 +83,45 @@ const archiveTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
 // 检查 changes 目录是否存在
 if (!fileExists(changesDir)) {
   console.log(`
-⚠️ 无变更记录
+❌ 无法归档
 
-changes 目录不存在，可能是旧版工作流。
-跳过归档，直接更新状态。
+未找到活动变更目录：${changesDir}
+当前工作流状态不完整，请先检查 Intent / Delta 产物是否存在。
   `);
-} else {
-  // 确保 archive 目录存在
-  ensureDir(archiveDir);
+  return;
+}
 
-  // 获取所有变更目录
-  const changeIds = listDir(changesDir).filter(d => d.startsWith('CHG-'));
+// 确保 archive 目录存在
+ensureDir(archiveDir);
 
-  if (changeIds.length === 0) {
-    console.log(`⚠️ changes 目录为空，无需归档`);
-  } else {
-    // 移动每个变更到归档目录
-    for (const changeId of changeIds) {
-      const srcPath = path.join(changesDir, changeId);
-      const destPath = path.join(archiveDir, changeId);
+// 获取所有变更目录
+const changeIds = listDir(changesDir).filter(d => d.startsWith('CHG-'));
 
-      await Bash({ command: `mv "${srcPath}" "${destPath}"` });
+if (changeIds.length === 0) {
+  console.log(`
+❌ 无法归档
 
-      console.log(`✅ 已归档: ${changeId}`);
-    }
+changes 目录为空，没有可移动到 archive/ 的变更记录。
+  `);
+  return;
+}
 
-    console.log(`
+// 移动每个变更到归档目录
+for (const changeId of changeIds) {
+  const srcPath = path.join(changesDir, changeId);
+  const destPath = path.join(archiveDir, changeId);
+
+  await Bash({ command: `mv "${srcPath}" "${destPath}"` });
+
+  console.log(`✅ 已归档: ${changeId}`);
+}
+
+console.log(`
 📊 归档完成
 
 - 归档变更数: ${changeIds.length}
 - 归档目录: ${archiveDir}
-    `);
-  }
-}
+`);
 ```
 
 ---
@@ -193,7 +199,7 @@ state.status = 'archived';
 state.archived_at = new Date().toISOString();
 state.updated_at = new Date().toISOString();
 
-// 清空 delta_tracking 的当前变更
+// 清空 delta_tracking 的当前活动变更指针
 if (state.delta_tracking) {
   state.delta_tracking.current_change = null;
 }

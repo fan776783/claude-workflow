@@ -333,7 +333,7 @@ function extractPath(config: string): string {
 ```typescript
 function updateBlockedTasks(state: any, tasksPath: string): void {
   const tasksContent = readFile(tasksPath);
-  const tasks = parseTasksFromMarkdown(tasksContent);
+  const tasks = parseWorkflowTasksV2FromMarkdown(tasksContent);
 
   let updatedContent = tasksContent;
   let unblockedCount = 0;
@@ -405,9 +405,9 @@ function updateTaskBlockedBy(
 获取已解除阻塞的任务列表。
 
 ```typescript
-function getUnblockedTasks(state: any, tasksPath: string): Task[] {
+function getUnblockedTasks(state: any, tasksPath: string): WorkflowTaskV2[] {
   const tasksContent = readFile(tasksPath);
-  const tasks = parseTasksFromMarkdown(tasksContent);
+  const tasks = parseWorkflowTasksV2FromMarkdown(tasksContent);
 
   return tasks.filter(task => {
     // 任务状态为 pending

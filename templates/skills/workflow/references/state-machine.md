@@ -1,4 +1,4 @@
-# 工作流状态机 (v3.0)
+# 工作流状态机 (v4.0)
 
 ## 状态定义
 
@@ -6,10 +6,11 @@
 |------|------|
 | `idle` | 初始状态，无活动任务 |
 | `planned` | 规划完成，等待用户审查后执行 |
+| `spec_review` | Spec 已生成，等待用户确认范围 |
 | `intent_review` | Intent 文档已生成，等待审查 |
 | `running` | 工作流执行中 |
 | `paused` | 暂停等待用户操作 |
-| `blocked` | 等待外部依赖（接口/设计稿） |
+| `blocked` | 等待外部依赖（接口/第三方能力） |
 | `failed` | 任务失败，需要处理 |
 | `completed` | 所有任务完成 |
 | `archived` | 工作流已归档 |
@@ -43,7 +44,6 @@
   "project_id": "abc123",
   "project_name": "my-project",
   "status": "running",
-  "current_task": "T3",
   "current_tasks": ["T3"],
   "parallel_groups": [],
   "execution_mode": "phase",
@@ -51,8 +51,32 @@
   "use_subagent": true,
   "pause_before_commit": true,
   "consecutive_count": 2,
-  "tasks_file": "tasks.md",
-  "tech_design": ".claude/tech-design/task-name.md",
+  "tasks_file": "tasks-example.md",
+  "tech_design": ".claude/tech-design/example.md",
+  "spec_file": ".claude/specs/example.md",
+  "plan_file": ".claude/plans/example.md",
+  "review_status": {
+    "spec_review": {
+      "status": "passed",
+      "reviewed_at": "2026-03-24T10:20:00Z",
+      "reviewer": "subagent"
+    },
+    "user_spec_review": {
+      "status": "approved",
+      "reviewed_at": "2026-03-24T10:28:00Z",
+      "reviewer": "user"
+    },
+    "intent_review": {
+      "status": "approved",
+      "reviewed_at": "2026-03-24T10:35:00Z",
+      "reviewer": "user"
+    },
+    "plan_review": {
+      "status": "passed",
+      "reviewed_at": "2026-03-24T10:42:00Z",
+      "reviewer": "subagent"
+    }
+  },
   "unblocked": [],
   "sessions": {
     "platform": "cursor",
@@ -65,7 +89,7 @@
   },
   "progress": {
     "completed": ["T1", "T2"],
-    "blocked": ["T5", "T6"],
+    "blocked": ["T5"],
     "failed": [],
     "skipped": []
   },
@@ -82,8 +106,8 @@
     "dangerThreshold": 80,
     "maxConsecutiveTasks": 5,
     "history": [
-      { "taskId": "T1", "tokens": 12000, "timestamp": "2026-01-08T10:10:00Z" },
-      { "taskId": "T2", "tokens": 18000, "timestamp": "2026-01-08T10:20:00Z" }
+      { "taskId": "T1", "tokens": 12000, "timestamp": "2026-03-24T11:10:00Z" },
+      { "taskId": "T2", "tokens": 18000, "timestamp": "2026-03-24T11:20:00Z" }
     ]
   },
   "collaboration": {
@@ -96,43 +120,19 @@
     "confidence": 0.85
   },
   "constraints": {
-    "hard": [
-      {
-        "id": "C001",
-        "description": "API 响应必须包含 requestId",
-        "type": "hard",
-        "category": "interface",
-        "sourceModel": "codex",
-        "phase": "analysis",
-        "verified": true
-      }
-    ],
-    "soft": [
-      {
-        "id": "C002",
-        "description": "建议使用 zod 进行输入验证",
-        "type": "soft",
-        "category": "data",
-        "sourceModel": "claude",
-        "phase": "analysis",
-        "verified": false
-      }
-    ],
+    "hard": [],
+    "soft": [],
     "openQuestions": [],
-    "successCriteria": [
-      "所有 API 端点返回标准格式",
-      "类型检查通过",
-      "测试覆盖率 > 80%"
-    ]
+    "successCriteria": []
   },
   "zeroDecisionAudit": {
     "passed": true,
     "antiPatterns": [],
     "remainingAmbiguities": [],
-    "auditedAt": "2026-01-08T10:25:00Z"
+    "auditedAt": "2026-03-24T10:25:00Z"
   },
-  "created_at": "2026-01-08T10:00:00Z",
-  "updated_at": "2026-01-08T10:30:00Z",
+  "created_at": "2026-03-24T10:00:00Z",
+  "updated_at": "2026-03-24T10:30:00Z",
   "failure_reason": null,
   "delta_tracking": {
     "enabled": true,
@@ -148,44 +148,46 @@
 
 | 字段 | 说明 |
 |------|------|
-| `mode` | 工作流模式：`normal`（默认）/ `progressive`（渐进式） |
-| `current_tasks` | 当前执行中的任务 ID 数组（并行执行时包含多个）|
-| `current_task` | 向后兼容别名，等于 `current_tasks[0]` |
+| `mode` | 工作流模式：`normal` / `progressive` |
+| `current_tasks` | 当前执行中的任务 ID 数组；顺序执行时仅包含 1 个任务 ID |
 | `parallel_groups` | 并行执行批次历史记录 |
-| `unblocked` | 已解除的依赖列表，如 `["api_spec"]` |
-| `sessions` | 平台与会话槽位信息；`platform: ExecutionPlatform` 表示当前执行平台，`executor/reviewers` 用于跨阶段复用会话 |
+| `tech_design` | 技术设计文档路径 |
+| `delta_tracking.current_change` | 当前活动变更的 changeId；归档后清空 |
+| `spec_file` | Spec 文档路径 |
+| `plan_file` | Plan 文档路径 |
+| `tasks_file` | 运行时任务清单路径 |
+| `review_status.spec_review` | Phase 1.2 审查状态 |
+| `review_status.user_spec_review` | Phase 1.4 用户 Spec 审查状态 |
+| `review_status.intent_review` | Phase 1.5 Intent 审查状态 |
+| `review_status.plan_review` | Phase 2.5 Plan 审查状态 |
+| `unblocked` | 已解除的依赖列表 |
+| `sessions` | 平台与会话槽位信息 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
 | `contextMetrics` | 上下文感知指标，用于动态调整执行策略 |
-| `contextMetrics.estimatedTokens` | 当前估算的上下文 token 数（字符数/4） |
-| `contextMetrics.warningThreshold` | 警告阈值百分比（默认 60%） |
-| `contextMetrics.dangerThreshold` | 危险阈值百分比（默认 80%） |
-| `contextMetrics.maxConsecutiveTasks` | 动态计算的连续任务上限 |
-| `contextMetrics.history` | 每次任务执行后的 token 变化记录 |
-| `collaboration` | 多模型协作配置（v2.1） |
-| `collaboration.mode` | 协作模式：none/single/dual/triple |
-| `collaboration.lead` | 主导模型：`ModelProvider`（当前约定为 codex/gemini/claude，不含平台名） |
-| `collaboration.support` | 辅助模型列表（`ModelProvider[]`，仅模型名，不含平台名） |
-| `collaboration.parallelPhases` | 并行执行的阶段：analysis/prototype/review |
-| `collaboration.confidence` | 路由置信度 0-1 |
-| `constraints` | 约束系统（v2.1） |
-| `constraints.hard` | 硬约束列表（必须满足） |
-| `constraints.soft` | 软约束列表（建议满足） |
-| `constraints.openQuestions` | 待澄清问题 |
-| `constraints.successCriteria` | 成功标准 |
+| `collaboration` | 多模型协作配置 |
+| `constraints` | 约束系统 |
 | `zeroDecisionAudit` | 零决策审计结果 |
-| `delta_tracking` | 增量变更追踪系统（v3.0） |
-| `delta_tracking.enabled` | 是否启用增量追踪 |
-| `delta_tracking.changes_dir` | 变更目录路径 "changes/" |
-| `delta_tracking.current_change` | 当前变更 ID，如 "CHG-001" |
-| `delta_tracking.applied_changes` | 已应用的变更 ID 列表 |
-| `delta_tracking.change_counter` | 变更 ID 计数器 |
+| `delta_tracking` | 增量变更追踪系统 |
 | `task_runtime` | Per-task 运行时状态（v3.5.0），键为任务 ID |
-| `task_runtime[id].retry_count` | 当前任务连续重试次数，成功后重置为 0 |
-| `task_runtime[id].last_failure_stage` | 最后一次失败的阶段 |
-| `task_runtime[id].last_failure_reason` | 最后一次失败的原因 |
-| `task_runtime[id].hard_stop_triggered` | 是否触发了 Hard Stop（retry_count ≥ 3） |
-| `task_runtime[id].debugging_phases_completed` | 已完成的调试阶段 |
 | `quality_gates` | 质量关卡审查结果（v3.5.0），键为关卡任务 ID |
+
+## 审查状态接口
+
+```typescript
+interface ReviewCheckpoint {
+  status: 'pending' | 'passed' | 'approved' | 'revise_required' | 'rejected';
+  reviewed_at?: string;
+  reviewer?: 'user' | 'subagent' | 'system';
+  notes?: string[];
+}
+
+interface ReviewStatus {
+  spec_review: ReviewCheckpoint;
+  user_spec_review: ReviewCheckpoint;
+  intent_review: ReviewCheckpoint;
+  plan_review: ReviewCheckpoint;
+}
+```
 
 ## 执行纪律接口定义（v3.5.0）
 
@@ -211,9 +213,9 @@ interface TaskRuntime {
 ```typescript
 interface QualityGateResult {
   gate_task_id: string;
-  commit_hash: string;             // 关卡通过时的 HEAD commit hash
+  commit_hash: string;
   diff_window: {
-    from_task: string | null;      // null = 工作流起点
+    from_task: string | null;
     to_task: string;
     files_changed: number;
   };
@@ -221,25 +223,65 @@ interface QualityGateResult {
     passed: boolean;
     attempts: number;
     issues_found: number;
-    completed_at: string;          // ISO 8601
+    completed_at: string;
   };
-  stage2?: {                       // Stage 1 未通过时可缺省
+  stage2?: {
     passed: boolean;
     attempts: number;
     assessment: 'approved' | 'needs_fixes' | 'rejected';
     critical_count: number;
     important_count: number;
     minor_count: number;
-    completed_at: string;          // ISO 8601
+    completed_at: string;
   };
   overall_passed: boolean;
 }
 ```
 
-**失败态约定**：
-- Stage 1 失败时，`stage2` 缺省（由 `markGateFailed` 不填充该字段）
-- Stage 2 失败时，`stage2` 填充实际审查结果（`assessment: 'rejected'` 或 `'needs_fixes'`）
-- 消费方（如 `status.md` 模板）须用 `{{#if stage2}}` 条件渲染
+## WorkflowTaskV2
+
+### 接口定义
+
+```typescript
+interface WorkflowTaskV2 {
+  id: string;
+  name: string;
+  phase: string;
+  files: {
+    create?: string[];
+    modify?: string[];
+    test?: string[];
+  };
+  leverage?: string[];
+  spec_ref: string;
+  plan_ref: string;
+  acceptance_criteria?: string[];
+  depends?: string[];
+  blocked_by?: string[];
+  quality_gate?: boolean;
+  status: 'pending' | 'blocked' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  actions: Array<'create_file' | 'edit_file' | 'run_tests' | 'quality_review' | 'git_commit'>;
+  steps: Array<{
+    id: string;
+    description: string;
+    expected: string;
+    verification?: string;
+  }>;
+  verification?: {
+    commands?: string[];
+    expected_output?: string[];
+    notes?: string[];
+  };
+}
+```
+
+### 模型原则
+
+- 任务模型仅保留 V2 字段，不再维护旧任务格式的镜像字段
+- 执行链路直接消费 `files{}`、`steps[]`、`verification`
+- `spec_ref` 指向 `spec.md` 的章节
+- `plan_ref` 指向 `plan.md` 的步骤或任务段落
+- `acceptance_criteria` 持续映射到 Phase 0.6 验收项
 
 ## 术语基础类型
 
@@ -253,79 +295,17 @@ type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
 - `ModelProvider` 表示参与分析、审查、约束提炼的模型来源
 - 平台与模型必须分层建模，禁止混用
 
-## 约束系统（v2.1）
-
-### Constraint 接口定义
-
-```typescript
-interface Constraint {
-  id: string;                    // 唯一标识 C001, C002...
-  description: string;           // 约束描述
-  type: 'hard' | 'soft';         // 硬约束必须满足，软约束建议满足
-  category: 'requirement' | 'interface' | 'data' | 'error' | 'security' | 'performance';
-  sourceModel: ModelProvider;    // 来源追踪（模型级，不含执行平台）
-  phase: 'analysis' | 'review';  // 产生阶段
-  verified?: boolean;            // 是否已验证
-  verifyCmd?: string;            // 验证命令（可选）
-}
-
-interface ConstraintSet {
-  hard: Constraint[];            // 硬约束（最多 7 个）
-  soft: Constraint[];            // 软约束（最多 7 个）
-  openQuestions: string[];       // 待澄清问题（最多 5 个）
-  successCriteria: string[];     // 成功标准（最多 7 个）
-}
-```
-
-### 约束合并语义
-
-并行模型输出约束时，按以下规则合并：
-
-```typescript
-function mergeConstraints(sets: ConstraintSet[]): ConstraintSet {
-  return {
-    // 硬约束：取并集（所有模型的硬约束都必须满足）
-    hard: deduplicateById(sets.flatMap(s => s.hard)).slice(0, 7),
-
-    // 软约束：取并集，按出现频率排序
-    soft: rankByFrequency(sets.flatMap(s => s.soft)).slice(0, 7),
-
-    // 待澄清问题：取并集，保留来源
-    openQuestions: deduplicate(sets.flatMap(s => s.openQuestions)).slice(0, 5),
-
-    // 成功标准：取交集（所有模型都认可的标准）
-    successCriteria: intersection(sets.map(s => s.successCriteria)).slice(0, 7)
-  };
-}
-```
-
-### 约束验证
-
-```typescript
-interface ConstraintVerification {
-  constraintId: string;
-  passed: boolean;
-  details: string;
-  checkedAt: string;
-}
-
-// 内置验证器
-const BUILTIN_VERIFIERS = {
-  'ts_typecheck': 'pnpm tsc --noEmit',
-  'lint': 'pnpm lint',
-  'test': 'pnpm test',
-  'build': 'pnpm build'
-};
-```
-
 ## 状态转换
 
 ```
-idle → planned (workflow-start 完成规划)
+idle → planned (workflow-start 完成基础规划)
+planned → spec_review (spec 文档生成，等待用户确认)
+spec_review → planned (spec 已批准，继续 intent / plan / task 编译)
 planned → intent_review (intent 文档生成)
+intent_review → planned (intent 批准)
 planned → running (workflow-execute 开始执行)
 planned → idle (用户取消)
-intent_review → planned (intent 批准，继续任务生成)
+spec_review → idle (用户拒绝并终止)
 intent_review → idle (intent 拒绝)
 running → paused (阶段完成 / 质量关卡)
 running → blocked (遇到阻塞任务且无可执行任务)
@@ -342,20 +322,18 @@ completed → archived (/workflow archive 执行)
 
 ```typescript
 function classifyTaskDependencies(
-  task: Task,
+  task: { name: string; files?: string[] },
   discussionArtifact?: DiscussionArtifact
 ): string[] {
   const deps: string[] = [];
   const name = task.name.toLowerCase();
-  const file = (task.file || '').toLowerCase();
+  const file = (task.files || []).join(' ').toLowerCase();
 
-  // 需要后端接口的任务
   if (/api|接口|服务层|service|fetch|request|http/.test(name) ||
       /services\/|api\/|http\//.test(file)) {
     deps.push('api_spec');
   }
 
-  // 从 Phase 0.2 讨论工件中映射未就绪依赖
   if (discussionArtifact?.unresolvedDependencies) {
     for (const dep of discussionArtifact.unresolvedDependencies) {
       if (dep.status === 'not_started' && !deps.includes(dep.type)) {
@@ -363,7 +341,6 @@ function classifyTaskDependencies(
       }
     }
   } else {
-    // 回退：Phase 0.2 被跳过时，正则检测 external 依赖
     if (/第三方|sdk|外部服务|third.party|payment|sms|oauth|oss/.test(name)) {
       if (!deps.includes('external')) {
         deps.push('external');
@@ -398,22 +375,20 @@ function classifyTaskDependencies(
 
 Subagent 模式下，同阶段且通过独立性检查的任务可并行执行。
 
-**parallel_groups 结构**：
-
 ```typescript
 interface ParallelGroup {
-  id: string;                    // "PG-001"
-  task_ids: string[];            // ["T3", "T4", "T5"]
+  id: string;
+  task_ids: string[];
   status: 'running' | 'completed' | 'failed';
   started_at: string;
   completed_at?: string;
-  conflict_detected: boolean;    // 冲突检测结果
+  conflict_detected: boolean;
 }
 ```
 
 **状态同步规则**：
 - `current_tasks` 在并行分派时更新为所有并行任务 ID
-- `current_task` 始终等于 `current_tasks[0]`（向后兼容）
+- 顺序执行时，`current_tasks` 仅保留当前任务 ID
 - 并行任务全部完成后，`current_tasks` 更新为下一批任务或清空
 
 ## Delta Tracking 系统 (v3.0)
@@ -422,35 +397,32 @@ interface ParallelGroup {
 
 ```typescript
 interface DeltaTracking {
-  enabled: boolean;              // 是否启用增量追踪
-  changes_dir: string;           // 变更目录 "changes/"
-  current_change: string | null; // 当前变更 ID "CHG-001"
-  applied_changes: string[];     // 已应用的变更列表
-  change_counter: number;        // 变更 ID 计数器
+  enabled: boolean;
+  changes_dir: string;
+  current_change: string | null;
+  applied_changes: string[];
+  change_counter: number;
 }
 
 interface DeltaSpec {
-  id: string;                    // "CHG-001"
-  parent_change: string | null;  // 父变更 ID
+  id: string;
+  parent_change: string | null;
   created_at: string;
-  status: "draft" | "reviewed" | "applied" | "archived";
-
+  status: 'draft' | 'reviewed' | 'applied' | 'archived';
   trigger: {
-    type: "new_requirement" | "bug_fix" | "design_change" | "review_feedback";
+    type: 'new_requirement' | 'bug_fix' | 'design_change' | 'review_feedback';
     description: string;
     source: string;
   };
-
   spec_deltas: Array<{
-    operation: "ADDED" | "MODIFIED" | "REMOVED";
-    section: string;             // "3.2 Data Model"
+    operation: 'ADDED' | 'MODIFIED' | 'REMOVED';
+    section: string;
     before: string | null;
     after: string | null;
     rationale: string;
   }>;
-
   task_deltas: Array<{
-    operation: "ADDED" | "MODIFIED" | "REMOVED";
+    operation: 'ADDED' | 'MODIFIED' | 'REMOVED';
     task_id: string;
     field_changes?: Record<string, { before: any; after: any }>;
     full_task?: object;
@@ -465,11 +437,11 @@ interface DeltaSpec {
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json
 ├── tasks-{name}.md
-├── changes/                    ← 增量变更目录
+├── changes/
 │   └── CHG-001/
-│       ├── delta.json          # 结构化变更描述
-│       ├── intent.md           # 意图文档
-│       └── review-status.json  # 审查状态
-└── archive/                    ← 归档目录
+│       ├── delta.json
+│       ├── intent.md
+│       └── review-status.json
+└── archive/
     └── CHG-001/
 ```

@@ -8,12 +8,8 @@ const readline = require('readline');
 
 const pkg = require('../package.json');
 const {
-  ensureClaudeHome,
-  installFresh,
-  upgradeFrom,
   installBinary,
   installForAgents,
-  migrateFromLegacy,
   getInstallationStatus,
 } = require('../lib/installer');
 const {
@@ -140,17 +136,23 @@ async function main() {
     const claudeDir = path.join(homeDir, '.claude');
     const oldMetaFile = path.join(claudeDir, '.claude-workflow', 'meta.json');
     let previousVersion = null;
+    let requiresMigration = false;
 
     if (await fs.pathExists(oldMetaFile)) {
       try {
         const oldMeta = await fs.readJson(oldMetaFile);
         previousVersion = oldMeta.version || null;
 
-        // 检查是否为旧版安装（非 symlink 模式）
+        // 检查是否为旧版安装（根 skills 仍是普通目录，或仍停留在 legacy root symlink 模式）
+        const status = await getInstallationStatus(true);
+        const claudeStatus = status.agents['claude-code'];
         const skillsDir = path.join(claudeDir, 'skills');
         if (await fs.pathExists(skillsDir)) {
           const stats = await fs.lstat(skillsDir);
-          if (!stats.isSymbolicLink()) {
+          requiresMigration = !claudeStatus?.installed
+            || claudeStatus.mode === 'legacy-root-symlink'
+            || !stats.isSymbolicLink();
+          if (requiresMigration) {
             console.log(`[claude-workflow] 检测到旧版安装 v${previousVersion}，将迁移到新架构`);
           }
         }
@@ -178,9 +180,9 @@ async function main() {
 
     if (effectiveVersion && semver.gt(effectiveVersion, currentVersion)) {
       console.log(`[claude-workflow] 检测到降级: v${effectiveVersion} → v${currentVersion}`);
-      console.log(`[claude-workflow] 跳过自动安装，如需强制同步请运行: npx claude-workflow sync --force`);
+      console.log(`[claude-workflow] 跳过自动安装，如需手动同步请运行: npx claude-workflow sync`);
       installStatus.errors.push('Downgrade detected, skipped');
-    } else if (effectiveVersion && semver.eq(effectiveVersion, currentVersion)) {
+    } else if (effectiveVersion && semver.eq(effectiveVersion, currentVersion) && !requiresMigration) {
       console.log(`[claude-workflow] 版本相同 (v${currentVersion})，跳过模板复制`);
       installStatus.templatesInstalled = true;
     } else {
@@ -190,7 +192,6 @@ async function main() {
           templatesDir,
           agents: targetAgents,
           global: true,
-          force: false,
         });
 
         installStatus.templatesInstalled = true;
@@ -206,7 +207,7 @@ async function main() {
         for (const [name, agentResult] of Object.entries(result.agents)) {
           const displayName = agents[name]?.displayName || name;
           const status = agentResult.success ? '✓' : '✗';
-          const mode = agentResult.links?.skills?.mode || 'unknown';
+          const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`  ${status} ${displayName} (${mode})`);
         }
       } catch (templateErr) {

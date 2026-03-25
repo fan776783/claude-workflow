@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **文档更新**：全面更新项目文档以反映 Skills 体系架构
   - 更新 README.md：强调 Skills 体系、多 Agent 支持、可移植性
-  - 更新 CLAUDE.md：详细说明 Canonical + Symlink 架构和 10 个可用 Skills
+  - 更新 CLAUDE.md：详细说明 canonical + managed-links 架构和 10 个可用 Skills
   - 更新 package.json：描述改为"AI 编码工具通用工作流系统"
   - 更新 CLI 帮助文本：移除旧的 commands/agents 引用
   - 更新 templates/CLAUDE.md：修正 prompts 路径为 canonical 位置

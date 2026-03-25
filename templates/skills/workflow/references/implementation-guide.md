@@ -377,7 +377,9 @@ const markdown = renderImplementationGuide({
 - **生成位置**：`.claude/acceptance/{sanitizedName}-implementation-guide.md`
 - **关联文件**：
   - 验收清单：`.claude/acceptance/{sanitizedName}-checklist.md`
-  - 技术方案：`.claude/tech-design/{sanitizedName}.md`
+  - 技术设计：`.claude/tech-design/{sanitizedName}.md`
+  - Spec：`.claude/specs/{sanitizedName}.md`
+  - Plan：`.claude/plans/{sanitizedName}.md`
   - 任务清单：`~/.claude/workflows/{projectId}/tasks-{sanitizedName}.md`
 
 ## 示例

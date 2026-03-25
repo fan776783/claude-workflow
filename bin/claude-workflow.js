@@ -11,17 +11,15 @@ const {
   ensureClaudeHome,
   installFresh,
   upgradeFrom,
-  copyTemplatesToClaude,
   installForAgents,
   getInstallationStatus,
-  migrateFromLegacy,
-  SYMLINK_DIRS,
+  DIRECT_LINK_DIRS,
+  SKILLS_DIR,
 } = require('../lib/installer');
 const {
   agents,
   detectInstalledAgents,
   getCanonicalDir,
-  getAllAgentNames,
   parseAgentArg,
 } = require('../lib/agents');
 const {
@@ -46,7 +44,6 @@ if (process.argv.length === 2) {
     console.log('\n示例:');
     console.log('  claude-workflow sync');
     console.log('  claude-workflow sync -a claude-code,cursor');
-    console.log('  claude-workflow sync -f');
   }
 } else {
   // 有参数时执行命令
@@ -62,8 +59,6 @@ program
 program
   .command('sync')
   .description('同步工作流模板到 AI 编码工具')
-  .option('-f, --force', '强制覆盖所有文件')
-  .option('-c, --clean', '清理模式：先删除旧文件再安装（用于移除已删除的 skill）')
   .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
   .option('--project', '项目级安装（当前目录）')
   .option('--legacy', '使用旧版安装模式（仅 Claude Code）')
@@ -79,9 +74,6 @@ program
       if (options.interactive || (process.stdin.isTTY && !options.agent && !options.yes && !options.legacy)) {
         await runInteractiveInstall({
           templatesDir,
-          version: currentVersion,
-          force: options.force,
-          clean: options.clean,
         });
         return;
       }
@@ -94,34 +86,22 @@ program
 
         await ensureClaudeHome(claudeDir, metaDir);
 
-        if (options.force) {
-          console.log('[claude-workflow] 强制同步模式（旧版）...');
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const backupDir = path.join(metaDir, 'backups', `force-sync-${timestamp}`);
-          const results = await copyTemplatesToClaude({ templatesDir, claudeDir, overwrite: true, backupDir });
-          console.log('[claude-workflow] 强制同步完成');
-          if (results.backedUp.length > 0) {
-            console.log(`[claude-workflow] 已备份 ${results.backedUp.length} 个冲突文件到: ${backupDir}`);
-            results.backedUp.forEach(f => console.log(`  - ${f}`));
-          }
-        } else {
-          let previousVersion = null;
-          if (await fs.pathExists(metaFile)) {
-            const meta = await fs.readJson(metaFile);
-            previousVersion = meta.version || null;
-          }
+        let previousVersion = null;
+        if (await fs.pathExists(metaFile)) {
+          const meta = await fs.readJson(metaFile);
+          previousVersion = meta.version || null;
+        }
 
-          if (!previousVersion) {
-            await installFresh({ claudeDir, metaDir, templatesDir, version: currentVersion });
-          } else {
-            await upgradeFrom({
-              fromVersion: previousVersion,
-              toVersion: currentVersion,
-              claudeDir,
-              metaDir,
-              templatesDir
-            });
-          }
+        if (!previousVersion) {
+          await installFresh({ claudeDir, metaDir, templatesDir, version: currentVersion });
+        } else {
+          await upgradeFrom({
+            fromVersion: previousVersion,
+            toVersion: currentVersion,
+            claudeDir,
+            metaDir,
+            templatesDir
+          });
         }
 
         await fs.writeJson(metaFile, {
@@ -146,26 +126,18 @@ program
       console.log(`[claude-workflow] 同步到 ${targetAgents.length} 个 Agent...`);
       console.log(`  目标: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
       console.log(`  作用域: ${global ? '全局' : '项目级'}`);
-      if (options.clean) {
-        console.log(`  模式: 清理安装（删除旧文件）`);
-      }
 
       const result = await installForAgents({
         templatesDir,
         agents: targetAgents,
         global,
         cwd: process.cwd(),
-        force: options.force,
-        clean: options.clean,
       });
 
       // 输出结果
       console.log(`\n[claude-workflow] Canonical 位置: ${result.canonicalDir}`);
 
       if (result.canonical) {
-        if (result.canonical.cleaned && result.canonical.cleaned.length > 0) {
-          console.log(`  已清理: ${result.canonical.cleaned.join(', ')}`);
-        }
         console.log(`  已复制: ${result.canonical.copied.join(', ') || '无'}`);
       }
 
@@ -173,7 +145,7 @@ program
       for (const [name, agentResult] of Object.entries(result.agents)) {
         const displayName = agents[name]?.displayName || name;
         const status = agentResult.success ? '✓' : '✗';
-        const mode = agentResult.links?.skills?.mode || 'unknown';
+        const mode = agentResult.skills?.rootMode || 'unknown';
         console.log(`    ${status} ${displayName} (${mode})`);
       }
 
@@ -344,10 +316,15 @@ program
           if (agentStatus.installed) {
             if (agentStatus.valid) {
               statusIcon = '✓';
-              statusText = `(${agentStatus.mode})`;
+              statusText = `(${agentStatus.mode}, ${agentStatus.skillCount}/${Object.keys(agentStatus.skills).length} skills)`;
             } else {
               statusIcon = '!';
-              statusText = '(symlink 断开)';
+              const brokenSummary = agentStatus.brokenSkills.length > 0
+                ? `skills 异常: ${agentStatus.brokenSkills.join(', ')}`
+                : agentStatus.nonSkillDirIssues.length > 0
+                  ? `目录异常: ${agentStatus.nonSkillDirIssues.join(', ')}`
+                  : '安装异常';
+              statusText = `(${brokenSummary})`;
             }
           } else if (agentStatus.detected) {
             statusIcon = '○';
@@ -405,7 +382,7 @@ program
         ok.push(`Canonical 目录存在: ${canonicalDir}`);
 
         // 检查必要子目录
-        for (const dir of SYMLINK_DIRS) {
+        for (const dir of [...DIRECT_LINK_DIRS, SKILLS_DIR]) {
           const dirPath = path.join(canonicalDir, dir);
           if (await fs.pathExists(dirPath)) {
             const files = await fs.readdir(dirPath);
@@ -430,19 +407,24 @@ program
         issues.push(`Canonical 目录不存在: ${canonicalDir}`);
       }
 
-      // 检查各 Agent 的 symlink 状态
+      // 检查各 Agent 的挂载状态
       const status = await getInstallationStatus(global, process.cwd());
       const installedAgents = Object.entries(status.agents).filter(([_, s]) => s.installed);
-      const brokenLinks = installedAgents.filter(([_, s]) => s.mode === 'symlink' && !s.valid);
 
       if (installedAgents.length > 0) {
         ok.push(`已安装到 ${installedAgents.length} 个 Agent`);
       }
 
-      if (brokenLinks.length > 0) {
-        brokenLinks.forEach(([name, s]) => {
-          issues.push(`${agents[name]?.displayName || name}: symlink 断开 (${s.target})`);
-        });
+      for (const [name, agentStatus] of installedAgents) {
+        if (agentStatus.brokenSkills.length > 0) {
+          issues.push(`${agents[name]?.displayName || name}: skills 异常 (${agentStatus.brokenSkills.join(', ')})`);
+        }
+        if (agentStatus.nonSkillDirIssues.length > 0) {
+          issues.push(`${agents[name]?.displayName || name}: 目录异常 (${agentStatus.nonSkillDirIssues.join(', ')})`);
+        }
+        if (!agentStatus.skillsRoot.valid) {
+          issues.push(`${agents[name]?.displayName || name}: skills 根目录异常 (${agentStatus.skillsRoot.path})`);
+        }
       }
 
       // 检查旧版安装
@@ -468,7 +450,7 @@ program
       if (issues.length > 0) {
         console.log('\n  ❌ 问题:');
         issues.forEach(item => console.log(`     - ${item}`));
-        console.log('\n  建议运行: claude-workflow sync --force');
+        console.log('\n  建议运行: claude-workflow sync');
       } else {
         console.log('\n  所有检查通过!');
       }

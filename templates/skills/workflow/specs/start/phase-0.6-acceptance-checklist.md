@@ -424,14 +424,14 @@ tech_design: ".claude/tech-design/task-name.md"
 
 ## 任务关联
 
-验证清单项将在 Phase 2 任务生成时自动关联到相关任务：
+验证清单项将在 Phase 3 Task Compilation 时自动关联到相关任务：
 
 ```typescript
 function mapTaskToAcceptanceCriteria(
-  task: Task,
+  task: WorkflowTaskV2,
   checklist: AcceptanceChecklist
 ): string[] {
-  // 根据任务的 phase、file、requirement 等属性
+  // 根据任务的 phase、files、steps 等属性
   // 匹配相关的验收项 ID
   // 返回验收项 ID 数组（如 ["AC-F1.1 用户名", "AC-P1.1 普通用户 - 查看自己的数据"]）
 }

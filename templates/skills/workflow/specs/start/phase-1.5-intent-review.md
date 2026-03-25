@@ -2,11 +2,13 @@
 
 ## 目的
 
-在生成任务清单前，生成 Intent 文档供用户审查变更意图，确保变更方向正确。
+在生成 `plan.md` 与 `tasks.md` 前，基于稳定的 `spec.md` 生成 Intent 文档，供用户审查变更意图，确保变更方向正确。
+
+> Intent Review 不再仅依赖 `tech-design.md`，而是显式引用 `spec.md` 作为规划共识输入。
 
 ## 执行时机
 
-**强制执行**：Phase 1 完成后，Phase 2 开始前
+**强制执行**：Phase 1.4 用户 Spec 审查通过后，Phase 2 开始前。
 
 ## 实现细节
 
@@ -19,11 +21,9 @@ console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `);
 
-// 确保工作流目录存在
 ensureDir(workflowDir);
 
-// 创建 changes 目录结构
-const changeId = "CHG-001";
+const changeId = 'CHG-001';
 const changesDir = path.join(workflowDir, 'changes', changeId);
 ensureDir(changesDir);
 ```
@@ -31,13 +31,13 @@ ensureDir(changesDir);
 ### Step 2: 生成 Intent 文档
 
 ```typescript
-// 生成 Intent 文档
 const intentContent = generateIntentSummary({
   requirement: requirementContent,
-  techDesign: readFile(techDesignPath),
-  analysisResult: analysisResult,
-  taskName: taskName,
-  changeId: changeId
+  spec: readFile(specPath),
+  specPath,
+  analysisResult,
+  taskName,
+  changeId
 });
 
 const intentPath = path.join(changesDir, 'intent.md');
@@ -49,6 +49,7 @@ console.log(`
 **变更概要**：
 - 变更 ID: ${changeId}
 - 触发类型: new_requirement
+- Spec 引用: ${specPath}
 - 影响范围: ${analysisResult.relatedFiles.length} 个文件
 `);
 ```
@@ -56,39 +57,46 @@ console.log(`
 ### Step 3: Hard Stop - Intent 确认
 
 ```typescript
-// Hard Stop: Intent 确认
 const intentChoice = await AskUserQuestion({
   questions: [{
-    question: "请确认以上变更意图是否正确？",
-    header: "Intent Review",
+    question: '请确认以上变更意图是否正确？',
+    header: 'Intent Review',
     multiSelect: false,
     options: [
-      { label: "意图正确", description: "继续生成任务清单" },
-      { label: "需要调整", description: "暂停，手动编辑 intent.md 后重新执行" },
-      { label: "取消", description: "放弃本次变更" }
+      { label: '意图正确', description: '继续生成计划与任务清单' },
+      { label: '需要调整', description: '暂停，手动编辑 intent.md 或 spec.md 后重新执行' },
+      { label: '取消', description: '放弃本次变更' }
     ]
   }]
 });
 
-if (intentChoice === "取消") {
+if (intentChoice === '取消') {
   console.log(`
 ❌ 变更已取消
 
-已清理临时文件。
+将删除本次 Intent Review 生成的临时工件：${changesDir}
+已归档的历史变更不会受影响。
   `);
-  // 清理 changes 目录
   await Bash({ command: `rm -rf "${changesDir}"` });
+  state.status = 'idle';
+  if (state.delta_tracking) {
+    state.delta_tracking.current_change = null;
+  }
+  writeFile(statePath, JSON.stringify(state, null, 2));
   return;
 }
 
-if (intentChoice === "需要调整") {
+if (intentChoice === '需要调整') {
   console.log(`
 ⏸️ 工作流已暂停
 
-请编辑 Intent 文档后重新执行：
-  1. 编辑文件：${intentPath}
-  2. 重新启动：/workflow start "${requirement}"
+请编辑文档后重新执行：
+  1. 规范文档：${specPath}
+  2. 意图文档：${intentPath}
+  3. 重新启动：/workflow start "${requirementContent}"
   `);
+  state.status = 'paused';
+  writeFile(statePath, JSON.stringify(state, null, 2));
   return;
 }
 ```
@@ -96,16 +104,19 @@ if (intentChoice === "需要调整") {
 ### Step 4: 更新审查状态
 
 ```typescript
-// 更新审查状态
 const reviewStatus = {
   change_id: changeId,
   reviewed_at: new Date().toISOString(),
-  status: "approved",
-  reviewer: "user"
+  status: 'approved',
+  reviewer: 'user',
+  spec_ref: specPath
 };
-writeFile(path.join(changesDir, 'review-status.json'), JSON.stringify(reviewStatus, null, 2));
+writeFile(
+  path.join(changesDir, 'review-status.json'),
+  JSON.stringify(reviewStatus, null, 2)
+);
 
-console.log(`✅ Intent 已批准，继续生成任务清单`);
+console.log('✅ Intent 已批准，继续生成计划');
 ```
 
 ## Intent 文档结构
@@ -119,6 +130,11 @@ console.log(`✅ Intent 已批准，继续生成任务清单`);
 
 - **类型**: new_requirement
 - **来源**: docs/prd.md
+
+## Spec 引用
+
+- **spec_ref**: `.claude/specs/{task-name}.md`
+- **规范摘要**: 本次变更以 Spec 中定义的范围、模块边界和验收映射为准
 
 ## 变更意图
 
@@ -163,12 +179,15 @@ console.log(`✅ Intent 已批准，继续生成任务清单`);
 ```typescript
 function generateIntentSummary(params: {
   requirement: string;
-  techDesign: string;
+  spec: string;
+  specPath: string;
   analysisResult: any;
   taskName: string;
   changeId: string;
 }): string {
-  const { requirement, techDesign, analysisResult, taskName, changeId } = params;
+  const { requirement, spec, specPath, analysisResult, taskName, changeId } = params;
+
+  const specSummary = extractSpecSummary(spec);
 
   return `# Intent: ${taskName}
 
@@ -178,6 +197,11 @@ function generateIntentSummary(params: {
 
 - **类型**: new_requirement
 - **来源**: ${requirementSource}
+
+## Spec 引用
+
+- **spec_ref**: ${specPath}
+- **规范摘要**: ${specSummary}
 
 ## 变更意图
 
@@ -206,6 +230,22 @@ ${analysisResult.reusableComponents.map(c => `- \`${c.path}\` — ${c.descriptio
 }
 ```
 
+### extractSpecSummary
+
+从 `spec.md` 中提取可供 Intent 使用的摘要。
+
+```typescript
+function extractSpecSummary(specContent: string): string {
+  const scopeMatch = specContent.match(/## 2\. Scope[\s\S]*?(?=\n## )/);
+  if (!scopeMatch) return '以已批准 Spec 为准';
+  return scopeMatch[0]
+    .replace(/## 2\. Scope/, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, 240);
+}
+```
+
 ## 审查状态文件
 
 **路径**: `~/.claude/workflows/{projectId}/changes/{changeId}/review-status.json`
@@ -214,9 +254,10 @@ ${analysisResult.reusableComponents.map(c => `- \`${c.path}\` — ${c.descriptio
 ```json
 {
   "change_id": "CHG-001",
-  "reviewed_at": "2026-02-24T10:00:00Z",
+  "reviewed_at": "2026-03-24T10:00:00Z",
   "status": "approved",
-  "reviewer": "user"
+  "reviewer": "user",
+  "spec_ref": ".claude/specs/task-name.md"
 }
 ```
 
@@ -235,15 +276,13 @@ function nextChangeId(state: any): string {
 }
 ```
 
-**规则**:
-- 格式：`CHG-XXX`（XXX 为 3 位数字，左补零）
-- 首次启动：`CHG-001`
-- 后续增量变更：`CHG-002`, `CHG-003`, ...
-
 ## 输出
 
 Intent 文档和审查状态将用于：
-- Hard Stop: 用户审查变更意图
-- Phase 2: 任务生成（记录变更 ID）
-- Delta Tracking: 变更历史追踪
-- Genesis Change: 初始变更记录
+- Hard Stop：用户审查变更意图
+- Phase 2：计划生成（记录 `spec_ref`）
+- Phase 3：任务编译（继承 changeId）
+- Delta Tracking：变更历史追踪
+- Genesis Change：初始变更记录
+
+**取消分支约定**：若用户在 Intent Review 中选择“取消”，当前 `changes/{changeId}` 下的临时 Intent 工件会被清理；只有后续完成归档的变更才会进入 `archive/`。

@@ -2,7 +2,7 @@
 
 > 双模型并行协作 (Codex + Gemini) + 当前模型编排
 >
-> **注意**: 本文件是 `@pic/claude-workflow` Skills 体系的一部分，通过 Canonical + Symlink 架构分发到多个 AI 编码工具。
+> **注意**: 本文件是 `@pic/claude-workflow` Skills 体系的一部分，通过 canonical + managed-links 架构分发到多个 AI 编码工具。
 
 ---
 

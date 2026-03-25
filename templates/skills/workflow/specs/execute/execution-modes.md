@@ -4,6 +4,8 @@
 
 workflow execute 支持多种执行模式，以适应不同的工作场景和用户偏好。
 
+> 执行链路直接消费 `WorkflowTaskV2`：任务提取使用 `extractCurrentTaskV2()`，动作判断使用 `actions[]`，实现语义读取 `steps[]`。
+
 ## 模式类型
 
 ### 1. 单步模式（step）
@@ -74,8 +76,8 @@ if (executionMode === 'phase') {
       return;
     }
 
-    // 提取下一个任务
-    const nextTask = extractCurrentTask(tasksContent, nextTaskId);
+    // 提取下一个任务（V2 优先）
+    const nextTask = extractCurrentTaskV2(tasksContent, nextTaskId);
     if (!nextTask) break;
 
     // 检查阶段是否变化
@@ -92,7 +94,7 @@ if (executionMode === 'phase') {
     }
 
     // 更新当前任务
-    state.current_task = nextTaskId;
+    state.current_tasks = [nextTaskId];
     Object.assign(currentTask, nextTask);
   }
 }
@@ -130,8 +132,8 @@ if (executionMode === 'quality_gate') {
       return;
     }
 
-    // 提取下一个任务
-    const nextTask = extractCurrentTask(tasksContent, nextTaskId);
+    // 提取下一个任务（V2 优先）
+    const nextTask = extractCurrentTaskV2(tasksContent, nextTaskId);
     if (!nextTask) break;
 
     // 检查是否为质量关卡
@@ -148,7 +150,7 @@ if (executionMode === 'quality_gate') {
     }
 
     // 检查是否为 git_commit 且需要暂停
-    if (nextTask.actions?.includes('git_commit') && pauseBeforeCommit) {
+    if (normalizeTaskActions(nextTask).includes('git_commit') && pauseBeforeCommit) {
       console.log(`
 ✅ 已执行到提交任务
 
@@ -161,7 +163,7 @@ if (executionMode === 'quality_gate') {
     }
 
     // 更新当前任务
-    state.current_task = nextTaskId;
+    state.current_tasks = [nextTaskId];
     Object.assign(currentTask, nextTask);
   }
 }
@@ -196,7 +198,7 @@ async function executeRetryMode() {
 ⚠️ 当前工作流状态不是 failed，无需重试
 
 当前状态：${state.status}
-当前任务：${state.current_task}
+当前任务：${state.current_tasks?.[0] || '无'}
 
 💡 继续执行：/workflow execute
     `);
@@ -204,10 +206,11 @@ async function executeRetryMode() {
   }
 
   const tasksContent = readFile(tasksPath);
-  const currentTask = extractCurrentTask(tasksContent, state.current_task);
+  const activeTaskId = state.current_tasks?.[0];
+  const currentTask = activeTaskId ? extractCurrentTaskV2(tasksContent, activeTaskId) : null;
 
   if (!currentTask) {
-    console.log(`❌ 无法找到任务 ${state.current_task}`);
+    console.log(`❌ 无法找到任务 ${activeTaskId}`);
     return;
   }
 
@@ -365,10 +368,11 @@ async function executeSkipMode() {
   // 读取状态
   const state = JSON.parse(readFile(statePath));
   const tasksContent = readFile(tasksPath);
-  const currentTask = extractCurrentTask(tasksContent, state.current_task);
+  const activeTaskId = state.current_tasks?.[0];
+  const currentTask = activeTaskId ? extractCurrentTaskV2(tasksContent, activeTaskId) : null;
 
   if (!currentTask) {
-    console.log(`❌ 无法找到任务 ${state.current_task}`);
+    console.log(`❌ 无法找到任务 ${activeTaskId}`);
     return;
   }
 
@@ -414,7 +418,7 @@ async function executeSkipMode() {
   }
 
   // 更新状态
-  state.current_task = nextTaskId;
+  state.current_tasks = [nextTaskId];
   state.updated_at = new Date().toISOString();
   writeFile(statePath, JSON.stringify(state, null, 2));
 
@@ -580,7 +584,7 @@ if (useSubagent) {
     const group = parallelGroups[0];
     const groupId = `PG-${String((state.parallel_groups || []).length + 1).padStart(3, '0')}`;
 
-    // 0. 向后兼容：确保字段存在
+    // 0. 初始化并行执行字段
     if (!state.parallel_groups) state.parallel_groups = [];
     if (!state.current_tasks) state.current_tasks = [];
 
@@ -593,7 +597,6 @@ if (useSubagent) {
       conflict_detected: false
     });
     state.current_tasks = group;
-    state.current_task = group[0];
 
     console.log(`⚡ 并行执行 ${group.length} 个任务: ${group.join(', ')}`);
 
@@ -654,9 +657,12 @@ if (useSubagent) {
       console.log(`⚠️ ${results.filter(r => !r.passed).map(r => r.taskId).join(', ')} 执行失败`);
     }
 
-    // 5. 同步 current_task/current_tasks
+    // 5. 同步 current_tasks
     state.current_tasks = [];
-    state.current_task = findNextTask(tasksContent, state.progress) || state.current_task;
+    const nextRunnableTaskId = findNextTask(tasksContent, state.progress);
+    if (nextRunnableTaskId) {
+      state.current_tasks = [nextRunnableTaskId];
+    }
   } else {
     // 无可并行任务，顺序执行
     await executeTaskInSubagent(currentTask, state, tasksPath, statePath);
@@ -720,7 +726,7 @@ interface VerificationEvidence {
 1. **识别验证命令**：根据任务 action 类型查表
 2. **执行验证命令**：实际运行命令
 3. **读取输出**：必须读取命令输出（禁止忽略）
-4. **步骤级验证**：如果任务的 `requirement` 包含编号步骤列表（`1. ... → 预期：...`），逐项检查每个步骤的预期结果是否满足
+4. **步骤级验证**：逐项检查 `steps[]` 中每个步骤的预期结果是否满足
 5. **生成证据**：填充 `VerificationEvidence`
 6. **判定结果**：
    - 通过 → 继续 Step 6.7
@@ -795,7 +801,7 @@ interface VerificationEvidence {
 | **安全** | 用户输入都有验证和清理？ |
 | **安全** | 无敏感信息硬编码？ |
 | **一致性** | 命名风格与项目现有代码一致？ |
-| **一致性** | 实现与 `design_ref` 指向的技术方案一致？ |
+| **一致性** | 实现与 `spec_ref` / `plan_ref` 指向的规范与计划一致？ |
 
 #### 执行方式
 
@@ -818,8 +824,8 @@ interface VerificationEvidence {
 **检查内容**：
 
 1. **验收项覆盖**：任务关联的验收项是否都被实现覆盖
-2. **设计参考一致**：实现是否与 `design_ref` 指向的技术方案章节一致
-3. **需求完整性**：`requirement` 描述的功能是否完整实现
+2. **规范与计划一致**：实现是否与 `spec_ref` 指向的规范章节、`plan_ref` 指向的计划步骤一致
+3. **需求完整性**：`steps[]` 描述的执行意图是否完整实现
 
 **执行方式**：
 - 当前模型直接检查（不调用外部模型，保持轻量）
@@ -866,7 +872,7 @@ interface VerificationEvidence {
 ### Red-Green-Refactor 执行流程
 
 ```typescript
-async function executeWithTdd(task: Task, guideContent: string): Promise<void> {
+async function executeWithTdd(task: WorkflowTaskV2, guideContent: string): Promise<void> {
   const testTemplates = extractRelevantTests(guideContent, task);
 
   if (testTemplates.length === 0) {

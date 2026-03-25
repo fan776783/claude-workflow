@@ -29,7 +29,7 @@ function computeDiffWindow(state: WorkflowState): DiffWindow {
   // 范围：基线到当前 HEAD 的所有变更
   return {
     from_task: lastApprovedGate?.gate_task_id ?? null,
-    to_task: state.current_task,
+    to_task: state.current_tasks?.[0] ?? null,
     base_commit: baseCommit,
     diff: getGitDiff(baseCommit),           // git diff <commit>..HEAD
     files_changed: countChangedFiles(baseCommit),
@@ -56,13 +56,13 @@ function computeDiffWindow(state: WorkflowState): DiffWindow {
 | **需求多余** | 是否有未被要求的功能？过度工程化？ |
 | **需求误解** | 对需求的理解是否有偏差？ |
 | **验收项覆盖** | 任务关联的验收项是否被实现覆盖？ |
-| **设计参考一致** | 实现是否与 design_ref 指向的技术方案一致？ |
+| **设计/计划一致** | 实现是否与 `spec_ref` / `plan_ref` 指向内容一致？ |
 
 **注意**：Stage 1 整合了 Step 6.7（规格合规检查）的全部逻辑。quality_gate 任务的 Step 6.7 由 Stage 1 接管，不再独立执行。
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
-- 逐条对照 diff 窗口内所有任务的 `requirement` 和 `acceptance_criteria`
+- 逐条对照 diff 窗口内所有任务的 `steps[]` 与 `acceptance_criteria`
 - 发现偏差必须列出具体文件和行号
 
 **输出格式**：
@@ -157,7 +157,7 @@ const GATE_BUDGET = {
 
 ```typescript
 async function executeQualityReview(
-  task: Task,
+  task: WorkflowTaskV2,
   state: WorkflowState
 ): Promise<VerificationEvidence> {
   let diffWindow = computeDiffWindow(state);
@@ -271,7 +271,7 @@ async function executeQualityReview(
 
 // ── 失败态记录 ──
 function markGateFailed(
-  task: Task,
+  task: WorkflowTaskV2,
   state: WorkflowState,
   failedStage: 'stage1' | 'stage2' | 'stage1_recheck',
   lastResult: SpecComplianceResult | CodeQualityResult,

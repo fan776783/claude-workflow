@@ -269,7 +269,9 @@ grep "AC-F1.1" .claude/acceptance/xxx-checklist.md -A 10
 - **生成位置**：`.claude/acceptance/{sanitizedName}-checklist.md`
 - **关联文件**：
   - 实现指南：`.claude/acceptance/{sanitizedName}-implementation-guide.md`
-  - 技术方案：`.claude/tech-design/{sanitizedName}.md`
+  - 技术设计：`.claude/tech-design/{sanitizedName}.md`
+  - Spec：`.claude/specs/{sanitizedName}.md`
+  - Plan：`.claude/plans/{sanitizedName}.md`
   - 任务清单：`~/.claude/workflows/{projectId}/tasks-{sanitizedName}.md`
 
 ## 示例

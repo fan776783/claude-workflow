@@ -41,7 +41,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 **核心价值**：
 - ✅ **Skills 体系**：可移植的技能定义，支持跨工具使用
 - ✅ **多 Agent 支持**：一次安装，同时支持 10+ AI 编码工具（Claude Code、Cursor、Codex、Gemini CLI 等）
-- ✅ **Canonical + Symlink 架构**：单一源文件（~/.agents/claude-workflow/），多处链接，便于维护和更新
+- ✅ **Canonical + 受管链接架构**：单一源文件（~/.agents/claude-workflow/），通过逐个 skill 挂载和目录级链接分发，便于维护和更新
 - ✅ **交互式安装**：友好的命令行交互体验，智能检测已安装的 Agent
 - ✅ **渐进加载**：按需加载 references 减少上下文占用
 - ✅ **npm 包安装**：`npm install -g @pic/claude-workflow` 一行命令完成安装
@@ -72,8 +72,8 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 │ • Claude Code   │  │ • ~/.agents/    │  │ • status 状态    │
 │ • Cursor        │  │   claude-       │  │ • sync 同步      │
 │ • Codex         │  │   workflow/     │  │ • init 初始化    │
-│ • Gemini CLI    │  │ • Symlink 链接   │  │ • doctor 诊断    │
-│ • Antigravity   │  │ • 单一源文件     │  │ • -c 清理安装    │
+│ • Gemini CLI    │  │ • 受管链接       │  │ • doctor 诊断    │
+│ • Antigravity   │  │ • 单一源文件     │  │ • -a 指定 Agent  │
 │ • Droid         │  │ • 自动更新       │  │ • -a 指定 Agent  │
 │ • GitHub Copilot│  │                 │  │                 │
 │ • Kilo Code     │  │                 │  │                 │
@@ -129,7 +129,7 @@ AI 编码工具通用工作流体系是一套基于 Skills 架构的智能化开
 | **智能分析** | `/analyze` | 双模型技术分析（Codex + Gemini 并行） |
 | **代码审查** | `/diff-review`, `/diff-review --quick` | 多模型并行审查 / 单模型快速审查 |
 | **调试** | `/debug` | Bug 修复流程 + 模型审查（Codex/Gemini） |
-| **批量修复** | `/bug-batch` | 从蓝鲸拉取缺陷清单，逐个独立修复 |
+| **批量修复** | `/bug-batch` | 从蓝鲸拉取缺陷清单，先全量分析并编排 FixUnit，再分批修复 |
 | **测试** | `/write-tests` | 测试编写专家 |
 | **其他工具** | `/enhance`, `/git-rollback`, `/skill-creator` | Prompt 增强、Git 回滚、Skill 创建 |
 | **帮助** | `/agents` | 查看所有可用 Agent 命令 |
@@ -155,7 +155,7 @@ npm install -D @pic/claude-workflow --registry http://your-registry-host:4873
 **安装过程会自动：**
 1. ✅ 检测已安装的 AI 编码工具（Claude Code、Cursor、Codex 等）
 2. ✅ 复制 Skills 到 canonical 位置 (`~/.agents/claude-workflow/`)
-3. ✅ 为每个检测到的工具创建 symlink
+3. ✅ 为每个检测到的工具创建受管链接：`skills` 目录按 skill 逐个挂载，`commands/prompts/utils/specs` 使用目录级链接
 4. ✅ 检测版本变化，智能合并用户修改
 
 #### 升级
@@ -166,7 +166,7 @@ npm update -g @pic/claude-workflow --registry http://your-registry-host:4873
 
 **升级时会自动**：
 1. 更新 canonical 位置的 Skills
-2. 所有 Agent 通过 symlink 自动获得更新
+2. 所有 Agent 通过受管链接自动获得更新
 3. 备份旧版本到 `~/.agents/claude-workflow/.meta/backups/`
 
 ### 2.2 CLI 命令
@@ -186,8 +186,7 @@ claude-workflow sync -i
 交互式安装会引导你：
 1. 选择要安装到的 Agent
 2. 选择安装作用域（全局/项目级）
-3. 选择安装模式（增量更新/清理安装）
-4. 确认安装摘要
+3. 确认安装摘要
 
 #### 命令行安装
 
@@ -204,13 +203,7 @@ claude-workflow sync -a '*' -y
 # 项目级安装（当前目录）
 claude-workflow sync --project
 
-# 强制覆盖所有文件
-claude-workflow sync -f
-
-# 清理安装（删除旧文件后重新安装，用于移除已删除的 skill）
-claude-workflow sync -c -y
-
-# 使用旧版安装模式（仅 Claude Code，不使用 symlink）
+# 使用旧版安装模式（仅 Claude Code，不使用受管链接）
 claude-workflow sync --legacy
 ```
 
@@ -231,14 +224,12 @@ claude-workflow doctor
 
 | 命令 | 说明 |
 |------|------|
-| `status` | 显示已安装版本、Agent 状态、symlink 状态 |
-| `sync` | 同步模板到多个 Agent，智能合并用户修改 |
-| `sync -f/--force` | 强制覆盖所有文件 |
-| `sync -c/--clean` | 清理安装：先删除旧文件再安装（用于移除已删除的 skill） |
+| `status` | 显示已安装版本、Agent 状态、逐个 skill 挂载状态 |
+| `sync` | 同步模板到多个 Agent，默认覆盖 canonical 内容并刷新受管链接 |
 | `sync -a/--agent` | 指定目标 Agent（逗号分隔，* 表示全部） |
 | `sync --project` | 项目级安装（当前目录） |
 | `init` | 在当前项目创建 `.claude/config/project-config.json` |
-| `doctor` | 诊断配置问题，检测 symlink 状态和缺失文件 |
+| `doctor` | 诊断配置问题，检测受管挂载状态和缺失文件 |
 
 ### 2.3 目录结构
 
@@ -267,10 +258,11 @@ claude-workflow doctor
 ├── utils/                          # 工具函数
 └── specs/                          # 规范文档
 
-# Symlink 链接（自动创建）
-~/.claude/skills/  → symlink → ~/.agents/claude-workflow/skills/
-~/.cursor/skills/  → symlink → ~/.agents/claude-workflow/skills/
-~/.codex/skills/   → symlink → ~/.agents/claude-workflow/skills/
+# 受管链接（自动创建）
+~/.claude/skills/workflow  → ~/.agents/claude-workflow/skills/workflow
+~/.claude/skills/debug     → ~/.agents/claude-workflow/skills/debug
+~/.cursor/skills/workflow  → ~/.agents/claude-workflow/skills/workflow
+~/.cursor/commands         → ~/.agents/claude-workflow/commands
 ...
 
 # 工作流状态（按项目隔离）
@@ -403,7 +395,7 @@ EOF
 #### 目录结构
 
 ```
-~/.agents/claude-workflow/              # Canonical 位置（通过 symlink 共享给各 Agent）
+~/.agents/claude-workflow/              # Canonical 位置（通过受管链接共享给各 Agent）
 ├── skills/                            # 10 个 Skills（渐进加载）
 ├── commands/                          # 工具命令（3 个：agents、enhance、git-rollback）
 ├── prompts/                           # 双模型协作 Prompt（codex/ + gemini/）
@@ -1175,7 +1167,7 @@ Bug 修复全流程：问题定位 → 影响分析 → 确认方案 → 修复 
 
 ### 8.1 批量修复：`/bug-batch`
 
-从蓝鲸项目管理平台拉取缺陷清单，按优先级逐个修复。每个缺陷在独立 agent 上下文中使用 debug 流程修复。
+从蓝鲸项目管理平台拉取缺陷清单后，先完成全量分析、重复/关联关系识别与修复单元编排，再按 `FixUnit` 顺序执行修复。修复完成后先流转到 `处理中`，人工确认后再流转到 `待验证`。
 
 **前置条件**：
 - 已执行 `/scan` 并关联蓝鲸项目（`project.bkProjectId` 已配置）
@@ -1195,20 +1187,26 @@ Bug 修复全流程：问题定位 → 影响分析 → 确认方案 → 修复 
 
 **执行流程**：
 
-```
+```text
 Phase 0: 读取项目配置（project.bkProjectId）
 Phase 1: 拉取缺陷清单（list_issues）
-Phase 2: 获取详情 + 构建任务列表（Hard Stop）
-Phase 3: 逐个独立修复（debug 流程）
-Phase 4: 汇总报告
+Phase 2: 获取详情并标准化 IssueRecord
+Phase 3: 全量分析（根因初判 / 重复识别 / 耦合识别 / 依赖分析）
+Phase 4: 编排 FixUnit 并等待批量确认（Hard Stop）
+Phase 5: 按 FixUnit 顺序执行修复（复用 debug 单修复单元协议）
+Phase 6: 修复完成后流转到“处理中”并进入人工确认卡点
+Phase 7: 人工确认后流转到“待验证”
+Phase 8: 输出汇总报告
 ```
 
 **关键原则**：
-1. **配置驱动** — 项目 ID 从 config 读取，不硬编码
-2. **独立上下文** — 每个缺陷在独立 agent 中修复，避免上下文污染
-3. **顺序执行** — 按优先级逐个处理，非并行（避免文件冲突）
-4. **用户确认** — 任务列表展示后必须获得确认才开始修复
-5. **失败容错** — 单个缺陷修复失败不阻塞后续任务
+1. **先分析，后修复** — 进入编码前必须完成全量关系分析
+2. **FixUnit 优先** — 执行粒度是修复单元，不是原始缺陷列表
+3. **重复不重复修** — 重复缺陷只归并，不单独创建编码动作
+4. **依赖显式化** — 阻塞关系必须在编排阶段表达为执行顺序
+5. **双重卡点** — 批量开始前和流转到待验证前都必须人工确认
+6. **状态流转有纪律** — 修复完成后先到 `处理中`，人工确认后才进入 `待验证`
+7. **失败容错** — 单个修复单元失败只阻塞其依赖链，不阻塞无关单元
 
 ---
 
@@ -1278,8 +1276,9 @@ Phase 4: 汇总报告
 ```bash
 /bug-batch fanjj
 # ✅ 自动拉取缺陷清单
-# ✅ 展示任务列表等待确认
-# ✅ 逐个独立修复（debug 流程）
+# ✅ 全量分析缺陷关系并编排 FixUnit
+# ✅ 批量确认后按修复单元执行修复
+# ✅ 修复后先流转处理中，人工确认后再转待验证
 # ✅ 输出汇总报告
 ```
 
@@ -1314,7 +1313,7 @@ Phase 4: 汇总报告
 ```
 Bug 调试？
   └─ 单个 → /debug（支持 BK-MCP 集成）
-  └─ 批量 → /bug-batch（逐个独立修复）
+  └─ 批量 → /bug-batch（先分析全部缺陷，再按 FixUnit 执行）
 
 有 Figma 设计稿？
   └─ 是 → /figma-ui（Gemini 审查）
@@ -1377,7 +1376,7 @@ Bug 调试？
 **A**: 优先使用智能工作流 `/workflow start`
 - 自动规划执行计划
 - 适用大多数场景
-- Bug 调试用 `/debug`，批量缺陷用 `/bug-batch`
+- Bug 调试用 `/debug`，批量缺陷用 `/bug-batch`（先分析、再按 FixUnit 修复）
 - UI 还原用 `/figma-ui`，验证还原度用 `/visual-diff`
 
 ### 11.2 任务记忆文件在哪？
@@ -1445,7 +1444,7 @@ Bug 调试？
 | `/visual-diff "URL"` | 视觉差异验证（像素级 + 双模型） | ⭐ |
 | `/analyze "描述"` | 双模型技术分析 | ⭐⭐ |
 | `/debug "问题"` | Bug 修复流程 + 模型审查 | ⭐⭐ |
-| `/bug-batch <user>` | 批量缺陷修复（蓝鲸集成） | ⭐ |
+| `/bug-batch <user>` | 批量缺陷修复（全量分析 + FixUnit 编排） | ⭐ |
 | `/diff-review` | 多模型代码审查 | ⭐ |
 | `/diff-review --quick` | 单模型快速审查 | ⭐ |
 | `/scan` | 智能项目扫描 + 蓝鲸关联 | ⭐ |
@@ -1453,8 +1452,6 @@ Bug 调试？
 | **CLI 工具** |||
 | `claude-workflow status` | 查看安装状态和 Agent 状态 | ⭐ |
 | `claude-workflow sync` | 同步模板到多个 Agent | ⭐ |
-| `claude-workflow sync -c` | 清理安装（删除旧文件后重新安装） | |
-| `claude-workflow sync -f` | 强制覆盖所有文件 | |
 | `claude-workflow sync -a` | 指定目标 Agent | |
 | `claude-workflow init` | 初始化项目配置 | ⭐ |
 | `claude-workflow doctor` | 诊断配置问题 | |
@@ -1535,9 +1532,6 @@ claude-workflow status
 # 同步到所有检测到的 Agent
 claude-workflow sync -y
 
-# 清理安装（移除已删除的 skill）
-claude-workflow sync -c -y
-
 # 安装到指定 Agent
 claude-workflow sync -a claude-code,cursor -y
 
@@ -1581,7 +1575,7 @@ claude-workflow doctor
 - 使用 `/workflow status` 了解进度
 - 质量关卡失败时使用 `/workflow execute --retry`
 - 使用 `claude-workflow doctor` 诊断配置问题
-- 使用 `claude-workflow sync -c` 清理安装（移除已删除的 skill）
+- 使用 `claude-workflow sync` 刷新默认覆盖安装并同步受管链接
 
 ### 从旧版本迁移
 
@@ -1594,7 +1588,7 @@ claude-workflow sync
 迁移会：
 1. 备份现有文件
 2. 复制到 canonical 位置
-3. 创建 symlink 替换原有目录
+3. 将受管目录迁移为逐个 skill 挂载 + 目录级链接
 4. 保持向后兼容
 
 ---
