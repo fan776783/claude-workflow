@@ -1,4 +1,4 @@
-# workflow execute - 执行任务概览 (v3.0)
+# workflow execute - 执行任务概览 (v3.1)
 
 > 精简接口：默认阶段模式，支持自然语言控制执行模式
 
@@ -32,6 +32,11 @@
 | 连续 | 执行到质量关卡 | 质量关卡 / git_commit |
 
 > **Subagent 模式**：平台支持时自动启用（或任务数 > 5），每个任务在独立 subagent 中执行，避免上下文膨胀。
+>
+> **平台映射**：
+> - Claude Code / Cursor：使用 `Task` 子 agent
+> - Codex：使用 `spawn_agent` / `wait` / `close_agent`
+> - 其他无子 agent 平台：降级为直接模式
 
 ---
 
@@ -80,13 +85,17 @@
 - 生成可视化进度条
 
 **Subagent 决策**：
-- 平台检测（Claude Code / Cursor / Windsurf / Augment）
+- 平台检测（Claude Code / Cursor / Codex）
 - 启用条件：
   1. 用户显式配置 `state.use_subagent`
   2. 平台支持 + 上下文压力高（> 60%）
   3. 平台支持 + 任务数量多（> 5）
+- 路由结果：
+  - Claude Code / Cursor → `Task`
+  - Codex → `spawn_agent` / `wait` / `close_agent`
+  - 不支持子 agent → 直接模式
 
-**详细实现**: 参见 `specs/shared/context-awareness.md`
+**详细实现**: 参见 `specs/execute/execution-modes.md` 与 `references/shared-utils.md`
 
 ---
 
@@ -98,7 +107,7 @@
 - 提取任务字段（阶段、文件、依赖、验收项等）
 - 检查任务是否已完成，如是则移动到下一个
 
-**详细实现**: 参见 `specs/workflow/task-parser.md`
+**详细实现**: 参见 `references/shared-utils.md`
 
 ---
 
@@ -124,11 +133,11 @@
 - `create_file`: 创建新文件
 - `edit_file`: 编辑现有文件
 - `run_tests`: 运行测试
-- `codex_review`: 两阶段代码审查（规格合规 + 代码质量）
+- `quality_review`: 两阶段代码审查（规格合规 + 代码质量）
 - `git_commit`: Git 提交
 
 **执行方式**：
-- **Subagent 模式**：使用 Task tool 在独立 subagent 中执行
+- **Subagent 模式**：按平台路由到 `Task` 或 `spawn_agent`，在独立 subagent 中执行
 - **直接模式**：在当前上下文中执行
 
 **详细实现**: 参见 `specs/execute/actions/` 目录
@@ -155,7 +164,7 @@
 
 ### Step 6.7：规格合规检查（Spec Compliance Check）
 
-对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`codex_review` 类型任务跳过（由两阶段审查的 Stage 1 接管）。
+对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由两阶段审查的 Stage 1 接管）。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
 
@@ -224,15 +233,13 @@
 当遇到质量关卡任务时，执行两阶段代码审查：
 
 1. **Stage 1：规格合规审查** — 验证实现是否完整匹配需求（当前模型，确定性）
-2. **Stage 2：代码质量审查** — 验证架构、DRY、错误处理、安全性（Codex subagent）
+2. **Stage 2：代码质量审查** — 验证架构、DRY、错误处理、安全性（平台感知 reviewer 子 agent）
 3. Stage 2 必须在 Stage 1 通过后才能启动
 4. 两阶段共享 4 次总预算，耗尽则标记失败
 
 问题严重级别：Critical（必须修复）/ Important（应当修复）/ Minor（建议修复）
 
-**详细实现**: 参见 `specs/execute/actions/codex-review.md`
-
-**详细实现**: 参见 `specs/workflow/quality-gate.md`
+**详细实现**: 参见 `specs/execute/actions/quality-review.md`
 
 ---
 
@@ -267,7 +274,7 @@
 [🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨░░░░░░░░] 60%
 ```
 
-**详细实现**: 参见 `specs/shared/context-awareness.md`
+**详细实现**: 参见 `references/shared-utils.md`
 
 ---
 
@@ -280,7 +287,7 @@
   - `create-file.md` - 创建文件
   - `edit-file.md` - 编辑文件
   - `run-tests.md` - 运行测试
-  - `codex-review.md` - Codex 代码审查
+  - `quality-review.md` - 两阶段代码审查
   - `git-commit.md` - Git 提交
 - `helpers.md` - 辅助函数（任务查找、状态更新、完成检查等）
 

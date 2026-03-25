@@ -1,19 +1,19 @@
-# codex_review Action：两阶段代码审查 (v3.5.0)
+# quality_review Action：两阶段代码审查 (v3.5.0)
 
 > 借鉴 Superpowers subagent-driven-development 的两阶段审查机制，升级质量关卡审查。
 
 ## 概述
 
-`codex_review` action 在质量关卡（`quality_gate = true`）任务中执行，替代原有的"单次 Codex 审查 + 评分阈值"逻辑。审查对象是**聚合 diff 窗口**——上次通过的质量关卡到当前关卡之间的所有代码变更。
+`quality_review` action 在质量关卡（`quality_gate = true`）任务中执行，替代原有的"单次代码审查 + 评分阈值"逻辑。审查对象是**聚合 diff 窗口**——上次通过的质量关卡到当前关卡之间的所有代码变更。
 
 ## 执行流程
 
 ```
-codex_review action
+quality_review action
   ├─ 计算聚合 diff 窗口
   ├─ Stage 1：规格合规审查（当前模型，确定性）
   │   └─ 未通过 → 修复 → 重审（共享总预算）
-  ├─ Stage 2：代码质量审查（Codex subagent）
+  ├─ Stage 2：代码质量审查（平台感知 reviewer 子 agent）
   │   └─ 未通过 → 修复 → 重审（共享总预算）
   └─ 记录 QualityGateResult → state.quality_gates
 ```
@@ -87,7 +87,10 @@ interface SpecIssue {
 
 **前置条件**：Stage 1 必须通过。禁止在 Stage 1 未通过时启动 Stage 2。
 
-**执行者**：Codex subagent（使用 `reviewer` 角色），通过 diff 窗口审查。
+**执行者**：平台感知的代码质量审查子 agent。
+- Claude Code / Cursor：使用 `Task` 以 reviewer 角色审查 diff 窗口
+- Codex：使用 `spawn_agent` / `wait` / `close_agent` 运行 reviewer 子 agent
+- 无子 agent 平台：退化为当前会话只读审查，但仍遵守同样的输出结构
 
 **审查内容**：
 
@@ -147,13 +150,13 @@ const GATE_BUDGET = {
 
 **性能优化**：
 - Stage 1 由当前模型执行（无外部调用，低成本）
-- Stage 2 使用单次 Codex 调用 + diff 限定上下文（≤50000 字符）
+- Stage 2 对 Claude Code / Cursor 使用单次 `Task` reviewer，对 Codex 使用单次 `spawn_agent` reviewer，并限制 diff 上下文（≤50000 字符）
 - 代码未变时（修复未产生新 diff），Stage 1 结果可缓存复用
 
 ## 实现
 
 ```typescript
-async function executeCodexReview(
+async function executeQualityReview(
   task: Task,
   state: WorkflowState
 ): Promise<VerificationEvidence> {
@@ -200,7 +203,7 @@ async function executeCodexReview(
       return markGateFailed(task, state, 'stage2', qualityResult, stage1Attempts);
     }
 
-    // Codex subagent 审查（diff 限定上下文）
+    // 平台感知的 reviewer 审查
     qualityResult = await runCodeQualityReview(task, diffWindow, state);
 
     if (qualityResult.assessment === 'rejected') {
@@ -315,7 +318,7 @@ function markGateFailed(
 
 ## 与 Step 6.5 的关系
 
-`codex_review` action 完成后，Step 6.5 验证其结果：
+`quality_review` action 完成后，Step 6.5 验证其结果：
 - 验证命令：读取 `state.quality_gates[taskId]`
 - 通过条件：`overall_passed === true`
 - `artifact_ref` 字段指向具体关卡产物

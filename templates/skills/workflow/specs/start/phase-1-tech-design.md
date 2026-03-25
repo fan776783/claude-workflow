@@ -261,9 +261,9 @@ interface LoginResponse {
 - [ ] Token 验证中间件正常工作
 - [ ] 所有单元测试通过
 
-### 7. Codex 审查记录（可选）
+### 7. 子 Agent 审查记录（可选）
 
-如果用户选择 Codex 审查，此章节包含审查结果。
+如果用户选择子 agent 审查，此章节包含平台对应的审查结果：Claude Code / Cursor 使用 `Task` reviewer，Codex 使用 `spawn_agent` reviewer。
 
 ## 辅助函数
 
@@ -469,6 +469,6 @@ ${params.constraintsContent}
 
 技术方案文档将用于：
 - Hard Stop 1: 用户审查和确认
-- Codex 审查（可选）
+- 子 agent 审查（可选）
 - Phase 2: 任务生成（提取实施计划）
 - 执行阶段：任务实现的参考文档

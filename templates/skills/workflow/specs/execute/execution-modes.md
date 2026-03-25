@@ -507,23 +507,55 @@ const executionMode = executionModeOverride || state.execution_mode || 'phase';
 
 ## Subagent 模式
 
-当启用 subagent 模式时，所有执行模式的行为保持不变，但任务执行方式改变：
+当启用 subagent 模式时，所有执行模式的行为保持不变，但任务执行方式改变。
+
+### 平台路由
+
+```typescript
+interface SubagentRouting {
+  supported: boolean;
+  platform: ExecutionPlatform;
+  dispatchTool: 'Task' | 'spawn_agent' | 'direct';
+  waitTool?: 'TaskOutput' | 'wait';
+  cleanupTool?: 'close_agent';
+}
+
+function detectSubagentRouting(env: Record<string, string>): SubagentRouting {
+  if (env.CURSOR_PLUGIN_ROOT) {
+    return { supported: true, platform: 'cursor', dispatchTool: 'Task', waitTool: 'TaskOutput' };
+  }
+  if (env.CLAUDE_PLUGIN_ROOT) {
+    return { supported: true, platform: 'claude-code', dispatchTool: 'Task', waitTool: 'TaskOutput' };
+  }
+  if (env.CODEX_HOME || env.CODEX_SANDBOX) {
+    return {
+      supported: true,
+      platform: 'codex',
+      dispatchTool: 'spawn_agent',
+      waitTool: 'wait',
+      cleanupTool: 'close_agent'
+    };
+  }
+  return { supported: false, platform: 'other', dispatchTool: 'direct' };
+}
+```
 
 **直接模式**：
 - 在当前上下文中执行任务
 - 上下文累积，可能溢出
 
 **Subagent 模式**：
-- 使用 Task tool 在独立 subagent 中执行
-- 每个任务有独立的上下文
-- 避免上下文累积
+- Claude Code / Cursor 使用 `Task` 在独立子 agent 中执行
+- Codex 使用 `spawn_agent` 派发、`wait` 回收、`close_agent` 释放槽位
+- 每个任务只接收最小必要上下文，避免主会话上下文污染
+- 不支持子 agent 时自动回退为直接模式
 
 ```typescript
-if (useSubagent) {
-  // 使用 Task tool 执行
-  await executeTaskInSubagent(currentTask, state, tasksPath, statePath);
+const routing = detectSubagentRouting(process.env);
+
+if (useSubagent && routing.supported) {
+  await executeTaskInSubagent(currentTask, state, tasksPath, statePath, routing);
 } else {
-  // 直接执行
   await executeTaskDirect(currentTask, state, tasksPath, statePath);
 }
 ```
@@ -565,22 +597,29 @@ if (useSubagent) {
 
     console.log(`⚡ 并行执行 ${group.length} 个任务: ${group.join(', ')}`);
 
-    // 2. 并行分派（run_in_background）
-    const taskOutputIds: string[] = [];
+    // 2. 并行分派（后台运行）
+    const handles: string[] = [];
     for (const taskId of group) {
       const task = allTasks.find(t => t.id === taskId)!;
-      const outputId = await executeTaskInSubagent(task, state, tasksPath, statePath, {
+      const handle = await executeTaskInSubagent(task, state, tasksPath, statePath, {
+        routing,
         run_in_background: true
       });
-      taskOutputIds.push(outputId);
+      handles.push(handle);
     }
 
     // 3. 等待所有任务完成，收集结果
     const results: Array<{ taskId: string; passed: boolean }> = [];
-    for (let i = 0; i < taskOutputIds.length; i++) {
-      const output = await TaskOutput(taskOutputIds[i], { block: true, timeout: 600000 });
+    for (let i = 0; i < handles.length; i++) {
+      const output = routing.platform === 'codex'
+        ? await wait(handles[i])
+        : await TaskOutput(handles[i], { block: true, timeout: 600000 });
       const taskPassed = output.exit_code === 0;
       results.push({ taskId: group[i], passed: taskPassed });
+
+      if (routing.platform === 'codex' && routing.cleanupTool === 'close_agent') {
+        await close_agent(handles[i]);
+      }
 
       // 单个任务失败：立即标记
       if (!taskPassed) {
@@ -630,7 +669,7 @@ if (useSubagent) {
 - 并行执行后冲突检测失败 → 回滚并改为顺序执行
 - 任一并行任务失败 → 标记该任务 `failed`，其余正常完成
 
-详见 `specs/workflow/subagent-routing.md`。
+详见 `references/shared-utils.md`。
 
 ---
 
@@ -642,7 +681,7 @@ if (useSubagent) {
 executeTask() → Step 6.5（验证铁律）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
 ```
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `codex_review` action 内部包含两阶段审查（详见 `specs/execute/actions/codex-review.md`）。并行执行时，每个并行任务独立经过此管线。
+**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线。
 
 ---
 
@@ -673,7 +712,7 @@ interface VerificationEvidence {
 |--------|----------|----------|
 | `create_file` / `edit_file` | 运行相关测试 或 语法检查 | 测试通过 或 无语法错误 |
 | `run_tests` | 读取测试输出 | 全部通过，exit_code = 0 |
-| `codex_review` | 读取两阶段审查结果 | `quality_gates[taskId].overall_passed === true` |
+| `quality_review` | 读取两阶段审查结果 | `quality_gates[taskId].overall_passed === true` |
 | `git_commit` | `git log -1 --format="%H %s"` | commit hash 存在且消息匹配 |
 
 #### 执行流程
@@ -740,7 +779,7 @@ interface VerificationEvidence {
 > 单次建议性检查。在验证通过后、规格合规检查前捕获明显问题，减少后续审查循环。
 
 **适用条件**：`create_file` 和 `edit_file` 类型任务
-**跳过条件**：`run_tests`、`codex_review`、`git_commit` 类型任务
+**跳过条件**：`run_tests`、`quality_review`、`git_commit` 类型任务
 
 #### 自审查清单
 
@@ -773,7 +812,7 @@ interface VerificationEvidence {
 
 **跳过条件**：
 - `run_tests`、`git_commit` 类型的任务跳过
-- `codex_review` 类型任务跳过（由两阶段审查的 Stage 1 接管，详见 `specs/execute/actions/codex-review.md`）
+- `quality_review` 类型任务跳过（由两阶段审查的 Stage 1 接管，详见 `specs/execute/actions/quality-review.md`）
 - 任务无 `acceptance_criteria` 时跳过
 
 **检查内容**：

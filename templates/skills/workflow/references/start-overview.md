@@ -16,9 +16,9 @@
 
 | 模块 | 路径 | 说明 |
 |------|------|------|
-| 状态机 | `specs/workflow/state-machine.md` | 状态文件结构 |
-| 任务解析 | `specs/workflow/task-parser.md` | Task 接口定义 |
-| 质量关卡 | `specs/workflow/quality-gate.md` | 关卡任务标记 |
+| 状态机 | `references/state-machine.md` | 状态文件结构 |
+| 任务解析 | `references/shared-utils.md` | Task 接口定义与解析函数 |
+| 质量关卡 | `specs/execute/actions/quality-review.md` | 两阶段代码审查 |
 
 ---
 
@@ -189,10 +189,10 @@
 
 **用户选择**:
 1. **继续拆分任务**: 方案已完善，基于此方案生成任务清单
-2. **Codex 审查**: 让 Codex 审查方案后再决定（评分 < 70 时建议完善）
+2. **子 agent 审查**: 让平台支持的 reviewer 子 agent 审查方案后再决定（评分 < 70 时建议完善）
 3. **手动编辑后继续**: 暂停，手动完善方案后重新执行
 
-**Codex 审查内容**:
+**子 agent 审查内容**:
 - 架构设计是否合理
 - 模块划分是否清晰
 - 接口设计是否完整
@@ -216,7 +216,7 @@
 - leverage: 可复用组件
 - design_ref: 设计文档章节引用
 - requirement: 需求描述
-- actions: 执行动作（create_file, edit_file, run_tests, codex_review, git_commit）
+- actions: 执行动作（create_file, edit_file, run_tests, quality_review, git_commit）
 - depends: 依赖任务 ID
 - blocked_by: 阻塞依赖（api_spec, external）
 - quality_gate: 是否为质量关卡
@@ -271,8 +271,9 @@
 - 状态（planned）
 - 执行模式（phase / step / boundary / quality_gate）
 - 工作模式（normal / progressive）
-- 会话 ID（codex, gemini, claude）
-- 进度跟踪（completed, blocked, skipped, failed）
+- 会话与平台信息（`sessions.platform` + `sessions.executor/reviewers`）
+- `sessions.platform` 记录当前执行平台（如 cursor / claude-code / codex）
+- `sessions.executor` / `sessions.reviewers` 用于跨阶段复用执行与审查会话
 - 约束系统（hard, soft, openQuestions, successCriteria, pbtProperties）
 - 零决策审计（passed, antiPatterns, remainingAmbiguities）
 - 上下文感知指标（estimatedTokens, warningThreshold, dangerThreshold）

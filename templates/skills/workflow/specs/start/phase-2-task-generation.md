@@ -53,7 +53,7 @@ const implementationPlan = extractImplementationPlan(techDesign);
 | `create_file` (组件) | 创建文件 → 实现核心逻辑 → 接入数据 → 运行验证 |
 | `create_file` (工具/服务) | 创建文件 → 实现接口 → 添加错误处理 → 运行验证 |
 | `edit_file` | 定位修改点 → 实施修改 → 检查副作用 → 运行验证 |
-| `run_tests` / `codex_review` / `git_commit` | 不需要步骤内化 |
+| `run_tests` / `quality_review` / `git_commit` | 不需要步骤内化 |
 
 ```typescript
 // 为每个任务补充详细信息（包含依赖分类 + 验证清单关联）
@@ -105,7 +105,7 @@ if (!tasks.some(t => t.quality_gate)) {
       leverage: null,
       design_ref: null,
       requirement: `审查 ${lastCodeTask.id} 及之前的所有代码实现（聚合 diff 窗口）`,
-      actions: 'codex_review',
+      actions: 'quality_review',
       depends: lastCodeTask.id,
       quality_gate: true,
       status: 'pending'
@@ -256,7 +256,7 @@ ${tasks.map(t => `- [ ] ${t.id}: ${t.name} (${t.phase})`).join('\n')}
 - `create_file`: 创建新文件
 - `edit_file`: 编辑现有文件
 - `run_tests`: 运行测试
-- `codex_review`: Codex 代码审查
+- `quality_review`: 两阶段代码审查
 - `git_commit`: Git 提交
 
 ### depends
@@ -366,7 +366,7 @@ function determineActions(item: any): string {
     case 'design': return 'create_file';
     case 'implement': return 'create_file,edit_file';
     case 'test': return 'create_file,run_tests';
-    case 'verify': return 'codex_review';
+    case 'verify': return 'quality_review';
     case 'deliver': return 'git_commit';
     default: return 'edit_file';
   }

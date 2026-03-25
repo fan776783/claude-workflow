@@ -52,12 +52,16 @@
   "pause_before_commit": true,
   "consecutive_count": 2,
   "tasks_file": "tasks.md",
-  "tech_design": ".claude/docs/tech-design.md",
+  "tech_design": ".claude/tech-design/task-name.md",
   "unblocked": [],
   "sessions": {
-    "codex": null,
-    "gemini": null,
-    "claude": null
+    "platform": "cursor",
+    "executor": null,
+    "reviewers": {
+      "codex": null,
+      "gemini": null,
+      "claude": null
+    }
   },
   "progress": {
     "completed": ["T1", "T2"],
@@ -85,10 +89,10 @@
   "collaboration": {
     "schemaVersion": "2.1",
     "mode": "dual",
-    "lead": "codex",
-    "support": ["claude"],
+    "lead": "claude",
+    "support": ["codex"],
     "parallelPhases": ["analysis", "review"],
-    "reason": "complex backend task",
+    "reason": "frontend task on Cursor with secondary code review",
     "confidence": 0.85
   },
   "constraints": {
@@ -149,7 +153,7 @@
 | `current_task` | 向后兼容别名，等于 `current_tasks[0]` |
 | `parallel_groups` | 并行执行批次历史记录 |
 | `unblocked` | 已解除的依赖列表，如 `["api_spec"]` |
-| `sessions` | 多模型会话 ID，用于跨阶段复用上下文 |
+| `sessions` | 平台与会话槽位信息；`platform: ExecutionPlatform` 表示当前执行平台，`executor/reviewers` 用于跨阶段复用会话 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
 | `contextMetrics` | 上下文感知指标，用于动态调整执行策略 |
 | `contextMetrics.estimatedTokens` | 当前估算的上下文 token 数（字符数/4） |
@@ -159,8 +163,8 @@
 | `contextMetrics.history` | 每次任务执行后的 token 变化记录 |
 | `collaboration` | 多模型协作配置（v2.1） |
 | `collaboration.mode` | 协作模式：none/single/dual/triple |
-| `collaboration.lead` | 主导模型：codex/gemini/claude |
-| `collaboration.support` | 辅助模型列表 |
+| `collaboration.lead` | 主导模型：`ModelProvider`（当前约定为 codex/gemini/claude，不含平台名） |
+| `collaboration.support` | 辅助模型列表（`ModelProvider[]`，仅模型名，不含平台名） |
 | `collaboration.parallelPhases` | 并行执行的阶段：analysis/prototype/review |
 | `collaboration.confidence` | 路由置信度 0-1 |
 | `constraints` | 约束系统（v2.1） |
@@ -237,6 +241,18 @@ interface QualityGateResult {
 - Stage 2 失败时，`stage2` 填充实际审查结果（`assessment: 'rejected'` 或 `'needs_fixes'`）
 - 消费方（如 `status.md` 模板）须用 `{{#if stage2}}` 条件渲染
 
+## 术语基础类型
+
+```typescript
+type ExecutionPlatform = 'cursor' | 'claude-code' | 'codex' | 'other';
+type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
+```
+
+**约定**：
+- `ExecutionPlatform` 表示当前运行环境或子 agent 路由目标
+- `ModelProvider` 表示参与分析、审查、约束提炼的模型来源
+- 平台与模型必须分层建模，禁止混用
+
 ## 约束系统（v2.1）
 
 ### Constraint 接口定义
@@ -247,7 +263,7 @@ interface Constraint {
   description: string;           // 约束描述
   type: 'hard' | 'soft';         // 硬约束必须满足，软约束建议满足
   category: 'requirement' | 'interface' | 'data' | 'error' | 'security' | 'performance';
-  sourceModel: 'codex' | 'gemini' | 'claude' | 'user';  // 来源追踪
+  sourceModel: ModelProvider;    // 来源追踪（模型级，不含执行平台）
   phase: 'analysis' | 'review';  // 产生阶段
   verified?: boolean;            // 是否已验证
   verifyCmd?: string;            // 验证命令（可选）
@@ -369,7 +385,10 @@ function classifyTaskDependencies(
 
 ## Subagent 模式
 
-自动检测：任务数 > 5 时启用
+自动检测：
+- Claude Code / Cursor：优先启用 `Task` 子 agent
+- Codex：检测到多 agent 能力时启用 `spawn_agent`
+- 任务数 > 5 或上下文压力过高时默认建议启用
 
 手动控制：
 - `--subagent` 强制启用
