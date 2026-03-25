@@ -34,20 +34,20 @@ function parseQualityGate(body: string): boolean {
 2. **phase 模式**: 正常执行后暂停
 3. **all 模式**: 执行后**强制暂停**等待用户确认
 
-## 评分机制
+## 判定机制
 
-质量关卡任务需要评估结果：
+质量关卡任务按 action 类型判定结果：
 
-| 评分 | 结果 |
-|------|------|
-| ≥ threshold | 通过，继续执行 |
-| < threshold | 失败，进入 failed 状态 |
+| 类型 | 通过条件 | 失败条件 |
+|------|----------|----------|
+| `run_tests` | 测试命令通过 | 测试失败或退出码非 0 |
+| `quality_review` | Stage 1 + Stage 2 全部通过 | 任一阶段失败或预算耗尽 |
 
 ## 常见质量关卡
 
 | 类型 | actions | 阈值建议 |
 |------|---------|----------|
 | 单元测试 | run_tests | 80% |
-| 代码审查 | codex_review | 70 |
+| 两阶段代码审查 | quality_review | 通过 Stage 1/Stage 2 |
 | 集成测试 | run_tests | 90% |
 | 类型检查 | type_check | 100% |
