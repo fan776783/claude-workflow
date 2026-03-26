@@ -175,14 +175,55 @@
     "unresolved_dependencies": [{"type": "api_spec", "status": "not_started", "description": "等待后端接口规格冻结"}]
   },
   "contextMetrics": {
+    "maxContextTokens": 1000000,
     "estimatedTokens": 45000,
+    "projectedNextTurnTokens": 62000,
+    "reservedExecutionTokens": 8000,
+    "reservedVerificationTokens": 5000,
+    "reservedReviewTokens": 0,
+    "reservedSafetyBufferTokens": 4000,
+    "usagePercent": 5,
+    "projectedUsagePercent": 6,
     "warningThreshold": 60,
     "dangerThreshold": 80,
+    "hardHandoffThreshold": 90,
     "maxConsecutiveTasks": 5,
     "history": [
-      { "taskId": "T1", "tokens": 12000, "timestamp": "2026-03-24T11:10:00Z" },
-      { "taskId": "T2", "tokens": 18000, "timestamp": "2026-03-24T11:20:00Z" }
+      {
+        "taskId": "T1",
+        "phase": "feature-implementation",
+        "preTaskTokens": 10000,
+        "postTaskTokens": 12000,
+        "tokenDelta": 2000,
+        "executionPath": "direct",
+        "triggeredVerification": true,
+        "triggeredReview": false,
+        "timestamp": "2026-03-24T11:10:00Z"
+      },
+      {
+        "taskId": "T2",
+        "phase": "feature-implementation",
+        "preTaskTokens": 12000,
+        "postTaskTokens": 18000,
+        "tokenDelta": 6000,
+        "executionPath": "parallel-boundaries",
+        "triggeredVerification": true,
+        "triggeredReview": false,
+        "timestamp": "2026-03-24T11:20:00Z"
+      }
     ]
+  },
+  "continuation": {
+    "strategy": "budget-first",
+    "last_decision": {
+      "action": "continue-direct",
+      "reason": "mode-phase-boundary",
+      "severity": "info",
+      "nextTaskIds": ["T3"],
+      "suggestedExecutionPath": "direct"
+    },
+    "handoff_required": false,
+    "artifact_path": null
   },
   "collaboration": {
     "schemaVersion": "2.1",
@@ -241,7 +282,8 @@
 | `unblocked` | 已解除的依赖列表 |
 | `sessions` | 平台与会话槽位信息 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
-| `contextMetrics` | 上下文感知指标，用于动态调整执行策略 |
+| `contextMetrics` | 上下文预算指标，供 ContextGovernor 评估 continue / pause / handoff |
+| `continuation` | continuation governance 状态，记录 budget-first 决策与 handoff 信息 |
 | `collaboration` | 多模型协作配置 |
 | `constraints` | 约束系统 |
 | `zeroDecisionAudit` | 零决策审计结果 |
@@ -543,7 +585,7 @@ function classifyTaskDependencies(
 | 模式 | 参数 | 中断点 |
 |------|------|--------|
 | step | `--step` | 每个任务后 |
-| phase | `--phase` | 阶段变化时 |
+| phase | `--phase` | 治理 phase 边界变化时 |
 | quality_gate | `连续` / `执行到质量关卡` | 质量关卡后；若下一步是 `git_commit` 且 `pause_before_commit=true`，则提交前也会暂停 |
 
 ## Subagent 模式

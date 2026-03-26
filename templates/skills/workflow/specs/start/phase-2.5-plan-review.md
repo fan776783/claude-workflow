@@ -34,7 +34,7 @@ const PLAN_REVIEW_POLICY: ReviewLoopPolicy = {
 ```
 
 **边界约束**：
-- 允许修订：coverage、constraints、verification、step decomposition
+- 允许修订：coverage、constraints、verification、step decomposition、governance slice 划分、phase 粒度、parallel boundary 标注
 - 不允许修订：scope、执行目标、requirement truth source
 - 若发现需要改 Scope / Goal，必须退出当前 loop，回到更早的规划阶段处理
 
@@ -50,9 +50,11 @@ const PLAN_REVIEW_POLICY: ReviewLoopPolicy = {
 - **Completeness**：是否覆盖目标文件、步骤、验证和质量关卡
 - **Spec Alignment**：是否与 Spec 范围、行为、文件结构保持一致
 - **Task Decomposition**：步骤是否足够原子，适合编译成任务 `steps[]`
+- **Governance Slice Quality**：是否已经定义稳定的治理切片，而不是把 phase 切成微实现步骤
 - **Buildability**：是否具备可执行、可验证、可收口的实现路径
 - **Requirement Coverage**：所有 in-scope requirement 是否至少映射到一个 step
 - **Critical Constraint Preservation**：所有关键约束是否在 step 或 Non-Negotiable 约束中出现
+- **Parallel Boundary Readiness**：对于可并行边界，是否具备足够的独立性线索（文件、依赖、验证副作用范围）
 
 ## 实现细节
 

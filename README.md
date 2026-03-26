@@ -8,7 +8,7 @@
 
 ## 核心能力
 
-- `workflow`：需求分析、Requirement Baseline、Brief / Spec / Plan 生成、任务编排与执行，并区分 planning-side review loops 与 execution quality gates
+- `workflow`：需求分析、Requirement Baseline、Brief / Spec / Plan 生成、任务编排与执行；执行阶段采用 budget-first governance，并区分 planning-side review loops 与 execution quality gates
 - `scan`：扫描项目技术栈并生成项目配置
 - `analyze`：双模型技术分析
 - `debug`：结构化问题定位与修复
@@ -66,7 +66,7 @@ npm run sync -- -y
 含义如下：
 
 - `start`：启动规划流程
-- `execute`：按任务编排推进执行
+- `execute`：按任务编排推进执行，由 `ContextGovernor` 先判断预算、治理边界与并行边界机会，再应用 `step / phase / quality_gate` 语义
 - `status`：查看当前工作流状态
 - `delta`：处理 PRD / API /需求变更
 - `archive`：归档已完成工作流
@@ -95,14 +95,16 @@ flowchart TD
     O --> P["Phase 2.5 machine_loop: Plan Review"]
     Q --> R["Phase 3 编译 tasks"]
     R --> S["/workflow execute"]
-    S --> T["按任务阶段执行"]
-    T --> U{"是否触发质量关卡"}
-    U -->|是| V["两阶段审查 + 追溯守卫"]
-    U -->|否| W["更新任务状态"]
-    V --> W
-    W --> X{"是否全部完成"}
-    X -->|否| S
-    X -->|是| Y["/workflow archive"]
+    S --> T["ContextGovernor 判断 projected budget / 治理边界 / 并行边界机会"]
+    T --> U["continue-direct 或 continue-parallel-boundaries"]
+    U --> V{"是否触发质量关卡"}
+    V -->|是| W["两阶段审查 + 追溯守卫"]
+    V -->|否| X["更新任务状态"]
+    W --> X
+    X --> Y{"是否全部完成 / 是否需要暂停或 handoff"}
+    Y -->|继续| S
+    Y -->|完成| Z["/workflow archive"]
+    Y -->|暂停 / handoff| AA["等待下次 execute 或新会话恢复"]
 ```
 
 这条主线的重点是：

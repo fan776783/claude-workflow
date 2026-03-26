@@ -30,6 +30,8 @@
 - 任务的验收映射来自 `brief`
 - 任务的 requirement IDs 与关键约束来自 `requirement baseline`
 - `tasks.md` 只写入 V2 任务字段，执行链路不再消费旧任务格式
+- Task Compilation 应优先按稳定 governance slice 编译顶层任务，而不是默认“一条 atomic step = 一个顶层任务”
+- `steps[]` 继续保留原子步骤，用于 traceability 与验证，不直接定义 phase 粒度
 
 ## 实现细节
 
@@ -56,59 +58,24 @@ if (planSteps.length === 0) {
 ### Step 3: 生成 WorkflowTaskV2 列表
 
 ```typescript
-const tasks = planSteps.map((step, index) => {
-  const files = classifyFiles(step.files);
-  const task = {
-    id: `T${index + 1}`,
-    name: step.goal,
-    phase: determinePhaseFromPlanStep(step),
-    files,
-    leverage: findLeverage(step.files[0], analysisResult.reusableComponents)?.split(', ') || [],
-    spec_ref: step.specRef,
-    plan_ref: step.id,
-    requirement_ids: step.requirement_ids || [],
-    critical_constraints: step.critical_constraints || [],
-    actions: [mapActionType(step.actionType)],
-    steps: [{
-      id: step.id,
-      description: step.goal,
-      expected: step.expected,
-      verification: step.verification,
-      requirement_ids: step.requirement_ids || [],
-      critical_constraints: step.critical_constraints || []
-    }],
-    verification: step.verification
-      ? { commands: [step.verification], expected_output: ['命令成功执行'], notes: [] }
-      : undefined,
-    depends: step.dependsOn || [],
-    blocked_by: [],
-    quality_gate: false,
-    status: 'pending',
-    acceptance_criteria: []
-  } satisfies WorkflowTaskV2;
+const governanceSlices = parseGovernanceSlices(planContent);
 
-  const taskFiles = [
-    ...(task.files.create || []),
-    ...(task.files.modify || []),
-    ...(task.files.test || [])
-  ];
-  const blockedBy = classifyTaskDependencies({
-    name: task.name,
-    files: taskFiles,
-    requirement_ids: task.requirement_ids
-  }, discussionArtifact);
-  if (blockedBy.length > 0) {
-    task.blocked_by = blockedBy;
-    task.status = 'blocked';
-  }
-
-  if (briefContent) {
-    task.acceptance_criteria = mapTaskToAcceptanceCriteriaV2(task, briefContent);
-  }
-
-  return task;
+const tasks = compileTasksFromGovernanceSlices({
+  governanceSlices,
+  planSteps,
+  briefContent,
+  baselineContent,
+  analysisResult,
+  discussionArtifact
 });
 ```
+
+**编译原则**：
+- 顶层任务优先按 stable governance slice 聚合
+- 同一 governance slice 下的 atomic steps 应写入同一个任务的 `steps[]`
+- `phase` 应来自治理切片，而不是从每个 atomic step 机械推导
+- 若一个 slice 内已经识别出多个同阶段独立边界，可在任务元数据中保留 `boundary_key` / `continuation_safe` 等线索，供执行期调度使用
+- 仅在确有必要时，才把单个 atomic step 提升为顶层任务
 
 ### Step 4: 添加标准质量关卡
 
@@ -231,5 +198,13 @@ interface ParsedPlanStep {
   expected: string;
   verification?: string;
   dependsOn?: string[];
+  governanceSliceId?: string;
+}
+
+interface CompiledTaskMetadata {
+  boundary_key?: string;
+  continuation_safe?: boolean;
+  integration_risk?: 'low' | 'medium' | 'high';
+  governance_boundary?: 'none' | 'phase' | 'quality_gate' | 'commit' | 'blocked';
 }
 ```

@@ -24,10 +24,12 @@
 - **Scope Check**：只承接已批准 Spec 的范围
 - **Baseline-backed**：计划必须从 requirement IDs 出发，而不只是从 capability 标题出发
 - **File Structure First**：先列文件，再排步骤
+- **Governance Slices First**：先定义稳定的 implementation / governance slices，再在 slice 内生成原子步骤
 - **Atomic Steps**：计划步骤应足够小，便于编译为任务 `steps[]`
 - **Explicit Verification**：每个步骤都有验证方式
 - **Requirement Coverage by Step**：每个 in-scope requirement 至少映射到一个步骤
 - **Execution-neutral**：Plan 提供编排输入，但不直接承担执行状态
+- **Phase Is Governance Boundary**：phase 用于表达治理边界，而不是对每个微实现步骤做机械切分
 
 ## 实现细节
 
@@ -55,17 +57,28 @@ ${scopeCheck.issues.map(i => `- ${i}`).join('\n')}
 }
 ```
 
-### Step 3: 提取文件结构、切片与 requirement 集合
+### Step 3: 提取文件结构、治理切片与 requirement 集合
 
 ```typescript
 const filePlan = deriveFilePlan(specContent, analysisResult);
 const slices = deriveImplementationSlices(specContent);
+const governanceSlices = deriveGovernanceSlices({
+  specContent,
+  baselineContent,
+  briefContent,
+  implementationSlices: slices
+});
 const verificationPlan = deriveVerificationPlan(briefContent);
 const inScopeRequirements = extractInScopeRequirements(baselineContent);
 const criticalConstraints = extractCriticalConstraints(baselineContent);
 ```
 
-### Step 4: 生成原子步骤
+> `governanceSlices` 是 Plan 到 Task Compilation 的中间层：
+> - 用于表达稳定的 implementation scope
+> - 用于承载 phase / boundary / quality gate / commit gate / integration risk
+> - 不替代 atomic steps，而是为 atomic steps 提供更粗的治理容器
+
+### Step 4: 在治理切片内生成原子步骤
 
 ```typescript
 const atomicSteps = generateAtomicPlanSteps({
@@ -73,6 +86,7 @@ const atomicSteps = generateAtomicPlanSteps({
   baselineContent,
   filePlan,
   slices,
+  governanceSlices,
   verificationPlan
 });
 ```
@@ -112,6 +126,18 @@ interface PlanFileStructure {
   test: string[];
 }
 
+interface GovernanceSlice {
+  id: string;
+  name: string;
+  phase: string;
+  boundary_key?: string;
+  continuation_safe: boolean;
+  integration_risk: 'low' | 'medium' | 'high';
+  quality_gate_after?: boolean;
+  commit_gate_after?: boolean;
+  requirement_ids: string[];
+}
+
 interface PlanStep {
   id: string;
   goal: string;
@@ -123,6 +149,7 @@ interface PlanStep {
   expected: string;
   verification?: string;
   dependsOn?: string[];
+  governanceSliceId?: string;
 }
 ```
 

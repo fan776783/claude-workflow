@@ -5,6 +5,11 @@
 workflow execute 支持多种执行模式，以适应不同的工作场景和用户偏好。
 
 > 执行链路直接消费 `WorkflowTaskV2`：任务提取使用 `extractCurrentTaskV2()`，动作判断使用 `actions[]`，实现语义读取 `steps[]`。
+>
+> 自 vNext 起，执行阶段采用 **budget-first** continuation governance：
+> - `execution_mode` 只定义语义上的暂停偏好
+> - `ContextGovernor` 负责 continue / pause / parallel-boundaries / handoff-required 的真实决策
+> - 所有模式都必须先通过预算、安全、独立性与验证条件检查，才能继续执行
 
 ## 模式类型
 
@@ -51,12 +56,13 @@ if (executionMode === 'step') {
 - 自然语言：`/workflow execute 继续` / `/workflow execute 下一阶段`
 
 **行为**：
-- 连续执行同一阶段的任务
-- 遇到阶段变化时暂停
+- 连续执行同一治理 phase 内的任务
+- 仅在治理边界变化时暂停；微实现步骤变化不应单独触发暂停
+- 若 `ContextGovernor` 判定可以继续，允许跨越非治理性的细粒度 phase 变化
 - 显示阶段完成摘要
 
 **适用场景**：
-- 按阶段组织的工作流（design → infra → ui-layout → ...）
+- 按治理边界组织的工作流（foundation → feature-implementation → integration → verify → deliver）
 - 需要在阶段间进行检查和调整
 - 平衡效率和控制
 
@@ -103,6 +109,8 @@ if (executionMode === 'phase') {
 ---
 
 ### 3. 连续模式（quality_gate）
+
+> `quality_gate` 仍然是语义模式，不绕过 `ContextGovernor`。若 projected 预算不足、需切换到 `parallel-boundaries`、或达到 handoff 阈值，则应先执行对应治理动作，再考虑是否继续跑到下一个质量关卡。
 
 **触发方式**：
 - 命令行：`/workflow execute 连续`
@@ -434,60 +442,82 @@ async function executeSkipMode() {
 
 ---
 
-## 兜底机制
+## ContextGovernor
 
-为防止上下文溢出，所有模式都有兜底机制：
+所有执行模式共享同一 continuation governor。它不再是“兜底机制”，而是决定下一步的第一优先级调度器。
 
-### 连续执行计数限制
+### 决策顺序
+
+```text
+1. 检查硬停止条件
+   - failed / blocked
+   - retry hard stop
+   - 缺少验证证据
+   - quality_review 预算耗尽
+
+2. 计算下一执行单元的 projected budget
+   - 当前主会话 token
+   - 下一执行单元的执行成本
+   - 验证成本
+   - 审查成本
+   - 安全缓冲
+
+3. 检查是否存在同阶段 2+ 可证明独立边界
+   - 若存在且工件稳定，可优先选择 parallel-boundaries
+
+4. 应用预算阈值
+   - warning：倾向 parallel-boundaries 或暂停
+   - danger：预算暂停
+   - hard handoff：生成 continuation artifact 并要求新会话恢复
+
+5. 仅当以上均允许时，才应用 execution_mode 语义
+   - step
+   - phase
+   - quality_gate
+```
+
+### 决策输出
 
 ```typescript
-// 连续执行任务计数
-state.consecutive_count = (state.consecutive_count || 0) + 1;
+type ContinuationAction =
+  | 'continue-direct'
+  | 'continue-parallel-boundaries'
+  | 'pause-budget'
+  | 'pause-governance'
+  | 'pause-quality-gate'
+  | 'pause-before-commit'
+  | 'handoff-required';
+```
 
-// 动态计算最大连续任务数
-const taskComplexity = detectTaskComplexity(currentTask);
-const maxConsecutiveTasks = calculateDynamicMaxTasks(
-  taskComplexity,
-  state.contextMetrics.usagePercent
-);
+### 节奏控制信号
 
-// 检查是否达到上限
-if (state.consecutive_count >= maxConsecutiveTasks) {
-  console.log(`
-⚠️ 已连续执行 ${state.consecutive_count} 个任务，达到上限
+`consecutive_count` 与 `maxConsecutiveTasks` 继续保留，但它们只作为节奏控制信号：
+- 不能覆盖 danger / hard handoff 水位
+- 不能覆盖独立边界并行机会
+- 不能绕过质量关卡或验证门控
 
-为避免上下文溢出，建议暂停检查。
+### 预算暂停与交接语义
 
-💡 继续执行：/workflow execute
-  `);
-
-  // 重置计数
-  state.consecutive_count = 0;
+```typescript
+if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.hardHandoffThreshold) {
+  writeContinuationArtifact(state);
+  state.continuation = {
+    strategy: 'budget-first',
+    last_decision: { action: 'handoff-required', reason: 'hard-handoff-threshold' },
+    handoff_required: true,
+    artifact_path: continuationArtifactPath
+  };
   writeFile(statePath, JSON.stringify(state, null, 2));
   return;
 }
-```
 
-### 上下文使用率限制
-
-```typescript
-// 检查上下文使用率
-if (state.contextMetrics.usagePercent > state.contextMetrics.dangerThreshold) {
-  console.log(`
-⚠️ 上下文使用率过高 (${state.contextMetrics.usagePercent}%)
-
-为避免上下文溢出，强制暂停。
-
-建议：
-- 使用 subagent 模式（自动启用）
-- 减少连续执行任务数
-- 清理不必要的文件
-
-💡 继续执行：/workflow execute
-  `);
-
-  // 重置计数
-  state.consecutive_count = 0;
+if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.dangerThreshold) {
+  state.continuation = {
+    strategy: 'budget-first',
+    last_decision: { action: 'pause-budget', reason: 'context-danger' },
+    handoff_required: false,
+    artifact_path: null
+  };
   writeFile(statePath, JSON.stringify(state, null, 2));
   return;
 }
@@ -495,16 +525,26 @@ if (state.contextMetrics.usagePercent > state.contextMetrics.dangerThreshold) {
 
 ---
 
-## 模式优先级
+## 决策优先级
 
-执行模式的优先级（从高到低）：
+`execution_mode` 仍保留原优先级，但它只在 `ContextGovernor` 判定允许继续时生效。
 
-1. **命令行参数**：`/workflow execute step`
-2. **state 配置**：`state.execution_mode`
-3. **默认值**：`phase`
+**执行治理优先级（从高到低）**：
+1. **硬停止 / 验证阻断 / review budget 耗尽**
+2. **ContextGovernor 预算判断**
+3. **parallel-boundaries 调度机会**
+4. **命令行参数**：`/workflow execute step`
+5. **state 配置**：`state.execution_mode`
+6. **默认值**：`phase`
 
 ```typescript
 const executionMode = executionModeOverride || state.execution_mode || 'phase';
+const decision = evaluateContinuationDecision(...);
+
+if (decision.action !== 'continue-direct') {
+  applyDecision(decision);
+  return;
+}
 ```
 
 ---
@@ -570,6 +610,8 @@ if (useSubagent && routing.supported) {
 ### 并行执行（Subagent 模式）
 
 当 Subagent 模式启用时，同阶段且通过独立性检查的任务可并行执行。
+
+> 自 vNext 起，`parallel-boundaries` 不只是性能优化，也是 `ContextGovernor` 的 continuation action 之一：当规划工件稳定、主会话上下文进入 warning 区、且同阶段存在 2+ 可证明独立边界时，应优先评估边界并行，而不是让主会话顺序吞下多个独立任务。
 
 并行策略必须遵循 `../../dispatching-parallel-agents/SKILL.md`：先做平台检测，再做独立性检查，然后按上下文边界分组；边界内串行，边界间并行。
 

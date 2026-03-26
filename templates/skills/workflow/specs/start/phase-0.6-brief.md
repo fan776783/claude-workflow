@@ -128,6 +128,8 @@ interface RequirementCoverageGap {
 
 根据 Requirement Baseline 中的 `scenario`、`scope_owner`、`dependency_tags` 对 requirement items 做模块聚类：
 
+> 这些模块分组不仅服务于验收与测试组织，也是后续 `governance slices`、coarse phase 设计与 boundary-level parallel dispatch 的上游输入。
+
 - 同一 `scenario` 下的 items 优先归入同一模块
 - `related_items` 互相引用的 items 必须在同一模块
 - 按 `scope_owner` 细分前后端模块（如一个场景涉及前后端，可拆为两个模块）

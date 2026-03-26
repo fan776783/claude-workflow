@@ -7,11 +7,15 @@ description: "对 2+ 可证明独立的问题域 / 任务域进行并行子 agen
 
 将任务按**上下文边界**而非抽象角色拆分，再按平台能力路由到合适的子 agent。
 
+> 自 vNext 起，本 skill 既是并行执行机制，也是 `ContextGovernor` 在高上下文压力下的治理策略之一：当规划工件已经稳定、同阶段存在 2+ 可证明独立边界、且主会话顺序执行会明显放大上下文时，应优先评估 `parallel-boundaries`。
+
 ## 何时使用
 
 出现以下任一场景时，优先应用本 skill：
 
 - `workflow execute` 在当前阶段识别出 2 个及以上可证明独立的候选任务
+- 当前主会话已进入上下文 warning 区，且继续顺序执行多个独立任务会明显放大上下文压力
+- `baseline / brief / spec / tech design` 已稳定，可为每个边界提供最小必要上下文
 - 多个失败测试文件、多个子系统缺陷或多个问题域彼此独立，适合 `one agent per domain`
 - 需要把独立调查 / 修复 / 分析任务并行分派给多个子 agent，并由主会话统一汇总
 - 需要显式限制每个子 agent 只处理单一问题域，避免共享状态和上下文污染
@@ -104,9 +108,12 @@ interface DispatchState {
 1. 平台是否支持子 agent
 2. `state.use_subagent` 是否显式开启；若未显式开启，再结合上下文压力和任务量自动判断
 3. 当前阶段是否存在 2 个及以上可候选任务
-4. 若只有 1 个任务，但任务上下文很重，也可以使用单子 agent 隔离执行
+4. 规划工件（`baseline / brief / spec / tech design`）是否已稳定到足以支持最小上下文分派
+5. 若只有 1 个任务，但任务上下文很重，也可以使用单子 agent 隔离执行
 
 若任一关键条件不满足，则直接顺序执行。
+
+> 当 `ContextGovernor` 已进入 warning 区时，本步骤应被视为 continuation 决策的一部分，而不是可选性能优化。
 
 ### Step 2：收集同阶段候选任务
 
@@ -177,10 +184,13 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 - `requirement_ids`
 - `critical_constraints`
 - `acceptance_criteria`
+- 与当前边界直接相关的 `brief / spec / tech design` 片段
 - 验证命令或验证方式
 - 明确的输出契约（结果摘要 / 验证证据 / 失败原因）
 
 不要传入与当前任务无关的历史讨论、无关 diff、或整个任务清单全文。
+
+> 若主会话启用 `budget-first` continuation governance，则此处应优先传递“边界级摘要 + 必要原文片段”，而不是转发整个 planning 链路全文。
 
 ### Step 7：结果回收与清理
 
@@ -209,8 +219,9 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 当 `workflow` 进入以下节点时，应主动应用本 skill：
 
 1. `execute` 的 Step 3：识别是否存在 2+ 独立问题域 / 任务域
-2. `execute` 的 Step 6：把已确认独立的并行批次路由到多子 agent
-3. 任意需要“one agent per domain + 并行执行 + 主会话汇总验证”的场景
+2. `execute` 的 ContextGovernor：主会话已进入 warning 区，且可证明边界独立时，优先评估 `parallel-boundaries`
+3. `execute` 的 Step 6：把已确认独立的并行批次路由到多子 agent
+4. 任意需要“one agent per domain + 并行执行 + 主会话汇总验证”的场景
 
 如果只是单个任务的普通 subagent 执行，或 `quality_review` Stage 2 的单 reviewer 审查，则不应把它们强行归入本 skill。
 

@@ -275,7 +275,8 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 **计划约束**:
 - scope check
 - file structure first
-- 原子任务粒度
+- governance slices first
+- 原子任务粒度（用于 `steps[]`，不直接等价于 phase 边界）
 - 显式 verification
 - requirement coverage by step
 - non-negotiable requirement constraints
@@ -295,9 +296,11 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - Completeness
 - Spec Alignment
 - Task Decomposition
+- Governance Slice Quality
 - Buildability
 - Requirement Coverage
 - Critical Constraint Preservation
+- Parallel Boundary Readiness
 
 **产物**:
 - `review_status.plan_review` 中记录 `attempt / max_attempts / last_decision / next_action`
@@ -322,6 +325,7 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - `steps[]`
 - `verification`
 - `depends / blocked_by / quality_gate / acceptance_criteria`
+- 可选治理元数据：`boundary_key / continuation_safe / integration_risk / governance_boundary`
 
 **保留能力**:
 - 自动质量关卡

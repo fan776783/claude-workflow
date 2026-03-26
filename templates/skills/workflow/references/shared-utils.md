@@ -96,25 +96,37 @@ function extractField(body: string, fieldName: string): string | null {
 
 ```typescript
 interface ContextMetrics {
+  maxContextTokens: number;
   estimatedTokens: number;
+  projectedNextTurnTokens: number;
+  reservedExecutionTokens: number;
+  reservedVerificationTokens: number;
+  reservedReviewTokens: number;
+  reservedSafetyBufferTokens: number;
+  usagePercent: number;
+  projectedUsagePercent: number;
   warningThreshold: number;      // 默认 60
   dangerThreshold: number;       // 默认 80
-  maxConsecutiveTasks: number;   // 动态计算
-  usagePercent: number;          // 当前使用率
-  history: { taskId: string; tokens: number; timestamp: string }[];
+  hardHandoffThreshold: number;  // 默认 90
+  maxConsecutiveTasks: number;   // 节奏控制，不再单独主导 continuation
+  history: Array<{
+    taskId: string;
+    phase: string;
+    preTaskTokens: number;
+    postTaskTokens: number;
+    tokenDelta: number;
+    executionPath: 'direct' | 'single-subagent' | 'parallel-boundaries';
+    triggeredVerification: boolean;
+    triggeredReview: boolean;
+    timestamp: string;
+  }>;
 }
 
-const MAX_CONTEXT_TOKENS = 200000;  // Claude 最大上下文
-
-function estimateContextTokens(
-  tasksContent: string,
-  techDesignContent: string | null,
-  recentDiff: string | null
-): number {
+function estimateContextTokens(contents: Array<string | null | undefined>): number {
   let totalChars = 0;
-  totalChars += tasksContent.length;
-  if (techDesignContent) totalChars += techDesignContent.length;
-  if (recentDiff) totalChars += Math.min(recentDiff.length, 50000);
+  for (const content of contents) {
+    if (content) totalChars += content.length;
+  }
   return Math.round(totalChars / 4);
 }
 
@@ -124,8 +136,9 @@ function calculateDynamicMaxTasks(
 ): number {
   const baseLimit = taskComplexity === 'simple' ? 8 :
                     taskComplexity === 'medium' ? 5 : 3;
-  if (usagePercent > 70) return Math.max(2, baseLimit - 3);
-  if (usagePercent > 50) return Math.max(3, baseLimit - 1);
+  if (usagePercent >= 80) return 1;
+  if (usagePercent >= 70) return Math.max(2, baseLimit - 3);
+  if (usagePercent >= 50) return Math.max(3, baseLimit - 1);
   return baseLimit;
 }
 
@@ -159,6 +172,8 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
   return `[${bar}] ${usagePercent}%`;
 }
 ```
+
+> `shared-utils` 中的上下文结构必须与 `templates/specs/shared/context-awareness.md` 保持一致。任何继续执行判断都应以 projected budget 为准，而不是只看当前 usagePercent。
 
 ## 任务解析
 

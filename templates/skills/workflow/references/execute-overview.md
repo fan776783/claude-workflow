@@ -1,6 +1,6 @@
 # workflow execute - 执行任务概览 (v3.1)
 
-> 精简接口：默认阶段模式，支持自然语言控制执行模式
+> 精简接口：默认治理 phase 模式，支持自然语言控制执行模式
 
 执行工作流任务。
 
@@ -25,11 +25,13 @@
 
 ## 执行模式
 
-| 模式 | 说明 | 中断点 |
-|------|------|--------|
-| 单步 | 每个任务后暂停 | 每个任务 |
-| 阶段 | 按大阶段连续执行（默认） | 阶段变化时 |
+| 模式 | 说明 | 语义暂停点 |
+|------|------|------------|
+| 单步 | 每个执行单元后暂停 | 每个执行单元 |
+| 阶段 | 按治理 phase 连续执行（默认） | 治理边界变化时 |
 | 连续 | 执行到质量关卡 | 质量关卡 / git_commit |
+
+> 注意：以上仅是语义暂停点；真正是否继续由 `ContextGovernor` 先决定。
 
 > **Subagent 模式**：平台支持时自动启用（或任务数 > 5），每个任务在独立 subagent 中执行，避免上下文膨胀。
 >
@@ -41,6 +43,11 @@
 ---
 
 ## 🔍 执行流程概览
+
+> 自 vNext 起，`workflow execute` 采用 **budget-first** continuation governance：
+> - 先判断“下一执行单元是否还能安全继续”
+> - 再判断“是否应切换为 parallel-boundaries 降低主会话压力”
+> - 最后才应用 `step / phase / quality_gate` 的语义暂停点
 
 ### Step 0：解析执行模式
 
@@ -77,26 +84,22 @@
 
 ---
 
-### Step 3：上下文感知与 Subagent 决策
+### Step 3：上下文预算评估与执行路径候选
 
-**上下文估算**：
-- 估算当前 token 使用量（任务清单 + 技术方案 + 最近 diff）
-- 计算使用率百分比
-- 生成可视化进度条
+**上下文预算评估**：
+- 估算当前主会话 token 使用量
+- 估算下一执行单元的 projected token 成本（执行 + 验证 + 审查 + 安全缓冲）
+- 生成当前使用率与 projected 使用率
+- 产出 `ContextGovernor` 所需的 `contextMetrics`
 
-**Subagent 决策**：
+**执行路径候选**：
 - 平台检测（Claude Code / Cursor / Codex）
-- 启用条件：
-  1. 用户显式配置 `state.use_subagent`
-  2. 平台支持 + 上下文压力高（> 60%）
-  3. 平台支持 + 任务数量多（> 5）
-- 执行要求：仅当识别出同阶段 2+ 独立任务、需要并行分派时，先读取并应用 `../dispatching-parallel-agents/SKILL.md`
-- 路由结果：
-  - Claude Code / Cursor → `Task`
-  - Codex → `spawn_agent` / `wait` / `close_agent`
-  - 不支持子 agent → 直接模式
+- 检测是否存在同阶段 2+ 可证明独立任务
+- 若存在独立边界，评估 `parallel-boundaries` 是否能降低主会话压力
+- 若无法证明独立，则降级为顺序执行或单子 agent 隔离执行
+- 若 projected 使用率达到危险水位，则优先暂停或 handoff，而不是继续吞下后续任务
 
-**详细实现**: 参见 `specs/execute/execution-modes.md`、`specs/workflow/subagent-routing.md` 与 `references/shared-utils.md`
+**详细实现**: 参见 `specs/execute/execution-modes.md`、`specs/workflow/subagent-routing.md`、`../dispatching-parallel-agents/SKILL.md` 与 `references/shared-utils.md`
 
 ---
 
@@ -177,32 +180,30 @@
 - 标记任务为已完成（`completed`）
 - 更新 `tasks.md` 中的任务状态（添加 ✅ emoji）
 - 更新 `workflow-state.json` 中的进度
-- 记录上下文使用历史
-- 增加连续执行计数
+- 记录上下文使用历史与 projected 预算信息
+- 更新连续执行计数（仅作为节奏控制，不再单独决定 continuation）
 
 ---
 
-### Step 8：决定下一步
+### Step 8：ContextGovernor 决定下一步
 
-根据执行模式决定是否继续：
+完成 Step 6.5 / 6.6 / 6.7 与 Step 7 后，不再直接按 `execution_mode` 决定是否继续，而是先调用 `ContextGovernor`：
 
-**单步模式**：
-- 每个任务后暂停
-- 提示用户执行 `/workflow execute` 继续
+**决策顺序**：
+1. 检查是否存在硬停止条件（failed / blocked / retry hard stop / 缺少验证证据）
+2. 计算下一执行单元的 projected 成本
+3. 检查是否存在同阶段 2+ 独立边界，且是否适合 `parallel-boundaries`
+4. 判断是否达到 `warning / danger / hard handoff` 水位
+5. 仅当以上都允许继续时，才应用 `step / phase / quality_gate` 的语义暂停规则
 
-**阶段模式**（默认）：
-- 检查下一个任务的阶段
-- 如果阶段相同，继续执行
-- 如果阶段不同，暂停并提示
-
-**连续模式**：
-- 默认执行到质量关卡后暂停
-- 遇到质量关卡时暂停
-- 若下一步是 `git_commit` 且 `pause_before_commit=true`，则也会在提交前暂停
-
-**兜底机制**：
-- 连续执行任务数达到上限时强制暂停
-- 上下文使用率超过危险阈值时强制暂停
+**Continuation actions**：
+- `continue-direct`：直接继续顺序执行
+- `continue-parallel-boundaries`：按边界并行分派
+- `pause-budget`：因预算压力暂停
+- `pause-governance`：因 `step` 或治理 phase 边界暂停
+- `pause-quality-gate`：在质量关卡前暂停
+- `pause-before-commit`：在提交任务前暂停
+- `handoff-required`：达到硬水位，生成 continuation artifact 并建议新会话恢复
 
 ---
 
@@ -299,7 +300,7 @@
 ## 🔄 相关命令
 
 ```bash
-# 继续执行（默认阶段模式）
+# 继续执行（默认治理 phase 模式）
 /workflow execute
 
 # 单步执行

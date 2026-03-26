@@ -431,28 +431,47 @@ function checkBlockedDependencies(
 ```typescript
 function recordContextUsage(
   state: any,
-  taskId: string,
-  estimatedTokens: number
+  params: {
+    taskId: string;
+    phase: string;
+    preTaskTokens: number;
+    postTaskTokens: number;
+    executionPath: 'direct' | 'single-subagent' | 'parallel-boundaries';
+    triggeredVerification: boolean;
+    triggeredReview: boolean;
+  }
 ): void {
   if (!state.contextMetrics) {
     state.contextMetrics = {
+      maxContextTokens: 0,
       estimatedTokens: 0,
+      projectedNextTurnTokens: 0,
+      reservedExecutionTokens: 0,
+      reservedVerificationTokens: 0,
+      reservedReviewTokens: 0,
+      reservedSafetyBufferTokens: 0,
       warningThreshold: 60,
       dangerThreshold: 80,
+      hardHandoffThreshold: 90,
       maxConsecutiveTasks: 5,
       usagePercent: 0,
+      projectedUsagePercent: 0,
       history: []
     };
   }
 
-  // 添加历史记录
   state.contextMetrics.history.push({
-    taskId,
-    tokens: estimatedTokens,
+    taskId: params.taskId,
+    phase: params.phase,
+    preTaskTokens: params.preTaskTokens,
+    postTaskTokens: params.postTaskTokens,
+    tokenDelta: params.postTaskTokens - params.preTaskTokens,
+    executionPath: params.executionPath,
+    triggeredVerification: params.triggeredVerification,
+    triggeredReview: params.triggeredReview,
     timestamp: new Date().toISOString()
   });
 
-  // 保留最近 20 条记录
   if (state.contextMetrics.history.length > 20) {
     state.contextMetrics.history = state.contextMetrics.history.slice(-20);
   }
@@ -717,7 +736,9 @@ function hasTransitiveDependency(
 
 ### findParallelGroup
 
-从当前阶段的 pending 任务中找出可并行执行的任务组。
+从当前治理 phase 的 pending 任务中找出可并行执行的任务组。
+
+> 若执行系统已启用 budget-first continuation governance，则这里返回的是 `ContextGovernor` 的候选边界组，而不是立即执行的充分条件；仍需结合 projected budget、工件稳定性与验证隔离性共同判断。
 
 ```typescript
 function findParallelGroup(

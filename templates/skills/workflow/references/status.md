@@ -288,13 +288,20 @@ if (isJsonMode) {
 
 {{#if state.contextMetrics}}
 **上下文使用率**：{{state.contextMetrics.usagePercent}}%
+**Projected 使用率**：{{state.contextMetrics.projectedUsagePercent}}%
 
-{{generateContextBar(state.contextMetrics.usagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}}
+{{generateContextBar(state.contextMetrics.projectedUsagePercent, state.contextMetrics.warningThreshold, state.contextMetrics.dangerThreshold)}}
 
-{{#if (state.contextMetrics.usagePercent > state.contextMetrics.dangerThreshold)}}
-🚨 **上下文使用率过高！** 强烈建议新开会话继续执行。
-{{else if (state.contextMetrics.usagePercent > state.contextMetrics.warningThreshold)}}
-⚠️ 上下文使用率较高，建议减少连续执行任务数或新开会话。
+{{#if state.continuation}}
+**Continuation 决策**：{{state.continuation.last_decision.action}} / {{state.continuation.last_decision.reason}}
+{{/if}}
+
+{{#if (state.contextMetrics.projectedUsagePercent > state.contextMetrics.hardHandoffThreshold)}}
+🚨 **上下文预计超过硬阈值！** 应生成 continuation artifact 并新开会话继续执行。
+{{else if (state.contextMetrics.projectedUsagePercent > state.contextMetrics.dangerThreshold)}}
+🚨 **上下文预计进入危险区！** 应优先暂停或改走 parallel-boundaries。
+{{else if (state.contextMetrics.projectedUsagePercent > state.contextMetrics.warningThreshold)}}
+⚠️ 上下文预计进入告警区，建议优先评估 parallel-boundaries，避免主会话顺序吞下多个独立任务。
 {{/if}}
 {{/if}}
 

@@ -54,25 +54,34 @@ role: plan
 
 {{ordering_rationale}}
 
-### 3.2 Parallelization Opportunities
+### 3.2 Governance Slices
 
-- 哪些步骤可并行：
-- 哪些步骤必须串行：
+- Slice 列表：
+- 哪些 slice 属于同一治理 phase：
+- 哪些 slice 是治理边界：
+- 哪些 slice 可视为 continuation-safe：
+
+### 3.3 Parallelization Opportunities
+
+- 哪些边界可并行：
+- 哪些边界必须串行：
 - 冲突风险：
 
-### 3.3 Quality Constraints
+### 3.4 Quality Constraints
 
 - 需要满足的硬约束：
 - TDD 要求：
 - 必须保留的现有行为：
 
-### 3.4 Non-Negotiable Requirement Constraints
+### 3.5 Non-Negotiable Requirement Constraints
 
 {{non_negotiable_requirement_constraints}}
 
 ---
 
 ## 4. Atomic Steps
+
+> Atomic Steps 用于 `steps[]` 级别的可追溯性与验证，不应直接等价于 phase 边界。Task Compilation 应优先按治理切片聚合，再把 Atomic Steps 作为子步骤挂载到运行时任务中。
 
 {{atomic_steps}}
 
