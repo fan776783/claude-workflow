@@ -175,17 +175,18 @@ function escapeRegExp(str: string): string {
 // ═══════════════════════════════════════════════════════════════
 
 const state = JSON.parse(readFile(statePath));
+const activeTaskId = state.current_tasks?.[0] || '无';
 
 // 状态预检查：如果处于失败状态，提示用户
 if (state.status === 'failed') {
   console.log(`
 📂 工作流目录：${workflowDir}
 📄 任务清单：${state.tasks_file}
-📍 当前任务：${state.current_task}
+📍 当前任务：${activeTaskId}
 
 ⚠️ 当前工作流处于失败状态
 
-失败任务：${state.current_task}
+失败任务：${activeTaskId}
 失败原因：${state.failure_reason || '未知'}
 
 💡 修复后执行：/workflow-retry-step
@@ -244,7 +245,7 @@ const useSubagent = useSubagentOverride ?? state.use_subagent ?? autoSubagent;
 console.log(`
 📂 工作流目录：${workflowDir}
 📄 任务清单：${state.tasks_file}
-📍 当前任务：${state.current_task}
+📍 当前任务：${activeTaskId}
 ⚡ 执行模式：${executionMode}${useSubagent ? ' (subagent)' : ''}
 ${useSubagent && autoSubagent && useSubagentOverride === null ? '💡 已自动启用 subagent 模式（任务数 > 5）' : ''}
 `);

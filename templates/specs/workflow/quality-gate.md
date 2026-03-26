@@ -32,7 +32,7 @@ function parseQualityGate(body: string): boolean {
 
 1. **step 模式**: 正常执行后暂停
 2. **phase 模式**: 正常执行后暂停
-3. **all 模式**: 执行后**强制暂停**等待用户确认
+3. **quality_gate / 连续模式**: 执行后**强制暂停**等待用户确认
 
 ## 判定机制
 

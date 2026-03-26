@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] - 2026-03-25
+
+> 基于 2026-03-25 的仓库提交整理。
+
+### Added
+- **workflow 需求追溯体系**：新增 Requirement Baseline（Phase 0.55）、Traceability Review 参考文档与对应模板，强化从需求到 `spec`、`plan`、`tasks` 的可追溯链路
+- **workflow 新规划工件与阶段**：新增 `phase-1.2-spec-review.md`、`phase-1.3-spec-generation.md`、`phase-1.4-spec-user-review.md`、`phase-2-plan-generation.md`、`phase-2.5-plan-review.md`、`phase-3-task-compilation.md` 等规划阶段规格文件
+- **bug-batch 补充参考文档**：新增分析编排与状态汇报参考文档，并补充 `agents/openai.yaml`
+- **新 CLI 入口**：新增 `bin/agent-workflow.js`，统一包级命令入口
+
+### Changed
+- **workflow 执行质量关卡升级**：将 `codex-review` 调整为更通用的 `quality-review`，同步更新执行总览、执行模式与状态机文档
+- **workflow 规划流程重构**：`start` 主线升级为“需求结构化 → Requirement Baseline → 验收清单 → 实现指南 → tech-design → spec → plan → tasks”的分层流程
+- **质量关卡术语与状态描述优化**：将部分“评分机制”调整为“判定机制”，细化当前任务、并行组、第三方依赖等状态与约束说明
+- **安装与架构文档更新**：README、CLAUDE、工作流指南等文档改为强调 canonical + 受管链接架构、`agent-workflow` 单一源和新的同步方式
+- **安装器与同步流程更新**：installer、interactive-installer、postinstall 与 agent 检测逻辑同步新 CLI 名称和受管挂载流程
+- **debug / bug-batch 文档增强**：补充执行状态、修复单元、批量分析与流转说明
+- **workflow 模板更新**：技术设计、Spec、Plan、Requirement Baseline、验收清单与实现指南模板统一对齐新的追溯与验收结构
+
+### Removed
+- **perf-budget skill**：移除 `templates/skills/perf-budget/` 下的 skill 文档、脚本与相关资源，精简项目结构
+
+---
+
 ## [3.4.1] - 2026-03-10
 
 ### Fixed
@@ -14,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **版本号体系统一**：workflow skill 不再维护独立版本号（原 v3.5.0/v3.4.0），统一跟随包版本
-- **工作流体系指南更新至 v3.4.1**：补充 3.4.0 执行纪律强化和需求讨论阶段等新特性说明
+- **工作流体系指南文档更新**：补充 3.4.0 执行纪律强化和需求讨论阶段等新特性说明
 
 ---
 

@@ -314,7 +314,14 @@ async function executeBoundaryMode(
   state: WorkflowState
 ): Promise<void> {
   // 1. 获取当前阶段任务
-  const currentPhase = extractPhaseFromTask(tasks.find(t => t.id === state.current_task));
+  const activeTaskId = state.current_tasks?.[0];
+  const activeTask = activeTaskId ? tasks.find(t => t.id === activeTaskId) : null;
+  if (!activeTask) {
+    console.log('当前无激活任务');
+    return;
+  }
+
+  const currentPhase = extractPhaseFromTask(activeTask);
   const phaseTasks = tasks.filter(t =>
     extractPhaseFromTask(t) === currentPhase &&
     !state.progress.completed.includes(t.id) &&
@@ -430,7 +437,7 @@ async function executeBoundaryTasks(
 | 单步 | `--step` | 无并行 | 精细控制、调试 |
 | 阶段 | `--phase` | 阶段内串行 | 常规开发 |
 | 边界 | `--boundary` | 边界间并行 | 大任务集、跨栈开发 |
-| 连续 | `--all` | 到质量关卡 | 自动化流程 |
+| 连续 | `连续` / `执行到质量关卡` | 到质量关卡 | 自动化流程 |
 
 ## 最佳实践
 

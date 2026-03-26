@@ -110,16 +110,17 @@ list_project_workflows() {
         local wf_status=$(jq -r '.status' "$state_file" 2>/dev/null)
         local task_name=$(jq -r '.task_name' "$state_file" 2>/dev/null)
         local updated_at=$(jq -r '.updated_at' "$state_file" 2>/dev/null)
-        local current_task=$(jq -r '.current_task' "$state_file" 2>/dev/null)
+        local current_tasks=$(jq -c '(.current_tasks // [])' "$state_file" 2>/dev/null)
         local completed_count=$(jq -r '.progress.completed | length' "$state_file" 2>/dev/null)
+        [ -z "$current_tasks" ] && current_tasks='[]'
 
         workflows=$(echo "$workflows" | jq --arg dir "$workflow_dir" \
             --arg status "$wf_status" \
             --arg name "$task_name" \
             --arg updated "$updated_at" \
-            --arg current "$current_task" \
+            --argjson current_tasks "$current_tasks" \
             --argjson completed "$completed_count" \
-            '. += [{"dir": $dir, "status": $status, "task_name": $name, "updated_at": $updated, "current_task": $current, "completed_count": $completed}]')
+            '. += [{"dir": $dir, "status": $status, "task_name": $name, "updated_at": $updated, "current_tasks": $current_tasks, "completed_count": $completed}]')
     done
 
     echo "$workflows"

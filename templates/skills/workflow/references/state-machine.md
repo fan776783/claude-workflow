@@ -425,8 +425,8 @@ type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
 ```
 idle → planned (workflow-start 完成基础规划)
 planned → spec_review (spec 文档生成，等待用户确认)
-planned → spec_review (traceability 审查不通过时回退修订)
 spec_review → planned (spec 已批准，继续 intent / plan / task 编译)
+planned → planned (Phase 1.2 审查失败，仅记录 revise_required，返回设计修订)
 planned → intent_review (intent 文档生成)
 intent_review → planned (intent 批准)
 planned → running (workflow-execute 开始执行)
@@ -448,12 +448,24 @@ completed → archived (/workflow archive 执行)
 
 ```typescript
 function classifyTaskDependencies(
-  task: { name: string; files?: string[]; requirement_ids?: string[] },
+  task: {
+    name: string;
+    files?: {
+      create?: string[];
+      modify?: string[];
+      test?: string[];
+    };
+    requirement_ids?: string[];
+  },
   discussionArtifact?: DiscussionArtifact
 ): string[] {
   const deps: string[] = [];
   const name = task.name.toLowerCase();
-  const file = (task.files || []).join(' ').toLowerCase();
+  const file = [
+    ...(task.files?.create || []),
+    ...(task.files?.modify || []),
+    ...(task.files?.test || [])
+  ].join(' ').toLowerCase();
 
   if (/api|接口|服务层|service|fetch|request|http/.test(name) ||
       /services\/|api\/|http\//.test(file)) {
@@ -484,4 +496,4 @@ function classifyTaskDependencies(
 |------|------|--------|
 | step | `--step` | 每个任务后 |
 | phase | `--phase` | 阶段变化时 |
-| quality_gate | `--quality-gate` | 质量关卡后 |
+| quality_gate | `连续` / `执行到质量关卡` | 质量关卡后 |

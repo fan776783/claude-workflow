@@ -4,7 +4,7 @@
 
 **文档版本**：v10.1.0  
 **最后更新**：2026-03-25  
-**适用仓库**：`@justinfan/agent-workflow` v3.4.1
+**适用仓库**：`@justinfan/agent-workflow` v4.0.0
 
 ---
 

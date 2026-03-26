@@ -339,7 +339,7 @@ const estimatedTokens = estimateContextTokens([
 state.contextMetrics = updateContextMetrics(
   state,
   estimatedTokens,
-  state.current_task,
+  state.current_tasks?.[0] || currentTask.id,
   currentTask.phase
 );
 
