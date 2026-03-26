@@ -134,7 +134,7 @@
 - `create_file`: 创建新文件
 - `edit_file`: 编辑现有文件
 - `run_tests`: 运行测试
-- `quality_review`: 两阶段代码审查（规格合规 + 代码质量）
+- `quality_review`: 两阶段代码审查（shared review loop contract 的 execution adapter）
 - `git_commit`: Git 提交
 
 **执行方式**：
@@ -165,7 +165,7 @@
 
 ### Step 6.7：规格合规检查（Spec Compliance Check）
 
-对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由两阶段审查的 Stage 1 接管）。
+对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由 shared review loop contract 对齐后的两阶段审查 Stage 1 接管）。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
 
@@ -231,12 +231,14 @@
 
 ## 质量关卡处理
 
-当遇到质量关卡任务时，执行两阶段代码审查：
+当遇到质量关卡任务时，执行 shared review loop contract 对齐后的两阶段代码审查：
 
-1. **Stage 1：规格合规审查** — 验证实现是否完整匹配需求（当前模型，确定性）
-2. **Stage 2：代码质量审查** — 验证架构、DRY、错误处理、安全性（平台感知 reviewer 子 agent）
-3. Stage 2 必须在 Stage 1 通过后才能启动
-4. 两阶段共享 4 次总预算，耗尽则标记失败
+1. **Review Subject**：先把聚合 diff 窗口归一化为 `ReviewSubject(kind='diff_window')`
+2. **Stage 1：规格合规审查** — 验证实现是否完整匹配需求（当前模型，确定性）
+3. **Stage 2：代码质量审查** — 验证架构、DRY、错误处理、安全性（平台感知 reviewer 子 agent）
+4. Stage 2 必须在 Stage 1 通过后才能启动
+5. 两阶段共享 4 次总预算，耗尽则标记失败
+6. execution side 的结果写入 `state.quality_gates[task.id]`，但 artifact 语义与 planning side 的 review loop 保持一致：`subject / attempt / last_decision / next_action / overall_passed`
 
 问题严重级别：Critical（必须修复）/ Important（应当修复）/ Minor（建议修复）
 

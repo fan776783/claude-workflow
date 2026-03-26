@@ -8,7 +8,7 @@
 
 ## 核心能力
 
-- `workflow`：需求分析、Requirement Baseline、Spec/Plan 生成、任务编排与执行
+- `workflow`：需求分析、Requirement Baseline、Brief / Spec / Plan 生成、任务编排与执行，并区分 planning-side review loops 与 execution quality gates
 - `scan`：扫描项目技术栈并生成项目配置
 - `analyze`：双模型技术分析
 - `debug`：结构化问题定位与修复
@@ -85,15 +85,14 @@ flowchart TD
     E -->|否| G["Phase 0.5 需求结构化"]
     F --> G
     G --> H["Phase 0.55 Requirement Baseline"]
-    H --> I["Phase 0.6 生成验收清单"]
-    I --> J["Phase 0.7 生成实现指南"]
-    J --> K["Phase 1 生成 tech-design"]
-    K --> L["Phase 1.2 Traceability Review / Spec Review"]
-    L --> M["Phase 1.3 生成 spec"]
-    M --> N["Phase 1.4 用户确认 Spec"]
-    N --> O["Phase 1.5 Intent Review"]
-    O --> P["Phase 2 生成 plan"]
-    P --> Q["Phase 2.5 Plan Review"]
+    H --> I["Phase 0.6 生成 Brief"]
+    I --> J["Phase 1 生成 tech-design"]
+    J --> K["Phase 1.2 machine_loop: Spec / Traceability Review"]
+    K --> L["Phase 1.3 生成 spec"]
+    L --> M["Phase 1.4 human_gate: 用户确认 Spec"]
+    M --> N["Phase 1.5 conditional_human_gate: Intent Review"]
+    N --> O["Phase 2 生成 plan"]
+    O --> P["Phase 2.5 machine_loop: Plan Review"]
     Q --> R["Phase 3 编译 tasks"]
     R --> S["/workflow execute"]
     S --> T["按任务阶段执行"]
@@ -108,9 +107,9 @@ flowchart TD
 
 这条主线的重点是：
 
-- 先通过 `Requirement Baseline` 固化需求真相源
-- 再通过 `Spec / Plan / Tasks` 逐层收敛为可执行任务
-- 执行阶段通过质量关卡和追溯守卫保证实现不偏离需求
+- 先通过 `Requirement Baseline` 固化需求真相源，再生成统一的 `Brief`
+- planning side 通过 `Spec / Plan` 上的 review loops 收敛范围、追溯和关键约束
+- 执行阶段通过 `quality_review` 质量关卡与追溯守卫保证实现不偏离需求
 
 ---
 

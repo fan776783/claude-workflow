@@ -32,7 +32,7 @@
 | 3   | 任务粒度标准            | 任务生成          | `specs/start/phase-2-task-generation.md`                                              |
 | 4   | 根因追溯纪律            | debug skill       | `skills/debug/SKILL.md`, `skills/debug/references/root-cause-tracing.md`（新增）      |
 | 5   | 双阶段任务审查          | execute 流程      | `specs/execute/execution-modes.md`, `references/execute-overview.md`                  |
-| 6   | 合理化借口表 + 红旗清单 | 验收清单          | `specs/start/phase-0.6-acceptance-checklist.md`, `references/acceptance-checklist.md` |
+| 6   | 合理化借口表 + 红旗清单 | Brief / 验收映射   | `specs/start/phase-0.6-brief.md`, `references/brief.md` |
 | 7   | 审查反馈技术验证        | diff-review skill | `skills/diff-review/SKILL.md`, `skills/diff-review/references/deep-mode.md`           |
 | 8   | 并行代理独立性验证      | execute 流程      | `specs/execute/execution-modes.md`                                                    |
 
@@ -85,7 +85,7 @@
 
 **来源**: Superpowers `brainstorming`
 
-**问题**: 当前 Phase 0.5（需求结构化提取）完成后直接进入 Phase 0.6（验收清单生成），没有显式的用户确认点。如果需求理解有偏差，后续所有产出都会偏离。
+**问题**: 当前 Phase 0.5（需求结构化提取）完成后会继续进入 Phase 0.55 / 0.6（Requirement Baseline 与 Brief 生成），如果缺少显式确认点，后续所有产出都可能沿着错误理解继续收敛。
 
 **改动方案**:
 
@@ -131,7 +131,7 @@ Phase 0.5 完成后，**必须**向用户展示结构化提取结果摘要并等
 3. 再次等待确认
 ````
 
-在 `references/start-overview.md` 的流程图中，Phase 0.5 和 Phase 0.6 之间添加 `🛑 确认需求理解` 节点。
+在 `references/start-overview.md` 的流程图中，Phase 0.5 与后续 Phase 0.55 / 0.6 之间添加 `🛑 确认需求理解` 节点。
 
 ---
 
@@ -312,11 +312,11 @@ const STANDARD_STEPS: TaskStep[] = [
 
 **来源**: Superpowers `writing-skills` + `verification-before-completion`
 
-**问题**: 当前验收清单只有检查项，没有防止代理走捷径的机制。代理可能用"手动验证过了"、"这个场景不会发生"等借口跳过验证。
+**问题**: 当前Brief只有检查项，没有防止代理走捷径的机制。代理可能用"手动验证过了"、"这个场景不会发生"等借口跳过验证。
 
 **改动方案**:
 
-在 `specs/start/phase-0.6-acceptance-checklist.md` 的输出文件结构中，在"验收通过标准"之后添加新章节：
+在 `specs/start/phase-0.6-brief.md` 的输出文件结构中，在“验收通过标准”之后添加新章节：
 
 ```markdown
 ## 10. 合理化借口表
@@ -344,10 +344,10 @@ const STANDARD_STEPS: TaskStep[] = [
 - ⛳ 验证命令的输出没有被读取就声称通过
 ```
 
-在 `references/acceptance-checklist.md` 的"注意事项"章节中添加：
+在 `references/brief.md` 的“注意事项”章节中添加：
 
 ```markdown
-6. **防绕过机制**：每份验收清单自动包含合理化借口表和红旗清单，帮助执行者自检
+6. **防绕过机制**：每份Brief自动包含合理化借口表和红旗清单，帮助执行者自检
 ```
 
 ---
@@ -467,7 +467,7 @@ return true;
 
 **第三批 v3.6.0（体系完善）** ✅ 已完成：
 
-6. 合理化借口表 — 强化验收清单的防绕过能力（放入 references）
+6. 合理化借口表 — 强化Brief的防绕过能力（放入 references）
 8. 并行代理独立性验证 — 渐进式三阶段（状态模型 → 独立性检查 → 并行执行器）
 
 ---

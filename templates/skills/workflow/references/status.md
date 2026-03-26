@@ -370,6 +370,11 @@ if (isJsonMode) {
 {{#each state.quality_gates}}
 **{{@key}}**：
 - 任务ID：{{gate_task_id}}
+- 审查模式：{{review_mode}}
+- 审查对象：{{subject.kind}} / `{{subject.ref}}`
+- 尝试次数：{{attempt}} / {{max_attempts}}
+- 最后决策：{{last_decision}}
+- 下一步动作：{{next_action}}
 - diff 窗口：{{diff_window.from_task || '起点'}} → {{diff_window.to_task}}（{{diff_window.files_changed}} 个文件）
 - Stage 1（规格合规）：{{stage1.passed ? '✅ 通过' : '❌ 未通过'}}（{{stage1.attempts}} 次尝试）
 {{#if stage2}}- Stage 2（代码质量）：{{stage2.passed ? '✅ ' + stage2.assessment : '❌ ' + stage2.assessment}}（{{stage2.attempts}} 次尝试，Critical: {{stage2.critical_count}} / Important: {{stage2.important_count}} / Minor: {{stage2.minor_count}}）{{else}}- Stage 2（代码质量）：⏸️ 未执行（Stage 1 未通过）{{/if}}
@@ -515,7 +520,7 @@ _（未定义成功标准）_
 {{else if state.status === 'planned'}}
 ### 📋 规划完成，等待执行
 
-工作流已完成规划阶段，请审查技术方案、Spec、Plan 和任务清单后开始执行。
+工作流已完成规划阶段。planning side 的 review loop 已全部收敛：Spec Review / Traceability Review 与 Plan Review 应已通过，User Spec Review 属于人工 gate，Intent Review 属于条件化 gate。请审查技术方案、Spec、Plan 和任务清单后开始执行。
 
 {{#if isProgressive}}
 🔄 **工作模式**：渐进式
@@ -551,7 +556,7 @@ _（未定义成功标准）_
 {{else if state.status === 'spec_review'}}
 ### 🧾 等待 Spec 确认
 
-当前工作流停在 Spec 审查阶段，请先确认范围、模块边界和验收映射。
+当前工作流停在 Spec 审查阶段。此处对应 `human_gate`：machine loop 已经完成收敛，现在等待用户确认范围、模块边界和验收映射。
 
 {{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
 {{/if}}**技术方案**：`{{state.tech_design}}`
@@ -559,12 +564,12 @@ _（未定义成功标准）_
 **建议操作**：
 1. 审查 `spec.md` 是否准确反映本次需求
 2. 如需回退，修改 Spec 或技术方案后重新进入 `/workflow start`
-3. 确认无误后继续后续 Hard Stop
+3. 确认无误后继续后续 Intent Gate
 
 {{else if state.status === 'intent_review'}}
 ### 🔍 等待 Intent 确认
 
-当前工作流停在 Intent Review，请先确认本次变更方向。
+当前工作流停在 Intent Review。此处对应 `conditional_human_gate`：只有命中高风险/高影响条件时才会等待用户确认本次变更方向。
 
 {{#if state.delta_tracking.current_change}}**当前变更**：`{{state.delta_tracking.current_change}}`
 {{/if}}{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`

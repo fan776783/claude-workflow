@@ -96,7 +96,7 @@ npm run release 2.0.0     # Explicit version
 The package includes the following skills (all portable across AI coding tools):
 
 **Core Workflow:**
-- `/workflow` - Intelligent workflow system (requirement analysis → task planning → auto execution)
+- `/workflow` - Intelligent workflow system (requirement analysis → task planning → auto execution, with planning-side review loops and execution quality gates)
   - `start` - Analyze requirements and create execution plan
   - `execute` - Run next pending task (supports `--retry`, `--skip`)
   - `delta` - Handle incremental changes (PRD updates, API sync)

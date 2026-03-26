@@ -1,20 +1,57 @@
 # quality_review Action：两阶段代码审查 (v3.5.0)
 
 > 借鉴 Superpowers subagent-driven-development 的两阶段审查机制，升级质量关卡审查。
+>
+> 本文档同时把 `quality_review` 明确定位为 **shared review loop contract 的 execution adapter**：planning side 使用 `review_status.*`，execution side 使用 `quality_gates.*`，两者共享 review subject / budget / artifact / sink 语义，但不强制同构。
 
 ## 概述
 
-`quality_review` action 在质量关卡（`quality_gate = true`）任务中执行，替代原有的"单次代码审查 + 评分阈值"逻辑。审查对象是**聚合 diff 窗口**——上次通过的质量关卡到当前关卡之间的所有代码变更。
+`quality_review` action 在质量关卡（`quality_gate = true`）任务中执行，替代原有的“单次代码审查 + 评分阈值”逻辑。审查对象是**聚合 diff 窗口**——上次通过的质量关卡到当前关卡之间的所有代码变更。
+
+## 与 shared review loop contract 的对齐
+
+### Review Subject
+
+```typescript
+const reviewSubject: ReviewSubject = {
+  kind: 'diff_window',
+  ref: `${diffWindow.base_commit}..HEAD`,
+  requirement_ids: task.requirement_ids,
+  critical_constraints: task.critical_constraints
+};
+```
+
+### Review Policy
+
+```typescript
+const QUALITY_REVIEW_POLICY: ReviewLoopPolicy = {
+  max_attempts: 4,
+  allowed_revision_scope: [
+    'current diff window',
+    'task-required files',
+    'tests and verification artifacts'
+  ],
+  escalate_on: ['budget_exhausted']
+};
+```
+
+### Artifact Sink
+
+- planning side：`state.review_status.*`
+- execution side：`state.quality_gates[task.id]`
+- 本 action 继续写入 `quality_gates`，但输出语义与 shared contract 对齐：`subject / attempt / decision / overall_passed / next_action`
 
 ## 执行流程
 
 ```
 quality_review action
   ├─ 计算聚合 diff 窗口
+  ├─ 归一化为 ReviewSubject(diff_window)
   ├─ Stage 1：规格合规审查（当前模型，确定性）
   │   └─ 未通过 → 修复 → 重审（共享总预算）
   ├─ Stage 2：代码质量审查（平台感知 reviewer 子 agent）
   │   └─ 未通过 → 修复 → 重审（共享总预算）
+  ├─ Stage 2 若产生修复 → 触发轻量 Stage 1 recheck
   └─ 记录 QualityGateResult → state.quality_gates
 ```
 
@@ -70,16 +107,18 @@ function computeDiffWindow(state: WorkflowState): DiffWindow {
 ```typescript
 interface SpecComplianceResult {
   passed: boolean;
-  missing: SpecIssue[];          // 缺失的需求
-  extra: SpecIssue[];            // 多余的实现
-  misunderstandings: SpecIssue[];// 误解的需求
-  coverage_gaps: SpecIssue[];    // 验收项未覆盖
+  missing: SpecIssue[];           // 缺失的需求
+  extra: SpecIssue[];             // 多余的实现
+  misunderstandings: SpecIssue[]; // 误解的需求
+  coverage_gaps: SpecIssue[];     // 验收项未覆盖
+  decision: 'pass' | 'revise' | 'rejected';
+  next_action?: string;
 }
 
 interface SpecIssue {
-  description: string;           // 问题描述
-  requirement_ref: string;       // 对应的需求条目或验收项 ID
-  file_line?: string;            // 文件:行号
+  description: string;            // 问题描述
+  requirement_ref: string;        // 对应的需求条目或验收项 ID
+  file_line?: string;             // 文件:行号
 }
 ```
 
@@ -89,7 +128,7 @@ interface SpecIssue {
 
 **执行者**：平台感知的代码质量审查子 agent。
 
-在启动 reviewer 子 agent 前，不需要调用 `../../../dispatching-parallel-agents/SKILL.md`；Stage 2 走的是**单 reviewer 子 agent**路径，而不是多问题域并行分派。这里直接复用平台路由与最小上下文封装原则即可。
+在启动 reviewer 子 agent 前，不需要调用 `../../../dispatching-parallel-agents/SKILL.md`；Stage 2 走的是**单 reviewer 子 agent**路径，而不是多问题域并行分派。这里只直接复用平台路由与最小上下文封装原则即可。
 - Claude Code / Cursor：使用 `Task` 以 reviewer 角色审查 diff 窗口
 - Codex：使用 `spawn_agent` / `wait` / `close_agent` 运行 reviewer 子 agent
 - 无子 agent 平台：退化为当前会话只读审查，但仍遵守同样的输出结构
@@ -109,29 +148,31 @@ interface SpecIssue {
 interface CodeQualityResult {
   strengths: string[];
   issues: {
-    critical: ReviewIssue[];     // 必须修复：bug、安全漏洞、数据丢失风险
-    important: ReviewIssue[];    // 应当修复：架构问题、缺失功能、错误处理不足
-    minor: ReviewIssue[];        // 建议修复：代码风格、优化机会
+    critical: ReviewIssue[];      // 必须修复：bug、安全漏洞、数据丢失风险
+    important: ReviewIssue[];     // 应当修复：架构问题、缺失功能、错误处理不足
+    minor: ReviewIssue[];         // 建议修复：代码风格、优化机会
   };
   assessment: 'approved' | 'needs_fixes' | 'rejected';
+  decision: 'pass' | 'revise' | 'rejected';
+  next_action?: string;
   reasoning: string;
 }
 
 interface ReviewIssue {
-  file_line: string;             // 文件:行号
-  description: string;           // 问题描述
-  why_it_matters: string;        // 为什么重要
-  fix_suggestion?: string;       // 修复建议
+  file_line: string;              // 文件:行号
+  description: string;            // 问题描述
+  why_it_matters: string;         // 为什么重要
+  fix_suggestion?: string;        // 修复建议
 }
 ```
 
 **判定**：
 
-| assessment | 处理 |
-|-----------|------|
-| `approved` | 关卡通过，记录结果 |
-| `needs_fixes` | 修复 critical + important 后重审（消耗预算） |
-| `rejected` | 关卡失败，标记任务 `failed` |
+| assessment | contract decision | 处理 |
+|-----------|-------------------|------|
+| `approved` | `pass` | 关卡通过，记录结果 |
+| `needs_fixes` | `revise` | 修复 critical + important 后重审（消耗预算） |
+| `rejected` | `rejected` | 关卡失败，标记任务 `failed` |
 
 ## 预算控制
 
@@ -168,6 +209,13 @@ async function executeQualityReview(
   let stage1Attempts = 0;
   const budget = GATE_BUDGET.maxTotalLoops;
 
+  const reviewSubject: ReviewSubject = {
+    kind: 'diff_window',
+    ref: `${diffWindow.base_commit}..HEAD`,
+    requirement_ids: task.requirement_ids,
+    critical_constraints: task.critical_constraints
+  };
+
   // ── Stage 1：规格合规审查 ──
   let specResult: SpecComplianceResult;
   let cachedSpecResult: SpecComplianceResult | null = null;
@@ -178,7 +226,7 @@ async function executeQualityReview(
 
     // 预算守卫：在审查前检查，防止溢出
     if (totalAttempts > budget) {
-      return markGateFailed(task, state, 'stage1', specResult, stage1Attempts);
+      return markGateFailed(task, state, reviewSubject, diffWindow, 'stage1', specResult, stage1Attempts, totalAttempts);
     }
 
     if (cachedSpecResult && !hasNewDiff()) {
@@ -203,14 +251,14 @@ async function executeQualityReview(
 
     // 预算守卫
     if (totalAttempts > budget) {
-      return markGateFailed(task, state, 'stage2', qualityResult, stage1Attempts);
+      return markGateFailed(task, state, reviewSubject, diffWindow, 'stage2', qualityResult, stage1Attempts, totalAttempts);
     }
 
     // 平台感知的 reviewer 审查
     qualityResult = await runCodeQualityReview(task, diffWindow, state);
 
     if (qualityResult.assessment === 'rejected') {
-      return markGateFailed(task, state, 'stage2', qualityResult, stage1Attempts);
+      return markGateFailed(task, state, reviewSubject, diffWindow, 'stage2', qualityResult, stage1Attempts, totalAttempts);
     }
 
     if (qualityResult.assessment === 'needs_fixes') {
@@ -225,7 +273,7 @@ async function executeQualityReview(
   if (stage2HadFixes) {
     const recheckResult = await runSpecComplianceReview(task, diffWindow, state);
     if (!recheckResult.passed) {
-      return markGateFailed(task, state, 'stage1_recheck', recheckResult, stage1Attempts);
+      return markGateFailed(task, state, reviewSubject, diffWindow, 'stage1_recheck', recheckResult, stage1Attempts, totalAttempts);
     }
   }
 
@@ -234,7 +282,14 @@ async function executeQualityReview(
   const stage2Attempts = totalAttempts - stage1Attempts;
 
   const gateResult: QualityGateResult = {
+    review_type: 'quality_review',
+    review_mode: 'machine_loop',
     gate_task_id: task.id,
+    subject: reviewSubject,
+    max_attempts: budget,
+    attempt: totalAttempts,
+    last_decision: 'pass',
+    next_action: 'continue_execution',
     commit_hash: currentCommit,
     diff_window: {
       from_task: diffWindow.from_task,
@@ -257,6 +312,8 @@ async function executeQualityReview(
       completed_at: new Date().toISOString(),
     },
     overall_passed: true,
+    reviewed_at: new Date().toISOString(),
+    reviewer: 'subagent'
   };
 
   if (!state.quality_gates) state.quality_gates = {};
@@ -276,21 +333,43 @@ async function executeQualityReview(
 function markGateFailed(
   task: WorkflowTaskV2,
   state: WorkflowState,
+  subject: ReviewSubject,
+  diffWindow: DiffWindow,
   failedStage: 'stage1' | 'stage2' | 'stage1_recheck',
   lastResult: SpecComplianceResult | CodeQualityResult,
-  stage1Attempts: number
+  stage1Attempts: number,
+  totalAttempts: number
 ): VerificationEvidence {
+  const budgetExhausted = totalAttempts > GATE_BUDGET.maxTotalLoops;
+  const terminalDecision = budgetExhausted || failedStage === 'stage2' ? 'rejected' : 'revise';
+  const nextAction = terminalDecision === 'rejected'
+    ? 'mark_task_failed_or_escalate'
+    : 'fix_and_retry_or_escalate';
+
   const gateResult: QualityGateResult = {
+    review_type: 'quality_review',
+    review_mode: 'machine_loop',
     gate_task_id: task.id,
+    subject,
+    max_attempts: GATE_BUDGET.maxTotalLoops,
+    attempt: totalAttempts,
+    last_decision: terminalDecision,
+    next_action: nextAction,
+    blocking_issues: collectBlockingIssues(lastResult),
+    reviewed_at: new Date().toISOString(),
+    reviewer: 'subagent',
     commit_hash: getCurrentHeadCommit(),
-    diff_window: { from_task: diffWindow.from_task, to_task: diffWindow.to_task, files_changed: diffWindow.files_changed },
+    diff_window: {
+      from_task: diffWindow.from_task,
+      to_task: diffWindow.to_task,
+      files_changed: diffWindow.files_changed
+    },
     stage1: {
       passed: failedStage !== 'stage1',
       attempts: stage1Attempts,
-      issues_found: /* from specResult */,
+      issues_found: extractIssueCount(lastResult),
       completed_at: new Date().toISOString(),
     },
-    // Stage 1 失败时不填充 stage2（接口为可选字段）
     ...(failedStage !== 'stage1' ? {
       stage2: {
         passed: false,
@@ -336,5 +415,5 @@ function markGateFailed(
 - 信任实现者的自述而不独立验证代码
 - 将 Critical 问题降级为 Minor
 - 预算耗尽后继续尝试（应标记失败）
-- 跳过审查因为"改动很简单"
+- 跳过审查因为“改动很简单”
 - diff 窗口为空但仍标记通过（无变更不需要关卡）

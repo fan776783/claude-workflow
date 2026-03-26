@@ -1,168 +1,139 @@
-# Workflow v3.3.2 验证清单生成系统 - 快速参考
+# Workflow Brief / 验收映射 - 快速参考
 
 ## 一句话总结
 
-**自动将 PRD 中的需求细节转换为可执行的验收清单，确保实现过程中不遗漏任何验证要求。**
+**当前 workflow 不再单独生成“验收清单”，而是把验收标准、测试模板与实现提示统一收敛到 `brief.md`，确保实现过程中不遗漏 requirement coverage 与验证要求。**
 
 ## 核心功能
 
 ```
-PRD 文档 → 9维度提取 → 7类验证项 → 任务关联 → 指导实现 → 验收测试
+PRD 文档 → Requirement Baseline → Brief 模块聚类 → Acceptance Criteria / Test Strategy / Implementation Hints → 任务关联 → 验收测试
 ```
 
 ## 快速开始
 
 ```bash
-# 1. 启动工作流（自动生成验证清单）
+# 1. 启动工作流（自动生成 Brief）
 /workflow start docs/prd.md
 
 # 2. 查看生成的文件
-ls .claude/acceptance/          # 验证清单
+ls .claude/acceptance/          # Brief 文档
 cat ~/.claude/workflows/*/tasks-*.md  # 任务清单（含验收项）
 
 # 3. 执行任务时查看验收项
 grep "T3:" tasks-*.md -A 10 | grep "验收项"
-grep "AC-F1.1" acceptance-checklist.md -A 15
+grep "AC-M1.1" .claude/acceptance/*-brief.md -A 15
 
 # 4. 验收测试
-# 按照验证清单逐项验收，勾选已验证的项
+# 按照 Brief 中的 requirement-to-brief mapping 与模块验收项逐项验收
 ```
 
-## 7 类验证项
+## Brief 的核心组成
 
-| 类型 | ID 前缀 | 示例 | 包含内容 |
-|------|---------|------|----------|
-| 表单字段验证 | AC-F | AC-F1.1 活动名称 | 必填、格式、长度、测试数据 |
-| 角色权限验证 | AC-P | AC-P1.1 管理员-删除 | 可见性、可操作性、测试步骤 |
-| 交互行为验证 | AC-I | AC-I1.1 删除按钮-click | 触发条件、响应行为、前置条件 |
-| 业务规则验证 | AC-B | AC-B1 唯一性校验 | 条件判断、期望行为、测试场景 |
-| 边界场景验证 | AC-E | AC-E1 列表为空 | 场景展示、兜底行为 |
-| UI展示验证 | AC-U | AC-U1.1 列差异 | 展示规则、视觉检查点 |
-| 功能流程验证 | Flow | Flow-1 创建流程 | 步骤验证、条件分支、入口路径 |
+| 部分 | 作用 | 示例 |
+|------|------|------|
+| Requirement Coverage Summary | 汇总 requirement 覆盖率与 gaps | full / partial / none |
+| Requirement-to-Brief Mapping | 说明每条 requirement 落到哪个模块和哪些 acceptance IDs | R-001 → User Module |
+| Module Briefs | 按模块组织验收标准、测试策略和实现提示 | User Module / Auth Module |
+| Acceptance Criteria | 模块级验收项，使用 `AC-M...` ID | AC-M1.1 登录成功 |
+| Test Strategy | 说明 unit / integration / e2e 如何验证 | Vitest / Playwright |
+| Implementation Hints | 提醒复用点、限制条件、注意事项 | 复用已有 service / guard |
+| Coverage Gaps | 标记 partially covered / uncovered requirements | R-009 partial |
+| Acceptance Pass Criteria | Must / Should / Nice to Have 验收通过标准 | P0 必须通过 |
 
-## 验收项示例
+## 模块验收项示例
 
-### 表单字段验证
+### Module Brief 示例
 
 ```markdown
-#### AC-F1.1 活动名称
+### Auth Module（P0）
 
-**验证项**:
-- [ ] 活动名称 为空时，显示提示: "活动名称为必填项"
-- [ ] 活动名称 字符限制 50 字符
-- [ ] 输入框显示 placeholder: "请输入活动名称"
+**Related Requirement IDs**: R-001, R-003
+**Constraints**: 登录后必须回跳来源页面；错误提示沿用既有文案
 
-**测试数据**:
-| 输入 | 期望结果 |
-|------|----------|
-| （空值） | 显示错误提示 |
-| 超过 50 字符 | 禁止输入或显示错误 |
+#### Acceptance Criteria
+- [ ] AC-M1.1: 用户输入正确账号密码后成功登录
+- [ ] AC-M1.2: 登录失败时显示既有错误提示文案
+
+#### Test Strategy
+- Unit: `auth.service.test.ts` 覆盖 token 处理
+- Integration: `login-form.test.tsx` 覆盖表单提交流程
+- E2E: 登录后回跳来源页面
+
+#### Implementation Hints
+- 复用现有 `AuthService`
+- 不要新增第二套 session 存储逻辑
 ```
 
-### 权限验证
+### Requirement-to-Brief Mapping 示例
 
 ```markdown
-#### AC-P1.1 管理员 - 删除用户
-
-**验证项**:
-- [ ] 管理员 可以执行 "删除用户" 操作
-- [ ] 操作按钮对管理员可见
-- [ ] 执行操作后结果符合预期
-
-**测试步骤**:
-1. 使用管理员账号登录
-2. 导航到用户列表页
-3. 验证删除按钮可见且可执行
-4. 执行操作并验证结果
-```
-
-### 业务规则验证
-
-```markdown
-#### AC-B1 活动名称唯一性
-
-**验证项**:
-- [ ] 条件判断: 活动名称在同一分类下唯一
-- [ ] 期望行为: 重复时显示错误提示
-- [ ] 唯一性校验范围正确
-
-**测试场景**:
-- **场景 1**: 重复值测试
-  - 输入: 输入已存在的值
-  - 期望: 显示唯一性校验错误提示
+| Requirement ID | Summary | Coverage | Module | Acceptance IDs |
+|----------------|---------|----------|--------|----------------|
+| R-001 | 用户可登录 | full | Auth Module | AC-M1.1, AC-M1.2 |
+| R-003 | 登录失败提示 | full | Auth Module | AC-M1.2 |
 ```
 
 ## 任务关联示例
 
 ```markdown
-## T3: 实现活动创建表单
+## T3: 接入登录表单与认证服务
 - **阶段**: ui-form
-- **文件**: `src/components/ActivityForm.vue`
-- **需求**: 实现活动创建表单，包含名称、分类、时间等字段
-- **验收项**: AC-F1.1, AC-F1.2, AC-F1.3, AC-B1  ← 自动关联
-- **actions**: `create_file`
+- **文件**: `src/components/LoginForm.tsx`
+- **requirement_ids**: R-001, R-003
+- **验收项**: AC-M1.1, AC-M1.2
+- **actions**: `edit_file`
 - **状态**: pending
 ```
 
 ## 实现检查清单
 
-### 表单字段实现
+### 需求与约束对齐
 
-- [ ] 所有必填字段都有 `required` 属性
-- [ ] 所有字段都有 `maxLength` 限制
-- [ ] 所有字段都有对应的 `validationMessage`
-- [ ] 所有字段都有 `placeholder` 提示
-- [ ] 提交时触发完整的表单校验
-- [ ] 校验失败时显示明确的错误提示
+- [ ] 先核对模块的 `Related Requirement IDs`
+- [ ] 先核对模块的 `Constraints`
+- [ ] 每个 `in_scope` requirement 至少映射到一个模块验收项
+- [ ] partially covered / uncovered requirement 已显式记录
 
-### 权限控制实现
+### 测试与实现对齐
 
-- [ ] 按钮/入口根据角色显示/隐藏
-- [ ] API 层面有权限校验
-- [ ] 数据范围过滤正确
-- [ ] 无权限时显示明确的提示信息
-- [ ] 权限不足时不能绕过前端限制
-
-### 业务规则实现
-
-- [ ] 输入时/失焦时触发校验
-- [ ] 校验范围正确
-- [ ] 重复时显示明确的错误提示
-- [ ] 提示信息包含冲突信息（如适用）
-- [ ] 编辑时排除自身（不与自己冲突）
+- [ ] 每个 `Acceptance Criteria` 都有对应验证方式
+- [ ] Test Strategy 与当前技术栈一致
+- [ ] Implementation Hints 中的复用建议已核对
+- [ ] 关键 requirement 的验证证据可回溯
 
 ## 验收通过标准
 
 ### 必须满足（Must Pass）
 
-- ✅ 所有标记为 "必填" 的字段验证通过
-- ✅ 所有角色权限验证通过
-- ✅ 所有业务规则验证通过
+- ✅ 所有 P0 模块的 Acceptance Criteria 通过
+- ✅ 所有 `in_scope` 且 `full` coverage 的 requirement 对应验收项通过
+- ✅ 所有关键约束相关验收项通过
 - ✅ 关键功能流程验证通过
 
 ### 建议满足（Should Pass）
 
-- ✅ 所有交互行为验证通过
-- ✅ 所有边界场景验证通过
-- ✅ 所有UI展示规则验证通过
+- ✅ 所有 Integration / E2E 验证通过
+- ✅ Coverage Gaps 已被解释或清理
+- ✅ Nice to Have 项有明确状态说明
 
 ## 常用命令
 
 ```bash
-# 生成验证清单
+# 生成 Brief
 /workflow start docs/prd.md
 
 # 查看任务关联的验收项
 grep "T3:" tasks-*.md -A 10 | grep "验收项"
 
 # 查看具体验收项内容
-grep "AC-F1.1" acceptance-checklist.md -A 15
+grep "AC-M1.1" .claude/acceptance/*-brief.md -A 15
 
-# 搜索所有表单验证项
-grep "## 1. 表单字段验证" acceptance-checklist.md -A 100
+# 搜索模块验收项
+grep "#### Acceptance Criteria" .claude/acceptance/*-brief.md -A 40
 
-# 搜索所有权限验证项
-grep "## 2. 角色权限验证" acceptance-checklist.md -A 100
+# 搜索 requirement-to-brief mapping
+grep "Requirement-to-Brief Mapping" .claude/acceptance/*-brief.md -A 40
 ```
 
 ## 文件位置
@@ -170,11 +141,11 @@ grep "## 2. 角色权限验证" acceptance-checklist.md -A 100
 ```
 项目目录/
 └── .claude/
-    ├── tech-design/{name}.md          ← 技术方案
-    └── acceptance/{name}-checklist.md ← 验证清单
+    ├── tech-design/{name}.md      ← 技术方案
+    └── acceptance/{name}-brief.md ← Brief
 
 ~/.claude/workflows/{projectId}/
-└── tasks-{name}.md                    ← 任务清单（含验收项）
+└── tasks-{name}.md                ← 任务清单（含验收项）
 ```
 
 ## 最佳实践
@@ -183,45 +154,45 @@ grep "## 2. 角色权限验证" acceptance-checklist.md -A 100
 2. **边实现边验证** - 及时发现问题
 3. **使用测试数据** - 覆盖所有场景
 4. **记录验收结果** - 包括验收人、时间、状态
-5. **发现问题及时反馈** - 更新验证清单
+5. **发现问题及时反馈** - 更新Brief
 
 ## 相关文档
 
-- **版本说明**：`docs/workflow-v3.3.2-acceptance-checklist.md`
-- **使用指南**：`templates/docs/acceptance-checklist-guide.md`
-- **系统说明**：`templates/skills/workflow/references/acceptance-checklist.md`
-- **实现细节**：`templates/skills/workflow/references/start.md`
+- **系统说明**：`templates/skills/workflow/references/brief.md`
+- **流程总览**：`templates/skills/workflow/references/start-overview.md`
+- **需求基线模板**：`templates/skills/workflow/templates/requirement-baseline-template.md`
+- **Brief 模板**：`templates/skills/workflow/templates/brief-template.md`
 
 ## 示例输出
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 Phase 0.6: 生成验证清单
+📋 Phase 0.6: 生成Brief
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ 验证清单生成完成
+✅ Brief生成完成
 
-📊 表单验证: 3 | 权限验证: 2 | 交互验证: 4 | 业务规则: 2 | 边界场景: 3 | UI展示: 2 | 功能流程: 1
-📈 总验收项: 17
+📦 模块数量: 4 | P0: 2 | P1: 1 | P2: 1
+📈 Requirement 覆盖: full 12 | partial 2 | none 1
 
-📄 验证清单已保存: .claude/acceptance/activity-management-checklist.md
+📄 Brief已保存: .claude/acceptance/activity-management-brief.md
 
 💡 任务执行时将自动关联相关验收项
 ```
 
 ## 常见问题
 
-**Q: 验证清单太长，如何快速定位？**
-A: 使用 grep 或编辑器搜索功能，搜索验收项 ID（如 AC-F1.1）或关键词。
+**Q: Brief太长，如何快速定位？**
+A: 使用 grep 或编辑器搜索 `AC-M...`、模块名，或 `Requirement-to-Brief Mapping` 章节。
 
 **Q: 任务没有关联验收项怎么办？**
-A: 说明该任务可能是基础设施类任务，参考通用验收标准：功能正常、无报错、符合设计规格。
+A: 先检查该任务是否缺少 `requirement_ids`，或是否属于基础设施类任务；基础设施任务通常通过通用验证标准而非模块验收项验收。
 
-**Q: 验收项与实际需求不符怎么办？**
-A: 与产品确认实际需求 → 更新需求文档 → 重新生成验证清单。
+**Q: Brief 与实际需求不符怎么办？**
+A: 与产品确认实际需求 → 更新需求文档或 Requirement Baseline → 重新生成 Brief。
 
-**Q: 如何更新验证清单？**
-A: 小的调整可手动编辑，大的变更建议更新 PRD 后重新生成。
+**Q: 如何更新Brief？**
+A: 小的调整可手动编辑，但涉及 requirement coverage、acceptance IDs 或模块拆分的变化，建议更新 PRD 后重新生成。
 
 ## 技术支持
 

@@ -4,11 +4,37 @@
 
 在生成 `spec.md` 之前，验证当前 `tech-design.md` 是否已经达到可写规范文档的质量门槛，避免把模糊设计直接放大到后续 Plan / Task 阶段。
 
-> 本阶段不再只是“文档结构检查”，而是升级为 **结构审查 + 追溯审查 + 关键约束审查**。
+> 本阶段属于 **MachineReviewLoop**，显式依赖 `templates/specs/workflow/review-loop.md` 中定义的 shared review loop contract。
+>
+> 它不再只是“一次性检查后 return”，而是一个**有预算、有边界、有产物落盘的 planning-side machine loop**。
 
 ## 执行时机
 
 **强制执行**：Phase 1 技术设计完成后，Phase 1.3 Spec Generation 开始前。
+
+## Loop Policy
+
+```typescript
+const PHASE_1_2_REVIEW_POLICY: ReviewLoopPolicy = {
+  max_attempts: 3,
+  freeze_truth_sources: [
+    requirementBaselinePath,
+    requirementBaselineJsonPath
+  ],
+  allowed_revision_scope: [
+    'tech-design.md: Requirement Traceability',
+    'tech-design.md: Out of Scope with Reason',
+    'tech-design.md: Critical Constraints to Preserve',
+    'tech-design.md: 模块划分 / 数据模型 / 接口设计 / 风险与缓解'
+  ],
+  escalate_on: ['budget_exhausted', 'split']
+};
+```
+
+**边界约束**：
+- loop 期间允许修订 `tech-design.md`
+- loop 期间**不允许**改写 requirement baseline 真相源
+- 若 reviewer 结论为 `split`，立即退出自动 loop，升级为人工范围拆分
 
 ## 输入
 
@@ -31,92 +57,213 @@
 
 ## 实现细节
 
-### Step 1: 汇总审查输入
+### Step 1: 归一化审查对象与 policy
 
 ```typescript
 const reviewInputs = {
   techDesign: readFile(techDesignPath),
-  requirementBaseline: requirementBaseline ? readFile(requirementBaselinePath) : null,
+  requirementBaseline: requirementBaselinePath ? readFile(requirementBaselinePath) : null,
   discussionArtifact: discussionArtifact || null,
   requirementItems: requirementItems || null,
-  brief: brief ? readFile(briefPath) : null
+  brief: briefPath ? readFile(briefPath) : null
 };
+
+const reviewSubject: ReviewSubject = {
+  kind: 'document',
+  ref: techDesignPath,
+  requirement_ids: extractInScopeRequirementIds(reviewInputs.requirementBaseline || ''),
+  critical_constraints: extractCriticalConstraints(reviewInputs.requirementBaseline || '')
+};
+
+const reviewPolicy = PHASE_1_2_REVIEW_POLICY;
 ```
 
-### Step 2: 运行 Spec 审查
+### Step 2: 运行显式 machine loop
 
 ```typescript
-const specReviewResult = reviewSpecReadiness(reviewInputs);
+async function runPhase12ReviewLoop(): Promise<ReviewLoopArtifact> {
+  let attempt = 0;
+  let latestResult: SpecReviewResult | null = null;
 
-console.log(`
-📋 Spec Review 结果：${specReviewResult.decision}
-- 完整性: ${specReviewResult.scores.completeness}/5
-- 清晰度: ${specReviewResult.scores.clarity}/5
-- 一致性: ${specReviewResult.scores.consistency}/5
-- 范围适配: ${specReviewResult.scores.scopeFit}/5
-- YAGNI: ${specReviewResult.scores.yagni}/5
-- 追溯完整性: ${specReviewResult.scores.traceabilityCompleteness}/5
-- 关键约束保留: ${specReviewResult.scores.criticalConstraintPreservation}/5
-- 范围判定显式性: ${specReviewResult.scores.scopeDecisionExplicitness}/5
-`);
+  while (attempt < reviewPolicy.max_attempts) {
+    attempt += 1;
+    latestResult = reviewSpecReadiness(reviewInputs);
+
+    sinkPhase12ReviewStatus({
+      attempt,
+      maxAttempts: reviewPolicy.max_attempts,
+      decision: latestResult.decision,
+      result: latestResult
+    });
+
+    if (latestResult.decision === 'pass') {
+      return toPhase12Artifact({
+        subject: reviewSubject,
+        attempt,
+        maxAttempts: reviewPolicy.max_attempts,
+        decision: 'pass',
+        issues: [],
+        nextAction: 'continue_to_spec_generation',
+        overallPassed: true
+      });
+    }
+
+    if (latestResult.decision === 'split') {
+      return toPhase12Artifact({
+        subject: reviewSubject,
+        attempt,
+        maxAttempts: reviewPolicy.max_attempts,
+        decision: 'split',
+        issues: latestResult.splitRecommendations,
+        blockingIssues: latestResult.splitRecommendations,
+        nextAction: 'escalate_to_user_scope_split',
+        overallPassed: false
+      });
+    }
+
+    await reviseTechDesignWithinBoundary({
+      techDesignPath,
+      issues: latestResult.issues,
+      traceabilityIssues: latestResult.traceabilityIssues,
+      allowedRevisionScope: reviewPolicy.allowed_revision_scope
+    });
+
+    reviewInputs.techDesign = readFile(techDesignPath);
+  }
+
+  return toPhase12Artifact({
+    subject: reviewSubject,
+    attempt: reviewPolicy.max_attempts,
+    maxAttempts: reviewPolicy.max_attempts,
+    decision: 'rejected',
+    issues: latestResult
+      ? [...latestResult.issues, ...latestResult.traceabilityIssues]
+      : ['Phase 1.2 review loop budget exhausted'],
+    blockingIssues: ['Phase 1.2 review loop budget exhausted'],
+    nextAction: 'escalate_to_human_scope_review',
+    overallPassed: false
+  });
+}
 ```
 
-### Step 3: 根据结论分流
+### Step 3: 将 loop artifact 落盘到状态机
 
 ```typescript
-if (specReviewResult.decision === 'pass') {
-  console.log('✅ 设计已达到 Spec 编写门槛，继续生成 spec.md');
+function sinkPhase12ReviewStatus(params: {
+  attempt: number;
+  maxAttempts: number;
+  decision: SpecReviewResult['decision'] | 'rejected';
+  result: SpecReviewResult;
+}) {
+  const reviewedAt = new Date().toISOString();
+  const reviewStatus = params.decision === 'pass'
+    ? 'passed'
+    : (params.decision === 'split' || params.decision === 'rejected')
+      ? 'rejected'
+      : 'revise_required';
+
+  state.review_status.spec_review = {
+    status: reviewStatus,
+    review_mode: 'machine_loop',
+    reviewed_at: reviewedAt,
+    reviewer: 'subagent',
+    attempt: params.attempt,
+    max_attempts: params.maxAttempts,
+    last_decision: params.decision,
+    next_action: params.decision === 'pass'
+      ? 'continue_to_spec_generation'
+      : params.decision === 'split'
+        ? 'escalate_to_user_scope_split'
+        : params.decision === 'rejected'
+          ? 'escalate_to_human_scope_review'
+          : 'revise_tech_design_and_retry_phase_1_2',
+    blocking_issues: params.decision === 'split'
+      ? params.result.splitRecommendations
+      : params.decision === 'rejected'
+        ? (params.result.blockingIssues || ['Phase 1.2 review loop budget exhausted'])
+        : [],
+    notes: params.decision === 'split'
+      ? params.result.splitRecommendations
+      : params.decision === 'rejected'
+        ? params.result.issues
+        : params.result.issues,
+    metrics: {
+      completeness: params.result.scores.completeness,
+      traceabilityCompleteness: params.result.scores.traceabilityCompleteness,
+      criticalConstraintPreservation: params.result.scores.criticalConstraintPreservation,
+      scopeDecisionExplicitness: params.result.scores.scopeDecisionExplicitness
+    }
+  };
+
+  state.review_status.traceability_review = {
+    status: reviewStatus,
+    review_mode: 'machine_loop',
+    reviewed_at: reviewedAt,
+    reviewer: 'subagent',
+    attempt: params.attempt,
+    max_attempts: params.maxAttempts,
+    last_decision: params.decision,
+    next_action: state.review_status.spec_review.next_action,
+    blocking_issues: params.result.traceabilityIssues,
+    notes: params.result.traceabilityIssues,
+    metrics: {
+      in_scope_total: params.result.traceabilityMetrics.inScopeTotal,
+      mapped_in_design: params.result.traceabilityMetrics.mappedInDesign,
+      mapped_critical_constraints: params.result.traceabilityMetrics.mappedCriticalConstraints,
+      uncovered_requirement_ids: params.result.traceabilityMetrics.uncoveredRequirementIds
+    }
+  };
+
+  persistWorkflowState(statePath, state);
+}
+```
+
+### Step 4: 根据 loop 结论分流
+
+```typescript
+const phase12Artifact = await runPhase12ReviewLoop();
+
+if (phase12Artifact.decision === 'pass') {
+  console.log('✅ Phase 1.2 machine loop 通过，继续生成 spec.md');
 }
 
-if (specReviewResult.decision === 'revise') {
+if (phase12Artifact.decision === 'split') {
   console.log(`
-⚠️ 设计仍需补充后再生成 Spec
+⚠️ Phase 1.2 判定当前范围不适合继续自动收敛为单一 Spec
 
-待修订项：
-${specReviewResult.issues.map(i => `- ${i}`).join('\n')}
+需人工处理：
+${phase12Artifact.issues.map(i => `- ${i}`).join('\n')}
   `);
   return;
 }
 
-if (specReviewResult.decision === 'split') {
-  console.log(`
-⚠️ 当前范围不适合单一 Spec，请先拆分需求或回退技术设计
+if (phase12Artifact.decision === 'rejected') {
+  const finalRejectedResult = reviewSpecReadiness(reviewInputs);
 
-拆分建议：
-${specReviewResult.splitRecommendations.map(i => `- ${i}`).join('\n')}
+  sinkPhase12ReviewStatus({
+    attempt: phase12Artifact.attempt,
+    maxAttempts: phase12Artifact.max_attempts,
+    decision: 'rejected',
+    result: {
+      ...finalRejectedResult,
+      issues: phase12Artifact.issues,
+      traceabilityIssues: finalRejectedResult.traceabilityIssues,
+      splitRecommendations: [],
+      blockingIssues: phase12Artifact.blocking_issues,
+      nextAction: phase12Artifact.next_action
+    }
+  });
+
+  console.log(`
+❌ Phase 1.2 review loop 已耗尽预算
+
+阻塞项：
+${phase12Artifact.blocking_issues?.map(i => `- ${i}`).join('\n') || '- 无'}
+
+下一步：${phase12Artifact.next_action}
   `);
   return;
 }
-```
-
-### Step 4: 更新状态机
-
-```typescript
-state.review_status.spec_review = {
-  status: specReviewResult.decision === 'pass' ? 'passed' : 'revise_required',
-  reviewed_at: new Date().toISOString(),
-  reviewer: 'subagent',
-  notes: specReviewResult.issues,
-  metrics: {
-    completeness: specReviewResult.scores.completeness,
-    traceabilityCompleteness: specReviewResult.scores.traceabilityCompleteness,
-    criticalConstraintPreservation: specReviewResult.scores.criticalConstraintPreservation,
-    scopeDecisionExplicitness: specReviewResult.scores.scopeDecisionExplicitness
-  }
-};
-
-state.review_status.traceability_review = {
-  status: specReviewResult.decision === 'pass' ? 'passed' : 'revise_required',
-  reviewed_at: new Date().toISOString(),
-  reviewer: 'subagent',
-  notes: specReviewResult.traceabilityIssues,
-  metrics: {
-    in_scope_total: specReviewResult.traceabilityMetrics.inScopeTotal,
-    mapped_in_design: specReviewResult.traceabilityMetrics.mappedInDesign,
-    mapped_critical_constraints: specReviewResult.traceabilityMetrics.mappedCriticalConstraints,
-    uncovered_requirement_ids: specReviewResult.traceabilityMetrics.uncoveredRequirementIds
-  }
-};
 ```
 
 ## 审查结果数据结构
@@ -137,6 +284,8 @@ interface SpecReviewResult {
   issues: string[];
   traceabilityIssues: string[];
   splitRecommendations: string[];
+  blockingIssues?: string[];
+  nextAction?: string;
   traceabilityMetrics: {
     inScopeTotal: number;
     mappedInDesign: number;
@@ -198,9 +347,14 @@ function reviewSpecReadiness(inputs: {
   }
 
   const mustRevise = uncoveredRequirementIds.length > 0 || missingConstraints.length > 0;
+  const decision = splitRecommendations.length > 0
+    ? 'split'
+    : (issues.length > 0 || mustRevise)
+      ? 'revise'
+      : 'pass';
 
   return {
-    decision: splitRecommendations.length > 0 ? 'split' : (issues.length > 0 || mustRevise) ? 'revise' : 'pass',
+    decision,
     scores: {
       completeness: issues.length === 0 ? 5 : 3,
       clarity: 4,
@@ -214,6 +368,12 @@ function reviewSpecReadiness(inputs: {
     issues,
     traceabilityIssues,
     splitRecommendations,
+    blockingIssues: decision === 'split' ? splitRecommendations : [],
+    nextAction: decision === 'pass'
+      ? 'continue_to_spec_generation'
+      : decision === 'split'
+        ? 'escalate_to_user_scope_split'
+        : 'revise_tech_design_and_retry_phase_1_2',
     traceabilityMetrics: {
       inScopeTotal: inScopeIds.length,
       mappedInDesign: mappedIds.length,
@@ -229,3 +389,5 @@ function reviewSpecReadiness(inputs: {
 - 任何 `in_scope` requirement 若未映射到 tech-design / spec，必须 `revise`
 - 任何 `constraints` 若未在设计显式出现，必须 `revise`
 - 任何 `partial / out_of_scope / blocked` 若未带 reason，应提示修订
+- `split` 不参与自动修文重试，必须升级为人工范围治理
+- `attempt === max_attempts` 仍未通过时，必须产出 `rejected` artifact 并停止自动 loop

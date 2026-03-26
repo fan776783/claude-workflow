@@ -4,6 +4,8 @@
 >
 > **注意**: 本文件是 `@justinfan/agent-workflow` Skills 体系的一部分，通过 canonical + managed-links 架构分发到多个 AI 编码工具。
 >
+> `workflow` 现已区分 planning side review loops 与 execution quality gates：Phase 1.2 / Phase 2.5 为 `machine_loop`，Phase 1.4 为 `human_gate`，Phase 1.5 为 `conditional_human_gate`；执行阶段 `quality_review` 则作为 shared review loop contract 的 execution adapter 写入 `quality_gates.*`。
+>
 > 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。
 
 ---

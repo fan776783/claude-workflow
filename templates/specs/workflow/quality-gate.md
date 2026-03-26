@@ -43,6 +43,11 @@ function parseQualityGate(body: string): boolean {
 | `run_tests` | 测试命令通过 | 测试失败或退出码非 0 |
 | `quality_review` | Stage 1 + Stage 2 全部通过 | 任一阶段失败或预算耗尽 |
 
+`quality_review` 现被视为 shared review loop contract 的 execution adapter：
+- 审查对象会先归一化为 `ReviewSubject(kind='diff_window')`
+- execution side 结果写入 `state.quality_gates[task.id]`
+- 产物语义与 planning side 对齐，至少包含 `review_mode / subject / attempt / max_attempts / last_decision / next_action / overall_passed`
+
 `quality_review` 的 Stage 2 虽然会使用单 reviewer 子 agent，但它不属于 `dispatching-parallel-agents` 的并行分派场景；后者仅用于 2+ 独立问题域 / 任务域的并行执行。
 
 ## 常见质量关卡
@@ -50,6 +55,6 @@ function parseQualityGate(body: string): boolean {
 | 类型 | actions | 阈值建议 |
 |------|---------|----------|
 | 单元测试 | run_tests | 80% |
-| 两阶段代码审查 | quality_review | 通过 Stage 1/Stage 2 |
+| 两阶段代码审查（execution adapter） | quality_review | 通过 Stage 1/Stage 2 |
 | 集成测试 | run_tests | 90% |
 | 类型检查 | type_check | 100% |

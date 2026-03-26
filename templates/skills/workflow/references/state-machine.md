@@ -92,13 +92,23 @@
   "review_status": {
     "spec_review": {
       "status": "passed",
+      "review_mode": "machine_loop",
       "reviewed_at": "2026-03-24T10:20:00Z",
-      "reviewer": "subagent"
+      "reviewer": "subagent",
+      "attempt": 2,
+      "max_attempts": 3,
+      "last_decision": "pass",
+      "next_action": "generate_spec"
     },
     "traceability_review": {
       "status": "passed",
+      "review_mode": "machine_loop",
       "reviewed_at": "2026-03-24T10:21:00Z",
       "reviewer": "subagent",
+      "attempt": 2,
+      "max_attempts": 3,
+      "last_decision": "pass",
+      "next_action": "generate_spec",
       "metrics": {
         "in_scope_total": 12,
         "mapped_in_design": 12,
@@ -108,18 +118,32 @@
     },
     "user_spec_review": {
       "status": "approved",
+      "review_mode": "human_gate",
       "reviewed_at": "2026-03-24T10:28:00Z",
-      "reviewer": "user"
+      "reviewer": "user",
+      "last_decision": "pass",
+      "next_action": "run_intent_check"
     },
     "intent_review": {
-      "status": "approved",
+      "status": "passed",
+      "review_mode": "conditional_human_gate",
       "reviewed_at": "2026-03-24T10:35:00Z",
-      "reviewer": "user"
+      "reviewer": "system",
+      "attempt": 1,
+      "max_attempts": 1,
+      "last_decision": "pass",
+      "next_action": "generate_plan",
+      "notes": ["auto-pass: stable spec + low-risk change"]
     },
     "plan_review": {
       "status": "passed",
+      "review_mode": "machine_loop",
       "reviewed_at": "2026-03-24T10:42:00Z",
       "reviewer": "subagent",
+      "attempt": 1,
+      "max_attempts": 3,
+      "last_decision": "pass",
+      "next_action": "compile_tasks",
       "metrics": {
         "covered_requirement_ids": ["R-001", "R-002"],
         "uncovered_requirement_ids": [],
@@ -221,11 +245,11 @@
 | `tasks_file` | 运行时任务清单路径 |
 | `requirement_baseline` | Requirement Baseline 路径与统计信息 |
 | `traceability` | 跨文档追溯映射与覆盖率统计 |
-| `review_status.spec_review` | Phase 1.2 结构审查状态 |
-| `review_status.traceability_review` | Phase 1.2 追溯审查状态 |
-| `review_status.user_spec_review` | Phase 1.4 用户 Spec 审查状态 |
-| `review_status.intent_review` | Phase 1.5 Intent 审查状态 |
-| `review_status.plan_review` | Phase 2.5 Plan 审查状态 |
+| `review_status.spec_review` | Phase 1.2 结构审查状态（MachineReviewLoop） |
+| `review_status.traceability_review` | Phase 1.2 追溯审查状态（MachineReviewLoop） |
+| `review_status.user_spec_review` | Phase 1.4 用户 Spec 治理关口状态（HumanGovernanceGate） |
+| `review_status.intent_review` | Phase 1.5 Intent 条件化关口状态（ConditionalHumanGate） |
+| `review_status.plan_review` | Phase 2.5 Plan 审查状态（MachineReviewLoop） |
 | `unblocked` | 已解除的依赖列表 |
 | `sessions` | 平台与会话槽位信息 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
@@ -260,10 +284,19 @@ interface PlanReviewMetrics {
   critical_constraints_covered: number;
 }
 
+type ReviewDecision = 'pass' | 'revise' | 'split' | 'rejected';
+type ReviewMode = 'machine_loop' | 'human_gate' | 'conditional_human_gate';
+
 interface ReviewCheckpointBase<TMetrics = Record<string, any>> {
   status: 'pending' | 'passed' | 'approved' | 'revise_required' | 'rejected';
+  review_mode?: ReviewMode;
   reviewed_at?: string;
   reviewer?: 'user' | 'subagent' | 'system';
+  attempt?: number;
+  max_attempts?: number;
+  last_decision?: ReviewDecision;
+  next_action?: string;
+  blocking_issues?: string[];
   notes?: string[];
   metrics?: TMetrics;
 }
@@ -341,7 +374,17 @@ interface TaskRuntime {
 
 ```typescript
 interface QualityGateResult {
+  review_type?: string;
+  review_mode?: 'machine_loop';
   gate_task_id: string;
+  subject?: ReviewSubject;
+  attempt?: number;
+  max_attempts?: number;
+  last_decision?: ReviewDecision;
+  next_action?: string;
+  reviewed_at?: string;
+  reviewer?: 'subagent' | 'system';
+  blocking_issues?: string[];
   commit_hash: string;
   diff_window: {
     from_task: string | null;
@@ -436,15 +479,20 @@ type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
 
 ```
 idle → planned (workflow-start 完成基础规划)
-planned → spec_review (spec 文档生成，等待用户确认)
-spec_review → planned (spec 已批准，继续 intent / plan / task 编译)
-planned → planned (Phase 1.2 审查失败，仅记录 revise_required，返回设计修订)
-planned → intent_review (intent 文档生成)
-intent_review → planned (intent 批准)
+planned → planned (Phase 1.2 machine loop revise，返回 tech-design 修订并重审)
+planned → planned (Phase 1.2 machine loop split，升级为人工范围拆分)
+planned → spec_review (spec 文档生成，等待用户治理确认)
+spec_review → planned (spec 已批准，继续 intent check / plan / task 编译)
+spec_review → spec_review (用户要求修改 Spec 或拆分范围)
+planned → intent_review (IntentConsistencyCheck 命中条件，需要人工 Intent Gate)
+planned → planned (IntentConsistencyCheck auto-pass，无需人工确认，继续 Plan Generation)
+intent_review → planned (intent 人工关口批准)
+intent_review → paused (intent 人工关口要求调整，待修改 spec / intent 后重新启动)
+planned → planned (Phase 2.5 machine loop revise，返回 plan 修订并重审)
 planned → running (workflow-execute 开始执行)
 planned → idle (用户取消)
 spec_review → idle (用户拒绝并终止)
-intent_review → idle (intent 拒绝)
+intent_review → idle (intent 人工关口拒绝或取消)
 running → paused (阶段完成 / 质量关卡)
 running → blocked (遇到阻塞任务且无可执行任务)
 running → failed (任务失败)

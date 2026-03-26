@@ -9,7 +9,7 @@
 | status.md | 677 | ⚠️ 超标 |
 | delta.md | 550 | ⚠️ 接近上限 |
 | state-machine.md | 350 | ✅ 合理 |
-| acceptance-checklist.md | 281 | ✅ 合理 |
+| brief.md | 281 | ✅ 合理 |
 | external-deps.md | 276 | ✅ 合理 |
 | shared-utils.md | 272 | ✅ 合理 |
 | archive.md | 247 | ✅ 合理 |
@@ -28,12 +28,12 @@
 
 3. **Phase 0.5: 需求结构化提取**（~60 行）
 
-4. **Phase 0.6: 验证清单生成**（~70 行）
+4. **Phase 0.6: Brief 生成**（~70 行）
 
 5. **Phase 1: 生成技术方案**（~200 行）
    - 包含完整的模板内联代码
 
-6. **Phase 1.5: Intent Review**（~90 行）
+6. **Phase 1.5: Intent Review / ConditionalHumanGate**（~90 行）
 
 7. **Hard Stop 1: 设计方案确认**（~100 行）
 
@@ -51,9 +51,9 @@
     - RequirementAnalysis 接口（~70 行）
     - extractStructuredRequirements()（~110 行）
     - renderRequirementDetailSections()（~120 行）
-    - AcceptanceChecklist 接口（~90 行）
-    - generateAcceptanceChecklist()（~400 行）⚠️
-    - renderAcceptanceChecklist()（~220 行）⚠️
+    - BriefModule / RequirementToBriefMapping 接口（~90 行）
+    - generateBrief()（~400 行）⚠️
+    - renderRequirementToBriefMapping() / renderModuleBriefs()（~220 行）⚠️
     - mapTaskToAcceptanceCriteria()（~100 行）
     - sanitize()
     - loadTemplate()
@@ -70,13 +70,13 @@
    - 应该引用外部模板文件
 
 2. **大型函数定义**（~800 行）
-   - generateAcceptanceChecklist() 函数过长（~400 行）
-   - renderAcceptanceChecklist() 函数过长（~220 行）
+   - generateBrief() 函数过长（~400 行）
+   - renderRequirementToBriefMapping() / renderModuleBriefs() 过长（~220 行）
    - 应该拆分到独立文件
 
 3. **接口定义**（~160 行）
    - RequirementAnalysis 接口（~70 行）
-   - AcceptanceChecklist 接口（~90 行）
+   - BriefModule / RequirementToBriefMapping 接口（~90 行）
    - 应该移到 shared-utils.md 或独立的 types.md
 
 4. **重复的辅助函数**
@@ -116,29 +116,29 @@
 
 ### 优先级 1：拆分 start.md（2,492 → ~800 行）
 
-#### 1.1 提取验证清单相关代码到独立文件
+#### 1.1 提取 Brief 生成相关代码到独立文件
 
-**新建文件**：`references/acceptance-checklist-generator.md`（~800 行）
+**新建文件**：`references/brief-generator.md`（~800 行）
 
 **移动内容**：
 - `RequirementAnalysis` 接口定义（~70 行）
-- `AcceptanceChecklist` 接口定义（~90 行）
+- `BriefModule` / `RequirementToBriefMapping` 接口定义（~90 行）
 - `extractStructuredRequirements()` 函数（~110 行）
 - `renderRequirementDetailSections()` 函数（~120 行）
-- `generateAcceptanceChecklist()` 函数（~400 行）
-- `renderAcceptanceChecklist()` 函数（~220 行）
+- `generateBrief()` 函数（~400 行）
+- `renderRequirementToBriefMapping()` / `renderModuleBriefs()`（~220 行）
 - `mapTaskToAcceptanceCriteria()` 函数（~100 行）
 - 相关辅助函数：`esc()`, `groupBy()`（~20 行）
 
 **在 start.md 中引用**：
 ```markdown
-### Phase 0.6：生成验证清单
+### Phase 0.6：生成 Brief
 
-> 详细实现请参考 [acceptance-checklist-generator.md](acceptance-checklist-generator.md)
+> 详细实现请参考 [brief-generator.md](brief-generator.md)
 
 ```typescript
-// 调用验证清单生成函数（实现见 acceptance-checklist-generator.md）
-acceptanceChecklist = generateAcceptanceChecklist(requirementAnalysis, taskName);
+// 调用 Brief 生成函数（实现见 brief-generator.md）
+brief = generateBrief(requirementBaseline, projectConfig, taskName);
 ```
 
 #### 1.2 提取模板渲染代码到独立文件
@@ -297,12 +297,12 @@ templates/skills/workflow/
     ├── status.md (400 行) ✅ 从 677 行优化
     ├── delta.md (350 行) ✅ 从 550 行优化
     ├── state-machine.md (350 行) ✅
-    ├── acceptance-checklist.md (281 行) ✅
+    ├── brief.md (281 行) ✅
     ├── external-deps.md (276 行) ✅
     ├── shared-utils.md (272 行) ✅
     ├── archive.md (247 行) ✅
     │
-    ├── acceptance-checklist-generator.md (800 行) 🆕
+    ├── brief-generator.md (800 行) 🆕
     ├── template-renderer.md (200 行) 🆕
     ├── task-classifier.md (150 行) 🆕
     ├── intent-generator.md (100 行) 🆕
@@ -329,7 +329,7 @@ templates/skills/workflow/
 
 ### Step 1: 提取验证清单生成器（最大收益）
 
-1. 创建 `acceptance-checklist-generator.md`
+1. 创建 `brief-generator.md`
 2. 移动相关代码（~800 行）
 3. 更新 start.md 引用
 4. 测试验证

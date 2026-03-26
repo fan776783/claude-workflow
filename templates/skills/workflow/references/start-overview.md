@@ -178,7 +178,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 1.2：Spec Review / Traceability Review
 
-**目的**: 在写 `spec.md` 之前，对设计进行完整性、清晰度、一致性、范围和追溯审查
+**目的**: 在写 `spec.md` 之前，对设计进行完整性、清晰度、一致性、范围和追溯审查。
+
+**治理模式**: 显式 `machine_loop`，在 planning side 复用 shared review loop contract；同一份设计会在预算内经历 `review → revise → re-review`，而不是一次性 gate。
 
 **输入**:
 - `tech-design.md`
@@ -187,8 +189,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - `brief`
 
 **输出**:
-- 审查结论（pass / revise / split）
+- 审查结论（`pass / revise / split`）
 - 缺口清单与修订建议
+- `review_status.spec_review` / `review_status.traceability_review` 中的 loop artifact（attempt、max_attempts、last_decision、next_action）
 
 **重点检查**:
 - `traceabilityCompleteness`
@@ -222,12 +225,18 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### 🛑 Hard Stop 1：User Spec Review
 
-**目的**: 在进入执行计划之前，让用户确认 Spec 的范围、边界和模块切分
+**目的**: 在进入执行计划之前，让用户确认 Spec 的范围、边界和模块切分。
+
+**治理模式**: `human_gate`。这是用户主权确认点，不参与 machine loop 收敛；任何回退都由用户明确决定。
 
 **用户选择**:
 1. **Spec 正确，继续**
 2. **需要修改 Spec**
 3. **需要拆分范围 / 回退设计**
+
+**状态落盘**:
+- `review_status.user_spec_review.review_mode = 'human_gate'`
+- `last_decision / next_action` 明确记录是继续、回退修订还是拆分范围
 
 **详细实现**: 参见 `specs/start/phase-1.4-spec-user-review.md`
 
@@ -235,7 +244,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 1.5：Intent Review（增量变更意图审查）
 
-**目的**: 基于稳定 `spec.md` 生成 Intent 文档，供用户确认本次变更方向
+**目的**: 基于稳定 `spec.md` 生成 Intent 文档，并先做一次机器一致性检查，再按风险决定是否需要用户确认本次变更方向。
+
+**治理模式**: `conditional_human_gate`。先执行 `IntentConsistencyCheck`，只有命中高影响/跨域/高风险条件时才进入人工 gate；低风险场景可自动通过。
 
 **输出**: `~/.claude/workflows/{projectId}/changes/{changeId}/intent.md`
 
@@ -247,7 +258,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - 影响分析（涉及文件、技术约束、可复用组件）
 - 审查状态
 
-**🛑 Hard Stop**: 用户确认变更意图后才继续
+**分支行为**:
+- 未命中条件：自动写入 `review_status.intent_review`，`last_decision = pass`，直接进入 Plan Generation
+- 命中条件：进入 Intent Human Gate，由用户确认继续、回退或取消
 
 **详细实现**: 参见 `specs/start/phase-1.5-intent-review.md`
 
@@ -274,7 +287,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 2.5：Plan Review
 
-**目的**: 审查计划是否完整、与 Spec / Baseline 对齐、粒度合理、覆盖 requirement 且可执行
+**目的**: 审查计划是否完整、与 Spec / Baseline 对齐、粒度合理、覆盖 requirement 且可执行。
+
+**治理模式**: 显式 `machine_loop`。Plan 会在预算内进行 `review → revise → re-review`，直到通过或耗尽预算，不再是单次 review + revise_required。
 
 **检查维度**:
 - Completeness
@@ -283,6 +298,10 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - Buildability
 - Requirement Coverage
 - Critical Constraint Preservation
+
+**产物**:
+- `review_status.plan_review` 中记录 `attempt / max_attempts / last_decision / next_action`
+- 失败时保留 blocking issues，供后续回退或人工介入
 
 **详细实现**: 参见 `specs/start/phase-2.5-plan-review.md`
 

@@ -18,13 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新 CLI 入口**：新增 `bin/agent-workflow.js`，统一包级命令入口
 
 ### Changed
-- **workflow 执行质量关卡升级**：将 `codex-review` 调整为更通用的 `quality-review`，同步更新执行总览、执行模式与状态机文档
-- **workflow 规划流程重构**：`start` 主线升级为“需求结构化 → Requirement Baseline → 验收清单 → 实现指南 → tech-design → spec → plan → tasks”的分层流程
+- **workflow 执行质量关卡升级**：将 `codex-review` 调整为更通用的 `quality-review`，并明确其作为 shared review loop contract 的 execution adapter，同步更新执行总览、执行模式与状态机文档
+- **workflow 规划流程重构**：`start` 主线升级为“需求结构化 → Requirement Baseline → Brief → tech-design → Spec / Traceability Review → User Spec Gate → Intent Gate → plan → Plan Review → tasks”的分层流程
+- **workflow 治理模型细化**：planning side 显式区分 `machine_loop`、`human_gate` 与 `conditional_human_gate`，execution side 通过 `quality_gates.*` 对齐 shared review loop contract
 - **质量关卡术语与状态描述优化**：将部分“评分机制”调整为“判定机制”，细化当前任务、并行组、第三方依赖等状态与约束说明
 - **安装与架构文档更新**：README、CLAUDE、工作流指南等文档改为强调 canonical + 受管链接架构、`agent-workflow` 单一源和新的同步方式
 - **安装器与同步流程更新**：installer、interactive-installer、postinstall 与 agent 检测逻辑同步新 CLI 名称和受管挂载流程
 - **debug / bug-batch 文档增强**：补充执行状态、修复单元、批量分析与流转说明
-- **workflow 模板更新**：技术设计、Spec、Plan、Requirement Baseline、验收清单与实现指南模板统一对齐新的追溯与验收结构
+- **workflow 模板更新**：技术设计、Spec、Plan、Requirement Baseline、Brief、review-loop 与 state-machine 模板统一对齐新的追溯、治理关口和 execution quality gate 结构
 
 ### Removed
 - **perf-budget skill**：移除 `templates/skills/perf-budget/` 下的 skill 文档、脚本与相关资源，精简项目结构

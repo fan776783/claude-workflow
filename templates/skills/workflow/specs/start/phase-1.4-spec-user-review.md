@@ -4,6 +4,10 @@
 
 在进入 Plan 生成前，让用户显式确认 `spec.md` 的范围、模块边界、用户行为和验收映射，形成后续执行的稳定共识。
 
+> 本阶段属于 **HumanGovernanceGate**。
+>
+> 它不是质量收敛 loop，不负责机器自动修文或自动重审；它只负责**范围、边界、模块切分与方向主权确认**。
+
 ## 执行时机
 
 **强制执行**：Phase 1.3 Spec Generation 完成后，Phase 1.5 Intent Review 之前。
@@ -19,6 +23,14 @@
 - 用户审查结论
 - `review_status.user_spec_review`
 - 如不通过，回退到 `Phase 1.3` 或 `Phase 1`
+
+## 治理语义
+
+- `review_mode = 'human_gate'`
+- `attempt = 1`
+- `max_attempts = 1`
+- 不参与 machine loop
+- 用户结论直接决定后续走向，不做自动收敛
 
 ## 实现细节
 
@@ -59,22 +71,33 @@ if (specChoice === 'Spec 正确，继续') {
   state.status = 'planned';
   state.review_status.user_spec_review = {
     status: 'approved',
+    review_mode: 'human_gate',
     reviewed_at: new Date().toISOString(),
-    reviewer: 'user'
+    reviewer: 'user',
+    attempt: 1,
+    max_attempts: 1,
+    last_decision: 'pass',
+    next_action: 'continue_to_intent_check'
   };
   writeFile(statePath, JSON.stringify(state, null, 2));
-  console.log('✅ Spec 已确认，继续进入 Intent Review');
+  console.log('✅ User Spec Governance Gate 已批准，继续进入 Intent Review');
 }
 
 if (specChoice === '需要修改 Spec') {
   state.status = 'spec_review';
   state.review_status.user_spec_review = {
     status: 'revise_required',
+    review_mode: 'human_gate',
     reviewed_at: new Date().toISOString(),
-    reviewer: 'user'
+    reviewer: 'user',
+    attempt: 1,
+    max_attempts: 1,
+    last_decision: 'revise',
+    next_action: 'return_to_phase_1_3_spec_generation',
+    notes: ['用户要求修改 Spec 后再继续']
   };
   writeFile(statePath, JSON.stringify(state, null, 2));
-  console.log(`⏸️ 请修改 Spec：${specPath}`);
+  console.log(`⏸️ 请先修改 Spec：${specPath}`);
   return;
 }
 
@@ -82,9 +105,15 @@ if (specChoice === '需要拆分范围') {
   state.status = 'spec_review';
   state.review_status.user_spec_review = {
     status: 'rejected',
+    review_mode: 'human_gate',
     reviewed_at: new Date().toISOString(),
     reviewer: 'user',
-    notes: ['范围需拆分后再进入 Plan 阶段']
+    attempt: 1,
+    max_attempts: 1,
+    last_decision: 'split',
+    next_action: 'return_to_phase_1_scope_split',
+    blocking_issues: ['范围需拆分后再进入 Plan 阶段'],
+    notes: ['用户认为当前 Spec 范围过宽，需要拆分']
   };
   writeFile(statePath, JSON.stringify(state, null, 2));
   console.log('⏸️ 请回退到技术设计阶段重新拆分范围');
@@ -130,6 +159,6 @@ function extractSection(content: string, heading: string): string {
 
 ## 输出结果约定
 
-- **approved**：进入 `Phase 1.5 Intent Review`
+- **approved**：进入 `Phase 1.5 IntentConsistencyCheck`
 - **revise_required**：返回 `Phase 1.3 Spec Generation`
 - **rejected**：返回 `Phase 1` 或更早阶段，重新收敛范围
