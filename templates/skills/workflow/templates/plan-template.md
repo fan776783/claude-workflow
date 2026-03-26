@@ -4,8 +4,7 @@ requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
 requirement_baseline: "{{requirement_baseline_path}}"
 spec_file: "{{spec_file}}"
-acceptance_checklist: "{{acceptance_checklist_path}}"
-implementation_guide: "{{implementation_guide_path}}"
+brief: "{{brief_path}}"
 status: draft
 role: plan
 ---
@@ -19,8 +18,7 @@ role: plan
 - **Requirement Baseline**: `{{requirement_baseline_path}}`
 - **Spec**: `{{spec_file}}`
 - **Requirement Source**: `{{requirement_source}}`
-- **Acceptance Checklist**: `{{acceptance_checklist_path}}`
-- **Implementation Guide**: `{{implementation_guide_path}}`
+- **Brief**: `{{brief_path}}`
 
 ### 1.1 Scope Check
 

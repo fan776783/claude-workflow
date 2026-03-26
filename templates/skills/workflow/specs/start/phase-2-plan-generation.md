@@ -2,7 +2,7 @@
 
 ## 目的
 
-从已批准的 `spec.md`、Requirement Baseline、验收清单和实现指南生成 `plan.md`，将规范层转化为细粒度、可验证、可编译的实施计划。
+从已批准的 `spec.md`、Requirement Baseline、brief 生成 `plan.md`，将规范层转化为细粒度、可验证、可编译的实施计划。
 
 ## 执行时机
 
@@ -12,8 +12,7 @@
 
 - `spec.md`
 - `requirement baseline`
-- `acceptance checklist`（如有）
-- `implementation guide`（如有）
+- `brief`（如有）
 - `analysisResult`
 
 ## 输出
@@ -40,8 +39,7 @@ ensureDir('.claude/plans');
 
 const specContent = readFile(specPath);
 const baselineContent = requirementBaselinePath ? readFile(requirementBaselinePath) : '';
-const acceptanceContent = acceptanceChecklistPath ? readFile(acceptanceChecklistPath) : '';
-const implementationGuideContent = implementationGuidePath ? readFile(implementationGuidePath) : '';
+const briefContent = briefPath ? readFile(briefPath) : '';
 ```
 
 ### Step 2: 执行 Scope Check
@@ -62,7 +60,7 @@ ${scopeCheck.issues.map(i => `- ${i}`).join('\n')}
 ```typescript
 const filePlan = deriveFilePlan(specContent, analysisResult);
 const slices = deriveImplementationSlices(specContent);
-const verificationPlan = deriveVerificationPlan(acceptanceContent, implementationGuideContent);
+const verificationPlan = deriveVerificationPlan(briefContent);
 const inScopeRequirements = extractInScopeRequirements(baselineContent);
 const criticalConstraints = extractCriticalConstraints(baselineContent);
 ```
@@ -90,8 +88,7 @@ const planContent = replaceVars(planTemplate, {
   created_at: new Date().toISOString(),
   requirement_baseline_path: requirementBaselinePath || '',
   spec_file: specPath,
-  acceptance_checklist_path: acceptanceChecklistPath || '',
-  implementation_guide_path: implementationGuidePath || '',
+  brief_path: briefPath || '',
   files_create: renderFileList(filePlan.create),
   files_modify: renderFileList(filePlan.modify),
   files_test: renderFileList(filePlan.test),
@@ -170,7 +167,7 @@ function generateAtomicPlanSteps(params: {
       goal: `创建并建立 ${file} 的基础结构`,
       specRef: '§7 File Structure',
       requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.critical_constraints),
+      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
       files: [file],
       actionType: 'create_file',
       expected: `${file} 已创建且结构正确`,
@@ -185,7 +182,7 @@ function generateAtomicPlanSteps(params: {
       goal: `在 ${file} 中接入目标能力`,
       specRef: '§5 User-facing Behavior',
       requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.critical_constraints),
+      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
       files: [file],
       actionType: 'edit_file',
       expected: `${file} 已按 Spec 修改`,
@@ -200,7 +197,7 @@ function generateAtomicPlanSteps(params: {
       goal: `为 ${file} 补充测试覆盖`,
       specRef: '§8 Acceptance Mapping',
       requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.critical_constraints),
+      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
       files: [file],
       actionType: 'run_tests',
       expected: '关键验收项有对应测试',

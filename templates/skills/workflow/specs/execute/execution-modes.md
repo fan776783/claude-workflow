@@ -513,6 +513,8 @@ const executionMode = executionModeOverride || state.execution_mode || 'phase';
 
 当启用 subagent 模式时，所有执行模式的行为保持不变，但任务执行方式改变。
 
+在进入**并行批次决策**之前，必须先读取并应用 `../../dispatching-parallel-agents/SKILL.md`。以下独立性检查、上下文边界分组与冲突降级规则都以该 skill 为准；单任务子 agent 与单 reviewer 子 agent 继续按各自动作规范直接路由。
+
 ### 平台路由
 
 ```typescript
@@ -553,6 +555,7 @@ function detectSubagentRouting(env: Record<string, string>): SubagentRouting {
 - Codex 使用 `spawn_agent` 派发、`wait` 回收、`close_agent` 释放槽位
 - 每个任务只接收最小必要上下文，避免主会话上下文污染
 - 不支持子 agent 时自动回退为直接模式
+- 同阶段多任务优先按上下文边界分组，再决定是否并行
 
 ```typescript
 const routing = detectSubagentRouting(process.env);
@@ -567,6 +570,8 @@ if (useSubagent && routing.supported) {
 ### 并行执行（Subagent 模式）
 
 当 Subagent 模式启用时，同阶段且通过独立性检查的任务可并行执行。
+
+并行策略必须遵循 `../../dispatching-parallel-agents/SKILL.md`：先做平台检测，再做独立性检查，然后按上下文边界分组；边界内串行，边界间并行。
 
 **触发条件**：
 - Subagent 模式已启用
@@ -687,7 +692,7 @@ if (useSubagent) {
 executeTask() → Step 6.5（验证铁律）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
 ```
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线。
+**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
 
 ---
 
@@ -750,7 +755,7 @@ interface VerificationEvidence {
 | "Lint 干净" | Linter 输出：0 errors | 部分检查、推测 |
 | "构建成功" | 构建命令：exit 0 | Linter 通过 ≠ 构建通过 |
 | "Bug 已修复" | 原始症状测试通过 | "代码改了" |
-| "需求已满足" | 逐项对照验收清单 | 测试通过 ≠ 需求满足 |
+| "需求已满足" | 逐项对照 Brief 验收标准 | 测试通过 ≠ 需求满足 |
 
 #### 红旗清单
 
@@ -847,7 +852,7 @@ interface VerificationEvidence {
 
 **适用条件**（全部满足才触发）：
 1. 任务 `phase` 为 `implement`、`ui-layout`、`ui-display`、`ui-form`、`ui-integrate`
-2. 项目存在实现指南（`.claude/acceptance/{name}-implementation-guide.md`，Phase 0.7 产物）
+2. 项目存在 Brief（`.claude/acceptance/{name}-brief.md`，Phase 0.6 产物）
 3. 项目有可执行的测试命令（`project-config.json` 的 `testCommand`）
 4. 任务 actions 包含 `create_file` 或 `edit_file`
 5. 文件类型为可测试代码（排除豁免列表）

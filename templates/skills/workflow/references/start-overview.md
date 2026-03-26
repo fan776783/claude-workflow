@@ -8,16 +8,16 @@
 
 - 规格引用
 - 执行流程概览
-- Phase 0-0.7：需求分析到双文档生成
+- Phase 0-0.6：需求分析到 Brief 生成
 - Phase 1-1.5：设计、Spec 与 Intent 审查
 - Phase 2-3：Plan、Task Compilation 与 Hard Stop
 - 创建工作流状态
 
 ```
-需求文档 ──▶ 代码分析 ──▶ 需求讨论 ──▶ 需求结构化 ──▶ Requirement Baseline ──▶ 验收清单 ──▶ 实现指南 ──▶ tech-design.md
-                │             │               │                   │                  │              │
-                │       💬 逐个澄清       RequirementItem     requirement IDs     📋 覆盖视图       🧪 TDD 指引        架构决策 + traceability
-           codebase-retrieval                                      critical constraints
+需求文档 ──▶ 代码分析 ──▶ 需求讨论 ──▶ 需求结构化 ──▶ Requirement Baseline ──▶ Brief ──▶ tech-design.md
+                │             │               │                   │                  │
+                │       💬 逐个澄清       RequirementItem     requirement IDs     📋 模块验收 + TDD 指引
+           codebase-retrieval                                      constraints
 
 tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Spec Review ──▶ Intent Review ──▶ plan.md ──▶ Plan Review ──▶ tasks.md ──▶ 执行
                     🔍 结构+追溯审查         📘 友好规范         🛑 范围确认          🔍 意图确认      🧭 原子计划       🔍 覆盖审查      🛑 确认任务
@@ -100,20 +100,14 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 0.5：需求结构化提取（条件执行）
 
-**目的**: 从 PRD 中提取结构化数据，确保字段、权限、业务规则、流程等细节不丢失，并归一化为后续可追溯的 requirement items 输入
+**目的**: 从 PRD 中按业务场景提取结构化数据，确保可操作细节不丢失，并归一化为后续可追溯的 requirement items 输入
 
 **执行条件**: 仅对文件来源且长度 > 500 的需求执行
 
-**提取维度**（9 维度）:
-1. 变更记录
-2. 表单字段
-3. 角色权限
-4. 交互规格
-5. 业务规则
-6. 边界场景
-7. UI 展示规则
-8. 功能流程
-9. 数据契约
+**提取方式**：Extraction Spec（约束驱动 + Gate 门禁）
+- 模型根据 PRD 内容自行识别业务场景，按场景分组
+- 4 个 Gate 门禁确保覆盖率、约束完整性、关联完整性、粒度合理
+- 9 个常见维度降级为可选自检 checklist
 
 **输出要求**:
 - 为 `Phase 0.55` 提供可归一化的 `RequirementItem` 输入
@@ -144,35 +138,20 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ---
 
-### Phase 0.6：生成验收清单（条件执行）
+### Phase 0.6：生成 Acceptance & Implementation Brief（条件执行）
 
-**目的**: 将 Requirement Baseline + 结构化需求转换为可执行的验收清单，作为 Spec / Plan / Task 的验收真源与覆盖视图
+**目的**: 将 Requirement Baseline 转换为按模块组织的统一开发文档，包含验收标准和实现路径
 
 **执行条件**: 仅在 Phase 0.55 成功生成 Requirement Baseline 后执行
 
-**输出**: `.claude/acceptance/{task-name}-checklist.md`
+**输出**: `.claude/acceptance/{task-name}-brief.md`
 
 **新增硬约束**:
-- 必须生成 requirement-to-acceptance mapping
+- 必须生成 requirement-to-brief mapping
 - 必须显式标记 partially covered / uncovered requirements
+- 模块必须携带 `relatedRequirementIds` 和 `constraints`
 
-**详细实现**: 参见 `specs/start/phase-0.6-acceptance-checklist.md`
-
----
-
-### Phase 0.7：生成实现指南（条件执行）
-
-**目的**: 将 Requirement Baseline + 验收清单转换为开发者视角的实现路径，关注“如何测试和实现”
-
-**执行条件**: 仅在 Phase 0.6 成功生成验收清单后执行
-
-**输出**: `.claude/acceptance/{task-name}-implementation-guide.md`
-
-**新增硬约束**:
-- 模块必须携带 `relatedRequirementIds`
-- 必须显式列出 `criticalConstraints`
-
-**详细实现**: 参见 `specs/start/phase-0.7-implementation-guide.md`
+**详细实现**: 参见 `specs/start/phase-0.6-brief.md`
 
 ---
 
@@ -181,8 +160,6 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 **目的**: 在形成用户可读 Spec 前，先沉淀架构决策、边界与风险，并显式说明需求追溯与 out-of-scope 判定
 
 **输入增加**: Requirement Baseline
-
-**输出**: `.claude/tech-design/{task-name}.md`
 
 **文档定位**:
 1. 需求摘要
@@ -206,9 +183,8 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 **输入**:
 - `tech-design.md`
 - `discussion-artifact.json`
-- `requirementAnalysis`
 - `requirement baseline`
-- `acceptance checklist`
+- `brief`
 
 **输出**:
 - 审查结论（pass / revise / split）
@@ -279,7 +255,7 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 2：Plan Generation
 
-**目的**: 从 `spec + requirement baseline + acceptance checklist + implementation guide + analysisResult` 生成可审查的实施计划
+**目的**: 从 `spec + requirement baseline + brief + analysisResult` 生成可审查的实施计划
 
 **输出**: `.claude/plans/{task-name}.md`
 
@@ -314,7 +290,7 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Phase 3：Task Compilation
 
-**目的**: 将 `spec + plan + acceptance checklist + requirement baseline` 编译为运行时任务清单
+**目的**: 将 `spec + plan + brief + requirement baseline` 编译为运行时任务清单
 
 **输出**: `~/.claude/workflows/{projectId}/tasks-{task-name}.md`
 
@@ -347,7 +323,7 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 - Spec 路径
 - Plan 路径
 - 任务清单路径
-- 验收清单路径（如有）
+- Brief 路径（如有）
 - requirement 总数 / in-scope 数
 - uncovered requirements（如有）
 - 任务数量
@@ -366,8 +342,7 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 ├── plans/
 │   └── {task-name}.md
 ├── acceptance/
-│   ├── {task-name}-checklist.md
-│   └── {task-name}-implementation-guide.md
+│   └── {task-name}-brief.md
 
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json

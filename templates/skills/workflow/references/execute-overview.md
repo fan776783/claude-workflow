@@ -90,12 +90,13 @@
   1. 用户显式配置 `state.use_subagent`
   2. 平台支持 + 上下文压力高（> 60%）
   3. 平台支持 + 任务数量多（> 5）
+- 执行要求：仅当识别出同阶段 2+ 独立任务、需要并行分派时，先读取并应用 `../dispatching-parallel-agents/SKILL.md`
 - 路由结果：
   - Claude Code / Cursor → `Task`
   - Codex → `spawn_agent` / `wait` / `close_agent`
   - 不支持子 agent → 直接模式
 
-**详细实现**: 参见 `specs/execute/execution-modes.md` 与 `references/shared-utils.md`
+**详细实现**: 参见 `specs/execute/execution-modes.md`、`specs/workflow/subagent-routing.md` 与 `references/shared-utils.md`
 
 ---
 
@@ -137,7 +138,7 @@
 - `git_commit`: Git 提交
 
 **执行方式**：
-- **Subagent 模式**：按平台路由到 `Task` 或 `spawn_agent`，在独立 subagent 中执行
+- **Subagent 模式**：单任务可直接按平台路由到 `Task` 或 `spawn_agent`；仅在需要并行分派同阶段独立任务时，先读取并应用 `../dispatching-parallel-agents/SKILL.md`
 - **直接模式**：在当前上下文中执行
 
 **详细实现**: 参见 `specs/execute/actions/` 目录
@@ -195,9 +196,9 @@
 - 如果阶段不同，暂停并提示
 
 **连续模式**：
-- 执行到质量关卡或 git_commit
+- 默认执行到质量关卡后暂停
 - 遇到质量关卡时暂停
-- 遇到 git_commit 且 `pause_before_commit=true` 时暂停
+- 若下一步是 `git_commit` 且 `pause_before_commit=true`，则也会在提交前暂停
 
 **兜底机制**：
 - 连续执行任务数达到上限时强制暂停

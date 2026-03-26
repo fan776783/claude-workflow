@@ -599,7 +599,7 @@ function deduplicateByDimension(gaps: RequirementGap[]): RequirementGap[] {
 // requirementContent 不被修改，Phase 0.5 的长度阈值和 Phase 1 的摘要生成不受影响
 
 // ── 讨论工件作为独立输入传递 ──
-// Phase 0.5: extractStructuredRequirements(requirementContent, discussionArtifact)
+// Phase 0.5: extractRequirementItems(requirementContent, discussionArtifact)
 //   → 结构化提取时参考澄清结果，提高覆盖率
 // Phase 1:  生成技术方案时，显式消费 discussionArtifact
 //   → 技术方案中新增"需求澄清摘要"章节
@@ -610,7 +610,7 @@ function deduplicateByDimension(gaps: RequirementGap[]): RequirementGap[] {
 
 ### Phase 0.5 适配
 
-Phase 0.5 的函数签名已扩展为 `extractStructuredRequirements(content, discussionArtifact?)`。
+Phase 0.5 的函数签名为 `extractRequirementItems(content, discussionArtifact?)`。
 详见 `specs/start/phase-0.5-requirement-extraction.md`。
 
 ### Phase 1 适配

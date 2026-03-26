@@ -202,8 +202,7 @@ function extractDependencies(codeContext: string): Dependency[] {
 分析结果将用于后续阶段：
 - Phase 0.2: 需求分析讨论（识别需求与现有架构的冲突、发现缺失项）
 - Phase 0.5: 需求结构化提取（提供代码上下文）
-- Phase 0.6: 验证清单生成（提供验证参考）
-- Phase 0.7: 实现指南生成（提供技术栈信息）
+- Phase 0.6: Brief 生成（提供验收标准与技术栈信息）
 - Phase 1: 技术方案生成（填充"代码分析结果"章节）
 - Phase 2: Plan 生成（识别可复用组件、确定实施顺序与文件结构）
 - Phase 3: 任务编译（注入依赖、blocked_by 与任务级引用）

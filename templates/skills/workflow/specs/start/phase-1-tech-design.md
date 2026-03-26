@@ -8,12 +8,12 @@
 
 ## 执行时机
 
-**强制执行**：每次启动工作流时必须执行，位于 Phase 0.7 之后、Phase 1.2 之前。
+**强制执行**：每次启动工作流时必须执行，位于 Phase 0.6 之后、Phase 1.2 之前。
 
 ## 输入
 
 - `requirementContent`
-- `requirementAnalysis`（如有）
+- `requirementItems`（如有，Phase 0.5 提取输出）
 - `requirement baseline`（如有）
 - `discussion-artifact.json`（如有）
 - `analysisResult`
@@ -62,8 +62,8 @@ if (!fileExists(techDesignPath) || existingChoice === '重新生成') {
     ? analysisResult.constraints.map(c => `- ${c}`).join('\n')
     : '（无特殊约束）';
 
-  const requirementDetailSections = requirementAnalysis
-    ? renderRequirementDetailSections(requirementAnalysis)
+  const requirementDetailSections = requirementItems
+    ? renderRequirementDetailSections(requirementItems)
     : '';
 
   const traceabilitySection = requirementBaseline
@@ -100,7 +100,7 @@ if (!fileExists(techDesignPath) || existingChoice === '重新生成') {
     interface_design: '（请根据需求补充接口设计）',
     implementation_plan: '| 1 | 待补充 | - | - |',
     risks: '| （待评估） | - | - |',
-    acceptance_criteria: '（请结合 acceptance checklist 与 baseline 补充）'
+    acceptance_criteria: '（请结合 brief 与 baseline 补充）'
   });
 
   writeFile(techDesignPath, techDesignContent);
@@ -154,7 +154,7 @@ next_stage: spec-review
 
 ### 7. 验收标准
 
-对接 acceptance checklist 的高层标准。
+对接 brief 的高层标准。
 
 ## Spec Readiness Checklist
 
@@ -164,7 +164,7 @@ next_stage: spec-review
 - [ ] Critical Constraints to Preserve 已显式填写
 - [ ] 模块划分可落到文件结构
 - [ ] 用户行为已覆盖主路径与异常路径
-- [ ] 验收来源已对齐 acceptance checklist
+- [ ] 验收来源已对齐 brief
 - [ ] 无明显 YAGNI 设计扩张
 
 > 此清单用于 Phase 1.2 Spec Review，不用于直接生成任务。

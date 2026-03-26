@@ -161,9 +161,10 @@ function analyzePrdDelta(
   existingTasks: WorkflowTaskV2[]
 ): ImpactAnalysis {
   // 1. 提取结构化需求（如果长度 > 500）
-  let newRequirements: RequirementAnalysis | null = null;
+  // NOTE: RequirementAnalysis 已废弃，现使用 RequirementItem[] 场景化提取
+  let newRequirements: RequirementItem[] | null = null;
   if (prdContent.length > 500) {
-    newRequirements = extractStructuredRequirements(prdContent);
+    newRequirements = extractRequirementItems(prdContent);
   }
 
   // 2. 提取现有需求（从技术方案）
@@ -456,8 +457,8 @@ interface RequirementDiff {
 }
 
 function diffRequirements(
-  oldReq: string | RequirementAnalysis,
-  newReq: string | RequirementAnalysis
+  oldReq: string | RequirementItem[],
+  newReq: string | RequirementItem[]
 ): RequirementDiff {
   // 如果是字符串，进行简单的文本对比
   if (typeof oldReq === 'string' && typeof newReq === 'string') {
@@ -465,7 +466,7 @@ function diffRequirements(
   }
 
   // 如果是结构化需求，进行详细对比
-  return structuredRequirementDiff(oldReq as RequirementAnalysis, newReq as RequirementAnalysis);
+  return structuredRequirementDiff(oldReq as RequirementItem[], newReq as RequirementItem[]);
 }
 ```
 

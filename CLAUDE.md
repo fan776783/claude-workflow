@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `@justinfan/agent-workflow` is an npm package that installs workflow templates (skills, commands, prompts, utils) to multiple AI coding tools. It provides a CLI tool (`agent-workflow`) and automatic postinstall setup using a canonical + managed-links architecture.
 
+当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。
+
 **Key Architecture**: Skills-based system supporting 10+ AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
 
 ## Commands
@@ -51,6 +53,7 @@ npm run release 2.0.0     # Explicit version
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
     │   ├── bug-batch/       # Batch bug fixing
+    │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
     │   ├── figma-ui/        # Figma to code
     │   ├── visual-diff/     # Visual diff comparison
     │   └── perf-budget/     # Performance budget validation
@@ -109,6 +112,7 @@ The package includes the following skills (all portable across AI coding tools):
 **Code Review:**
 - `/diff-review` - Code review (Quick/Deep mode with multi-model)
 - `/bug-batch` - Batch bug fixing (pull from Blueking project management)
+- `/dispatching-parallel-agents` - Parallel dispatch for independent domains (independence check + boundary grouping + conflict fallback)
 
 **UI Development:**
 - `/figma-ui` - Figma design to code (visual fidelity validation)

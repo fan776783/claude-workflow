@@ -58,6 +58,17 @@
   "status": "running",
   "current_tasks": ["T3"],
   "parallel_groups": [],
+  "boundaryScheduling": {
+    "enabled": true,
+    "currentBoundary": null,
+    "boundaryProgress": {
+      "ui-domain": {
+        "completed": ["T2"],
+        "pending": ["T3"],
+        "preferredModel": "gemini"
+      }
+    }
+  },
   "execution_mode": "phase",
   "mode": "progressive",
   "use_subagent": true,
@@ -149,7 +160,7 @@
     "artifact_path": "discussion-artifact.json",
     "clarification_count": 5,
     "approach_selected": true,
-    "unresolved_dependencies": ["api_spec"]
+    "unresolved_dependencies": [{"type": "api_spec", "status": "not_started", "description": "等待后端接口规格冻结"}]
   },
   "contextMetrics": {
     "estimatedTokens": 45000,
@@ -202,6 +213,7 @@
 | `mode` | 工作流模式：`normal` / `progressive` |
 | `current_tasks` | 当前执行中的任务 ID 数组；顺序执行时仅包含 1 个任务 ID |
 | `parallel_groups` | 并行执行批次历史记录 |
+| `boundaryScheduling` | 上下文边界调度状态（由 dispatching-parallel-agents skill 维护） |
 | `tech_design` | 技术设计文档路径 |
 | `delta_tracking.current_change` | 当前活动变更的 changeId；归档后清空 |
 | `spec_file` | Spec 文档路径 |
@@ -496,4 +508,4 @@ function classifyTaskDependencies(
 |------|------|--------|
 | step | `--step` | 每个任务后 |
 | phase | `--phase` | 阶段变化时 |
-| quality_gate | `连续` / `执行到质量关卡` | 质量关卡后 |
+| quality_gate | `连续` / `执行到质量关卡` | 质量关卡后；若下一步是 `git_commit` 且 `pause_before_commit=true`，则提交前也会暂停 |

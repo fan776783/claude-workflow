@@ -46,6 +46,17 @@
   "status": "running",
   "current_tasks": ["T3"],
   "parallel_groups": [],
+  "boundaryScheduling": {
+    "enabled": true,
+    "currentBoundary": null,
+    "boundaryProgress": {
+      "ui-domain": {
+        "completed": ["T2"],
+        "pending": ["T3"],
+        "preferredModel": "gemini"
+      }
+    }
+  },
   "execution_mode": "phase",
   "mode": "progressive",
   "use_subagent": true,
@@ -79,7 +90,7 @@
       "metrics": {
         "in_scope_total": 12,
         "mapped_in_design": 12,
-        "mapped_critical_constraints": 9,
+        "mapped_constraints": 9,
         "uncovered_requirement_ids": []
       }
     },
@@ -137,7 +148,7 @@
     "artifact_path": "discussion-artifact.json",
     "clarification_count": 5,
     "approach_selected": true,
-    "unresolved_dependencies": ["api_spec"]
+    "unresolved_dependencies": [{"type": "api_spec", "status": "not_started", "description": "等待后端接口规格冻结"}]
   },
   "contextMetrics": {
     "estimatedTokens": 45000,
@@ -190,6 +201,7 @@
 | `mode` | 工作流模式：`normal` / `progressive` |
 | `current_tasks` | 当前执行中的任务 ID 数组；顺序执行时仅包含 1 个任务 ID |
 | `parallel_groups` | 并行执行批次历史记录 |
+| `boundaryScheduling` | 上下文边界调度状态（由 dispatching-parallel-agents skill 维护） |
 | `tech_design` | 技术设计文档路径 |
 | `delta_tracking.current_change` | 当前活动变更的 changeId；归档后清空 |
 | `spec_file` | Spec 文档路径 |
@@ -226,7 +238,7 @@ interface SpecReviewMetrics {
 interface TraceabilityReviewMetrics {
   in_scope_total: number;
   mapped_in_design: number;
-  mapped_critical_constraints: number;
+  mapped_constraints: number;
   uncovered_requirement_ids: string[];
 }
 
@@ -270,7 +282,7 @@ interface RequirementBaselineStatus {
 
 interface TraceabilityMapping {
   requirement_id: string;
-  acceptance_ids?: string[];
+  brief_ids?: string[];
   spec_refs?: string[];
   tech_design_refs?: string[];
   plan_step_ids?: string[];
@@ -363,7 +375,7 @@ interface WorkflowTaskV2 {
   spec_ref: string;
   plan_ref: string;
   requirement_ids?: string[];
-  critical_constraints?: string[];
+  constraints?: string[];
   acceptance_criteria?: string[];
   depends?: string[];
   blocked_by?: string[];
@@ -376,7 +388,7 @@ interface WorkflowTaskV2 {
     expected: string;
     verification?: string;
     requirement_ids?: string[];
-    critical_constraints?: string[];
+    constraints?: string[];
   }>;
   verification?: {
     commands?: string[];
@@ -393,8 +405,8 @@ interface WorkflowTaskV2 {
 - `spec_ref` 指向 `spec.md` 的章节
 - `plan_ref` 指向 `plan.md` 的步骤或任务段落
 - `requirement_ids` 指向 Requirement Baseline 的 requirement items
-- `critical_constraints` 用于保护容易在执行期被弱化的非协商约束
-- `acceptance_criteria` 持续映射到 Phase 0.6 验收项
+- `constraints` 用于保护容易在执行期被弱化的非协商约束
+- `acceptance_criteria` 持续映射到 Phase 0.6 Brief 验收项
 
 ## 术语基础类型
 
@@ -484,11 +496,13 @@ function classifyTaskDependencies(
 |------|------|--------|
 | step | `--step` | 每个任务后 |
 | phase | `--phase` | 阶段变化时 |
-| quality_gate | `连续` / `执行到质量关卡` | 质量关卡后 |
+| quality_gate | `连续` / `执行到质量关卡` | 质量关卡后；若下一步是 `git_commit` 且 `pause_before_commit=true`，则提交前也会暂停 |
 
 ## Subagent 模式
 
 自动检测：任务数 > 5 时启用
+
+执行阶段若启用**同阶段独立任务并行批次**，必须先读取并应用 `../../skills/dispatching-parallel-agents/SKILL.md`。
 
 手动控制：
 - `--subagent` 强制启用

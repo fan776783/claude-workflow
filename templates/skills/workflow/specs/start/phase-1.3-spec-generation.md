@@ -13,8 +13,7 @@
 - `tech-design.md`
 - `requirement baseline`
 - `discussion-artifact.json`（如有）
-- `acceptance checklist`（如有）
-- `implementation guide`（如有，仅作测试策略提示，不主导结构）
+- `brief`（如有）
 
 ## 输出
 
@@ -33,9 +32,9 @@ ensureDir('.claude/specs');
 
 ```typescript
 const specTemplate = loadTemplate('spec-template.md');
-const acceptanceSummary = acceptanceChecklist
-  ? renderAcceptanceSummary(acceptanceChecklist)
-  : '（无结构化验收清单，需在 Spec 中手动补充验收映射）';
+const briefSummary = brief
+  ? renderBriefSummary(brief)
+  : '（无结构化 brief，需在 Spec 中手动补充验收映射）';
 
 const fileStructure = extractFileStructureFromTechDesign(techDesignContent);
 const architectureSummary = extractArchitectureSummary(techDesignContent);
@@ -56,7 +55,7 @@ const specContent = replaceVars(specTemplate, {
   created_at: new Date().toISOString(),
   requirement_baseline_path: requirementBaselinePath || '',
   tech_design_path: techDesignPath,
-  acceptance_checklist_path: acceptanceChecklistPath || '',
+  brief_path: briefPath || '',
   context_summary: requirementContent,
   scope_summary: scopeSummary,
   out_of_scope_summary: outOfScopeSummary,
@@ -66,7 +65,7 @@ const specContent = replaceVars(specTemplate, {
   critical_requirement_constraints: criticalConstraintSummary,
   architecture_summary: architectureSummary,
   file_structure: fileStructure,
-  acceptance_mapping: acceptanceSummary,
+  acceptance_mapping: briefSummary,
   implementation_slices: renderImplementationSlicesFromBaseline(requirementBaseline)
 });
 
@@ -84,7 +83,7 @@ requirement_source: "docs/prd.md"
 created_at: "2026-03-24T10:30:00Z"
 requirement_baseline: ".claude/analysis/task-name-requirement-baseline.md"
 tech_design: ".claude/tech-design/task-name.md"
-acceptance_checklist: ".claude/acceptance/task-name-checklist.md"
+brief: ".claude/acceptance/task-name-brief.md"
 status: draft
 role: spec
 ---
@@ -120,7 +119,7 @@ role: spec
 
 ### 8. Acceptance Mapping
 
-把用户能力映射到验收清单中的具体项。
+把用户能力映射到 Brief 中的具体验收项。
 
 ### 9. Implementation Slices
 
@@ -143,7 +142,7 @@ role: spec
 function deriveScopeSummaryFromBaseline(requirementBaseline: RequirementBaseline): string {
   const inScopeItems = requirementBaseline.items.filter(item => item.scope_status === 'in_scope');
   return inScopeItems.length > 0
-    ? inScopeItems.map(item => `- [${item.id}] ${item.normalized_summary}`).join('\n')
+    ? inScopeItems.map(item => `- [${item.id}] ${item.summary}`).join('\n')
     : '（未识别到 in-scope requirement，需人工确认）';
 }
 ```
@@ -153,7 +152,7 @@ function deriveScopeSummaryFromBaseline(requirementBaseline: RequirementBaseline
 ```typescript
 function renderCriticalRequirementConstraints(requirementBaseline: RequirementBaseline): string {
   const constraints = requirementBaseline.items.flatMap(item =>
-    item.critical_constraints.map(c => `- [${item.id}] ${c}`)
+    item.constraints.map(c => `- [${item.id}] ${c}`)
   );
   return constraints.length > 0 ? constraints.join('\n') : '（未提取关键约束）';
 }

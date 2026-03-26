@@ -95,7 +95,10 @@ allowed-tools: Read(*)
 | 扫描项目（首次必须） | `/scan` ⭐ |
 | 开发功能 | `/workflow start` ⭐⭐⭐ |
 | 调试/修复 Bug | `/debug` ⭐ |
+| 批量修复缺陷 | `/bug-batch` |
+| 子 agent 并行调度 | `/dispatching-parallel-agents` |
 | 还原 Figma 设计稿 | `/figma-ui` ⭐ |
+| 视觉对比验证 | `/visual-diff` |
 | 分析/探索问题 | `/analyze` ⭐⭐ |
 | 审查代码变更 | `/diff-review` ⭐ |
 | 编写测试 | `/write-tests` |
@@ -106,9 +109,9 @@ allowed-tools: Read(*)
 
 | 类型 | 数量 |
 |------|------|
-| Skills | 7 个 |
+| Skills | 10 个 |
 | Commands | 3 个 |
 
-**Skills**: analyze, debug, diff-review, figma-ui, scan, workflow, write-tests
+**Skills**: analyze, bug-batch, debug, diff-review, dispatching-parallel-agents, figma-ui, scan, visual-diff, workflow, write-tests
 
 **Commands**: agents, enhance, git-rollback

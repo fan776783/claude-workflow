@@ -4,7 +4,7 @@ requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
 requirement_baseline: "{{requirement_baseline_path}}"
 tech_design: "{{tech_design_path}}"
-acceptance_checklist: "{{acceptance_checklist_path}}"
+brief: "{{brief_path}}"
 status: draft
 role: spec
 ---
@@ -145,7 +145,7 @@ role: spec
 
 ### 8.2 Gaps to Resolve
 
-- 若验收清单未覆盖的内容，需在进入 Plan 前补充：
+- 若 Brief 未覆盖的内容，需在进入 Plan 前补充：
 
 ---
 
@@ -187,4 +187,4 @@ role: spec
 
 - Requirement Baseline：`{{requirement_baseline_path}}`
 - 技术设计：`{{tech_design_path}}`
-- 验收清单：`{{acceptance_checklist_path}}`
+- Brief：`{{brief_path}}`

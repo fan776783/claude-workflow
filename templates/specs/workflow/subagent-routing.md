@@ -1,6 +1,8 @@
-# 上下文边界调度
+# 独立问题域的上下文边界并行调度
 
-Subagent 按上下文边界划分任务，而非按角色划分。
+该策略现已沉淀为独立 skill：`../../skills/dispatching-parallel-agents/SKILL.md`。
+
+当 `workflow execute` 在当前阶段识别出 **2+ 可证明独立的任务 / 问题域** 时，必须先读取并应用该 skill，再按本文的边界划分与调度规则执行。它不适用于单任务 subagent，也不适用于 `quality_review` Stage 2 的单 reviewer 子 agent。
 
 ## 核心原则
 
@@ -16,7 +18,7 @@ Subagent 按上下文边界划分任务，而非按角色划分。
 
 **原因**：
 1. 上下文边界自包含，减少跨边界通信
-2. 边界内任务可安全并行执行
+2. 边界内任务默认串行，边界间更容易安全并行
 3. 避免角色重叠导致的冲突决策
 
 ## 数据结构
@@ -207,13 +209,23 @@ const CONTEXT_BOUNDARIES: ContextBoundary[] = [
  */
 function classifyTaskToBoundary(task: {
   name: string;
-  file?: string;
+  files?: {
+    create?: string[];
+    modify?: string[];
+    test?: string[];
+  };
 }): ContextBoundary {
+  const taskFiles = [
+    ...(task.files?.create || []),
+    ...(task.files?.modify || []),
+    ...(task.files?.test || [])
+  ];
+
   for (const boundary of CONTEXT_BOUNDARIES) {
     // 检查文件路径
-    if (task.file) {
+    for (const file of taskFiles) {
       for (const pattern of boundary.patterns.files) {
-        if (pattern.test(task.file)) {
+        if (pattern.test(file)) {
           return boundary;
         }
       }
@@ -298,15 +310,16 @@ function selectModelForBoundary(
 ### --boundary 模式
 
 ```bash
-/workflow execute --boundary   # 按上下文边界并行执行同阶段任务
+/workflow execute --boundary   # 按上下文边界并行分派同阶段独立任务
 ```
 
 **执行流程**：
 
 1. 获取当前阶段的所有待执行任务
-2. 按边界分组
-3. 边界内任务串行执行
-4. 不同边界可并行执行（如果模型不同）
+2. 过滤出可证明彼此独立的候选任务
+3. 按边界分组
+4. 边界内任务串行执行
+5. 不同边界在独立性成立时并行执行
 
 ```typescript
 async function executeBoundaryMode(
@@ -342,7 +355,11 @@ async function executeBoundaryMode(
 ${[...boundaryGroups.entries()].map(([id, { boundary, tasks }]) => {
   const model = selectModelForBoundary(boundary, tasks);
   return `- **${boundary.name}** (${tasks.length} 任务): ${tasks.map(t => t.id).join(', ')}
-  文件: ${tasks.map(t => t.file).filter(Boolean).join(', ') || '(无)'}
+  文件: ${tasks.flatMap(t => [
+    ...(t.files?.create || []),
+    ...(t.files?.modify || []),
+    ...(t.files?.test || [])
+  ]).filter(Boolean).join(', ') || '(无)'}
   推荐模型: ${model}`;
 }).join('\n\n')}
   `);
@@ -436,13 +453,13 @@ async function executeBoundaryTasks(
 |------|------|----------|----------|
 | 单步 | `--step` | 无并行 | 精细控制、调试 |
 | 阶段 | `--phase` | 阶段内串行 | 常规开发 |
-| 边界 | `--boundary` | 边界间并行 | 大任务集、跨栈开发 |
+| 边界 | `--boundary` | 边界间并行 | 同阶段存在 2+ 独立问题域 |
 | 连续 | `连续` / `执行到质量关卡` | 到质量关卡 | 自动化流程 |
 
 ## 最佳实践
 
-1. **任务数 > 10 时启用边界模式**：自动按边界分组执行
-2. **跨栈任务优先边界模式**：前后端任务可并行
+1. **仅在存在 2+ 独立任务 / 问题域时启用边界模式**：否则回退顺序执行
+2. **跨栈任务只有在相互独立时才适合边界模式**：不要把所有前后端任务一股脑并行
 3. **避免边界内依赖**：同边界任务应相互独立
 4. **尊重推荐模型**：安全相关用 Codex，UI 用 Gemini
 5. **配合 Context Awareness**：边界切换时检查上下文使用率

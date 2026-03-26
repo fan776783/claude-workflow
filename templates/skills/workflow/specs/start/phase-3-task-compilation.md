@@ -2,7 +2,7 @@
 
 ## 目的
 
-将 `spec.md + plan.md + acceptance checklist + requirement baseline` 编译为运行时 `tasks.md`，为执行系统提供依赖明确、步骤清晰、可验证的任务编排清单。
+将 `spec.md + plan.md + brief + requirement baseline` 编译为运行时 `tasks.md`，为执行系统提供依赖明确、步骤清晰、可验证的任务编排清单。
 
 ## 执行时机
 
@@ -13,7 +13,7 @@
 - `spec.md`
 - `plan.md`
 - `requirement baseline`
-- `acceptance checklist`（如有）
+- `brief`（如有）
 - `analysisResult`
 - `discussion-artifact.json`（如有，用于 blocked_by 分类）
 
@@ -27,7 +27,7 @@
 - 不再从 `tech-design.md` 直接解析实施计划
 - 任务的事实来源是 `plan.md`
 - 任务的范围与章节引用来自 `spec.md`
-- 任务的验收映射来自 `acceptance checklist`
+- 任务的验收映射来自 `brief`
 - 任务的 requirement IDs 与关键约束来自 `requirement baseline`
 - `tasks.md` 只写入 V2 任务字段，执行链路不再消费旧任务格式
 
@@ -39,7 +39,7 @@
 const specContent = readFile(specPath);
 const planContent = readFile(planPath);
 const baselineContent = requirementBaselinePath ? readFile(requirementBaselinePath) : '';
-const acceptanceContent = acceptanceChecklistPath ? readFile(acceptanceChecklistPath) : '';
+const briefContent = briefPath ? readFile(briefPath) : '';
 ```
 
 ### Step 2: 解析 Plan 步骤
@@ -102,8 +102,8 @@ const tasks = planSteps.map((step, index) => {
     task.status = 'blocked';
   }
 
-  if (acceptanceContent) {
-    task.acceptance_criteria = mapTaskToAcceptanceCriteriaV2(task, acceptanceContent);
+  if (briefContent) {
+    task.acceptance_criteria = mapTaskToAcceptanceCriteriaV2(task, briefContent);
   }
 
   return task;
@@ -210,7 +210,7 @@ state.plan_file = planPath;
 state.tasks_file = tasksPath;
 state.traceability = {
   baseline_path: requirementBaselinePath,
-  mappings: buildTraceabilityMappings(tasks, acceptanceContent, baselineContent),
+  mappings: buildTraceabilityMappings(tasks, briefContent, baselineContent),
   coverage_summary: summarizeTaskCoverage(tasks)
 };
 state.review_status.plan_review.status = 'passed';

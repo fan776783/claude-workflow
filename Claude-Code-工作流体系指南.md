@@ -2,8 +2,8 @@
 
 > 以 `workflow` skill 为核心的 AI 编码工作流说明文档
 
-**文档版本**：v10.1.0  
-**最后更新**：2026-03-25  
+**文档版本**：v10.2.0  
+**最后更新**：2026-03-26  
 **适用仓库**：`@justinfan/agent-workflow` v4.0.0
 
 ---
@@ -131,10 +131,10 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - 需求分析与上下文检索
 - 交互式需求澄清
 - Requirement Baseline 建模
-- 技术设计与规范沉淀
-- Plan 生成与任务编排
-- 执行模式控制
-- 质量关卡控制
+- Acceptance & Implementation Brief 生成
+- 技术设计、Spec 与 Plan 沉淀
+- 任务编排与执行模式控制
+- 质量关卡、验证铁律与追溯守卫
 - 状态持久化与恢复
 - 增量变更处理
 - 完成归档
@@ -148,14 +148,15 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - 长 PRD 不会直接被下游文档自由概括，而是会先归一化为 Requirement Baseline。
 - 每条需求都需要明确范围状态，例如 `in_scope`、`partially_in_scope`、`out_of_scope`、`blocked`。
 - 容易丢失的细节约束，例如按钮文案、字段名、表格列、命名规则、条件分支、数量限制、显隐规则，都需要被显式保留。
-- `acceptance checklist`、`implementation guide`、`tech-design`、`spec`、`plan`、`tasks` 都需要消费 baseline，而不是各自重新摘要原始 PRD。
+- `brief`、`tech-design`、`spec`、`plan`、`tasks` 都需要消费 baseline，而不是各自重新摘要原始 PRD。
 - Spec Review 与 Plan Review 现在不仅检查结构完整性，也检查追溯完整性与关键约束保留情况。
 
-### 3.2 workflow 的五层规划工件
+### 3.2 workflow 的六层规划工件
 
 | 层级 | 产物 | 作用 |
 |------|------|------|
 | 基线层 | `requirement-baseline.md` | 定义 requirement IDs、scope status、critical constraints，是需求真相源 |
+| Brief 层 | `brief.md` | 将 baseline 编译为按模块组织的验收标准、测试模板与实现提示 |
 | 设计层 | `tech-design.md` | 定义架构决策、边界、风险、技术约束，并体现 traceability |
 | 规范层 | `spec.md` | 定义最终范围、行为、模块与验收映射 |
 | 计划层 | `plan.md` | 定义实施顺序、原子步骤、验证要求 |
@@ -214,25 +215,29 @@ flowchart TD
     E -->|否| G["Phase 0.5 需求结构化"]
     F --> G
     G --> H["Phase 0.55 Requirement Baseline"]
-    H --> I["Phase 0.6 生成验收清单"]
-    I --> J["Phase 0.7 生成实现指南"]
-    J --> K["Phase 1 生成 tech-design"]
-    K --> L["Phase 1.2 Traceability Review / Spec Review"]
-    L --> M["Phase 1.3 生成 spec"]
-    M --> N["Phase 1.4 用户确认 Spec"]
-    N --> O["Phase 1.5 Intent Review"]
-    O --> P["Phase 2 生成 plan"]
-    P --> Q["Phase 2.5 Plan Review"]
-    Q --> R["Phase 3 编译 tasks"]
+    H --> I["Phase 0.6 生成 Brief"]
+    I --> J["Phase 1 生成 tech-design"]
+    J --> K["Phase 1.2 Spec Review + Traceability Review"]
+    K --> L["Phase 1.3 生成 spec"]
+    L --> M["Phase 1.4 用户确认 Spec"]
+    M --> N["Phase 1.5 Intent Review"]
+    N --> O["Phase 2 生成 plan"]
+    O --> P["Phase 2.5 Plan Review"]
+    P --> Q["Phase 3 编译 tasks"]
+    Q --> R["规划完成 Hard Stop"]
     R --> S["/workflow execute"]
-    S --> T["按任务阶段执行"]
-    T --> U{"是否触发质量关卡"}
-    U -->|是| V["两阶段审查 + 追溯守卫"]
-    U -->|否| W["更新任务状态"]
-    V --> W
-    W --> X{"是否全部完成"}
-    X -->|否| S
-    X -->|是| Y["/workflow archive"]
+    S --> T["读取 tasks.md 与 workflow-state.json"]
+    T --> U["按 step / phase / quality_gate 执行"]
+    U --> V["完成验证 Step 6.5"]
+    V --> W["自审查 Step 6.6"]
+    W --> X{"是否为质量关卡任务"}
+    X -->|是| Y["Stage 1 规格合规 → Stage 2 代码质量"]
+    X -->|否| Z["Step 6.7 规格合规检查"]
+    Y --> AA["更新任务状态与进度"]
+    Z --> AA
+    AA --> AB{"是否继续当前模式"}
+    AB -->|是| U
+    AB -->|否| AC["等待下次 execute / 完成后 archive"]
 ```
 
 ### 4.1 这条主线的关键特点
@@ -262,20 +267,19 @@ flowchart TD
 
 | 阶段 | 名称 | 作用 | 主要输出 | 是否可能停顿 |
 |------|------|------|----------|--------------|
-| Phase 0 | 代码分析 | 理解现有代码、依赖与约束 | 上下文分析结果 | 否 |
-| Phase 0.2 | 需求讨论 | 澄清歧义、确认互斥方案 | discussion artifact | 可能 |
-| Phase 0.5 | 需求结构化 | 将自然语言整理为结构化需求 | requirement items 草案 | 否 |
-| Phase 0.55 | Requirement Baseline | 生成需求真相源与追溯基线 | `requirement-baseline.md` | 否 |
-| Phase 0.6 | 验收清单 | 生成用户视角验证项 | acceptance checklist | 否 |
-| Phase 0.7 | 实现指南 | 生成开发者视角实现路径 | implementation guide | 否 |
-| Phase 1 | 技术设计 | 输出架构与边界说明 | `tech-design.md` | 是 |
-| Phase 1.2 | Traceability Review / Spec Review | 检查设计质量与需求追溯完整性 | 审查结论 | 是 |
-| Phase 1.3 | Spec Generation | 生成正式规格文档 | `spec.md` | 否 |
-| Phase 1.4 | User Spec Review | 用户确认范围与验收映射 | spec review result | 是 |
-| Phase 1.5 | Intent Review | 审查变更意图与方向是否一致 | intent review result | 是 |
-| Phase 2 | Plan Generation | 生成实施计划 | `plan.md` | 否 |
-| Phase 2.5 | Plan Review | 审查计划粒度、覆盖率与可执行性 | 审查结论 | 是 |
-| Phase 3 | Task Compilation | 编译运行时任务 | `tasks.md` | 是 |
+| Phase 0 | 代码分析 | 理解现有代码、依赖、约束与风险面 | 上下文分析结果 | 否 |
+| Phase 0.2 | 需求讨论 | 澄清歧义、确认互斥方案、补足关键缺失信息 | discussion artifact | 可能 |
+| Phase 0.5 | 需求结构化 | 将自然语言整理为结构化 requirement items 草案 | requirement items 草案 | 否 |
+| Phase 0.55 | Requirement Baseline | 生成需求真相源、scope 状态与关键约束基线 | `requirement-baseline.md` | 否 |
+| Phase 0.6 | Acceptance & Implementation Brief | 将 baseline 编译为面向执行的验收与实现摘要 | `brief.md` | 否 |
+| Phase 1 | 技术设计 | 输出架构边界、模块拆分、风险与技术约束 | `tech-design.md` | 视情况而定 |
+| Phase 1.2 | Spec Review + Traceability Review | 检查设计质量、需求覆盖率、追溯链路与关键约束保留情况 | 审查结论 | 是 |
+| Phase 1.3 | Spec Generation | 生成正式规格文档，沉淀范围、行为与验收映射 | `spec.md` | 否 |
+| Phase 1.4 | User Spec Review | 用户确认范围、模块行为与验收映射 | spec review result | 是 |
+| Phase 1.5 | Intent Review | 再次确认变更方向、实施意图与需求理解没有偏航 | intent review result | 是 |
+| Phase 2 | Plan Generation | 基于 baseline / brief / spec 生成实施计划 | `plan.md` | 否 |
+| Phase 2.5 | Plan Review | 审查计划粒度、覆盖率、依赖关系与可执行性 | 审查结论 | 是 |
+| Phase 3 | Task Compilation | 编译运行时任务、依赖推进关系与质量关卡 | `tasks.md` | 是 |
 
 ### 5.3 Phase 0：代码分析
 
@@ -330,68 +334,53 @@ flowchart TD
 - Scope Classification：`in_scope / partially_in_scope / out_of_scope / blocked`
 - Critical Constraints：容易在后续文档中丢失的细节约束
 - Ownership：frontend / backend / shared / infra 的归属
-- Traceability Source：供 acceptance、spec、plan、tasks 统一消费的来源
+- Traceability Source：供 `brief`、`tech-design`、`spec`、`plan`、`tasks` 统一消费的来源
 
 可以把它理解为：从这一层开始，后续所有文档都不应该再“自由发挥式理解 PRD”，而应该显式引用 baseline。
 
-### 5.7 Phase 0.6：验收清单
+### 5.7 Phase 0.6：Acceptance & Implementation Brief
 
-验收清单从用户视角组织验证标准，常见内容包括：
+这一阶段不再拆成“验收清单”和“实现指南”两份独立文档，而是统一生成一个 `brief.md`，把两者整合为同一份面向执行的开发派生视图。
 
-- 表单字段验证
-- 角色权限验证
-- 交互行为验证
-- 业务规则验证
-- 边界场景验证
-- UI 展示验证
-- 功能流程验证
-- Requirement-to-Acceptance Mapping
+Brief 的核心价值是：按模块组织 requirement coverage，并同时提供验收标准、测试模板和实现提示。典型内容包括：
 
-这个文档的意义在于，让 `workflow` 后续生成 `spec`、`plan` 和最终验证时始终围绕可验收结果推进，并且明确每个 requirement 是否被覆盖。
+- requirement-to-brief mapping
+- 按模块聚合的 `relatedRequirementIds`
+- 每个模块必须保留的 constraints
+- 验收标准与 checks
+- unit / integration / e2e 测试模板
+- implementation hints 与质量门禁
+- partially covered / uncovered requirements 标记
 
-### 5.8 Phase 0.7：实现指南
+这样做的结果是，后续 `tech-design`、`spec`、`plan` 和执行阶段都消费同一份 Brief，而不是在“用户视角文档”和“开发者视角文档”之间来回切换。
 
-实现指南从开发者视角给出落地路径，重点包括：
-
-- TDD 工作流建议
-- 测试分层策略
-- 模块划分建议
-- 测试数据组织方式
-- 自动化校验与质量门禁
-- Related Requirement IDs / Related Acceptance IDs
-- Critical Constraints by Module
-
-当实现指南存在时，执行阶段会更容易对齐“先验证、后编码、再重构”的节奏。
-
-### 5.9 Phase 1 到 Phase 3：从设计到任务编排
+### 5.8 Phase 1 到 Phase 3：从设计到任务编排
 
 这是 `workflow` 真正把需求编译为任务系统的核心部分：
 
-1. 先生成 `tech-design.md`，明确边界、模块和关键决策，并体现 traceability。  
-2. 再通过 `Traceability Review / Spec Review` 检查结构完整性、需求覆盖与关键约束保留情况。  
+1. 先生成 `tech-design.md`，明确边界、模块、风险和关键决策，并体现 traceability。  
+2. 再通过 `Spec Review + Traceability Review` 检查结构完整性、需求覆盖、scope decision 显式性与关键约束保留情况。  
 3. 然后生成用户友好的 `spec.md`，并进入用户确认。  
 4. 接着在 `intent review` 中确认当前变更方向没有偏离。  
-5. 再基于 `spec + baseline + acceptance + implementation-guide` 生成 `plan.md`。  
-6. 最后通过 `plan review` 和任务编译得到 `tasks.md`，并将 requirement IDs 映射带入运行时任务。
+5. 再基于 `baseline + brief + spec` 生成 `plan.md`。  
+6. 最后通过 `plan review` 和任务编译得到 `tasks.md`，并将 requirement IDs、约束信息和质量关卡一起带入运行时任务。
 
-### 5.10 start 阶段的几个 Hard Stop
+### 5.9 start 阶段的几个 Hard Stop
 
-`workflow` 在规划期间不会一路静默到底，而是会在关键节点停下来等待确认。典型 Hard Stop 包括：
+`workflow` 在规划期间不会一路静默到底，而是会在关键节点停下来等待确认。当前主线里最关键的 Hard Stop 包括：
 
-- 技术设计确认
-- Traceability Review / Spec Review
-- 用户确认 Spec
-- Intent Review
-- Plan Review
-- 任务清单确认
+- Phase 1.4：用户确认 Spec
+- Phase 1.5：Intent Review
+- Phase 2.5：Plan Review
+- Phase 3 完成后：规划完成 Hard Stop
 
-这样做的目的，是防止需求偏差和需求漏项在执行阶段才暴露。
+这样做的目的，是防止需求偏差、范围漂移和任务拆分问题在执行阶段才暴露出来。
 
 ---
 
 ## 6. `/workflow execute` 执行流程详解
 
-`/workflow execute` 的目标，是读取当前工作流状态，找到下一批合适的任务，并按规则推进。
+`/workflow execute` 的目标，是读取当前工作流状态，定位下一批可执行任务，并按照执行模式、验证铁律、规格合规检查与质量关卡规则推进。
 
 ### 6.1 基本调用方式
 
@@ -406,23 +395,24 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["/workflow execute"] --> B["读取 workflow-state.json"]
-    B --> C["定位当前任务与当前阶段"]
-    C --> D["判断执行模式"]
-    D --> E["执行本轮任务"]
-    E --> F{"任务是否失败"}
-    F -->|是| G["记录失败与调试信息"]
-    G --> H{"是否允许重试"}
-    H -->|是| I["/workflow execute --retry"]
-    H -->|否| J["进入阻塞或 Hard Stop"]
-    F -->|否| K{"是否到达质量关卡"}
-    K -->|是| L["执行两阶段审查"]
-    K -->|否| M["更新任务状态"]
-    L --> M
-    M --> N{"当前阶段是否完成"}
-    N -->|否| E
-    N -->|是| O{"全部任务是否完成"}
-    O -->|否| P["等待下一次 execute"]
-    O -->|是| Q["标记 completed 并可 archive"]
+    B --> C["解析执行模式与当前状态"]
+    C --> D["定位当前任务与阶段"]
+    D --> E["执行任务 action"]
+    E --> F{"执行是否失败"}
+    F -->|是| G["记录失败并进入结构化调试"]
+    G --> H{"是否使用 retry / skip"}
+    H -->|retry| I["/workflow execute --retry"]
+    H -->|skip 或阻断| J["进入 Hard Stop / blocked / failed"]
+    F -->|否| K["Step 6.5 完成验证"]
+    K --> L["Step 6.6 自审查"]
+    L --> M{"是否为质量关卡任务"}
+    M -->|是| N["Stage 1 规格合规 → Stage 2 代码质量"]
+    M -->|否| O["Step 6.7 规格合规检查"]
+    N --> P["更新任务状态与进度"]
+    O --> P
+    P --> Q{"当前模式是否继续"}
+    Q -->|是| D
+    Q -->|否| R["暂停，等待下次 execute"]
 ```
 
 ### 6.3 执行模式
@@ -433,7 +423,7 @@ flowchart TD
 |------|------|----------|
 | `step` | 只执行一个任务 | 需要精细控制变更节奏 |
 | `phase` | 执行当前阶段全部任务 | 常规开发推进，默认模式 |
-| `quality_gate` | 执行到下一个质量关卡为止 | 希望先完成一段实现再审查 |
+| `quality_gate` | 连续执行到下一个质量关卡或 `git_commit` 任务 | 希望先完成一段实现再集中审查 |
 | `retry` | 重试失败任务 | 修复后再次推进 |
 | `skip` | 跳过当前任务 | 明确不需要执行该任务时 |
 
@@ -445,7 +435,7 @@ flowchart TD
 |----------|----------|
 | “单步执行” | `step` |
 | “继续” / “下一阶段” | `phase` |
-| “执行到质量关卡” | `quality_gate` |
+| “连续” / “执行到质量关卡” | `quality_gate` |
 | “重试” | `retry` |
 | “跳过” | `skip` |
 
@@ -467,16 +457,22 @@ flowchart TD
 
 除了阶段划分本身，当前版本还要求任务尽可能保留 `requirement_ids` 与关键约束映射，这样执行阶段才能回答“当前任务在实现哪条需求”。
 
-### 6.6 质量关卡机制
+### 6.6 验证铁律与质量关卡机制
 
 这是 `workflow execute` 最关键的质量控制环节。
 
-从当前版本开始，质量关卡采用两阶段审查，并叠加追溯守卫：
+首先，Step 6.5 引入了验证铁律：**没有新鲜验证证据，不得把任务标记为 completed。** 也就是说，任务执行完成后，必须有对应的测试、命令结果或结构化验证证据，才能继续推进。
+
+在此基础上，Step 6.6 会执行一次非阻塞自审查，检查完整性、正确性、质量、安全性和与设计的一致性；随后进入 Step 6.7 或质量关卡分支。
+
+如果当前任务是 `quality_review` 类型，则会触发两阶段审查，并共享总预算：
 
 | 阶段 | 重点 | 执行角色 |
 |------|------|----------|
-| Stage 1 | 规格合规、需求覆盖、关键约束对齐 | 当前主会话 |
-| Stage 2 | 代码质量、安全、可维护性 | 子 agent / 审查能力 |
+| Stage 1 | 规格合规、需求覆盖、关键约束对齐、验收项覆盖 | 当前主会话 |
+| Stage 2 | 代码质量、架构、测试质量、安全、可维护性 | reviewer 子 agent |
+
+两个阶段共享 **4 次总尝试预算**。只有 Stage 1 通过后，Stage 2 才能启动。
 
 审查问题通常会被分为三类：
 
@@ -493,7 +489,7 @@ flowchart TD
 3. 然后验证修复假设。  
 4. 最后执行修复并重试。
 
-如果连续失败次数过多，会触发更强的停止条件，避免错误被无限放大。
+如果连续失败次数过多，会触发更强的停止条件，避免错误被无限放大。`--retry` 本质上就是在结构化调试之后重新推进当前失败任务，而不是简单重复上一条命令。
 
 ### 6.8 追溯守卫
 
@@ -509,13 +505,13 @@ flowchart TD
 
 ### 6.9 子 Agent 路由
 
-执行阶段支持按平台能力路由子 agent：
+执行阶段的子 agent 仅通过平台路由还不够；当需要并行分派多个独立问题域时，还必须先读取并应用 `../skills/dispatching-parallel-agents/SKILL.md`，把独立性检查、上下文边界分组、最小上下文封装、结果回收和冲突降级统一下沉到该 skill。
 
 - Claude Code / Cursor：适合子 agent 并行执行独立任务
 - Codex：可映射到对应的 agent 执行模式
 - 不支持子 agent 的平台：回退为当前会话顺序执行
 
-启用并行的前提是任务之间彼此独立、没有共享状态、不会同时编辑同一组文件。
+启用并行的前提是：同阶段存在 2 个及以上独立任务、任务之间没有共享状态、不会同时编辑同一组文件。
 
 ### 6.10 execute 阶段的最佳节奏
 
@@ -591,11 +587,10 @@ flowchart TD
 |------|------|
 | `.claude/config/project-config.json` | 项目配置，由 `/scan` 生成 |
 | `.claude/analysis/{name}-requirement-baseline.md` | 需求基线文档，记录 requirement IDs、scope 与关键约束 |
+| `.claude/acceptance/{name}-brief.md` | Acceptance & Implementation Brief，按模块组织验收标准、测试模板与实现提示 |
 | `.claude/tech-design/{name}.md` | 技术设计文档 |
 | `.claude/specs/{name}.md` | 规格文档 |
 | `.claude/plans/{name}.md` | 实施计划 |
-| `.claude/acceptance/{name}-checklist.md` | 验收清单 |
-| `.claude/acceptance/{name}-implementation-guide.md` | 实现指南 |
 
 ### 8.2 用户级运行时产物
 
@@ -739,7 +734,7 @@ flowchart TD
 
 ### 11.3 为什么现在多了 Requirement Baseline
 
-因为长 PRD 场景下，最常见的问题不是“没有计划”，而是“需求被下游文档悄悄丢失”。Requirement Baseline 的作用就是把需求先冻结成统一真相源，让后续 acceptance、spec、plan、tasks 都围绕同一份 requirement items 工作。
+因为长 PRD 场景下，最常见的问题不是“没有计划”，而是“需求被下游文档悄悄丢失”。Requirement Baseline 的作用就是把需求先冻结成统一真相源，让后续 `brief`、`tech-design`、`spec`、`plan`、`tasks` 都围绕同一份 requirement items 工作。
 
 ### 11.4 什么时候应该用 `delta`
 

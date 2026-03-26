@@ -32,7 +32,7 @@ function parseQualityGate(body: string): boolean {
 
 1. **step 模式**: 正常执行后暂停
 2. **phase 模式**: 正常执行后暂停
-3. **quality_gate / 连续模式**: 执行后**强制暂停**等待用户确认
+3. **quality_gate / 连续模式**: 默认执行到质量关卡后暂停；若下一步是 `git_commit` 且 `pause_before_commit=true`，则也会在提交前暂停
 
 ## 判定机制
 
@@ -42,6 +42,8 @@ function parseQualityGate(body: string): boolean {
 |------|----------|----------|
 | `run_tests` | 测试命令通过 | 测试失败或退出码非 0 |
 | `quality_review` | Stage 1 + Stage 2 全部通过 | 任一阶段失败或预算耗尽 |
+
+`quality_review` 的 Stage 2 虽然会使用单 reviewer 子 agent，但它不属于 `dispatching-parallel-agents` 的并行分派场景；后者仅用于 2+ 独立问题域 / 任务域的并行执行。
 
 ## 常见质量关卡
 

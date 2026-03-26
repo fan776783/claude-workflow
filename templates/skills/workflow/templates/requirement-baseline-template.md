@@ -8,7 +8,7 @@ role: requirement-baseline
 
 # Requirement Baseline: {{task_name}}
 
-> 本文档是当前需求的追溯真相源，用于为 `acceptance checklist`、`implementation guide`、`tech-design`、`spec`、`plan` 和 `tasks` 提供统一 requirement IDs 与范围判定。
+> 本文档是当前需求的追溯真相源，用于为 `brief`、`tech-design`、`spec`、`plan` 和 `tasks` 提供统一 requirement IDs 与范围判定。
 
 ## 1. 摘要
 
@@ -40,13 +40,14 @@ role: requirement-baseline
 #### R-001
 
 - **原始需求**: 保留 PRD 原文关键句
-- **归一化摘要**: 面向下游文档的短描述
-- **类别**: interaction
+- **摘要**: 面向下游文档的短描述
+- **场景**: 用户管理
 - **职责归属**: frontend
 - **范围状态**: in_scope
-- **关键约束**:
+- **约束**:
   - 约束 1
   - 约束 2
+- **关联条目**: R-002, R-003
 - **依赖标签**:
   - api_spec
 - **易丢失风险**: 容易在后续摘要中被吞并成抽象标题
@@ -69,8 +70,7 @@ role: requirement-baseline
 
 ## 7. 下游消费规则
 
-- `acceptance checklist` 必须引用 requirement IDs，输出 requirement-to-acceptance mapping。
-- `implementation guide` 必须在模块级别标记 `Related Requirement IDs` 和 `Critical Constraints`。
+- `brief` 必须引用 requirement IDs，输出 requirement-to-brief mapping，并在模块级别标记 `Related Requirement IDs` 和 `Constraints`。
 - `tech-design` / `spec` 必须生成 Requirement Traceability 章节。
 - `plan` / `tasks` 必须将 `requirement_ids` 带入步骤与运行时任务模型。
 

@@ -15,8 +15,8 @@
 - `tech-design.md`
 - `requirement baseline`
 - `discussion-artifact.json`（如有）
-- `requirementAnalysis`（如有）
-- `acceptance checklist`（如有）
+- `requirementItems`（如有，Phase 0.5 提取输出）
+- `brief`（如有）
 
 ## 审查目标
 
@@ -38,8 +38,8 @@ const reviewInputs = {
   techDesign: readFile(techDesignPath),
   requirementBaseline: requirementBaseline ? readFile(requirementBaselinePath) : null,
   discussionArtifact: discussionArtifact || null,
-  requirementAnalysis: requirementAnalysis || null,
-  acceptanceChecklist: acceptanceChecklist ? readFile(acceptanceChecklistPath) : null
+  requirementItems: requirementItems || null,
+  brief: brief ? readFile(briefPath) : null
 };
 ```
 
@@ -153,8 +153,8 @@ function reviewSpecReadiness(inputs: {
   techDesign: string;
   requirementBaseline?: string | null;
   discussionArtifact?: any;
-  requirementAnalysis?: any;
-  acceptanceChecklist?: string | null;
+  requirementItems?: any;
+  brief?: string | null;
 }): SpecReviewResult {
   const issues: string[] = [];
   const traceabilityIssues: string[] = [];
@@ -227,5 +227,5 @@ function reviewSpecReadiness(inputs: {
 ## 强制规则
 
 - 任何 `in_scope` requirement 若未映射到 tech-design / spec，必须 `revise`
-- 任何 `critical_constraints` 若未在设计显式出现，必须 `revise`
+- 任何 `constraints` 若未在设计显式出现，必须 `revise`
 - 任何 `partial / out_of_scope / blocked` 若未带 reason，应提示修订

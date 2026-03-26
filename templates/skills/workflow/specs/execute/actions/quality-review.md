@@ -88,6 +88,8 @@ interface SpecIssue {
 **前置条件**：Stage 1 必须通过。禁止在 Stage 1 未通过时启动 Stage 2。
 
 **执行者**：平台感知的代码质量审查子 agent。
+
+在启动 reviewer 子 agent 前，不需要调用 `../../../dispatching-parallel-agents/SKILL.md`；Stage 2 走的是**单 reviewer 子 agent**路径，而不是多问题域并行分派。这里直接复用平台路由与最小上下文封装原则即可。
 - Claude Code / Cursor：使用 `Task` 以 reviewer 角色审查 diff 窗口
 - Codex：使用 `spawn_agent` / `wait` / `close_agent` 运行 reviewer 子 agent
 - 无子 agent 平台：退化为当前会话只读审查，但仍遵守同样的输出结构
@@ -151,6 +153,7 @@ const GATE_BUDGET = {
 **性能优化**：
 - Stage 1 由当前模型执行（无外部调用，低成本）
 - Stage 2 对 Claude Code / Cursor 使用单次 `Task` reviewer，对 Codex 使用单次 `spawn_agent` reviewer，并限制 diff 上下文（≤50000 字符）
+- Stage 2 属于单 reviewer 子 agent 路径，不使用 `../../../dispatching-parallel-agents/SKILL.md`
 - 代码未变时（修复未产生新 diff），Stage 1 结果可缓存复用
 
 ## 实现

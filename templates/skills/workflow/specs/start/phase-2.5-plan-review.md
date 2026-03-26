@@ -13,8 +13,7 @@
 - `plan.md`
 - `spec.md`
 - `requirement baseline`
-- `acceptance checklist`（如有）
-- `implementation guide`（如有）
+- `brief`（如有）
 
 ## 审查维度
 
@@ -33,7 +32,7 @@
 const planContent = readFile(planPath);
 const specContent = readFile(specPath);
 const baselineContent = requirementBaselinePath ? readFile(requirementBaselinePath) : '';
-const acceptanceContent = acceptanceChecklistPath ? readFile(acceptanceChecklistPath) : '';
+const briefContent = briefPath ? readFile(briefPath) : '';
 ```
 
 ### Step 2: 执行审查
@@ -43,7 +42,7 @@ const planReview = reviewPlanDocument({
   planContent,
   specContent,
   baselineContent,
-  acceptanceContent
+  briefContent
 });
 
 console.log(`
@@ -121,7 +120,7 @@ function reviewPlanDocument(params: {
   planContent: string;
   specContent: string;
   baselineContent?: string;
-  acceptanceContent?: string;
+  briefContent?: string;
 }): PlanReviewResult {
   const issues: string[] = [];
 

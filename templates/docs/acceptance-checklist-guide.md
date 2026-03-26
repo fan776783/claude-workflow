@@ -1,5 +1,7 @@
 # 验证清单使用指南
 
+> **DEPRECATED**: 本指南已被 Acceptance & Implementation Brief 系统取代。请参考 `templates/skills/workflow/references/brief.md`。
+
 ## 快速开始
 
 ### 1. 生成验证清单

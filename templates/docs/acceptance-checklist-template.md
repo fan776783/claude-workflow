@@ -1,5 +1,7 @@
 ---
 version: 1
+# DEPRECATED: 本模板已被 workflow skill 的 brief-template.md 取代。
+# 新项目请使用 templates/skills/workflow/templates/brief-template.md
 requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
 tech_design: "{{tech_design_path}}"
