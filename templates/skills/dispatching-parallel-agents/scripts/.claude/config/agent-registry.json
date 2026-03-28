@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "agents": {
+    "agent-e5f36a23": {
+      "agent_id": "agent-e5f36a23",
+      "task_id": "T3",
+      "boundary": "user-domain",
+      "platform": "claude-code",
+      "worktree_path": null,
+      "group_id": "batch1",
+      "status": "registered",
+      "created_at": "2026-03-28T17:53:25.308131",
+      "updated_at": "2026-03-28T17:53:25.308131",
+      "exit_code": null,
+      "output_summary": null
+    }
+  },
+  "groups": {
+    "batch1": {
+      "group_id": "batch1",
+      "agent_ids": [
+        "agent-e5f36a23"
+      ],
+      "status": "running",
+      "created_at": "2026-03-28T17:53:25.308131",
+      "conflict_detected": false
+    }
+  },
+  "updated_at": "2026-03-28T17:53:25.309130"
+}

@@ -1,6 +1,23 @@
-# 共享工具函数 (v3.0)
+# 共享工具函数 (v3.1)
 
 工作流系统中多处使用的共享函数。
+
+> **Python 工具库**：以下伪代码中的确定性逻辑已提取为可执行的 Python 脚本，位于 `scripts/` 目录。
+> 在实际执行时，优先使用脚本调用以保证一致性：
+>
+> | 伪代码函数 | Python 脚本 | CLI 用法 |
+> |-----------|------------|---------|
+> | `resolveUnder()` | `scripts/path_utils.py` | `py -3 path_utils.py resolve <base> <path>` |
+> | `estimateContextTokens()` | `scripts/context_budget.py` | `py -3 context_budget.py estimate <files...>` |
+> | `calculateDynamicMaxTasks()` | `scripts/context_budget.py` | `py -3 context_budget.py max-tasks --complexity <c> --usage <n>` |
+> | `generateContextBar()` | `scripts/context_budget.py` | `py -3 context_budget.py context-bar --usage <n>` |
+> | `evaluateBudgetThresholds()` | `scripts/context_budget.py` | `py -3 context_budget.py budget --projected-usage <n>` |
+> | `parseWorkflowTasksV2FromMarkdown()` | `scripts/task_parser.py` | `py -3 task_parser.py parse <file>` |
+> | `findNextTask()` | `scripts/task_parser.py` | `py -3 task_parser.py find-next --tasks-file <f> --completed <ids>` |
+> | `classifyTaskDependencies()` | `scripts/dependency_checker.py` | `py -3 dependency_checker.py classify --name <n> --files <f>` |
+> | `getStatusEmoji()` / `extractStatusFromTitle()` | `scripts/status_utils.py` | `py -3 status_utils.py emoji <status>` |
+>
+> 伪代码仍保留作为**接口定义和行为规范**参考。
 
 ## 路径安全
 

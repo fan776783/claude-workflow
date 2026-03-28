@@ -141,6 +141,13 @@ interface SpecIssue {
 | **代码质量** | DRY 原则、错误处理、类型安全 |
 | **测试质量** | 测试逻辑而非 mock、边界覆盖 |
 | **安全性** | 输入验证、权限检查、数据泄露 |
+| **代码复用** | 参考 `specs/guides/code-reuse-checklist.md` |
+| **跨层完整性** | 参考 `specs/guides/cross-layer-checklist.md`（跨 3+ 层时） |
+
+> **Thinking Guides 集成**：Stage 2 审查必须参考 `.claude/specs/guides/` 中的思维指南。
+> 特别地，对所有 CRITICAL / WARNING 级发现，必须执行 `ai-review-false-positive-guide.md` 中的
+> 验证流程（LOCATE → TRACE → CONTEXT → VERIFY → DECIDE），过滤误报后才计入最终结果。
+> 预算：约 35% 的 AI 审查发现为误报。
 
 **问题严重级别**：
 

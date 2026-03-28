@@ -4,6 +4,17 @@
 
 execute 流程中使用的辅助函数，用于任务查找、状态更新、完成检查等。
 
+> **Python 工具库**：以下函数的确定性逻辑已提取到 `scripts/` 目录的 Python 脚本中。
+> 执行任务时优先使用脚本调用，避免每次重新实现正则和状态逻辑：
+>
+> | 函数类别 | Python 脚本 | 代表命令 |
+> |---------|------------|---------|
+> | 任务查找/解析 | `scripts/task_parser.py` | `find-next`, `parse`, `count`, `update-status` |
+> | 状态管理 | `scripts/state_manager.py` | `read`, `complete`, `error`, `progress` |
+> | 依赖检查 | `scripts/dependency_checker.py` | `check-deps`, `check-blocked`, `parallel` |
+> | 验证门控 | `scripts/verification.py` | `create`, `info` |
+> | Emoji/工具 | `scripts/status_utils.py` | `emoji`, `extract`, `validate` |
+
 ## 任务查找函数
 
 ### findNextTask
