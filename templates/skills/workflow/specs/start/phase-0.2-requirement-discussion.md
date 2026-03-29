@@ -456,6 +456,46 @@ function analyzeRequirementGaps(
     }
   }
 
+  // ── 8. UX 导航结构检查 ──
+  if (/页面|界面|UI|前端|dashboard|面板|窗口|桌面/.test(requirement)) {
+    // 检查是否有导航/路由描述
+    if (!/导航|路由|标签页|tab|侧边栏|sidebar/i.test(requirement)) {
+      gaps.push({
+        dimension: 'ux-navigation',
+        description: '需求涉及多个页面/面板但未描述导航结构',
+        priority: 1,
+        impact: '可能导致所有功能堆砌在单一页面',
+        suggestedQuestion: '多个功能模块如何组织？',
+        responseType: 'single_select',
+        options: [
+          '侧边栏 + 路由切换',
+          '标签页切换',
+          '单页面多面板',
+          '由我补充说明'
+        ]
+      });
+    }
+
+    // 检查是否有首次使用描述
+    if (!/首次|初始化|引导|onboarding|配置向导/i.test(requirement)) {
+      gaps.push({
+        dimension: 'ux-onboarding',
+        description: '需求未描述用户首次使用的引导流程',
+        priority: 2,
+        impact: '新用户可能不知道第一步做什么',
+        suggestedQuestion: '首次打开应用时如何引导用户？',
+        responseType: 'single_select',
+        options: [
+          '配置向导（Step by Step）',
+          '空状态引导 + 默认配置',
+          '自动探测并推荐配置',
+          '无需引导，直接使用',
+          '由我补充说明'
+        ]
+      });
+    }
+  }
+
   // ── 去重：同维度只保留最高优先级 ──
   const deduped = deduplicateByDimension(gaps);
 
@@ -596,33 +636,19 @@ function deduplicateByDimension(gaps: RequirementGap[]): RequirementGap[] {
 
 ```typescript
 // ── 原始需求保持不变 ──
-// requirementContent 不被修改，Phase 0.5 的长度阈值和 Phase 1 的摘要生成不受影响
+// requirementContent 不被修改，Phase 1 的 Spec 生成不受影响
 
 // ── 讨论工件作为独立输入传递 ──
-// Phase 0.5: extractRequirementItems(requirementContent, discussionArtifact)
-//   → 结构化提取时参考澄清结果，提高覆盖率
-// Phase 1:  生成技术方案时，显式消费 discussionArtifact
-//   → 技术方案中新增"需求澄清摘要"章节
+// Phase 1:  Spec 生成时，显式消费 discussionArtifact
+//   → spec 中新增"需求澄清摘要"章节
 //   → 若有 selectedApproach，直接作为架构设计的起点
-// Phase 2:  任务生成时，消费 unresolvedDependencies
-//   → 映射到 task.blocked_by 字段（api_spec/external）
+//   → unresolvedDependencies 映射到 Scope 中的 blocked 需求
 ```
 
-### Phase 0.5 适配
+### Phase 1 Spec 生成适配
 
-Phase 0.5 的函数签名为 `extractRequirementItems(content, discussionArtifact?)`。
-详见 `specs/start/phase-0.5-requirement-extraction.md`。
-
-### Phase 1 适配
-
-技术方案文档已新增"需求澄清摘要"章节（`renderDiscussionSummarySection`）。
-详见 `specs/start/phase-1-tech-design.md`。
-
-### Phase 2 适配
-
-任务依赖分类函数已扩展为 `classifyTaskDependencies(task, discussionArtifact?)`，
-消费 `unresolvedDependencies` 映射到 `blocked_by`。
-详见 `specs/start/phase-3-task-compilation.md`。
+Spec 生成函数签名为 `generateSpec(requirementContent, analysisResult, discussionArtifact?)`。
+详见 `specs/start/phase-1-spec-generation.md`。
 
 ### 状态机适配
 
@@ -632,7 +658,5 @@ Phase 0.5 的函数签名为 `extractRequirementItems(content, discussionArtifac
 ## 输出
 
 讨论工件持久化为 `~/.claude/workflows/{projectId}/discussion-artifact.json`，用于：
-- Phase 0.5: 结构化提取时参考澄清结果（覆盖率更高）
-- Phase 1: 技术方案生成（新增澄清摘要章节 + 方案选择作为架构起点）
-- Phase 3: 任务编译（unresolvedDependencies 映射到 blocked_by）
+- Phase 1: Spec 生成（澄清结果 + 方案选择 + 未就绪依赖）
 - 审计追溯：讨论过程可回溯

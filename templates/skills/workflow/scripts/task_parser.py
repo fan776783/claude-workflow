@@ -140,7 +140,7 @@ def parse_quality_gate(body: str) -> bool:
 
 
 def extract_all_task_ids(content: str) -> List[str]:
-    """从任务清单中提取所有任务 ID。
+    """从任务清单或实施计划中提取所有任务 ID。
 
     >>> extract_all_task_ids("## T1: 任务1\\n## T2: 任务2\\n")
     ['T1', 'T2']
@@ -153,9 +153,7 @@ def extract_task_block(content: str, task_id: str) -> str:
     if not validate_task_id(task_id):
         return ""
     escaped_id = escape_regexp(task_id)
-    pattern = re.compile(
-        rf"##+\s+{escaped_id}:[\s\S]*?(?=\n##+\s+T\d+:|$)", re.MULTILINE
-    )
+    pattern = re.compile(rf"##+\s+{escaped_id}:[\s\S]*?(?=\n##+\s+T\d+:|\Z)")
     match = pattern.search(content)
     return match.group(0) if match else ""
 
@@ -309,7 +307,7 @@ def extract_constraints(content: str) -> List[str]:
 def update_task_status_in_markdown(
     content: str, task_id: str, new_status: str
 ) -> str:
-    """更新任务清单中的任务状态（修改标题中的 emoji）。
+    """更新实施计划中任务块的状态（修改标题中的 emoji）。
 
     从 helpers.md 中 ``updateTaskStatusInMarkdown()`` 提取。
     """
@@ -362,12 +360,13 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command")
 
     # parse
-    p_parse = sub.add_parser("parse", help="解析任务清单")
-    p_parse.add_argument("file", help="任务清单文件路径")
+    p_parse = sub.add_parser("parse", help="解析任务清单/实施计划")
+    p_parse.add_argument("file", help="任务清单/实施计划文件路径")
 
     # find-next
     p_next = sub.add_parser("find-next", help="查找下一个待执行任务")
-    p_next.add_argument("--tasks-file", required=True, help="任务清单文件路径")
+    p_next.add_argument("--file", dest="file", help="任务清单/实施计划文件路径")
+    p_next.add_argument("--tasks-file", dest="file", help=argparse.SUPPRESS)
     p_next.add_argument("--completed", default="", help="已完成任务 ID 列表（逗号分隔）")
     p_next.add_argument("--skipped", default="", help="已跳过任务 ID 列表")
     p_next.add_argument("--failed", default="", help="已失败任务 ID 列表")
@@ -397,7 +396,9 @@ def main() -> int:
         print(json.dumps([task_to_dict(t) for t in tasks], indent=2, ensure_ascii=False))
 
     elif args.command == "find-next":
-        with open(args.tasks_file, "r", encoding="utf-8") as f:
+        if not args.file:
+            parser.error("find-next 需要提供 --file")
+        with open(args.file, "r", encoding="utf-8") as f:
             content = f.read()
         split = lambda s: [x.strip() for x in s.split(",") if x.strip()]
         result = find_next_task(

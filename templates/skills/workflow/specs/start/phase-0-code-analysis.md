@@ -55,6 +55,113 @@ if (requirement.endsWith('.md') && fileExists(requirement)) {
 }
 ```
 
+### Step 1.5: Git 状态检查（强制）
+
+```typescript
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Step 1.5: Git 状态检查
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 子代理（Spec 合规审查、代码质量审查）依赖 git worktree 进行隔离执行。
+// 如果没有 git 仓库，子代理将无法创建。不允许静默降级。
+
+interface GitStatus {
+  ready: boolean;
+  reason?: 'not_git_repo' | 'no_commits';
+  message?: string;
+}
+
+function checkGitStatus(): GitStatus {
+  try {
+    const isGitRepo = execSync('git rev-parse --is-inside-work-tree', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim() === 'true';
+
+    if (!isGitRepo) {
+      return {
+        ready: false,
+        reason: 'not_git_repo',
+        message: '当前项目不在 git 仓库中。子代理需要 git worktree 进行隔离。'
+      };
+    }
+
+    const hasCommits = execSync('git log --oneline -1', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim().length > 0;
+
+    if (!hasCommits) {
+      return {
+        ready: false,
+        reason: 'no_commits',
+        message: 'Git 仓库没有初始提交。请先提交一次后再启动工作流。'
+      };
+    }
+
+    return { ready: true };
+  } catch {
+    return {
+      ready: false,
+      reason: 'not_git_repo',
+      message: '无法检测 git 状态。请确认项目在 git 仓库中。'
+    };
+  }
+}
+
+const gitStatus = checkGitStatus();
+
+if (!gitStatus.ready) {
+  console.log(`
+⚠️ Git 状态检查未通过
+
+${gitStatus.message}
+
+推荐操作：
+${gitStatus.reason === 'not_git_repo'
+  ? '  git init && git add . && git commit -m "Initial commit"'
+  : '  git add . && git commit -m "Initial commit"'}
+
+原因：workflow 的子代理（Spec 合规审查、代码质量审查）依赖 git worktree
+进行隔离执行。如果没有 git 仓库，子代理将无法创建，导致所有审查降级为
+主会话内执行，损失审查独立性。
+  `);
+
+  // HARD-GATE: 不允许静默降级
+  const gitChoice = await AskUserQuestion({
+    questions: [{
+      question: '请选择如何处理：',
+      header: 'Git 状态检查',
+      multiSelect: false,
+      options: [
+        { label: '我来初始化 git', description: '暂停工作流，手动执行 git init + commit 后重试' },
+        { label: '无子代理继续', description: '⚠️ 放弃子代理隔离，所有审查在主会话执行' }
+      ]
+    }]
+  });
+
+  if (gitChoice === '我来初始化 git') {
+    console.log('⏸️ 请初始化 git 仓库后重新执行 /workflow start');
+    return;
+  }
+
+  // 用户显式选择了降级，记录到状态
+  state.git_status = {
+    initialized: false,
+    subagent_available: false,
+    user_acknowledged_degradation: true
+  };
+  console.log('⚠️ 用户选择无子代理模式。所有审查将在主会话中执行。');
+} else {
+  state.git_status = {
+    initialized: true,
+    subagent_available: true,
+    user_acknowledged_degradation: false
+  };
+}
+```
+
+---
+
 ### Step 2: 使用 codebase-retrieval 分析
 
 ```typescript
@@ -201,9 +308,8 @@ function extractDependencies(codeContext: string): Dependency[] {
 
 分析结果将用于后续阶段：
 - Phase 0.2: 需求分析讨论（识别需求与现有架构的冲突、发现缺失项）
-- Phase 0.5: 需求结构化提取（提供代码上下文）
-- Phase 0.6: Brief 生成（提供验收标准与技术栈信息）
-- Phase 1: 技术方案生成（填充"代码分析结果"章节）
-- Phase 2: Plan 生成（识别可复用组件、确定实施顺序与文件结构）
-- Phase 3: 任务编译（注入依赖、blocked_by 与任务级引用）
+- Phase 0.3: UX 设计审批（为前端/GUI 需求补充页面结构与导航约束）
+- Phase 1: Spec 生成（填充架构设计、文件结构与约束章节）
+- Phase 2: Plan 生成（识别可复用组件、确定实施顺序与任务文件清单）
+- Execute: 任务执行与并行分组（注入依赖、blocked_by 与任务级引用）
 - 约束系统初始化（提取技术约束）

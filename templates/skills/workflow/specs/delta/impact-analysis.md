@@ -20,11 +20,28 @@ interface ImpactAnalysis {
 }
 
 interface TaskToAdd {
+  id: string;
   name: string;
   phase: string;
-  files: string[];
-  steps: string[];
+  files: {
+    create?: string[];
+    modify?: string[];
+    test?: string[];
+  };
+  spec_ref: string;
+  plan_ref: string;
+  acceptance_criteria?: string[];
   actions: string[];
+  steps: Array<{
+    id: string;
+    description: string;
+    expected: string;
+    verification?: string;
+  }>;
+  verification?: {
+    commands?: string[];
+    expected_output?: string[];
+  };
   depends?: string[];
   blocked_by?: string[];
   rationale: string;
@@ -84,11 +101,24 @@ function analyzeApiDelta(
   // 5. 新增接口 → 新增任务
   for (const api of apiDiff.added) {
     impact.tasksToAdd.push({
+      id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
       name: `实现 ${api.name} 接口调用`,
       phase: 'ui-integrate',
-      files: [`src/services/${api.module}Service.ts`],
-      steps: [`调用 ${api.method} ${api.path}，处理请求和响应`],
+      files: { modify: [`src/services/${api.module}Service.ts`] },
+      spec_ref: '§7 Acceptance Criteria',
+      plan_ref: `P-api-${api.name}`,
+      acceptance_criteria: [`接口 ${api.name} 已接入并处理响应`],
       actions: ['edit_file'],
+      steps: [{
+        id: 'D1',
+        description: `调用 ${api.method} ${api.path}，处理请求和响应`,
+        expected: '服务层已完成接口接入',
+        verification: '运行相关 API / 集成测试'
+      }],
+      verification: {
+        commands: ['运行相关 API / 集成测试'],
+        expected_output: ['PASS']
+      },
       blocked_by: ['api_spec'],
       rationale: `新增接口 ${api.name}`
     });
@@ -97,11 +127,21 @@ function analyzeApiDelta(
     const relatedComponent = findRelatedComponent(api.name, existingTasks);
     if (relatedComponent) {
       impact.tasksToAdd.push({
+        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
         name: `集成 ${api.name} 到 ${relatedComponent.name}`,
         phase: 'ui-integrate',
-        files: relatedComponent.files?.modify || relatedComponent.files?.create || [],
-        steps: [`在 ${relatedComponent.name} 中调用 ${api.name} 接口`],
+        files: {
+          modify: relatedComponent.files?.modify || relatedComponent.files?.create || []
+        },
+        spec_ref: '§4 User-facing Behavior',
+        plan_ref: `P-api-integrate-${api.name}`,
+        acceptance_criteria: [`${relatedComponent.name} 已使用 ${api.name} 接口`],
         actions: ['edit_file'],
+        steps: [{
+          id: 'D1',
+          description: `在 ${relatedComponent.name} 中调用 ${api.name} 接口`,
+          expected: '组件完成接口集成'
+        }],
         depends: [`T${existingTasks.length + impact.tasksToAdd.length}`],
         rationale: `新增接口需要集成到现有组件`
       });
@@ -157,7 +197,7 @@ function analyzeApiDelta(
 ```typescript
 function analyzePrdDelta(
   prdContent: string,
-  techDesign: string,
+  specContent: string,
   existingTasks: WorkflowTaskV2[]
 ): ImpactAnalysis {
   // 1. 提取结构化需求（如果长度 > 500）
@@ -167,8 +207,8 @@ function analyzePrdDelta(
     newRequirements = extractRequirementItems(prdContent);
   }
 
-  // 2. 提取现有需求（从技术方案）
-  const existingRequirements = extractRequirementsFromTechDesign(techDesign);
+  // 2. 提取现有需求（从 spec）
+  const existingRequirements = extractRequirementsFromSpec(specContent);
 
   // 3. 对比需求变化
   const reqDiff = diffRequirements(existingRequirements, newRequirements || prdContent);
@@ -189,29 +229,53 @@ function analyzePrdDelta(
     // 根据需求类型生成任务
     if (req.type === 'form_field') {
       impact.tasksToAdd.push({
+        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
         name: `添加表单字段：${req.fieldName}`,
         phase: 'ui-form',
-        files: [`src/components/forms/${req.scene}Form.vue`],
-        steps: [`添加 ${req.fieldName} 字段，类型：${req.fieldType}，校验规则：${req.validationRules.join(', ')}`],
+        files: {
+          modify: [`src/components/forms/${req.scene}Form.vue`]
+        },
+        spec_ref: '§4 User-facing Behavior',
+        plan_ref: `P-form-${req.scene}-${req.fieldName}`,
+        acceptance_criteria: [`表单字段 ${req.fieldName} 可见且校验正确`],
         actions: ['edit_file'],
+        steps: [{
+          id: 'D1',
+          description: `添加 ${req.fieldName} 字段，类型：${req.fieldType}，校验规则：${req.validationRules.join(', ')}`,
+          expected: '字段渲染、交互和校验符合需求'
+        }],
         rationale: `PRD 新增表单字段`
       });
     } else if (req.type === 'business_rule') {
       impact.tasksToAdd.push({
+        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
         name: `实现业务规则：${req.ruleName}`,
         phase: 'infra',
-        files: ['src/utils/businessRules.ts'],
-        steps: [req.description],
+        files: { modify: ['src/utils/businessRules.ts'] },
+        spec_ref: '§3 Constraints',
+        plan_ref: `P-rule-${req.ruleName}`,
         actions: ['edit_file'],
+        steps: [{
+          id: 'D1',
+          description: req.description,
+          expected: '业务规则已实现并被调用'
+        }],
         rationale: `PRD 新增业务规则`
       });
     } else if (req.type === 'ui_component') {
       impact.tasksToAdd.push({
+        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
         name: `创建组件：${req.componentName}`,
         phase: 'ui-display',
-        files: [`src/components/${req.componentName}.vue`],
-        steps: [req.description],
+        files: { create: [`src/components/${req.componentName}.vue`] },
+        spec_ref: '§5 Architecture and Module Design',
+        plan_ref: `P-component-${req.componentName}`,
         actions: ['create_file'],
+        steps: [{
+          id: 'D1',
+          description: req.description,
+          expected: '组件已创建并接入到对应页面'
+        }],
         rationale: `PRD 新增 UI 组件`
       });
     }
@@ -266,7 +330,7 @@ function analyzePrdDelta(
 ```typescript
 function analyzeRequirementDelta(
   requirement: string,
-  techDesign: string,
+  specContent: string,
   existingTasks: WorkflowTaskV2[]
 ): ImpactAnalysis {
   // 1. 使用 codebase-retrieval 分析需求
@@ -299,11 +363,18 @@ function analyzeRequirementDelta(
   const newModules = extractNewModules(analysisResult);
   for (const module of newModules) {
     impact.tasksToAdd.push({
+      id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
       name: module.name,
       phase: determinePhase(module),
-      files: [module.file],
-      steps: [module.description],
+      files: { modify: [module.file] },
+      spec_ref: findRelevantSpecSection(specContent, module),
+      plan_ref: `P-module-${module.name}`,
       actions: [determineActions(module)],
+      steps: [{
+        id: 'D1',
+        description: module.description,
+        expected: '模块变更已落地'
+      }],
       rationale: `需求变更：${requirement.substring(0, 100)}`
     });
   }
@@ -590,14 +661,14 @@ console.log(`
 // PRD 变更影响分析
 const prdImpact = analyzePrdDelta(
   prdContent,
-  techDesign,
+  specContent,
   existingTasks
 );
 
 // 需求描述影响分析
 const reqImpact = analyzeRequirementDelta(
   requirement,
-  techDesign,
+  specContent,
   existingTasks
 );
 ```

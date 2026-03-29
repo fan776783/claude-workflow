@@ -2,18 +2,18 @@
 
 ## 目的
 
-从已批准的 `spec.md`、Requirement Baseline、brief 生成 `plan.md`，将规范层转化为细粒度、可验证、可编译的实施计划。
+从已批准的 `spec.md` 生成可直接执行的实施计划。Plan 的每一步都必须包含完整的代码块和验证命令，禁止任何占位符。
+
+> plan.md 的读者是一个"有技术能力但零项目上下文"的工程师。他应该能按照 plan 的每一步直接执行，不需要猜测。
 
 ## 执行时机
 
-**强制执行**：Phase 1.5 Intent Review 通过后，Phase 2.5 Plan Review 之前。
+**强制执行**：Phase 1.1 User Spec Review 通过后。
 
 ## 输入
 
-- `spec.md`
-- `requirement baseline`
-- `brief`（如有）
-- `analysisResult`
+- `spec.md`（唯一规范输入）
+- `analysisResult`（代码分析结果，用于确定可复用组件）
 
 ## 输出
 
@@ -21,15 +21,25 @@
 
 ## 设计原则
 
-- **Scope Check**：只承接已批准 Spec 的范围
-- **Baseline-backed**：计划必须从 requirement IDs 出发，而不只是从 capability 标题出发
-- **File Structure First**：先列文件，再排步骤
-- **Governance Slices First**：先定义稳定的 implementation / governance slices，再在 slice 内生成原子步骤
-- **Atomic Steps**：计划步骤应足够小，便于编译为任务 `steps[]`
-- **Explicit Verification**：每个步骤都有验证方式
-- **Requirement Coverage by Step**：每个 in-scope requirement 至少映射到一个步骤
-- **Execution-neutral**：Plan 提供编排输入，但不直接承担执行状态
-- **Phase Is Governance Boundary**：phase 用于表达治理边界，而不是对每个微实现步骤做机械切分
+- **Spec-Only Input** — Plan 仅消费 spec.md，不消费其他文档
+- **File Structure First** — 先列文件，再排步骤
+- **Bite-Sized Tasks** — 每步 2-5 分钟的原子操作
+- **Complete Code** — 每步包含完整代码块（不是伪代码或描述）
+- **Exact Commands** — 验证命令包含预期输出
+- **No Placeholders** — 禁止 TBD/TODO/"类似 Task N"/模糊描述
+- **WorkflowTaskV2 Compatible** — 任务块必须使用 `## Tn:` 标题和 V2 字段，供执行器直接解析
+- **Spec Section Ref** — 每步标注对应的 spec 章节
+
+## No Placeholders 规则
+
+以下内容在 plan 中出现即为**plan failure**，必须替换为实际内容：
+
+- "TBD", "TODO", "implement later", "fill in details"
+- "Add appropriate error handling" / "add validation"
+- "Write tests for the above"（未提供实际测试代码）
+- "Similar to Task N"（必须重复代码）
+- 描述"做什么"但不展示"怎么做"的步骤
+- 引用未在任何 task 中定义的类型、函数或方法
 
 ## 实现细节
 
@@ -40,198 +50,175 @@ const planPath = `.claude/plans/${sanitizedName}.md`;
 ensureDir('.claude/plans');
 
 const specContent = readFile(specPath);
-const baselineContent = requirementBaselinePath ? readFile(requirementBaselinePath) : '';
-const briefContent = briefPath ? readFile(briefPath) : '';
 ```
 
-### Step 2: 执行 Scope Check
-
-```typescript
-const scopeCheck = validatePlanScope(specContent, baselineContent);
-if (!scopeCheck.passed) {
-  console.log(`
-⚠️ Plan 生成中止：发现超出 Spec 的范围
-${scopeCheck.issues.map(i => `- ${i}`).join('\n')}
-  `);
-  return;
-}
-```
-
-### Step 3: 提取文件结构、治理切片与 requirement 集合
+### Step 2: 提取文件结构
 
 ```typescript
 const filePlan = deriveFilePlan(specContent, analysisResult);
-const slices = deriveImplementationSlices(specContent);
-const governanceSlices = deriveGovernanceSlices({
-  specContent,
-  baselineContent,
-  briefContent,
-  implementationSlices: slices
-});
-const verificationPlan = deriveVerificationPlan(briefContent);
-const inScopeRequirements = extractInScopeRequirements(baselineContent);
-const criticalConstraints = extractCriticalConstraints(baselineContent);
+const slices = extractImplementationSlices(specContent);
 ```
 
-> `governanceSlices` 是 Plan 到 Task Compilation 的中间层：
-> - 用于表达稳定的 implementation scope
-> - 用于承载 phase / boundary / quality gate / commit gate / integration risk
-> - 不替代 atomic steps，而是为 atomic steps 提供更粗的治理容器
-
-### Step 4: 在治理切片内生成原子步骤
+### Step 3: 生成 WorkflowTaskV2 任务块
 
 ```typescript
-const atomicSteps = generateAtomicPlanSteps({
-  specContent,
-  baselineContent,
-  filePlan,
-  slices,
-  governanceSlices,
-  verificationPlan
-});
+const tasks: WorkflowTaskV2[] = [];
+let index = 1;
+
+for (const slice of slices) {
+  for (const file of slice.files) {
+    tasks.push({
+      id: `T${index++}`,
+      name: `实现 ${file.description}`,
+      phase: slice.phase || 'implement',
+      files: {
+        create: file.isNew ? [file.path] : [],
+        modify: file.isNew ? [] : [file.path],
+        test: file.testPath ? [file.testPath] : []
+      },
+      specRef: slice.specRef,
+      planRef: `P-${slice.name}`,
+      acceptanceCriteria: deriveAcceptanceCriteriaForSlice(slice),
+      actions: deriveTaskActions(file),
+      verification: {
+        commands: deriveVerificationCommands(file),
+        expectedOutput: deriveExpectedOutputs(file)
+      },
+      steps: [
+        {
+          id: 'S1',
+          description: `编写 ${file.description} 的失败测试`,
+          expected: '测试稳定失败并暴露目标行为缺口',
+          verification: file.testCommand
+        },
+        {
+          id: 'S2',
+          description: `实现 ${file.description} 的最小代码变更`,
+          expected: '目标能力可用且符合 Spec 约束'
+        },
+        {
+          id: 'S3',
+          description: '运行验证命令并确认全部通过',
+          expected: '测试、类型检查或 lint 全部通过',
+          verification: file.testCommand
+        }
+      ]
+    });
+  }
+}
 ```
 
-### Step 5: 渲染 Plan 文档
+### Step 4: 渲染 Plan 文档
 
 ```typescript
 const planTemplate = loadTemplate('plan-template.md');
-
 const planContent = replaceVars(planTemplate, {
   task_name: taskName,
   requirement_source: requirementSource,
-  created_at: new Date().toISOString(),
-  requirement_baseline_path: requirementBaselinePath || '',
   spec_file: specPath,
-  brief_path: briefPath || '',
+  created_at: new Date().toISOString(),
+  goal: extractGoal(specContent),
+  architecture_summary: extractArchitectureSummary(specContent),
+  tech_stack: extractTechStack(specContent),
   files_create: renderFileList(filePlan.create),
   files_modify: renderFileList(filePlan.modify),
   files_test: renderFileList(filePlan.test),
-  reuse_summary: renderReuseSummary(analysisResult.reusableComponents),
-  ordering_rationale: renderOrderingRationale(slices),
-  non_negotiable_requirement_constraints: renderNonNegotiableConstraints(criticalConstraints),
-  atomic_steps: renderAtomicSteps(atomicSteps),
-  verification_plan: renderVerificationPlan(verificationPlan),
-  requirement_coverage_by_step: renderRequirementCoverageByStep(atomicSteps, inScopeRequirements)
+  tasks: renderWorkflowTasksV2(tasks)
 });
 
 writeFile(planPath, planContent);
 ```
 
-## 数据结构
+### Step 5: Self-Review
+
+Plan 生成后立即执行自审查：
 
 ```typescript
-interface PlanFileStructure {
-  create: string[];
-  modify: string[];
-  test: string[];
+function selfReviewPlan(planContent: string, specContent: string): void {
+  // 1. Spec coverage: 逐条检查 spec 的每个需求
+  const specRequirements = extractRequirements(specContent);
+  const planTasks = extractTasks(planContent);
+
+  for (const req of specRequirements) {
+    const covered = planTasks.some(task =>
+      task.specRef === req.sectionRef || task.code.includes(req.keyword)
+    );
+    if (!covered) {
+      console.warn(`⚠️ Spec 需求 [${req.id}] 未在 plan 中找到对应 task`);
+      // 自动补充 task
+    }
+  }
+
+  // 2. Placeholder scan: 搜索禁止内容
+  const placeholders = ['TBD', 'TODO', 'implement later', 'fill in details',
+    'add appropriate', 'similar to Task', 'write tests for'];
+  for (const ph of placeholders) {
+    if (planContent.toLowerCase().includes(ph.toLowerCase())) {
+      console.error(`❌ Plan 包含禁止的占位符: "${ph}"`);
+      // 自动替换为实际内容
+    }
+  }
+
+  // 3. Type consistency: 检查跨 task 的类型/函数名一致性
+  const definedSymbols = extractDefinitions(planContent);
+  const usedSymbols = extractUsages(planContent);
+  for (const used of usedSymbols) {
+    if (!definedSymbols.includes(used)) {
+      console.warn(`⚠️ Plan 使用了未定义的符号: ${used}`);
+    }
+  }
 }
 
-interface GovernanceSlice {
-  id: string;
-  name: string;
-  phase: string;
-  boundary_key?: string;
-  continuation_safe: boolean;
-  integration_risk: 'low' | 'medium' | 'high';
-  quality_gate_after?: boolean;
-  commit_gate_after?: boolean;
-  requirement_ids: string[];
-}
-
-interface PlanStep {
-  id: string;
-  goal: string;
-  specRef: string;
-  requirement_ids: string[];
-  critical_constraints: string[];
-  files: string[];
-  actionType: 'create_file' | 'edit_file' | 'run_tests' | 'quality_review' | 'git_commit';
-  expected: string;
-  verification?: string;
-  dependsOn?: string[];
-  governanceSliceId?: string;
-}
+selfReviewPlan(planContent, specContent);
 ```
 
-## 辅助函数
+## Plan 文档结构
 
-### validatePlanScope
+```markdown
+# [Feature Name] Implementation Plan
 
-```typescript
-function validatePlanScope(specContent: string, baselineContent: string): { passed: boolean; issues: string[] } {
-  const issues: string[] = [];
-  if (!/## 2\. Scope/.test(specContent)) {
-    issues.push('Spec 缺少 Scope 章节，无法安全生成 Plan');
-  }
-  if (!/## 9\. Implementation Slices/.test(specContent)) {
-    issues.push('Spec 缺少 Implementation Slices，无法推导计划顺序');
-  }
-  if (!baselineContent) {
-    issues.push('缺少 Requirement Baseline，无法安全生成 requirement coverage');
-  }
-  return { passed: issues.length === 0, issues };
-}
+> **Spec**: `.claude/specs/{name}.md`
+
+**Goal:** [一句话描述]
+**Architecture:** [2-3 句架构方案]
+**Tech Stack:** [关键技术]
+
+---
+
+## File Structure
+
+### Files to Create
+- `exact/path/to/file.ts` — 职责描述
+
+### Files to Modify
+- `exact/path/to/existing.ts` — 修改说明
+
+### Files to Test
+- `tests/exact/path/to/test.ts`
+
+---
+
+## T1: 实现组件能力
+
+- **阶段**: implement
+- **创建文件**: `src/components/FeatureCard.tsx`
+- **测试文件**: `tests/components/FeatureCard.test.tsx`
+- **Spec 参考**: §5.1
+- **Plan 参考**: P-feature-card
+- **验收项**: AC-001, AC-002
+- **actions**: create_file, run_tests
+- **验证命令**: `pnpm test tests/components/FeatureCard.test.tsx`, `pnpm lint`
+- **验证期望**: `PASS`, `0 errors`
+- **步骤**:
+  - S1: 编写失败测试覆盖卡片渲染与交互 → 测试稳定失败并暴露缺失能力（验证：`pnpm test tests/components/FeatureCard.test.tsx`）
+  - S2: 实现组件与最小样式结构 → 组件行为符合 Spec 与约束
+  - S3: 运行测试与 lint → 所有验证通过（验证：`pnpm test tests/components/FeatureCard.test.tsx && pnpm lint`）
 ```
 
-### generateAtomicPlanSteps
+## 强制规则
 
-```typescript
-function generateAtomicPlanSteps(params: {
-  specContent: string;
-  baselineContent: string;
-  filePlan: PlanFileStructure;
-  slices: string[];
-  verificationPlan: string[];
-}): PlanStep[] {
-  const steps: PlanStep[] = [];
-  const requirements = extractInScopeRequirements(params.baselineContent);
-  let index = 1;
-
-  for (const file of params.filePlan.create) {
-    const matchedRequirements = matchRequirementsForFile(file, requirements);
-    steps.push({
-      id: `P${index++}`,
-      goal: `创建并建立 ${file} 的基础结构`,
-      specRef: '§7 File Structure',
-      requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
-      files: [file],
-      actionType: 'create_file',
-      expected: `${file} 已创建且结构正确`,
-      verification: '类型检查 / 语法检查通过'
-    });
-  }
-
-  for (const file of params.filePlan.modify) {
-    const matchedRequirements = matchRequirementsForFile(file, requirements);
-    steps.push({
-      id: `P${index++}`,
-      goal: `在 ${file} 中接入目标能力`,
-      specRef: '§5 User-facing Behavior',
-      requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
-      files: [file],
-      actionType: 'edit_file',
-      expected: `${file} 已按 Spec 修改`,
-      verification: '相关测试或手动验证通过'
-    });
-  }
-
-  for (const file of params.filePlan.test) {
-    const matchedRequirements = matchRequirementsForFile(file, requirements);
-    steps.push({
-      id: `P${index++}`,
-      goal: `为 ${file} 补充测试覆盖`,
-      specRef: '§8 Acceptance Mapping',
-      requirement_ids: matchedRequirements.map(r => r.id),
-      critical_constraints: matchedRequirements.flatMap(r => r.constraints),
-      files: [file],
-      actionType: 'run_tests',
-      expected: '关键验收项有对应测试',
-      verification: '测试命令通过'
-    });
-  }
-
-  return steps;
-}
-```
+- 所有 spec 中的 in_scope 需求至少映射到一个 plan task
+- 每个 task 的每个 step 包含完整代码或命令
+- 禁止任何占位符内容
+- 验证命令必须包含预期输出
+- Self-Review 不通过时必须修复后才能提交

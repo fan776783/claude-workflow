@@ -1,127 +1,100 @@
 # Traceability 参考定义
 
-## 快速导航
-
-- 目的
-- 术语
-- 数据结构
-- coverage_level 定义
-- scope_status 定义
-- Critical Constraints 规则
-- Traceability Gate 规则
-
 ## 目的
 
-统一定义 workflow 中的 requirement item、coverage level、scope status、critical constraints 与 traceability mapping，避免各阶段各自解释“需求覆盖”的含义。
+定义 workflow 中的需求追溯模型。在简化的三层架构（spec → plan → 执行）中，需求追溯在 spec 内部完成，plan 通过 spec section ref 建立引用关系。
 
 ## 术语
 
-### Requirement Baseline
+### Requirement（需求条目）
 
-由 `Phase 0.55` 生成的需求基线，是整个 workflow 的需求真相源。后续所有工件都应消费 baseline，而不是重新自由摘要原始需求。
+spec.md 的 Scope 章节中的编号条目（R-001 起），是最小可追溯的需求单位。每条需求包含 ID、摘要、范围状态、约束和所有者。
 
-### Requirement Item
+### Spec Section Ref
 
-Requirement Baseline 中的最小可追溯需求单位。每个 item 都必须有稳定 ID、职责归属、范围判定和关键约束。
+plan 步骤对 spec 章节的引用（如 §5.1），用于在执行后的 Spec 合规审查中对照检查。
 
-### Traceability Mapping
+### Acceptance Criteria
 
-描述单条 requirement 在 acceptance、design、spec、plan、task 中的去向，用于 review gate 和运行时质量检查。
+spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Spec 合规审查子 Agent 使用。
 
 ## 数据结构
 
 ```typescript
-interface RequirementItem {
-  id: string;
-  source_text: string;
-  summary: string;
-  scenario: string;
-  scope_owner: 'frontend' | 'backend' | 'shared' | 'product' | 'infra';
-  scope_status: 'in_scope' | 'partially_in_scope' | 'out_of_scope' | 'blocked';
-  constraints: string[];
-  related_items: string[];
-  dependency_tags: string[];
-  risk_of_loss?: string;
-  notes?: string[];
+interface Requirement {
+  id: string;                           // R-001
+  summary: string;                      // 面向下游的短描述
+  scope_status: ScopeStatus;            // 范围判定
+  constraints: string[];                // 硬约束
+  owner: 'frontend' | 'backend' | 'shared' | 'infra';
+  exclusion_reason?: string;            // out_of_scope / blocked 的原因
 }
+
+type ScopeStatus = 'in_scope' | 'out_of_scope' | 'blocked';
 ```
 
 ```typescript
-interface TraceabilityMapping {
-  requirement_id: string;
-  acceptance_ids?: string[];
-  spec_refs?: string[];
-  tech_design_refs?: string[];
-  plan_step_ids?: string[];
-  task_ids?: string[];
-  coverage_level: 'full' | 'partial' | 'none';
-  scope_status: 'in_scope' | 'partially_in_scope' | 'out_of_scope' | 'blocked';
-  notes?: string;
+interface PlanTask {
+  name: string;
+  specRef: string;                      // §X.X
+  requirementIds: string[];             // R-001, R-002
+  files: string[];
+  steps: PlanStep[];
+}
+
+interface PlanStep {
+  description: string;
+  code?: string;
+  verifyCommand?: string;
+  expectedResult?: string;
 }
 ```
-
-## coverage_level 定义
-
-### full
-
-下游工件已完整体现 requirement 的主语义与关键约束，且可进一步追溯到验证或执行环节。
-
-### partial
-
-下游工件只体现了 requirement 的部分内容，通常用于：
-
-- 仅体现能力标题，未完整体现约束
-- 只承接展示层，不承接底层处理逻辑
-- 当前工件保留了去向，但未形成可执行或可验收映射
-
-### none
-
-当前工件中未体现该 requirement，除非其 `scope_status` 为 `out_of_scope`，否则视为问题。
 
 ## scope_status 定义
 
 ### in_scope
 
-当前 workflow 明确承接，并应在 spec、plan、tasks 中形成落实路径。
-
-### partially_in_scope
-
-当前 workflow 只承接部分责任，必须写清承接边界与未承接部分。
+当前工作流明确承接，必须在 spec 的 Architecture / Acceptance 章节有设计和验收对应。
 
 ### out_of_scope
 
-当前 workflow 明确不承接，必须写明原因，并保留在 baseline 与 traceability 文档中。
+当前工作流明确不承接，必须在 Scope 章节的 Out of Scope 表格中写明排除原因。
 
 ### blocked
 
-理论上在范围内，但受外部依赖阻塞，必须带 `dependency_tags`，并在后续文档中显式暴露。
+理论上在范围内但受外部依赖阻塞，必须在 Blocked 表格中写明依赖和说明。
 
 ## Critical Constraints 规则
 
-以下内容若在原始需求出现，必须提取到 `constraints`：
+以下内容若在原始需求出现，必须提取到 spec 的 Constraints 章节：
 
-- 具体按钮文案、字段名、tab 名、区块名、sheet 命名规则
+- 具体按钮文案、字段名、tab 名、区块名
 - 精确条件分支与状态判断
 - 数量上限、字符限制、时间规则、排序规则
-- UI 位置、显隐逻辑、视觉状态与粒度定义
+- UI 位置、显隐逻辑、视觉状态
 - 角色边界、数据归属边界、接口依赖边界
 
 ## Traceability Gate 规则
 
-### Spec Traceability Gate
+### Spec Gate（Self-Review 阶段）
 
-- 所有 `in_scope` requirement 必须在 tech-design / spec 中出现明确映射。
-- 所有 `partially_in_scope / out_of_scope` requirement 必须带 reason。
-- 所有 `constraints` 必须在 tech-design 或 spec 的显式章节中出现。
+在 spec 生成后的 Self-Review 中执行：
 
-### Plan Coverage Gate
+- 所有 in_scope 需求必须在 Architecture / Acceptance 章节有对应内容
+- 所有 out_of_scope / blocked 需求必须有排除原因
+- 所有 constraints 必须出现在 Constraints 章节
 
-- 所有 `in_scope` requirement 至少映射到一个 plan step。
-- 所有 blocked requirement 必须带 dependency 标签。
-- 所有 critical constraints 必须出现在 step 或 Non-Negotiable 约束中。
+### Plan Gate（Self-Review 阶段）
 
-### Runtime Traceability Gate
+在 plan 生成后的 Self-Review 中执行：
 
-- WorkflowTaskV2 必须带 `requirement_ids`。
-- 若任务对应关键约束，则必须带 `constraints`。
-- 质量关卡任务应能回溯到其守护的 requirement 集合。
+- 所有 in_scope 需求至少映射到一个 plan task（通过 specRef / requirementIds）
+- 所有 plan step 包含完整代码（No Placeholders）
+
+### Execution Gate（子 Agent Spec 合规审查）
+
+在每个 task 执行后由 Spec 合规审查子 Agent 执行：
+
+- 代码是否匹配 spec 描述的行为
+- spec Constraints 是否被正确实现
+- spec Acceptance Criteria 是否满足

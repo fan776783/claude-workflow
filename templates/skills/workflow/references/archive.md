@@ -1,6 +1,6 @@
 # workflow archive - 归档工作流 (v3.0)
 
-归档已完成的工作流，将 `changes/` 目录移动到 `archive/`。
+归档已完成的工作流；若存在 delta 变更记录，则将 `changes/` 目录移动到 `archive/`。
 
 ## 使用方法
 
@@ -80,40 +80,29 @@ const changesDir = path.join(workflowDir, 'changes');
 const archiveDir = path.join(workflowDir, 'archive');
 const archiveTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
-// 检查 changes 目录是否存在
-if (!fileExists(changesDir)) {
-  console.log(`
-❌ 无法归档
-
-未找到活动变更目录：${changesDir}
-当前工作流状态不完整，请先检查 Intent / Delta 产物是否存在。
-  `);
-  return;
-}
-
 // 确保 archive 目录存在
 ensureDir(archiveDir);
 
-// 获取所有变更目录
-const changeIds = listDir(changesDir).filter(d => d.startsWith('CHG-'));
+let changeIds: string[] = [];
 
-if (changeIds.length === 0) {
+if (fileExists(changesDir)) {
+  changeIds = listDir(changesDir).filter(d => d.startsWith('CHG-'));
+
+  // 移动每个变更到归档目录
+  for (const changeId of changeIds) {
+    const srcPath = path.join(changesDir, changeId);
+    const destPath = path.join(archiveDir, changeId);
+
+    await Bash({ command: `mv "${srcPath}" "${destPath}"` });
+
+    console.log(`✅ 已归档 delta 变更: ${changeId}`);
+  }
+} else {
   console.log(`
-❌ 无法归档
+ℹ️ 未检测到 changes/ 目录
 
-changes 目录为空，没有可移动到 archive/ 的变更记录。
+当前工作流没有增量变更记录，将仅归档 workflow-state。
   `);
-  return;
-}
-
-// 移动每个变更到归档目录
-for (const changeId of changeIds) {
-  const srcPath = path.join(changesDir, changeId);
-  const destPath = path.join(archiveDir, changeId);
-
-  await Bash({ command: `mv "${srcPath}" "${destPath}"` });
-
-  console.log(`✅ 已归档: ${changeId}`);
 }
 
 console.log(`
@@ -148,7 +137,8 @@ if (generateSummary) {
 
 **任务名称**: ${state.task_name}
 **归档时间**: ${new Date().toISOString()}
-**技术方案**: ${state.tech_design}
+**Spec**: ${state.spec_file || 'N/A'}
+**Plan**: ${state.plan_file || 'N/A'}
 
 ## 变更历史
 
@@ -156,11 +146,15 @@ if (generateSummary) {
 |-----------|------|------|------|
 `;
 
-  for (const changeId of archivedChanges) {
-    const deltaPath = path.join(archiveDir, changeId, 'delta.json');
-    if (fileExists(deltaPath)) {
-      const delta = JSON.parse(readFile(deltaPath));
-      summaryContent += `| ${delta.id} | ${delta.trigger.type} | ${delta.trigger.description.substring(0, 50)}... | ${delta.status} |\n`;
+  if (archivedChanges.length === 0) {
+    summaryContent += `| - | - | 本次工作流无 delta 变更记录 | archived |\n`;
+  } else {
+    for (const changeId of archivedChanges) {
+      const deltaPath = path.join(archiveDir, changeId, 'delta.json');
+      if (fileExists(deltaPath)) {
+        const delta = JSON.parse(readFile(deltaPath));
+        summaryContent += `| ${delta.id} | ${delta.trigger.type} | ${delta.trigger.description.substring(0, 50)}... | ${delta.status} |\n`;
+      }
     }
   }
 
@@ -218,12 +212,12 @@ console.log(`
 **文件结构**:
 ~/.claude/workflows/${projectId}/
 ├── workflow-state.json        ← 状态已更新为 archived
-├── tasks-*.md
-└── archive/                   ← 归档目录
-    └── CHG-*/
-        ├── delta.json
-        ├── intent.md
-        └── review-status.json
+├── archive/                   ← 归档目录（仅当存在 delta 变更时包含 CHG-*）
+│   └── CHG-*/
+│       ├── delta.json
+│       ├── intent.md
+│       └── review-status.json
+└── changes/                   ← 若为空可不存在
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

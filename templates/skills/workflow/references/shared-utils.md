@@ -13,7 +13,7 @@
 > | `generateContextBar()` | `scripts/context_budget.py` | `py -3 context_budget.py context-bar --usage <n>` |
 > | `evaluateBudgetThresholds()` | `scripts/context_budget.py` | `py -3 context_budget.py budget --projected-usage <n>` |
 > | `parseWorkflowTasksV2FromMarkdown()` | `scripts/task_parser.py` | `py -3 task_parser.py parse <file>` |
-> | `findNextTask()` | `scripts/task_parser.py` | `py -3 task_parser.py find-next --tasks-file <f> --completed <ids>` |
+> | `findNextTask()` | `scripts/task_parser.py` | `py -3 task_parser.py find-next --file <f> --completed <ids>` |
 > | `classifyTaskDependencies()` | `scripts/dependency_checker.py` | `py -3 dependency_checker.py classify --name <n> --files <f>` |
 > | `getStatusEmoji()` / `extractStatusFromTitle()` | `scripts/status_utils.py` | `py -3 status_utils.py emoji <status>` |
 >
@@ -230,7 +230,7 @@ interface WorkflowTaskV2 {
 
 function extractTaskBlock(content: string, taskId: string): string {
   const escapedId = escapeRegExp(taskId);
-  const taskRegex = new RegExp(`##+ ${escapedId}:[\\s\\S]*?(?=\\n##+ T\\d+:|$)`, 'm');
+  const taskRegex = new RegExp(`##+ ${escapedId}:[\\s\\S]*?(?=\\n##+ T\\d+:|\\Z)`);
   return content.match(taskRegex)?.[0] || '';
 }
 

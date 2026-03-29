@@ -305,7 +305,8 @@ def main() -> int:
 
     # parallel
     p_par = sub.add_parser("parallel", help="查找并行组")
-    p_par.add_argument("--tasks-file", required=True, help="任务 JSON 文件路径")
+    p_par.add_argument("--file", dest="file", help="任务 JSON 文件路径")
+    p_par.add_argument("--tasks-file", dest="file", help=argparse.SUPPRESS)
     p_par.add_argument("--completed", default="", help="已完成 ID 列表")
     p_par.add_argument("--blocked", default="", help="已阻塞 ID 列表")
 
@@ -325,7 +326,9 @@ def main() -> int:
         print(json.dumps({"dependencies": result}))
 
     elif args.command == "parallel":
-        with open(args.tasks_file, "r", encoding="utf-8") as f:
+        if not args.file:
+            parser.error("parallel 需要提供 --file")
+        with open(args.file, "r", encoding="utf-8") as f:
             tasks = json.load(f)
         groups = find_parallel_groups(
             tasks,

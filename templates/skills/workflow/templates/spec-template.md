@@ -1,17 +1,14 @@
 ---
-version: 1
+version: 2
 requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
-requirement_baseline: "{{requirement_baseline_path}}"
-tech_design: "{{tech_design_path}}"
-brief: "{{brief_path}}"
 status: draft
 role: spec
 ---
 
 # Spec: {{task_name}}
 
-> 本文档是用户可审查、后续 Plan 可引用的稳定规范层文档。
+> 统一规范文档：需求范围 + 设计决策 + 验收标准
 
 ## 1. Context
 
@@ -23,11 +20,10 @@ role: spec
 - 业务目标：
 - 成功结果：
 
-### 1.2 Constraints and Assumptions
+### 1.2 Assumptions
 
-- 技术约束：
-- 业务约束：
-- 默认假设：
+- 技术假设：
+- 业务假设：
 
 ---
 
@@ -41,73 +37,59 @@ role: spec
 
 {{out_of_scope_summary}}
 
-### 2.3 Subsystem Boundaries
+### 2.3 Blocked
 
-- 前端职责：
-- 后端职责：
-- 数据层职责：
-- 外部依赖边界：
+{{blocked_summary}}
 
 ---
 
-## 3. Requirement Traceability
+## 3. Constraints
 
-{{requirement_traceability}}
+> 不可协商的硬约束，来自原始需求或技术限制。
 
-### 3.1 Requirement Coverage Summary
-
-{{requirement_coverage_summary}}
-
-### 3.2 Out-of-Scope / Partial Decisions
-
-{{scope_decision_summary}}
+{{critical_constraints}}
 
 ---
 
-## 4. Critical Requirement Constraints
+## 4. User-facing Behavior
 
-{{critical_requirement_constraints}}
+### 4.1 Primary Flow
 
----
+{{user_facing_behavior}}
 
-## 5. User-facing Behavior
-
-### 5.1 Primary Flow
-
-- 入口：
-- 关键步骤：
-- 成功结果：
-
-### 5.2 Error and Edge Flows
+### 4.2 Error and Edge Flows
 
 - 异常输入：
 - 空状态 / 无权限 / 外部依赖失败：
 - 降级与提示：
 
-### 5.3 Observable Outcomes
+### 4.3 Observable Outcomes
 
 - 页面 / 接口 / 日志 / 状态变化：
 - 用户可感知反馈：
 
 ---
 
-## 6. Architecture and Module Design
+## 5. Architecture and Module Design
 
 {{architecture_summary}}
 
-### 6.1 Module Responsibilities
+### 5.1 Module Responsibilities
 
 - 模块 A：
 - 模块 B：
 - 模块 C：
 
-### 6.2 Data and Interface Boundaries
+### 5.2 Data Models
 
 - 核心数据对象：
 - 输入输出契约：
-- 跨模块调用关系：
 
-### 6.3 Risks and Trade-offs
+### 5.3 Technology Choices
+
+- 框架 / 库 / 存储选型及理由：
+
+### 5.4 Risks and Trade-offs
 
 - 风险：
 - 权衡：
@@ -115,76 +97,31 @@ role: spec
 
 ---
 
-## 7. File Structure
+## 6. File Structure
 
 {{file_structure}}
 
-### 7.1 Files to Create
+---
 
-- `path/to/new-file`
+## 7. Acceptance Criteria
 
-### 7.2 Files to Modify
+{{acceptance_criteria}}
 
-- `path/to/existing-file`
+### 7.1 Test Strategy
 
-### 7.3 Files to Test
-
-- `tests/example.test.ts`
+- 单元测试：
+- 集成测试：
+- E2E 测试：
 
 ---
 
-## 8. Acceptance Mapping
-
-{{acceptance_mapping}}
-
-### 8.1 Capability → Acceptance
-
-| Capability | Acceptance Criteria | Notes |
-|------------|---------------------|-------|
-| 示例能力 | AC-1 | 说明 |
-
-### 8.2 Gaps to Resolve
-
-- 若 Brief 未覆盖的内容，需在进入 Plan 前补充：
-
----
-
-## 9. Implementation Slices
+## 8. Implementation Slices
 
 {{implementation_slices}}
 
-### 9.1 Slice 1
-
-- 目标：
-- 交付边界：
-- 验证方式：
-- Related Requirement IDs:
-
-### 9.2 Slice 2
-
-- 目标：
-- 交付边界：
-- 验证方式：
-- Related Requirement IDs:
-
-### 9.3 Slice 3
-
-- 目标：
-- 交付边界：
-- 验证方式：
-- Related Requirement IDs:
-
 ---
 
-## 10. Open Questions
+## 9. Open Questions
 
 - 问题 1：
 - 问题 2：
-
----
-
-## 11. References
-
-- Requirement Baseline：`{{requirement_baseline_path}}`
-- 技术设计：`{{tech_design_path}}`
-- Brief：`{{brief_path}}`

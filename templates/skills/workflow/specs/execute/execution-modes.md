@@ -2,7 +2,9 @@
 
 ## 概述
 
-workflow execute 支持多种执行模式，以适应不同的工作场景和用户偏好。
+workflow execute 支持两种执行模式：**连续模式**（默认）和**单 phase 模式**（可选）。
+
+> 核心设计：连续模式执行到质量关卡完成后自动暂停，提示用户审查质量结果。这确保代码质量始终受人工监督，同时最大化自动化执行效率。
 
 > 执行链路直接消费 `WorkflowTaskV2`：任务提取使用 `extractCurrentTaskV2()`，动作判断使用 `actions[]`，实现语义读取 `steps[]`。
 >
@@ -13,149 +15,110 @@ workflow execute 支持多种执行模式，以适应不同的工作场景和用
 
 ## 模式类型
 
-### 1. 单步模式（step）
+### 1. 连续模式（continuous）— 默认
 
-**触发方式**：
-- 命令行：`/workflow execute step`
-- 自然语言：`/workflow execute 单步执行`
-
-**行为**：
-- 执行一个任务后立即暂停
-- 显示任务执行结果
-- 提示用户执行 `/workflow execute` 继续
-
-**适用场景**：
-- 需要仔细检查每个任务的执行结果
-- 调试工作流
-- 学习工作流的执行过程
-
-**实现**：
-```typescript
-if (executionMode === 'step') {
-  // 执行当前任务
-  await executeTask(currentTask, state, tasksPath, statePath);
-
-  // 立即暂停
-  console.log(`
-✅ 任务 ${currentTask.id} 执行完成
-
-📍 下一个任务：${nextTaskId}
-
-💡 继续执行：/workflow execute
-  `);
-  return;
-}
-```
-
----
-
-### 2. 阶段模式（phase）
+> 连续模式是执行的默认模式。它连续执行任务，跨越 phase 边界，直到遇到质量关卡。
+> 质量关卡完成后自动暂停，展示审查结果，等待用户确认后才继续。
+> 这确保代码质量始终受人工监督，同时最大化自动化效率。
+>
+> 连续模式仍为语义模式，不绕过 `ContextGovernor`。若 projected 预算不足、需切换到 `parallel-boundaries`、或达到 handoff 阈值，则应先执行对应治理动作。
 
 **触发方式**：
 - 命令行：`/workflow execute`（默认）
-- 自然语言：`/workflow execute 继续` / `/workflow execute 下一阶段`
+- 自然语言：`/workflow execute 继续` / `/workflow execute 连续`
 
 **行为**：
-- 连续执行同一治理 phase 内的任务
-- 仅在治理边界变化时暂停；微实现步骤变化不应单独触发暂停
-- 若 `ContextGovernor` 判定可以继续，允许跨越非治理性的细粒度 phase 变化
-- 显示阶段完成摘要
-
-**适用场景**：
-- 按治理边界组织的工作流（foundation → feature-implementation → integration → verify → deliver）
-- 需要在阶段间进行检查和调整
-- 平衡效率和控制
-
-**实现**：
-```typescript
-if (executionMode === 'phase') {
-  const currentPhase = currentTask.phase;
-
-  while (true) {
-    // 执行当前任务
-    await executeTask(currentTask, state, tasksPath, statePath);
-
-    // 查找下一个任务
-    const nextTaskId = findNextTask(tasksContent, state.progress);
-    if (!nextTaskId) {
-      completeWorkflow(state, statePath, tasksPath);
-      return;
-    }
-
-    // 提取下一个任务（V2 优先）
-    const nextTask = extractCurrentTaskV2(tasksContent, nextTaskId);
-    if (!nextTask) break;
-
-    // 检查阶段是否变化
-    if (nextTask.phase !== currentPhase) {
-      console.log(`
-✅ 阶段 "${currentPhase}" 完成
-
-📍 下一阶段：${nextTask.phase}
-📍 下一个任务：${nextTask.id} - ${nextTask.name}
-
-💡 继续执行：/workflow execute
-      `);
-      break;
-    }
-
-    // 更新当前任务
-    state.current_tasks = [nextTaskId];
-    Object.assign(currentTask, nextTask);
-  }
-}
-```
-
----
-
-### 3. 连续模式（quality_gate）
-
-> `quality_gate` 仍然是语义模式，不绕过 `ContextGovernor`。若 projected 预算不足、需切换到 `parallel-boundaries`、或达到 handoff 阈值，则应先执行对应治理动作，再考虑是否继续跑到下一个质量关卡。
-
-**触发方式**：
-- 命令行：`/workflow execute 连续`
-- 自然语言：`/workflow execute 执行到质量关卡`
-
-**行为**：
-- 连续执行任务直到遇到质量关卡或 git_commit
-- 遇到质量关卡时暂停（需要审查）
+- 连续执行任务，**跨越 phase 边界**，直到遇到质量关卡
+- 遇到质量关卡时：先执行质量关卡（两阶段审查），审查完成后暂停，展示审查结果，等待用户确认
 - 遇到 git_commit 且 `pause_before_commit=true` 时暂停
+- 启动时提示用户可切换为单 phase 模式
 
 **适用场景**：
-- 快速执行大量简单任务
-- 在质量关卡前批量完成实现任务
+- 快速执行大量任务，在质量关卡处接受人工审查
 - 自动化程度高的工作流
+- 平衡执行速度与代码质量监督
 
 **实现**：
 ```typescript
-if (executionMode === 'quality_gate') {
+// 启动时提示模式选择
+console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶️ 执行模式：${executionMode === 'phase' ? '单 phase' : '连续'}（默认）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 当前模式：${executionMode === 'phase' ? '单 phase——每个阶段完成后暂停' : '连续——执行到质量关卡完成后暂停，提示审查'}
+💡 切换模式：/workflow execute --phase（按阶段执行）
+`);
+
+if (executionMode === 'continuous') {
   while (true) {
     // 执行当前任务
-    await executeTask(currentTask, state, tasksPath, statePath);
+    await executeTask(currentTask, state, planPath, statePath);
+
+    // 如果当前任务是质量关卡，执行完成后立即暂停，展示审查结果
+    if (currentTask.quality_gate || normalizeTaskActions(currentTask).includes('quality_review')) {
+      const reviewResult = state.execution_reviews?.[currentTask.id];
+      const specStatus = reviewResult?.spec_compliance?.status || '未执行';
+      const codeStatus = reviewResult?.code_quality?.status || '未执行';
+      const specIssues = reviewResult?.spec_compliance?.issues?.length || 0;
+      const codeIssues = reviewResult?.code_quality?.issues?.length || 0;
+
+      console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 质量关卡完成 — 等待用户审查
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 关卡任务：${currentTask.id} - ${currentTask.name}
+
+📋 Spec 合规审查：${specStatus} ${specIssues > 0 ? `（${specIssues} 个问题）` : ''}
+📋 代码质量审查：${codeStatus} ${codeIssues > 0 ? `（${codeIssues} 个问题）` : ''}
+      `);
+
+      const reviewChoice = await AskUserQuestion({
+        questions: [{
+          question: '请审查以上质量关卡结果：',
+          header: '质量关卡审查',
+          multiSelect: false,
+          options: [
+            { label: '审查通过，继续执行', description: '确认质量结果，继续下一批任务' },
+            { label: '需要修复问题', description: '暂停执行，先修复审查发现的问题' },
+            { label: '查看详细审查报告', description: '展示完整的审查报告后再决定' }
+          ]
+        }]
+      });
+
+      if (reviewChoice === '需要修复问题') {
+        state.status = 'paused';
+        state.continuation = {
+          strategy: 'budget-first',
+          last_decision: { action: 'pause-quality-gate', reason: 'user-review-fix-required' },
+          handoff_required: false
+        };
+        writeFile(statePath, JSON.stringify(state, null, 2));
+        console.log('⏸️ 已暂停。修复问题后执行 /workflow execute 继续。');
+        return;
+      }
+
+      if (reviewChoice === '查看详细审查报告') {
+        // 展示完整戺查报告
+        displayFullReviewReport(state.execution_reviews[currentTask.id]);
+        // 再次询问
+        continue; // 回到循环头重新展示选项
+      }
+
+      // 用户确认通过，继续执行
+    }
 
     // 查找下一个任务
-    const nextTaskId = findNextTask(tasksContent, state.progress);
+    const nextTaskId = findNextTask(planContent, state.progress);
     if (!nextTaskId) {
-      completeWorkflow(state, statePath, tasksPath);
+      completeWorkflow(state, statePath, planPath);
       return;
     }
 
     // 提取下一个任务（V2 优先）
-    const nextTask = extractCurrentTaskV2(tasksContent, nextTaskId);
+    const nextTask = extractCurrentTaskV2(planContent, nextTaskId);
     if (!nextTask) break;
-
-    // 检查是否为质量关卡
-    if (nextTask.quality_gate) {
-      console.log(`
-✅ 已执行到质量关卡
-
-📍 下一个任务：${nextTask.id} - ${nextTask.name}
-🔍 质量关卡：需要代码审查
-
-💡 继续执行：/workflow execute
-      `);
-      break;
-    }
 
     // 检查是否为 git_commit 且需要暂停
     if (normalizeTaskActions(nextTask).includes('git_commit') && pauseBeforeCommit) {
@@ -179,7 +142,83 @@ if (executionMode === 'quality_gate') {
 
 ---
 
-### 4. 重试模式（--retry）
+### 2. 单 phase 模式（phase）— 可选
+
+**触发方式**：
+- 命令行：`/workflow execute --phase`
+- 自然语言：`/workflow execute 单阶段` / `/workflow execute 下一阶段`
+
+**行为**：
+- 连续执行同一治理 phase 内的任务
+- 在 phase 边界变化时暂停
+- 遇到质量关卡时，同样执行质量关卡并暂停提示用户审查
+- 显示阶段完成摘要
+
+**适用场景**：
+- 希望在每个阶段结束后手动检查
+- 调试工作流或学习执行过程
+- 需要精细控制的场景
+
+**实现**：
+```typescript
+if (executionMode === 'phase') {
+  const currentPhase = currentTask.phase;
+
+  while (true) {
+    // 执行当前任务
+    await executeTask(currentTask, state, planPath, statePath);
+
+    // 如果当前任务是质量关卡，执行完成后暂停提示用户审查
+    if (currentTask.quality_gate || normalizeTaskActions(currentTask).includes('quality_review')) {
+      const reviewResult = state.execution_reviews?.[currentTask.id];
+      console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 质量关卡完成 — 等待用户审查
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 Spec 合规：${reviewResult?.spec_compliance?.status || '未执行'}
+📍 代码质量：${reviewResult?.code_quality?.status || '未执行'}
+
+💡 审查后执行 /workflow execute 继续
+      `);
+      break; // phase 模式在质量关卡后直接暂停
+    }
+
+    // 查找下一个任务
+    const nextTaskId = findNextTask(planContent, state.progress);
+    if (!nextTaskId) {
+      completeWorkflow(state, statePath, planPath);
+      return;
+    }
+
+    // 提取下一个任务（V2 优先）
+    const nextTask = extractCurrentTaskV2(planContent, nextTaskId);
+    if (!nextTask) break;
+
+    // 检查阶段是否变化
+    if (nextTask.phase !== currentPhase) {
+      console.log(`
+✅ 阶段 "${currentPhase}" 完成
+
+📍 下一阶段：${nextTask.phase}
+📍 下一个任务：${nextTask.id} - ${nextTask.name}
+
+💡 继续执行：/workflow execute
+💡 切换为连续模式：/workflow execute（无参数）
+      `);
+      break;
+    }
+
+    // 更新当前任务
+    state.current_tasks = [nextTaskId];
+    Object.assign(currentTask, nextTask);
+  }
+}
+```
+
+---
+
+### 3. 重试模式（--retry）
 
 **触发方式**：
 - 命令行：`/workflow execute --retry`
@@ -213,9 +252,9 @@ async function executeRetryMode() {
     return;
   }
 
-  const tasksContent = readFile(tasksPath);
+  const planContent = readFile(planPath);
   const activeTaskId = state.current_tasks?.[0];
-  const currentTask = activeTaskId ? extractCurrentTaskV2(tasksContent, activeTaskId) : null;
+  const currentTask = activeTaskId ? extractCurrentTaskV2(planContent, activeTaskId) : null;
 
   if (!currentTask) {
     console.log(`❌ 无法找到任务 ${activeTaskId}`);
@@ -276,7 +315,7 @@ async function executeRetryMode() {
   writeFile(statePath, JSON.stringify(state, null, 2));
 
   try {
-    await executeTask(currentTask, state, tasksPath, statePath);
+    await executeTask(currentTask, state, planPath, statePath);
     console.log(`✅ 重试成功：任务 ${currentTask.id} 已完成`);
     runtime.retry_count = 0; // 成功后重置
     runtime.debugging_phases_completed = [];
@@ -349,7 +388,7 @@ Phase 4：实施修复
 
 ---
 
-### 5. 跳过模式（--skip）
+### 4. 跳过模式（--skip）
 
 **触发方式**：
 - 命令行：`/workflow execute --skip`
@@ -375,9 +414,9 @@ Phase 4：实施修复
 async function executeSkipMode() {
   // 读取状态
   const state = JSON.parse(readFile(statePath));
-  const tasksContent = readFile(tasksPath);
+  const planContent = readFile(planPath);
   const activeTaskId = state.current_tasks?.[0];
-  const currentTask = activeTaskId ? extractCurrentTaskV2(tasksContent, activeTaskId) : null;
+  const currentTask = activeTaskId ? extractCurrentTaskV2(planContent, activeTaskId) : null;
 
   if (!currentTask) {
     console.log(`❌ 无法找到任务 ${activeTaskId}`);
@@ -414,14 +453,14 @@ async function executeSkipMode() {
   // 标记为 skipped
   addUnique(state.progress.skipped, currentTask.id);
 
-  // 更新 tasks.md
-  const updatedContent = updateTaskStatus(tasksContent, currentTask.id, 'skipped');
-  writeFile(tasksPath, updatedContent);
+  // 更新 plan.md
+  const updatedContent = updateTaskStatus(planContent, currentTask.id, 'skipped');
+  writeFile(planPath, updatedContent);
 
   // 查找下一个任务
-  const nextTaskId = findNextTask(tasksContent, state.progress);
+  const nextTaskId = findNextTask(planContent, state.progress);
   if (!nextTaskId) {
-    completeWorkflow(state, statePath, tasksPath);
+    completeWorkflow(state, statePath, planPath);
     return;
   }
 
@@ -533,12 +572,12 @@ if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.dangerThr
 1. **硬停止 / 验证阻断 / review budget 耗尽**
 2. **ContextGovernor 预算判断**
 3. **parallel-boundaries 调度机会**
-4. **命令行参数**：`/workflow execute step`
+4. **命令行参数**：`/workflow execute --phase`
 5. **state 配置**：`state.execution_mode`
-6. **默认值**：`phase`
+6. **默认值**：`continuous`
 
 ```typescript
-const executionMode = executionModeOverride || state.execution_mode || 'phase';
+const executionMode = executionModeOverride || state.execution_mode || 'continuous';
 const decision = evaluateContinuationDecision(...);
 
 if (decision.action !== 'continue-direct') {
@@ -601,9 +640,9 @@ function detectSubagentRouting(env: Record<string, string>): SubagentRouting {
 const routing = detectSubagentRouting(process.env);
 
 if (useSubagent && routing.supported) {
-  await executeTaskInSubagent(currentTask, state, tasksPath, statePath, routing);
+  await executeTaskInSubagent(currentTask, state, planPath, statePath, routing);
 } else {
-  await executeTaskDirect(currentTask, state, tasksPath, statePath);
+  await executeTaskDirect(currentTask, state, planPath, statePath);
 }
 ```
 
@@ -624,8 +663,8 @@ if (useSubagent && routing.supported) {
 
 ```typescript
 if (useSubagent) {
-  const allTasks = parseAllTasks(tasksContent);
-  const parallelGroups = findParallelGroup(tasksContent, state.progress, allTasks);
+  const allTasks = parseAllTasks(planContent);
+  const parallelGroups = findParallelGroup(planContent, state.progress, allTasks);
 
   if (parallelGroups.length > 0) {
     const group = parallelGroups[0];
@@ -651,7 +690,7 @@ if (useSubagent) {
     const handles: string[] = [];
     for (const taskId of group) {
       const task = allTasks.find(t => t.id === taskId)!;
-      const handle = await executeTaskInSubagent(task, state, tasksPath, statePath, {
+      const handle = await executeTaskInSubagent(task, state, planPath, statePath, {
         routing,
         run_in_background: true
       });
@@ -694,7 +733,7 @@ if (useSubagent) {
         // 降级为顺序执行
         for (const taskId of group) {
           const task = allTasks.find(t => t.id === taskId)!;
-          await executeTaskInSubagent(task, state, tasksPath, statePath);
+          await executeTaskInSubagent(task, state, planPath, statePath);
         }
       } else {
         updateParallelGroupStatus(state, groupId, 'completed');
@@ -706,13 +745,13 @@ if (useSubagent) {
 
     // 5. 同步 current_tasks
     state.current_tasks = [];
-    const nextRunnableTaskId = findNextTask(tasksContent, state.progress);
+    const nextRunnableTaskId = findNextTask(planContent, state.progress);
     if (nextRunnableTaskId) {
       state.current_tasks = [nextRunnableTaskId];
     }
   } else {
     // 无可并行任务，顺序执行
-    await executeTaskInSubagent(currentTask, state, tasksPath, statePath);
+    await executeTaskInSubagent(currentTask, state, planPath, statePath);
   }
 }
 ```
@@ -734,7 +773,7 @@ if (useSubagent) {
 executeTask() → Step 6.5（验证铁律）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
 ```
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 5 种执行模式（step/phase/quality_gate/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
+**适用范围**：直接模式和 Subagent 模式均适用。所有 4 种执行模式（continuous/phase/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
 
 ---
 
@@ -797,7 +836,7 @@ interface VerificationEvidence {
 | "Lint 干净" | Linter 输出：0 errors | 部分检查、推测 |
 | "构建成功" | 构建命令：exit 0 | Linter 通过 ≠ 构建通过 |
 | "Bug 已修复" | 原始症状测试通过 | "代码改了" |
-| "需求已满足" | 逐项对照 Brief 验收标准 | 测试通过 ≠ 需求满足 |
+| "需求已满足" | 逐项对照 Spec 验收标准 | 测试通过 ≠ 需求满足 |
 
 #### 红旗清单
 
@@ -883,7 +922,7 @@ interface VerificationEvidence {
 | 结果 | 处理 |
 |------|------|
 | 全部覆盖 | 继续 Step 7 |
-| 存在偏差 | 输出偏差列表，追加补充任务到 tasks.md，当前任务仍标记 completed |
+| 存在偏差 | 输出偏差列表，追加补充任务到 plan.md，当前任务仍标记 completed |
 | 严重偏差（缺失核心功能） | 标记 `failed`，提示用户 |
 
 ---
@@ -894,7 +933,7 @@ interface VerificationEvidence {
 
 **适用条件**（全部满足才触发）：
 1. 任务 `phase` 为 `implement`、`ui-layout`、`ui-display`、`ui-form`、`ui-integrate`
-2. 项目存在 Brief（`.claude/acceptance/{name}-brief.md`，Phase 0.6 产物）
+2. 项目存在 Spec（`.claude/specs/{name}.md`，Phase 1 产物）
 3. 项目有可执行的测试命令（`project-config.json` 的 `testCommand`）
 4. 任务 actions 包含 `create_file` 或 `edit_file`
 5. 文件类型为可测试代码（排除豁免列表）

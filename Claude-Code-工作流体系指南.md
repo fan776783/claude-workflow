@@ -2,8 +2,8 @@
 
 > 以 `workflow` skill 为核心的 AI 编码工作流说明文档
 
-**文档版本**：v10.3.0
-**最后更新**：2026-03-26
+**文档版本**：v11.0.0  
+**最后更新**：2026-03-29  
 **适用仓库**：`@justinfan/agent-workflow` v4.0.0
 
 ---
@@ -15,20 +15,26 @@
 - [3. workflow skill 总览](#3-workflow-skill-总览)
 - [4. workflow 完整流程](#4-workflow-完整流程)
 - [5. `/workflow start` 规划流程详解](#5-workflow-start-规划流程详解)
-- [6. 规划侧 Review Loop 与治理关口](#6-规划侧-review-loop-与治理关口)
-- [7. `/workflow execute` 执行流程详解](#7-workflow-execute-执行流程详解)
-- [8. 运行中的辅助命令](#8-运行中的辅助命令)
-- [9. 工作流产物与状态文件](#9-工作流产物与状态文件)
-- [10. 其他 skills 的核心功能](#10-其他-skills-的核心功能)
-- [11. 推荐使用方式](#11-推荐使用方式)
-- [12. 常见问题](#12-常见问题)
+- [6. `/workflow execute` 执行流程详解](#6-workflow-execute-执行流程详解)
+- [7. 运行中的辅助命令](#7-运行中的辅助命令)
+- [8. 工作流产物与状态文件](#8-工作流产物与状态文件)
+- [9. 其他 skills 的核心功能](#9-其他-skills-的核心功能)
+- [10. 推荐使用方式](#10-推荐使用方式)
+- [11. 常见问题](#11-常见问题)
 - [附录：命令速查](#附录命令速查)
 
 ---
 
 ## 1. 文档定位
 
-这份文档以 `workflow` skill 为重点，说明整个工作流体系中最核心、最推荐的使用方式：先通过 `workflow` 完成需求理解、需求追溯建模、规格沉淀、计划生成与任务执行，再按需接入其他专项 skill 完成 UI 还原、代码审查、调试、测试或批量缺陷处理。
+这份文档说明当前仓库中的 `workflow` 主线能力，以及它与其他专项 skill 的配合方式。
+
+当前版本的核心目标不是堆叠更多中间文档，而是把需求稳定压缩成两层可消费规划工件：
+
+- `spec.md`：统一承载范围、设计、约束、验收标准与实施切片
+- `plan.md`：可直接执行的原子步骤、文件清单和验证命令
+
+之后再进入执行层，由验证铁律、Spec 合规检查、两阶段代码审查和 `ContextGovernor` 一起控制执行质量与上下文预算。
 
 如果只记一个入口，请记住下面这一组命令：
 
@@ -42,66 +48,49 @@
 
 其中：
 
-- `start` 负责从需求进入规划。
-- `execute` 负责按编排后的任务继续推进。
-- `status` 负责查看当前进度和阻塞点。
-- `delta` 负责处理需求变更、PRD 更新和 API 变更。
-- `archive` 负责在完成后归档工作流。
+- `start` 负责从需求进入规划，并生成 `spec.md` / `plan.md`
+- `execute` 负责按计划推进执行和验证
+- `status` 负责查看当前进度、阻塞点和下一步建议
+- `delta` 负责处理需求变更、PRD 更新和 API 变更
+- `archive` 负责在完成后归档工作流
 
-整个体系的定位可以概括为一句话：`workflow` 负责主线，其他 skill 负责专项增强。
+一句话概括：`workflow` 负责主线，其他 skill 负责专项增强。
 
 ---
 
 ## 2. 安装与同步
 
-本指南不再以 npm 全局安装为主，而是改为推荐直接克隆仓库后执行同步命令。
+### 2.1 推荐安装方式
 
-### 2.1 克隆项目
+当前推荐直接克隆仓库后执行同步命令：
 
 ```bash
 git clone <仓库地址> claude-workflow
 cd claude-workflow
 npm install
-```
-
-### 2.2 执行同步
-
-首次安装推荐直接运行：
-
-```bash
 npm run sync
 ```
 
-如果需要把 skill 同步到指定 Agent，可追加参数：
+常用变体：
 
 ```bash
 npm run sync -- -a claude-code,cursor
-```
-
-如果需要项目级安装：
-
-```bash
 npm run sync -- --project
-```
-
-如果需要无交互同步到所有已检测到的 Agent：
-
-```bash
 npm run sync -- -y
 ```
 
-### 2.3 同步后你会得到什么
+### 2.2 同步动作会做什么
 
-同步动作会完成以下事情：
+同步会完成以下事情：
 
-1. 将模板内容写入 canonical 位置。
-2. 为不同 AI 编码工具建立受管挂载。
-3. 将 `skills` 逐个挂载到对应工具目录。
-4. 将 `commands`、`prompts`、`utils`、`specs` 作为目录级资源提供给工具使用。
+1. 将模板内容写入 canonical 位置
+2. 为不同 AI 编码工具建立受管挂载
+3. 将 `skills` 逐个挂载到对应工具目录
+4. 将 `commands`、`prompts`、`utils`、`specs` 作为目录级资源提供给工具使用
 
-### 2.4 常用本地 CLI 调用方式
+### 2.3 常用本地 CLI 调用方式
 
-如果你是在仓库目录中本地使用 CLI，可以直接执行：
+如果你是在仓库目录中直接使用本地 CLI，可以执行：
 
 ```bash
 node bin/agent-workflow.js status
@@ -109,9 +98,7 @@ node bin/agent-workflow.js doctor
 node bin/agent-workflow.js sync -a claude-code,cursor
 ```
 
-### 2.5 推荐初始化顺序
-
-完成同步后，推荐按下面顺序开始：
+### 2.4 推荐初始化顺序
 
 ```bash
 /scan
@@ -119,7 +106,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 /workflow execute
 ```
 
-其中 `/scan` 用于生成项目配置，能让后续 `workflow`、`bug-batch`、`figma-ui` 等 skill 获得稳定的项目信息。
+其中 `/scan` 会生成 `.claude/config/project-config.json`，为 `workflow`、`bug-batch`、`figma-ui` 等 skill 提供稳定的项目上下文。
 
 ---
 
@@ -127,42 +114,30 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 `workflow` 是整个体系的主控 skill，负责把“一个模糊需求”变成“可执行、可追踪、可恢复”的工作流。
 
-它不是简单的任务清单生成器，而是一个包含以下能力的结构化执行系统：
+### 3.1 当前规划模型
 
-- 需求分析与上下文检索
-- 交互式需求澄清
-- Requirement Baseline 建模
-- Acceptance & Implementation Brief 生成
-- 技术设计、Spec 与 Plan 沉淀
-- 以 governance slices 为中间层的任务编排
-- budget-first 的执行治理与 ContextGovernor 决策
-- 质量关卡、验证铁律与追溯守卫
-- 状态持久化与恢复
-- 增量变更处理
-- 完成归档
-
-### 3.1 workflow 的核心原则
-
-`workflow` 当前版本不只是强调“把文档写完整”，而是强调 **Traceability-first**，也就是：原始需求必须在整个流程里持续可追溯。
-
-这意味着：
-
-- 长 PRD 不会直接被下游文档自由概括，而是会先归一化为 Requirement Baseline。
-- 每条需求都需要明确范围状态，例如 `in_scope`、`partially_in_scope`、`out_of_scope`、`blocked`。
-- 容易丢失的细节约束，例如按钮文案、字段名、表格列、命名规则、条件分支、数量限制、显隐规则，都需要被显式保留。
-- `brief`、`tech-design`、`spec`、`plan`、`tasks` 都需要消费 baseline，而不是各自重新摘要原始 PRD。
-- Spec Review 与 Plan Review 现在不仅检查结构完整性，也检查追溯完整性与关键约束保留情况。
-
-### 3.2 workflow 的六层规划工件
+当前版本采用三层工件模型：
 
 | 层级 | 产物 | 作用 |
 |------|------|------|
-| 基线层 | `requirement-baseline.md` | 定义 requirement IDs、scope status、critical constraints，是需求真相源 |
-| Brief 层 | `brief.md` | 将 baseline 编译为按模块组织的验收标准、测试模板与实现提示 |
-| 设计层 | `tech-design.md` | 定义架构决策、边界、风险、技术约束，并体现 traceability |
-| 规范层 | `spec.md` | 定义最终范围、行为、模块与验收映射 |
-| 计划层 | `plan.md` | 定义 governance slices、实施顺序、原子步骤、验证要求 |
-| 编排层 | `tasks.md` | 将 governance slices 编译为运行时任务、依赖推进、质量关卡，并保留 requirement 映射 |
+| 规范层 | `spec.md` | 统一承载需求范围、关键约束、用户行为、架构设计、验收标准与实施切片 |
+| 计划层 | `plan.md` | 定义文件结构、原子任务、验证命令、Spec 章节映射与执行顺序 |
+| 执行层 | 代码与验证证据 | 按计划实施，并经过验证、Spec 合规检查与两阶段审查 |
+
+这意味着旧版的多文档链路（如 `baseline / brief / tech-design / spec / plan`）已经被收敛为更短、更硬约束的规划链路：
+
+- 规划阶段以 `spec.md` 作为唯一权威规范输入
+- `plan.md` 必须是可直接执行的实施计划，禁止占位式描述
+- 执行阶段以验证证据和审查结果控制状态流转
+
+### 3.2 workflow 的核心原则
+
+- **Spec-first**：所有计划与执行都以 `spec.md` 为唯一权威上游
+- **Plan must be executable**：`plan.md` 中每步都要可执行，禁止 `TODO` / `TBD` / “后续补充”
+- **Verification Iron Law**：没有新鲜验证证据，不得标记任务完成
+- **Budget-first governance**：`execute` 先由 `ContextGovernor` 判断是否继续、暂停、并行边界或 handoff
+- **Review after execution**：执行产出先验证，再做自审查、Spec 合规和质量关卡两阶段审查
+- **Recoverable workflow**：状态保存在磁盘上，允许中断恢复和增量更新
 
 ### 3.3 workflow 的核心命令
 
@@ -194,416 +169,290 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - 新功能开发
 - 复杂重构
 - 多阶段交付
-- 需要明确验收标准的需求
-- 需要中断后继续推进的任务
-- 存在 PRD 更新或 API 变化的增量需求
-- 需求较长、约束较多、容易漏项的 PRD 场景
+- 需要明确验收标准和用户确认的需求
+- 需要中断恢复、handoff 或增量变更的任务
+- 同阶段存在 2+ 独立问题域，且可能需要并行子 Agent 分派的任务
 
-如果问题只是单个小 Bug、单个页面视觉还原或一次性代码审查，不一定要先进入 `workflow` 主线，可以直接使用对应专项 skill。
+如果只是单个小 Bug、单个页面视觉还原或一次性代码审查，不一定要先进入 `workflow` 主线，可以直接使用对应专项 skill。
 
 ---
 
 ## 4. workflow 完整流程
 
-下面这张图展示了从准备项目到完成归档的完整主线。
-
 ```mermaid
 flowchart TD
     A["准备项目"] --> B["/scan 生成项目配置"]
     B --> C["/workflow start 输入需求"]
-    C --> D["Phase 0 代码分析"]
-    D --> E{"是否存在歧义或缺失"}
+    C --> D["Phase 0 代码分析 + Git 检查"]
+    D --> E{"是否需要澄清需求"}
     E -->|是| F["Phase 0.2 需求讨论"]
-    E -->|否| G["Phase 0.5 需求结构化"]
+    E -->|否| G["Phase 0.3 UX 设计审批或跳过"]
     F --> G
-    G --> H["Phase 0.55 Requirement Baseline"]
-    H --> I["Phase 0.6 生成 Brief"]
-    I --> J["Phase 1 生成 tech-design"]
-    J --> K["Phase 1.2 Spec Review + Traceability Review"]
-    K --> L["Phase 1.3 生成 spec"]
-    L --> M["Phase 1.4 用户确认 Spec"]
-    M --> N["Phase 1.5 Intent Review"]
-    N --> O["Phase 2 生成 plan"]
-    O --> P["Phase 2.5 Plan Review"]
-    P --> Q["Phase 3 编译 tasks"]
-    Q --> R["规划完成 Hard Stop"]
-    R --> S["/workflow execute"]
-    S --> T["读取 tasks.md 与 workflow-state.json"]
-    T --> U["ContextGovernor 判断 projected budget / 治理边界 / 并行边界机会"]
-    U --> V["continue-direct 或 continue-parallel-boundaries"]
-    V --> W["完成验证 Step 6.5"]
-    W --> X["自审查 Step 6.6"]
-    X --> Y{"是否为质量关卡任务"}
-    Y -->|是| Z["Stage 1 规格合规 → Stage 2 代码质量"]
-    Y -->|否| AA["Step 6.7 规格合规检查"]
-    Z --> AB["更新任务状态与进度"]
-    AA --> AB
-    AB --> AC{"继续 / 暂停 / handoff"}
-    AC -->|继续| V
-    AC -->|暂停| AD["等待下次 execute"]
-    AC -->|handoff| AE["生成 continuation artifact 并新开会话恢复"]
+    G --> H["Phase 1 生成 spec.md"]
+    H --> I["Phase 1.1 用户确认 Spec"]
+    I --> J["Phase 2 生成 plan.md + Self-Review"]
+    J --> K["规划完成 Hard Stop"]
+    K --> L["/workflow execute"]
+    L --> M["读取 plan.md 与 workflow-state.json"]
+    M --> N["ContextGovernor 评估 projected budget / 治理边界 / 并行边界机会"]
+    N --> O["执行任务动作"]
+    O --> P["Step 6.5 验证铁律"]
+    P --> Q["Step 6.6 自审查"]
+    Q --> R["Step 6.7 Spec 合规检查"]
+    R --> S{"是否为质量关卡任务"}
+    S -->|是| T["Stage 1 Spec 合规 → Stage 2 代码质量"]
+    S -->|否| U["更新任务状态与进度"]
+    T --> U
+    U --> V{"继续 / 暂停 / handoff / 归档"}
+    V -->|继续| N
+    V -->|暂停| W["等待下次 execute"]
+    V -->|handoff| X["生成 continuation artifact"]
+    V -->|完成| Y["/workflow archive"]
 ```
 
 ### 4.1 这条主线的关键特点
 
-一是 `start` 不只是“列计划”，而是会生成多个中间工件。
-二是 `Requirement Baseline` 成为下游所有文档共享的需求真相源，`Brief` 成为统一的执行派生视图。
-三是 planning side 已显式区分 `machine_loop`、`human_gate` 与 `conditional_human_gate` 三类治理节点。
-四是 `quality_review` 不再只是执行期审查动作，而是 shared review loop contract 的 execution adapter。
-五是 `execute` 不只是“执行下一个待办”，而是由 `ContextGovernor` 先判断 budget、治理边界与并行边界机会，再结合执行模式、质量门控、失败重试和追溯守卫推进。
-六是 planning side 已开始通过 governance slices 把 phase 从“微步骤边界”提升为“治理边界”。
-七是整个过程可中断、可恢复、可增量更新，不依赖单次对话记忆。
+1. `start` 不只是列清单，而是先做代码分析、需求讨论、UX 设计审批，再生成 `spec.md` 和 `plan.md`
+2. `spec.md` 是唯一权威规范，负责承接范围、设计、约束与验收标准
+3. `plan.md` 是可执行计划，必须具备文件结构、原子步骤和验证命令
+4. `execute` 先做治理判断，再做执行，不允许绕过 `ContextGovernor`
+5. 质量关卡任务通过两阶段审查控制风险：先看是否符合 Spec，再看代码质量
+6. 工作流状态持久化在磁盘中，允许暂停、恢复、增量变更与归档
 
 ---
 
 ## 5. `/workflow start` 规划流程详解
 
-`/workflow start` 的目标，是把原始需求编译为后续可执行的任务体系。
+### 5.1 Step 0：解析输入
 
-### 5.1 典型输入形式
+`/workflow start` 支持三类常见输入：
 
-```bash
-/workflow start "实现多租户权限管理"
-/workflow start docs/prd.md
-/workflow start --no-discuss docs/prd.md
-/workflow start -f "重新生成已有工作流"
-```
+- 内联需求：`/workflow start "实现用户认证功能"`
+- PRD 文件：`/workflow start docs/prd.md`
+- 强制覆盖：`/workflow start -f "需求描述"`
 
-### 5.2 start 阶段总览
+可选标志：
 
-| 阶段 | 名称 | 作用 | 主要输出 | 是否可能停顿 |
-|------|------|------|----------|--------------|
-| Phase 0 | 代码分析 | 理解现有代码、依赖、约束与风险面 | 上下文分析结果 | 否 |
-| Phase 0.2 | 需求讨论 | 澄清歧义、确认互斥方案、补足关键缺失信息 | discussion artifact | 可能 |
-| Phase 0.5 | 需求结构化 | 将自然语言整理为结构化 requirement items 草案 | requirement items 草案 | 否 |
-| Phase 0.55 | Requirement Baseline | 生成需求真相源、scope 状态与关键约束基线 | `requirement-baseline.md` | 否 |
-| Phase 0.6 | Acceptance & Implementation Brief | 将 baseline 编译为面向执行的验收与实现摘要 | `brief.md` | 否 |
-| Phase 1 | 技术设计 | 输出架构边界、模块拆分、风险与技术约束 | `tech-design.md` | 视情况而定 |
-| Phase 1.2 | Spec Review + Traceability Review | 检查设计质量、需求覆盖率、追溯链路与关键约束保留情况 | 审查结论 | 是 |
-| Phase 1.3 | Spec Generation | 生成正式规格文档，沉淀范围、行为与验收映射 | `spec.md` | 否 |
-| Phase 1.4 | User Spec Review | 用户确认范围、模块行为与验收映射 | spec review result | 是 |
-| Phase 1.5 | Intent Review | 再次确认变更方向、实施意图与需求理解没有偏航 | intent review result | 是 |
-| Phase 2 | Plan Generation | 基于 baseline / brief / spec 生成实施计划 | `plan.md` | 否 |
-| Phase 2.5 | Plan Review | 审查计划粒度、覆盖率、依赖关系与可执行性 | 审查结论 | 是 |
-| Phase 3 | Task Compilation | 编译运行时任务、依赖推进关系与质量关卡 | `tasks.md` | 是 |
+- `--no-discuss`：跳过需求讨论阶段
 
-### 5.3 Phase 0：代码分析
+### 5.2 Step 1：项目配置检查
 
-这一阶段会围绕当前需求做代码库检索，目标不是立刻给方案，而是识别：
+启动前必须先有 `.claude/config/project-config.json`。如果缺少，先执行 `/scan`。
 
-- 相关模块在哪里
-- 现有实现模式是什么
-- 依赖和约束有哪些
-- 哪些地方会成为风险点
+### 5.3 Step 2：检测现有工作流
 
-如果项目还没执行 `/scan`，通常应先完成扫描，以便 `workflow` 获得更稳定的项目上下文。
+系统会检查当前项目是否已存在未归档工作流，避免意外覆盖。
 
-### 5.4 Phase 0.2：需求讨论
+### 5.4 Phase 0：代码分析（强制）
 
-当系统识别到需求存在模糊点、缺失项或互斥实现路径时，会进入交互式需求讨论。
+目标是在设计前充分理解代码库，输出：
 
-这一阶段的特点是：
+- 相关现有实现
+- 可复用模块与工具
+- 技术约束与继承模式
+- 依赖关系与风险点
+- Git 状态与可执行上下文
 
-- 一次只澄清一个关键问题
-- 优先给出可选择的方案
-- 讨论结果不会覆盖原始需求，而是单独持久化为工件
-- 可以通过 `--no-discuss` 显式跳过
+### 5.5 Phase 0.2：需求讨论（条件执行）
 
-适合在下面几类场景启用：
+当需求存在模糊点、缺失项或隐含假设时触发。它会：
 
-- 需求只说了目标，没有说边界
-- 存在多个实现路径，需要用户确认
-- 需求与现有代码约束之间有明显冲突
+- 逐个澄清问题，优先用选择题
+- 识别互斥实现路径并给出方案选项
+- 将结果保存为讨论工件供后续阶段消费
 
-### 5.5 Phase 0.5：需求结构化
+### 5.6 Phase 0.3：UX 设计审批（条件执行，HARD-GATE）
 
-在需求讨论之后，系统会把自然语言需求转成更稳定的 requirement items 草案。这个阶段的重点是从原始 PRD 中拆出真正可追踪的需求单元，而不是只保留抽象摘要。
+仅在检测到前端 / GUI 相关需求时触发。该阶段会：
 
-这一层通常会开始显式区分：
+- 生成用户操作流程图
+- 生成页面分层设计（L0 / L1 / L2）
+- 探测本地工作目录与设计落点
+- 在用户批准前阻止进入 Spec 生成
 
-- 功能要求
-- 交互要求
-- 展示要求
-- 数据要求
-- 外部依赖
-- 约束与例外情况
+### 5.7 Phase 1：Spec 生成
 
-### 5.6 Phase 0.55：Requirement Baseline
+输出 `.claude/specs/{task-name}.md`。
 
-这是本轮最新变更中最重要的升级点之一。
+当前 `spec.md` 统一承载以下内容：
 
-在需求结构化之后，`workflow` 会自动生成 Requirement Baseline，用于把需求正式冻结成后续工件共享的真相源。
+1. 背景与目标
+2. 范围定义
+3. 不可协商约束
+4. 用户可见行为
+5. 架构与模块设计
+6. 文件结构
+7. 验收标准
+8. 实施切片
+9. 待确认问题
 
-它通常包含以下信息：
+生成后会执行 Self-Review，重点检查：
 
-- Requirement IDs：每条需求的稳定编号
-- Scope Classification：`in_scope / partially_in_scope / out_of_scope / blocked`
-- Critical Constraints：容易在后续文档中丢失的细节约束
-- Ownership：frontend / backend / shared / infra 的归属
-- Traceability Source：供 `brief`、`tech-design`、`spec`、`plan`、`tasks` 统一消费的来源
+- 需求覆盖是否完整
+- 是否存在占位符
+- 架构与约束是否一致
+- 文件和验收项是否可落地
 
-可以把它理解为：从这一层开始，后续所有文档都不应该再“自由发挥式理解 PRD”，而应该显式引用 baseline。
+### 5.8 Phase 1.1：User Spec Review（Hard Stop）
 
-### 5.7 Phase 0.6：Acceptance & Implementation Brief
+这是用户主权确认点。用户可以：
 
-这一阶段不再拆成“验收清单”和“实现指南”两份独立文档，而是统一生成一个 `brief.md`，把两者整合为同一份面向执行的开发派生视图。
+1. 确认 Spec，进入 Plan 生成
+2. 要求修改 Spec
+3. 拆分范围后重新规划
 
-Brief 的核心价值是：按模块组织 requirement coverage，并同时提供验收标准、测试模板和实现提示。典型内容包括：
+### 5.9 Phase 2：Plan 生成
 
-- requirement-to-brief mapping
-- 按模块聚合的 `relatedRequirementIds`
-- 每个模块必须保留的 constraints
-- 验收标准与 checks
-- unit / integration / e2e 测试模板
-- implementation hints 与质量门禁
-- partially covered / uncovered requirements 标记
+输出 `.claude/plans/{task-name}.md`。
 
-这样做的结果是，后续 `tech-design`、`spec`、`plan` 和执行阶段都消费同一份 Brief，而不是在“用户视角文档”和“开发者视角文档”之间来回切换。
+当前 `plan.md` 的硬约束：
 
-### 5.8 Phase 1 到 Phase 3：从设计到任务编排
+- File Structure First
+- Bite-Sized Tasks（每步 2-5 分钟）
+- 完整代码和验证命令
+- 禁止 `TODO` / `TBD` / 模糊指令
+- 每步标注对应的 Spec 章节
+- 使用可解析的任务结构，便于执行态消费
 
-这是 `workflow` 真正把需求编译为任务系统的核心部分：
+### 5.10 规划完成 Hard Stop
 
-1. 先生成 `tech-design.md`，明确边界、模块、风险和关键决策，并体现 traceability。  
-2. 再通过 `Spec Review + Traceability Review` 检查结构完整性、需求覆盖、scope decision 显式性与关键约束保留情况。  
-3. 然后生成用户友好的 `spec.md`，并进入用户确认。  
-4. 接着在 `intent review` 中确认当前变更方向没有偏离。  
-5. 再基于 `baseline + brief + spec` 生成 `plan.md`。  
-6. 最后通过 `plan review` 和任务编译得到 `tasks.md`，其中顶层任务优先按 governance slices 聚合，原子步骤继续保留在 `steps[]` 中，并将 requirement IDs、约束信息和质量关卡一起带入运行时任务。
-
-### 5.9 start 阶段的几个 Hard Stop
-
-`workflow` 在规划期间不会一路静默到底，而是会在关键节点停下来等待确认。当前主线里最关键的 Hard Stop 包括：
-
-- Phase 1.4：用户确认 Spec
-- Phase 1.5：Intent Review（仅命中条件时进入人工确认）
-- Phase 3 完成后：规划完成 Hard Stop
-
-这样做的目的，是防止需求偏差、范围漂移和任务拆分问题在执行阶段才暴露出来。
+`start` 完成后不会自动执行，而是停在规划完成节点，等待用户审查后运行 `/workflow execute`。
 
 ---
 
-## 6. 规划侧 Review Loop 与治理关口
+## 6. `/workflow execute` 执行流程详解
 
-本次版本更新后，`workflow` 的 planning side 不再把所有审查节点都视为同一种“review”。而是显式区分为三类：
+### 6.1 执行模式
 
-| 节点 | 类型 | 作用 | 状态落点 |
-|------|------|------|----------|
-| Phase 1.2 Spec / Traceability Review | `machine_loop` | 在预算内执行 review → revise → re-review，收敛设计质量与追溯完整性 | `review_status.spec_review` / `review_status.traceability_review` |
-| Phase 1.4 User Spec Review | `human_gate` | 由用户确认范围、模块边界和方向主权，不参与自动收敛 | `review_status.user_spec_review` |
-| Phase 1.5 Intent Review | `conditional_human_gate` | 先执行机器一致性检查，只有命中风险条件时才进入人工关口 | `review_status.intent_review` |
-| Phase 2.5 Plan Review | `machine_loop` | 在预算内循环修订计划，直到通过或耗尽预算 | `review_status.plan_review` |
+`execute` 的语义模式包括：
 
-### 6.1 为什么要这样拆分
+| 模式 | 说明 | 典型暂停点 |
+|------|------|------------|
+| step | 单步执行 | 每个执行单元后 |
+| phase | 阶段执行（默认） | 治理边界变化时 |
+| continuous | 连续执行 | 质量关卡 / `git_commit` 前 |
+| retry | 重试失败任务 | 当前失败任务 |
+| skip | 跳过当前任务 | 当前任务 |
 
-这样拆分后，planning side 的语义变得更清晰：
+但这些只是语义暂停点，真正是否继续先由 `ContextGovernor` 决定。
 
-- `machine_loop` 负责在限定预算内自动收敛文档质量
-- `human_gate` 负责表达用户主权决策，不自动修文
-- `conditional_human_gate` 先做机器判断，只在真正高风险时打断用户
+### 6.2 Step 1：读取状态与计划
 
-### 6.2 execution side 如何对齐
+`execute` 会读取：
 
-执行阶段的 `quality_review` 也已经对齐到同一套 shared review loop contract，但它是 execution adapter，而不是 planning 节点本身。
+- `.claude/config/project-config.json`
+- `~/.claude/workflows/{projectId}/workflow-state.json`
+- 当前 `plan.md`
+- 当前 `spec.md`
 
-这意味着：
+### 6.3 Step 2：ContextGovernor 做预算与边界决策
 
-- planning side 的结果写入 `review_status.*`
-- execution side 的结果写入 `quality_gates.*`
-- 两边共享 `subject / attempt / max_attempts / last_decision / next_action / overall_passed` 等语义
+`ContextGovernor` 会先评估：
 
-### 6.3 数据契约上的关键变化
+- 当前主会话上下文占用
+- 下一执行单元的 projected 成本
+- 是否存在同阶段 2+ 可证明独立边界
+- 是否应继续顺序执行、切到并行边界、暂停或 handoff
 
-这轮变更后，文档里还同步强调了两个运行时字段：
+可出现的 continuation actions 包括：
 
-- Traceability mapping 使用 `acceptance_ids`，不再使用旧的 `brief_ids`
-- `WorkflowTaskV2` 使用 `critical_constraints`，不再使用旧的 `constraints`
+- `continue-direct`
+- `continue-parallel-boundaries`
+- `pause-budget`
+- `pause-governance`
+- `pause-quality-gate`
+- `pause-before-commit`
+- `handoff-required`
 
-这样可以保证 traceability、task compilation、quality review 与状态机文档的命名一致。
+### 6.4 Step 3：提取当前任务
 
----
+从 `plan.md` 中解析当前任务，读取：
 
-## 7. `/workflow execute` 执行流程详解
+- 任务 ID
+- 阶段
+- 文件范围
+- 依赖关系
+- 验收项
+- 动作类型
 
-`/workflow execute` 的目标，是读取当前工作流状态，定位下一批可执行任务，并先由 `ContextGovernor` 判断 projected budget、治理边界与并行边界机会，再结合执行模式、验证铁律、规格合规检查与质量关卡规则推进。
+### 6.5 Step 4：执行任务动作
 
-### 7.1 基本调用方式
+当前支持的动作包括：
 
-```bash
-/workflow execute
-/workflow execute --retry
-/workflow execute --skip
-```
+- `create_file`
+- `edit_file`
+- `run_tests`
+- `quality_review`
+- `git_commit`
 
-### 7.2 execute 的核心运行逻辑
+执行路径分两类：
 
-```mermaid
-flowchart TD
-    A["/workflow execute"] --> B["读取 workflow-state.json"]
-    B --> C["解析执行模式与当前状态"]
-    C --> D["定位当前任务与阶段"]
-    D --> E["执行任务 action"]
-    E --> F{"执行是否失败"}
-    F -->|是| G["记录失败并进入结构化调试"]
-    G --> H{"是否使用 retry / skip"}
-    H -->|retry| I["/workflow execute --retry"]
-    H -->|skip 或阻断| J["进入 Hard Stop / blocked / failed"]
-    F -->|否| K["Step 6.5 完成验证"]
-    K --> L["Step 6.6 自审查"]
-    L --> M{"是否为质量关卡任务"}
-    M -->|是| N["Stage 1 规格合规 → Stage 2 代码质量"]
-    M -->|否| O["Step 6.7 规格合规检查"]
-    N --> P["更新任务状态与进度"]
-    O --> P
-    P --> Q{"当前模式是否继续"}
-    Q -->|是| D
-    Q -->|否| R["暂停，等待下次 execute"]
-```
+- **直接模式**：在当前会话执行
+- **Subagent 模式**：单任务可直接路由到子 Agent；若同阶段存在 2+ 独立任务，则先应用 `dispatching-parallel-agents` 规则再并行执行
 
-### 7.3 执行模式
+### 6.6 Step 6.5：验证铁律
 
-`execute` 支持多种推进模式，但当前版本里 mode 已降级为**语义暂停偏好**；真正是否继续，优先由 `ContextGovernor` 决定。
+没有新鲜验证证据，不得把任务标记为完成。
 
-| 模式 | 含义 | 适合场景 |
-|------|------|----------|
-| `step` | 每个执行单元后暂停 | 需要精细控制变更节奏 |
-| `phase` | 按治理 phase 推进 | 常规开发推进，默认模式 |
-| `quality_gate` | 连续执行到下一个质量关卡或 `git_commit` 任务 | 希望先完成一段实现再集中审查 |
-| `retry` | 重试失败任务 | 修复后再次推进 |
-| `skip` | 跳过当前任务 | 明确不需要执行该任务时 |
+验证结果至少应包含：
 
-### 7.4 自然语言控制映射
+- 执行过的命令
+- 退出码
+- 输出摘要
+- 时间戳
 
-在实际对话中，常见表达会自动映射为不同模式：
+验证失败则任务进入 `failed`，不能继续向后推进。
 
-| 用户表达 | 系统理解 |
-|----------|----------|
-| “单步执行” | `step` |
-| “继续” / “下一阶段” | `phase` |
-| “连续” / “执行到质量关卡” | `quality_gate` |
-| “重试” | `retry` |
-| “跳过” | `skip` |
+### 6.7 Step 6.6：自审查
 
-### 7.5 治理 phase 与任务切片
+对代码产出任务执行一次建议性自审查，关注：
 
-运行时任务仍会带 `phase`，但 phase 的意义已经从“微实现步骤分组”改成“治理边界”。
+- 完整性
+- 正确性
+- 一致性
+- 错误处理
+- 安全性
 
-更推荐的治理 phase 示例包括：
+### 6.8 Step 6.7：Spec 合规检查
 
-| 阶段 | 说明 |
-|------|------|
-| `foundation` | 基础搭建、关键接口、核心结构落位 |
-| `feature-implementation` | 同一稳定能力切片内的实现推进 |
-| `integration` | 跨模块装配、状态连通、联调接入 |
-| `verify` | 验证、审查、质量门控 |
-| `deliver` | 交付收尾、提交准备 |
+对 `create_file` / `edit_file` 且带验收项的任务，检查当前实现是否覆盖 Spec 要求。发现偏差会输出问题列表，不自动修复。
 
-同时，当前版本引入了 `governance slices` 的理解方式：
-- Plan 先按稳定切片组织 implementation scope
-- Task Compilation 优先按切片聚合顶层任务
-- Atomic Steps 继续保留在 `steps[]`，用于追溯与验证，不直接决定 phase 粒度
+### 6.9 质量关卡：两阶段代码审查
 
-除了 phase 划分本身，当前版本还要求任务尽可能保留 `requirement_ids` 与关键约束映射，这样执行阶段才能回答“当前任务在实现哪条需求”。
+当任务为质量关卡时，会执行两阶段审查：
 
-### 7.6 验证铁律与质量关卡机制
+1. **Stage 1：Spec 合规审查** — 先检查实现是否满足规范
+2. **Stage 2：代码质量审查** — 再检查架构、可维护性、错误处理与安全性
 
-这是 `workflow execute` 最关键的质量控制环节。
+Stage 2 只有在 Stage 1 通过后才会启动。
 
-首先，Step 6.5 引入了验证铁律：**没有新鲜验证证据，不得把任务标记为 completed。** 也就是说，任务执行完成后，必须有对应的测试、命令结果或结构化验证证据，才能继续推进。
+### 6.10 Retry / Skip 模式
 
-在此基础上，Step 6.6 会执行一次非阻塞自审查，检查完整性、正确性、质量、安全性和与设计的一致性；随后进入 Step 6.7 或质量关卡分支。
+- `--retry`：对失败任务启动结构化调试协议后重试
+- `--skip`：将当前任务标记为跳过，并推进到下一个任务
 
-如果当前任务是 `quality_review` 类型，则会触发两阶段审查，并共享总预算：
+### 6.11 Handoff 与恢复
 
-| 阶段 | 重点 | 执行角色 |
-|------|------|----------|
-| Stage 1 | 规格合规、需求覆盖、关键约束对齐、验收项覆盖 | 当前主会话 |
-| Stage 2 | 代码质量、架构、测试质量、安全、可维护性 | reviewer 子 agent |
-
-两个阶段共享 **4 次总尝试预算**。只有 Stage 1 通过后，Stage 2 才能启动。
-
-审查问题通常会被分为三类：
-
-- `Critical`：阻断问题，必须修复
-- `Important`：高优先级问题，应尽快修复
-- `Minor`：建议优化项
-
-### 7.7 失败重试与结构化调试
-
-当某个任务失败时，不建议直接机械重跑。`workflow` 的期望处理方式是：
-
-1. 先定位根因。  
-2. 再分析是否是模式性错误。  
-3. 然后验证修复假设。  
-4. 最后执行修复并重试。
-
-如果连续失败次数过多，会触发更强的停止条件，避免错误被无限放大。`--retry` 本质上就是在结构化调试之后重新推进当前失败任务，而不是简单重复上一条命令。
-
-### 7.8 追溯守卫
-
-这是最新版本在执行阶段新增的一个重要理解方式。
-
-所谓追溯守卫，指的是任何执行任务或质量关卡，都应该能回溯到 requirement IDs 与 critical constraints。它要解决的不是“代码写没写出来”，而是“写出来的东西是否仍然对着最初那条需求”。
-
-在实际理解里，可以把它拆成三个检查点：
-
-- 当前任务对应哪些 requirement IDs
-- 当前实现是否覆盖了这些 requirement 的核心行为
-- baseline 中记录的关键约束是否在实现或验证中被保留
-
-### 7.9 子 Agent 路由与 parallel-boundaries
-
-执行阶段的子 agent 仅通过平台路由还不够；当需要并行分派多个独立问题域时，还必须先读取并应用 `../skills/dispatching-parallel-agents/SKILL.md`，把独立性检查、上下文边界分组、最小上下文封装、结果回收和冲突降级统一下沉到该 skill。
-
-- Claude Code / Cursor：适合子 agent 并行执行独立任务
-- Codex：可映射到对应的 agent 执行模式
-- 不支持子 agent 的平台：回退为当前会话顺序执行
-
-当前版本进一步把 `parallel-boundaries` 提升为一种上下文治理策略：
-- 当主会话进入 warning 区
-- 当前治理 phase 中存在 2 个及以上可证明独立边界
-- `baseline / brief / spec / tech design` 已稳定到足以支持最小上下文分发
-
-此时更推荐优先评估边界并行，而不是让主会话顺序吞下多个独立任务。
-
-启用并行的前提仍然是：同阶段存在 2 个及以上独立任务、任务之间没有共享状态、不会同时编辑同一组文件。
-
-### 7.10 execute 阶段的最佳节奏
-
-更推荐的节奏不是一次性把所有事情做完，而是：
-
-- 用 `start` 先把规划做对
-- 用 `execute` 一段一段推进
-- 先看 `ContextGovernor` 给出的 projected budget 与 continuation decision
-- 在质量关卡或治理边界主动确认
-- warning 区优先评估 `parallel-boundaries`
-- danger / hard handoff 区优先暂停或新开会话恢复
-- 失败时优先用 `retry` 而不是手工偏离流程
-- 遇到需求变化时优先回到 `delta`，而不是直接绕过上游工件修改实现
+当预算达到危险阈值或上下文不适合继续时，系统会建议 handoff，并生成 continuation artifact 供下次会话恢复。
 
 ---
 
-## 8. 运行中的辅助命令
+## 7. 运行中的辅助命令
 
-### 8.1 `/workflow status`
+### 7.1 `/workflow status`
 
-用于查看当前工作流状态、当前阶段、当前任务、失败记录和质量关卡状态。
+用于查看当前状态、进度、阻塞点和下一步建议。
+
+常用形式：
 
 ```bash
 /workflow status
 /workflow status --detail
 ```
 
-适用场景：
+### 7.2 `/workflow delta`
 
-- 新对话中恢复上下文
-- 不确定当前推进到哪里
-- 想确认是否已进入阻塞或失败状态
-- 想查看当前任务对应的阶段、关卡和推进状态
-
-### 8.2 `/workflow delta`
-
-用于处理“已经在进行中的工作流”发生了新增需求或外部变化的情况。
+统一入口处理增量变更，支持：
 
 ```bash
 /workflow delta
@@ -612,253 +461,163 @@ flowchart TD
 /workflow delta packages/api/teamApi.ts
 ```
 
-适合下面几类变化：
+自动识别逻辑大致为：
 
-- PRD 更新
-- API 同步
-- 中途增加功能点
-- 外部依赖变化导致原计划失效
+- 无参数：执行 API 同步
+- `.md` 文件：按 PRD 变更处理
+- API 文件路径：按 API 变更处理
+- 其他文本：按需求变更处理
 
-在新版工作流中，`delta` 的意义更强了，因为它不仅要更新任务，还要保证 baseline、spec、plan、tasks 的追溯链路继续成立。
+`delta` 会先做影响分析，再生成变更摘要，等待用户确认后再更新 `spec.md` / `plan.md`。
 
-### 8.3 `/workflow archive`
+### 7.3 `/workflow archive`
 
-当工作流已经完成并确认不再继续推进时，可以归档：
-
-```bash
-/workflow archive
-```
-
-归档的意义在于：
-
-- 清理当前活跃工作流
-- 保留历史轨迹和上下文
-- 为下一个需求建立干净的执行环境
+当任务全部完成后，用于归档当前工作流，并保留历史状态和变更记录。
 
 ---
 
-## 9. 工作流产物与状态文件
+## 8. 工作流产物与状态文件
 
-### 9.1 项目目录中的关键产物
+### 8.1 项目内产物
 
-| 路径 | 作用 |
-|------|------|
-| `.claude/config/project-config.json` | 项目配置，由 `/scan` 生成 |
-| `.claude/analysis/{name}-requirement-baseline.md` | 需求基线文档，记录 requirement IDs、scope 与关键约束 |
-| `.claude/acceptance/{name}-brief.md` | Acceptance & Implementation Brief，按模块组织验收标准、测试模板与实现提示 |
-| `.claude/tech-design/{name}.md` | 技术设计文档 |
-| `.claude/specs/{name}.md` | 规格文档 |
-| `.claude/plans/{name}.md` | 实施计划 |
+```text
+.claude/
+├── config/project-config.json
+├── specs/{task-name}.md
+└── plans/{task-name}.md
+```
 
-### 9.2 用户级运行时产物
+### 8.2 用户级运行时状态
 
-| 路径 | 作用 |
-|------|------|
-| `~/.claude/workflows/{projectId}/workflow-state.json` | 工作流当前状态 |
-| `~/.claude/workflows/{projectId}/discussion-artifact.json` | 需求讨论结果 |
-| `~/.claude/workflows/{projectId}/requirement-baseline.json` | requirement items 的运行时 JSON 表示 |
-| `~/.claude/workflows/{projectId}/tasks-{name}.md` | 任务编排结果 |
-| `~/.claude/workflows/{projectId}/changes/{changeId}/` | 增量变更工件 |
-| `~/.claude/workflows/{projectId}/archive/` | 已归档历史记录 |
+```text
+~/.claude/workflows/{projectId}/
+├── workflow-state.json
+├── discussion-artifact.json
+├── changes/
+│   └── CHG-001/
+│       ├── delta.json
+│       └── intent.md
+└── archive/
+```
 
-### 9.3 常见状态机
+### 8.3 常见状态
 
-| 状态 | 含义 |
+| 状态 | 说明 |
 |------|------|
 | `planned` | 规划完成，等待执行 |
-| `spec_review` | 已到规格确认节点 |
-| `intent_review` | 已到意图审查节点 |
-| `running` | 正在执行 |
-| `paused` | 暂停，等待用户或外部动作 |
+| `spec_review` | 等待用户确认 Spec |
+| `running` | 执行中 |
+| `paused` | 暂停，等待继续 |
 | `blocked` | 被外部依赖阻塞 |
-| `failed` | 任务失败 |
-| `completed` | 全部任务完成 |
-| `archived` | 工作流已归档 |
-
-### 9.4 为什么状态文件很重要
-
-这套状态文件机制的作用，不只是“记住做到哪一步了”，更重要的是：
-
-- 可以在新对话中恢复工作流
-- 可以区分规划态、执行态、阻塞态和完成态
-- 可以支持 `delta` 做增量改动
-- 可以让 `execute` 不是盲目继续，而是按状态机继续
-- 可以把 baseline、任务与执行状态连接起来，维持追溯链路
+| `failed` | 当前任务失败 |
+| `completed` | 全部完成 |
+| `archived` | 已归档 |
 
 ---
 
-## 10. 其他 skills 的核心功能
+## 9. 其他 skills 的核心功能
 
-下面这些 skill 都很重要，但在整个体系里它们更像专项能力，通常围绕 `workflow` 主线按需使用。
+除 `workflow` 外，仓库还提供下列专项 skill：
 
-### 10.1 总览
+- `/scan`：扫描项目技术栈，生成项目配置与上下文
+- `/debug`：单问题结构化修复
+- `/write-tests`：补测试、修测试
+- `/diff-review`：Quick / Deep 模式代码审查
+- `/bug-batch`：批量缺陷分析与分组修复
+- `/dispatching-parallel-agents`：独立任务并行分派
+- `/figma-ui`：Figma 设计稿到代码
+- `/visual-diff`：像素级和语义级视觉对比
 
-| Skill | 核心功能 | 典型使用时机 | 与 workflow 的关系 |
-|------|----------|--------------|--------------------|
-| `/scan` | 扫描技术栈，生成项目配置与上下文 | 新项目接入前 | `workflow` 的前置准备 |
-| `/analyze` | 双模型技术分析，不直接改代码 | 架构分析、性能分析、方案对比 | 规划前的分析增强 |
-| `/debug` | 单问题调试与修复流程 | 单个缺陷定位与修复 | 可独立使用，也可作为执行补充 |
-| `/diff-review` | 基于 diff 的结构化审查 | 提交前、PR 前、修复后 | 是 `workflow` 质量关卡之外的专项审查 |
-| `/write-tests` | 编写和补齐测试 | 需要新增测试或提高覆盖率 | 可作为 `test` 阶段补充 |
-| `/figma-ui` | 从 Figma 设计稿实现 UI | 设计稿还原开发 | 偏视觉实现，不替代 `workflow` 主线 |
-| `/visual-diff` | 页面与设计稿视觉对比 | UI 完成后的还原度验证 | 常与 `figma-ui` 配套 |
-| `/bug-batch` | 批量缺陷拉取、诊断、分组修复 | 清理积压缺陷 | 是面向缺陷治理的独立流程 |
-
-### 10.2 各 skill 的一句话理解
-
-`/scan`：解决“项目是什么、技术栈是什么、配置在哪里”的问题。  
-`/analyze`：解决“先分析，不急着动代码”的问题。  
-`/debug`：解决“我已经知道这是个 Bug，要系统修”的问题。  
-`/diff-review`：解决“我要看这次改动是否安全、是否合理”的问题。  
-`/write-tests`：解决“要把验证补齐并形成可回归的测试资产”的问题。  
-`/figma-ui`：解决“把设计稿还原成代码”的问题。  
-`/visual-diff`：解决“还原结果到底像不像设计稿”的问题。  
-`/bug-batch`：解决“不是一个 Bug，而是一批 Bug 需要统筹处理”的问题。
+原则上：主线问题走 `workflow`，单域问题走专项 skill。
 
 ---
 
-## 11. 推荐使用方式
+## 10. 推荐使用方式
 
-如果你准备把这套体系真正用起来，推荐遵循下面这条主线。
-
-### 11.1 新功能开发
+### 10.1 标准主线
 
 ```bash
 /scan
-/workflow start "需求描述或 PRD 路径"
+/workflow start "需求描述"
 /workflow execute
 /workflow status
-/workflow execute
-/workflow archive
 ```
 
-### 11.2 长 PRD 或复杂需求开发
+### 10.2 长 PRD / 高约束需求
 
-如果输入是一份较长 PRD，或者包含大量业务规则、字段和边界条件，更推荐让 `workflow` 完整走过 baseline 主线：
+优先把需求放进 `/workflow start docs/prd.md`，让系统先做代码分析、需求讨论和 Spec 审查，再开始执行。
 
-```bash
-/scan
-/workflow start docs/prd.md
-/workflow status
-/workflow execute
-```
+### 10.3 UI / 前端需求
 
-这一类场景下，真正重要的不只是生成计划，而是先把 Requirement Baseline 建好，避免后面出现“文档看起来完整，但关键需求漏掉了”的问题。
+如果需求涉及页面、导航、交互或首次体验，建议走 `workflow start`，因为它会触发 UX 设计审批；落地后可再结合 `/figma-ui` 或 `/visual-diff`。
 
-### 11.3 UI 需求开发
+### 10.4 变更驱动迭代
 
-如果任务核心是业务功能，同时又有设计稿：
-
-```bash
-/scan
-/workflow start "页面功能需求"
-/workflow execute
-/figma-ui "Figma URL"
-/visual-diff http://localhost:3000/page --design ./design.png
-```
-
-这里的建议是：业务逻辑和任务推进仍由 `workflow` 主导，视觉还原由 `figma-ui` 与 `visual-diff` 处理。
-
-### 11.4 需求变更
-
-```bash
-/workflow status
-/workflow delta docs/prd-v2.md
-/workflow execute
-```
-
-不要在已有工作流中绕开 `delta` 直接硬改，因为这会让 `baseline`、`spec`、`plan`、`tasks` 和实际执行状态失去同步。
-
-### 11.5 单点问题处理
-
-如果不是复杂需求，而只是明确的单点问题：
-
-- 单 Bug：优先 `/debug`
-- 单次审查：优先 `/diff-review`
-- 单次分析：优先 `/analyze`
-- 单次补测：优先 `/write-tests`
+已有工作流发生需求更新、PRD 更新或 API 变更时，不建议直接手改 `plan.md`，而是优先使用 `/workflow delta` 保持状态和工件一致。
 
 ---
 
-## 12. 常见问题
+## 11. 常见问题
 
-### 12.1 为什么推荐先 `/scan`
+### 11.1 为什么现在强调 `spec.md + plan.md`，而不是更多中间文档？
 
-因为很多 skill 都依赖项目配置。没有配置时，虽然部分能力仍可工作，但效果通常不稳定，也更容易丢失上下文边界。
+因为当前版本更强调缩短规划链路，把需求、设计、约束和验收集中到单一 `spec.md`，再把落地步骤集中到 `plan.md`，减少信息衰减和跨文档漂移。
 
-### 12.2 `workflow` 和其他 skill 的关系是什么
+### 11.2 为什么 `execute` 不只是简单地跑下一个任务？
 
-可以理解为：`workflow` 是主线编排器，其他 skill 是专项工具箱。
+因为执行阶段除了任务本身，还要考虑验证、审查、上下文预算、治理边界和 handoff 时机，所以需要 `ContextGovernor` 先做决策。
 
-### 12.3 为什么现在多了 Requirement Baseline
+### 11.3 UX 设计审批什么时候会出现？
 
-因为长 PRD 场景下，最常见的问题不是“没有计划”，而是“需求被下游文档悄悄丢失”。Requirement Baseline 的作用就是把需求先冻结成统一真相源，让后续 `brief`、`tech-design`、`spec`、`plan`、`tasks` 都围绕同一份 requirement items 工作。
+仅在检测到前端 / GUI 相关需求时触发。纯后端、CLI 或基础设施改动通常会跳过。
 
-### 12.4 什么时候应该用 `delta`
+### 11.4 为什么必须先 `/scan`？
 
-当需求、PRD、接口、外部依赖在执行过程中发生变化时，就应该优先使用 `delta`，而不是跳过规划层直接改实现。
+因为 `workflow` 依赖项目配置识别项目 ID、工作流目录和上下文信息；没有项目配置会影响状态持久化和后续 skill 协作。
 
-### 12.5 什么时候应该用 `archive`
+### 11.5 什么时候需要 `dispatching-parallel-agents`？
 
-当一个工作流已经完成、确认不再继续推进，或者你要开始一个新的独立需求时，应该归档当前工作流。
-
-### 12.6 如果执行失败怎么办
-
-优先使用 `/workflow execute --retry`，并结合结构化调试思路定位根因；如果问题本质上是单个缺陷，也可以切换到 `/debug` 处理后再回到主线。
-
-### 12.7 Traceability Review 在检查什么
-
-它不只检查“文档写没写完”，更检查三件事：需求是否被覆盖、范围状态是否明确、关键约束是否在下游文档中被保留下来。
+当执行阶段存在同阶段 2+ 可证明独立任务，并且平台支持子 Agent 时，应优先按该 skill 的规则做并行分派，而不是在主会话里顺序硬跑。
 
 ---
 
 ## 附录：命令速查
 
-### A. 安装与同步
-
 ```bash
-git clone <仓库地址> claude-workflow
-cd claude-workflow
-npm install
-npm run sync
-npm run sync -- -a claude-code,cursor
-npm run sync -- --project
-```
+# 初始化
+/scan
 
-### B. workflow 主线命令
-
-```bash
+# 启动工作流
 /workflow start "需求描述"
 /workflow start docs/prd.md
 /workflow start --no-discuss docs/prd.md
 
+# 执行
 /workflow execute
 /workflow execute --retry
 /workflow execute --skip
 
+# 状态
 /workflow status
 /workflow status --detail
 
+# 增量变更
 /workflow delta
 /workflow delta docs/prd-v2.md
 /workflow delta "新增导出功能，支持 CSV"
+/workflow delta packages/api/teamApi.ts
 
+# 归档
 /workflow archive
-```
-
-### C. 其他常用 skills
-
-```bash
-/scan
-/analyze "分析某个模块的架构风险"
-/debug "某个功能报错或异常现象"
-/diff-review --branch main
-/write-tests "为某个模块补测试"
-/figma-ui "Figma URL"
-/visual-diff http://localhost:3000/page --design ./design.png
-/bug-batch <经办人>
 ```
 
 ---
 
-如果你把这份指南只保留一条主线结论，那么应该是：先用 `/scan` 建立项目上下文，再用 `workflow` 完成从需求到交付的主流程，并通过 Requirement Baseline 与 Traceability Review 保证需求不会在规划和执行过程中丢失，最后根据具体问题接入专项 skill 做增强。
+## 参考资料
+
+- `templates/skills/workflow/SKILL.md`
+- `templates/skills/workflow/references/start-overview.md`
+- `templates/skills/workflow/references/execute-overview.md`
+- `templates/skills/workflow/references/delta-overview.md`
+- `templates/skills/workflow/references/status.md`
+- `templates/skills/workflow/references/state-machine.md`

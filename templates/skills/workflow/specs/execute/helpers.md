@@ -148,7 +148,7 @@ function getTaskIntentText(task: WorkflowTaskV2): string {
 
 ### updateTaskStatus
 
-更新任务清单中的任务状态（添加状态 emoji）。
+更新实施计划中任务块的状态（添加状态 emoji）。
 
 ```typescript
 function updateTaskStatus(
@@ -328,8 +328,8 @@ function completeWorkflow(
 - 失败：${failedCount}
 
 📂 **工作流目录**：${path.dirname(statePath)}
-📄 **任务清单**：${state.tasks_file}
-📝 **技术方案**：${state.tech_design}
+📄 **实施计划**：${state.plan_file}
+📘 **Spec**：${state.spec_file}
 
 💡 **下一步**
 

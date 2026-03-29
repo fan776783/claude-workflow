@@ -1,6 +1,6 @@
 # workflow status - 查看工作流状态 (v3.0)
 
-读取 workflow-state.json + tasks.md，生成进度报告。
+读取 workflow-state.json + plan.md，生成进度报告。
 
 ## 渐进披露模式
 
@@ -148,26 +148,26 @@ console.log(`
 
 ```typescript
 const state = JSON.parse(readFile(statePath));
-const preTaskStatuses = ['planned', 'spec_review', 'intent_review'];
+const preTaskStatuses = ['spec_review'];
 
-// 在 Task Compilation 之前，planned / spec_review / intent_review 阶段可能尚未生成 tasks_file
-const tasksFile = state.tasks_file || '';
-const tasksPath = tasksFile ? resolveUnder(workflowDir, tasksFile) : null;
-if (tasksFile && !tasksPath) {
-  console.log(`🚨 任务文件路径不安全: ${state.tasks_file}`);
+// 在 User Spec Review 通过并生成 Plan 之前，spec_review 阶段可能尚未生成 plan_file
+const planFile = state.plan_file || '';
+const planPath = planFile ? resolveUnder(cwd, planFile) : null;
+if (planFile && !planPath) {
+  console.log(`🚨 计划文件路径不安全: ${state.plan_file}`);
   return;
 }
 
-let tasksContent = '';
+let planContent = '';
 let tasks: WorkflowTaskV2[] = [];
 let totalTasks = 0;
 
-if (tasksPath) {
-  if (!fileExists(tasksPath)) {
+if (planPath) {
+  if (!fileExists(planPath)) {
     console.log(`
-⚠️ 任务清单不存在：${tasksPath}
+⚠️ 实施计划不存在：${planPath}
 
-状态文件存在，但任务清单缺失。
+状态文件存在，但实施计划缺失。
 可能是工作流创建过程中断。
 
 💡 建议：重新启动工作流
@@ -176,26 +176,26 @@ if (tasksPath) {
     return;
   }
 
-  tasksContent = readFile(tasksPath);
-  tasks = parseWorkflowTasksV2FromMarkdown(tasksContent);
+  planContent = readFile(planPath);
+  tasks = parseWorkflowTasksV2FromMarkdown(planContent);
   totalTasks = tasks.length;
 
   if (totalTasks === 0) {
     console.log(`
 ⚠️ 无法解析任务清单
 
-任务文件：${tasksPath}
+计划文件：${planPath}
 可能原因：
 - 文件格式不符合预期（需要 ## T1: 或 ### T1: 格式的标题）
 - 文件内容为空
 
-💡 请检查文件格式是否符合 tasks.md 模板
+💡 请检查文件格式是否符合 plan.md 模板
   `);
     return;
   }
 } else if (!preTaskStatuses.includes(state.status)) {
   console.log(`
-⚠️ 当前状态缺少任务清单引用
+⚠️ 当前状态缺少实施计划引用
 
 当前状态：${state.status}
 
@@ -234,7 +234,7 @@ if (isJsonMode) {
   console.log(JSON.stringify({
     ...state,
     _meta: {
-      tasksPath,
+      planPath,
       workflowDir,
       totalTasks,
       progressPercent
@@ -317,7 +317,6 @@ if (isJsonMode) {
 
 ## 📄 规划产物
 
-📐 **技术方案**：`{{state.tech_design}}`
 {{#if state.spec_file}}📘 **Spec**：`{{state.spec_file}}`{{/if}}
 {{#if state.plan_file}}🧭 **Plan**：`{{state.plan_file}}`{{/if}}
 
@@ -325,8 +324,8 @@ if (isJsonMode) {
 
 ## 📋 任务清单
 
-{{#if tasksPath}}
-📝 **任务文件**：`{{tasksPath}}`
+{{#if planPath}}
+📝 **计划文件**：`{{planPath}}`
 
 {{#each tasks}}
 {{statusIcon(this.status)}} **{{this.id}}**: {{this.name}}
@@ -337,7 +336,7 @@ if (isJsonMode) {
    阶段: {{this.phase}}
 {{/each}}
 {{else}}
-⏳ 当前阶段尚未生成 `tasks.md`，将在 Plan Review 通过后进入 Task Compilation。
+⏳ 当前阶段尚未生成 `plan.md`，将在 User Spec Review 通过后进入 Plan Generation。
 {{/if}}
 
 ---
@@ -498,10 +497,9 @@ _（未定义成功标准）_
 
 | 类型 | 路径 |
 |------|------|
-| 技术方案 | `{{state.tech_design}}` |
 {{#if state.spec_file}}| Spec | `{{state.spec_file}}` |
 {{/if}}{{#if state.plan_file}}| Plan | `{{state.plan_file}}` |
-{{/if}}{{#if tasksPath}}| 任务清单 | `{{tasksPath}}` |
+{{/if}}{{#if planPath}}| 实施计划 | `{{planPath}}` |
 {{/if}}{{#if state.delta_tracking.current_change}}| 当前变更 | `changes/{{state.delta_tracking.current_change}}/intent.md` |
 {{/if}}{{#each state.artifacts}}
 | {{@key}} | `{{this}}` |
@@ -519,15 +517,14 @@ _（未定义成功标准）_
 **已跳过**：{{skipped}}
 
 **产物文件**：
-- 技术方案：`{{state.tech_design}}`
 {{#if state.spec_file}}- Spec：`{{state.spec_file}}`
 {{/if}}{{#if state.plan_file}}- Plan：`{{state.plan_file}}`
-{{/if}}{{#if tasksPath}}- 任务清单：`{{tasksPath}}`
+{{/if}}{{#if planPath}}- 实施计划：`{{planPath}}`
 {{/if}}
 {{else if state.status === 'planned'}}
 ### 📋 规划完成，等待执行
 
-工作流已完成规划阶段。planning side 的 review loop 已全部收敛：Spec Review / Traceability Review 与 Plan Review 应已通过，User Spec Review 属于人工 gate，Intent Review 属于条件化 gate。请审查技术方案、Spec、Plan 和任务清单后开始执行。
+工作流已完成规划阶段。Spec 已完成用户确认，Plan 已生成并可执行。请审查 Spec 和 Plan 后开始执行。
 
 {{#if isProgressive}}
 🔄 **工作模式**：渐进式
@@ -542,11 +539,10 @@ _（未定义成功标准）_
 {{/if}}
 {{/if}}
 
-**技术方案**：`{{state.tech_design}}`
 {{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
 {{/if}}{{#if state.plan_file}}**Plan**：`{{state.plan_file}}`
-{{/if}}{{#if tasksPath}}**任务清单**：`{{tasksPath}}`
-{{else}}**任务清单**：尚未生成
+{{/if}}{{#if planPath}}**实施计划**：`{{planPath}}`
+{{else}}**实施计划**：尚未生成
 {{/if}}
 
 **开始执行**：
@@ -566,23 +562,12 @@ _（未定义成功标准）_
 当前工作流停在 Spec 审查阶段。此处对应 `human_gate`：machine loop 已经完成收敛，现在等待用户确认范围、模块边界和验收映射。
 
 {{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
-{{/if}}**技术方案**：`{{state.tech_design}}`
+{{/if}}
 
 **建议操作**：
 1. 审查 `spec.md` 是否准确反映本次需求
-2. 如需回退，修改 Spec 或技术方案后重新进入 `/workflow start`
-3. 确认无误后继续后续 Intent Gate
-
-{{else if state.status === 'intent_review'}}
-### 🔍 等待 Intent 确认
-
-当前工作流停在 Intent Review。此处对应 `conditional_human_gate`：只有命中高风险/高影响条件时才会等待用户确认本次变更方向。
-
-{{#if state.delta_tracking.current_change}}**当前变更**：`{{state.delta_tracking.current_change}}`
-{{/if}}{{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
-{{/if}}
-
-💡 若在 Intent Review 中选择“取消”，当前 `changes/{changeId}` 下的临时 Intent 工件会被清理，不会进入归档目录。
+2. 如需回退，修改 Spec 后重新进入 `/workflow start`
+3. 确认无误后继续生成 Plan
 
 {{else if state.status === 'paused'}}
 ### ⏸️ 工作流已暂停
@@ -591,8 +576,8 @@ _（未定义成功标准）_
 
 {{#if state.spec_file}}**Spec**：`{{state.spec_file}}`
 {{/if}}{{#if state.plan_file}}**Plan**：`{{state.plan_file}}`
-{{/if}}{{#if tasksPath}}**任务清单**：`{{tasksPath}}`
-{{else}}**任务清单**：尚未生成
+{{/if}}{{#if planPath}}**实施计划**：`{{planPath}}`
+{{else}}**实施计划**：尚未生成
 {{/if}}
 
 **继续方式**：根据当前阶段处理文档后，再执行 `/workflow execute` 或重新进入 `/workflow start`。

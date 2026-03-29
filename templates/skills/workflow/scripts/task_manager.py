@@ -8,6 +8,7 @@
 
 用法:
     python3 task_manager.py status          # 当前任务状态
+    python3 task_manager.py --project-id <id> --project-root <dir> status
     python3 task_manager.py list            # 列出所有任务
     python3 task_manager.py next            # 下一个待执行任务
     python3 task_manager.py complete T3     # 标记完成
@@ -69,10 +70,21 @@ def detect_project_id() -> Optional[str]:
     return None
 
 
+def detect_project_root(project_root: Optional[str] = None) -> Path:
+    if project_root:
+        return Path(project_root)
+
+    config_path = Path.cwd() / ".claude" / "config" / "project-config.json"
+    if config_path.is_file():
+        return config_path.parents[2]
+    return Path.cwd()
+
+
 def resolve_state_and_tasks(
     project_id: Optional[str] = None,
+    project_root: Optional[str] = None,
 ) -> tuple[Dict[str, Any] | None, str | None, str | None, str | None]:
-    """Resolve state, state_path, tasks content, tasks_path."""
+    """Resolve state, state_path, task/plan content, artifact path."""
     pid = project_id or detect_project_id()
     if not pid:
         return None, None, None, None
@@ -84,16 +96,28 @@ def resolve_state_and_tasks(
         return None, None, None, None
 
     state = read_state(str(state_path))
-    tasks_file = state.get("tasks_file", "")
-    if not tasks_file:
+    resolved_project_root = detect_project_root(
+        project_root or state.get("project_root")
+    )
+    plan_file = state.get("plan_file", "")
+    artifact_path: Optional[Path] = None
+
+    if plan_file:
+        candidate = Path(plan_file)
+        artifact_path = (
+            candidate
+            if candidate.is_absolute()
+            else (resolved_project_root / candidate)
+        )
+
+    if not artifact_path:
         return state, str(state_path), None, None
 
-    tasks_path = state_dir / tasks_file
-    if not tasks_path.is_file():
+    if not artifact_path.is_file():
         return state, str(state_path), None, None
 
-    tasks_content = tasks_path.read_text(encoding="utf-8")
-    return state, str(state_path), tasks_content, str(tasks_path)
+    tasks_content = artifact_path.read_text(encoding="utf-8")
+    return state, str(state_path), tasks_content, str(artifact_path)
 
 
 # =============================================================================
@@ -101,9 +125,13 @@ def resolve_state_and_tasks(
 # =============================================================================
 
 
-def cmd_status(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_status(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """Show current workflow and task status."""
-    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(project_id)
+    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(
+        project_id, project_root
+    )
     if not state:
         return {"error": "没有活跃的工作流"}
 
@@ -134,9 +162,11 @@ def cmd_status(project_id: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
-def cmd_list(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_list(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """List all tasks with status."""
-    state, _, tasks_content, _ = resolve_state_and_tasks(project_id)
+    state, _, tasks_content, _ = resolve_state_and_tasks(project_id, project_root)
     if not state or not tasks_content:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -158,9 +188,11 @@ def cmd_list(project_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def cmd_next(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_next(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """Find the next task to execute."""
-    state, _, tasks_content, _ = resolve_state_and_tasks(project_id)
+    state, _, tasks_content, _ = resolve_state_and_tasks(project_id, project_root)
     if not state or not tasks_content:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -183,9 +215,15 @@ def cmd_next(project_id: Optional[str] = None) -> Dict[str, Any]:
     return {"next_task": next_id}
 
 
-def cmd_complete(task_id: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_complete(
+    task_id: str,
+    project_id: Optional[str] = None,
+    project_root: Optional[str] = None,
+) -> Dict[str, Any]:
     """Mark a task as completed."""
-    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(project_id)
+    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(
+        project_id, project_root
+    )
     if not state or not tasks_content or not tasks_path or not state_path:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -207,9 +245,16 @@ def cmd_complete(task_id: str, project_id: Optional[str] = None) -> Dict[str, An
     return {"completed": True, "task_id": task_id}
 
 
-def cmd_fail(task_id: str, reason: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_fail(
+    task_id: str,
+    reason: str,
+    project_id: Optional[str] = None,
+    project_root: Optional[str] = None,
+) -> Dict[str, Any]:
     """Mark a task as failed."""
-    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(project_id)
+    state, state_path, tasks_content, tasks_path = resolve_state_and_tasks(
+        project_id, project_root
+    )
     if not state or not tasks_content or not tasks_path or not state_path:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -227,9 +272,13 @@ def cmd_fail(task_id: str, reason: str, project_id: Optional[str] = None) -> Dic
     return {"failed": True, "task_id": task_id, "reason": reason}
 
 
-def cmd_deps(task_id: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_deps(
+    task_id: str,
+    project_id: Optional[str] = None,
+    project_root: Optional[str] = None,
+) -> Dict[str, Any]:
     """Check task dependencies."""
-    state, _, tasks_content, _ = resolve_state_and_tasks(project_id)
+    state, _, tasks_content, _ = resolve_state_and_tasks(project_id, project_root)
     if not state or not tasks_content:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -246,9 +295,11 @@ def cmd_deps(task_id: str, project_id: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
-def cmd_parallel(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_parallel(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """Find parallelizable task groups."""
-    state, _, tasks_content, _ = resolve_state_and_tasks(project_id)
+    state, _, tasks_content, _ = resolve_state_and_tasks(project_id, project_root)
     if not state or not tasks_content:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -268,9 +319,11 @@ def cmd_parallel(project_id: Optional[str] = None) -> Dict[str, Any]:
     return {"parallel_groups": groups, "group_count": len(groups)}
 
 
-def cmd_progress(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_progress(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """Show progress with visual bar."""
-    state, _, tasks_content, _ = resolve_state_and_tasks(project_id)
+    state, _, tasks_content, _ = resolve_state_and_tasks(project_id, project_root)
     if not state or not tasks_content:
         return {"error": "没有活跃的工作流或任务"}
 
@@ -296,9 +349,11 @@ def cmd_progress(project_id: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def cmd_context_budget(project_id: Optional[str] = None) -> Dict[str, Any]:
+def cmd_context_budget(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
     """Show context budget status."""
-    state, _, _, _ = resolve_state_and_tasks(project_id)
+    state, _, _, _ = resolve_state_and_tasks(project_id, project_root)
     if not state:
         return {"error": "没有活跃的工作流"}
 
@@ -323,6 +378,7 @@ def cmd_context_budget(project_id: Optional[str] = None) -> Dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="任务管理 CLI")
     parser.add_argument("--project-id", help="项目 ID")
+    parser.add_argument("--project-root", help="项目根目录（用于解析相对 plan_file）")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("status", help="当前状态")
@@ -345,17 +401,18 @@ def main() -> int:
 
     args = parser.parse_args()
     pid = args.project_id
+    project_root = args.project_root
 
     commands = {
-        "status": lambda: cmd_status(pid),
-        "list": lambda: cmd_list(pid),
-        "next": lambda: cmd_next(pid),
-        "complete": lambda: cmd_complete(args.task_id, pid),
-        "fail": lambda: cmd_fail(args.task_id, args.reason, pid),
-        "deps": lambda: cmd_deps(args.task_id, pid),
-        "parallel": lambda: cmd_parallel(pid),
-        "progress": lambda: cmd_progress(pid),
-        "context-budget": lambda: cmd_context_budget(pid),
+        "status": lambda: cmd_status(pid, project_root),
+        "list": lambda: cmd_list(pid, project_root),
+        "next": lambda: cmd_next(pid, project_root),
+        "complete": lambda: cmd_complete(args.task_id, pid, project_root),
+        "fail": lambda: cmd_fail(args.task_id, args.reason, pid, project_root),
+        "deps": lambda: cmd_deps(args.task_id, pid, project_root),
+        "parallel": lambda: cmd_parallel(pid, project_root),
+        "progress": lambda: cmd_progress(pid, project_root),
+        "context-budget": lambda: cmd_context_budget(pid, project_root),
     }
 
     handler = commands.get(args.command)

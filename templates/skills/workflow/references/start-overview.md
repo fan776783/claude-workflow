@@ -1,26 +1,26 @@
-# workflow start - 启动工作流 (v4.1)
+# workflow start - 启动工作流 (v5.0)
 
-> 精简接口：自动检测 `.md` 文件，无需 `--backend`/`--file` 参数
+> 精简三层架构：**需求 → Spec → Plan → 执行 + 子 Agent 审查**
 
-八阶段强制流程：**需求 → 需求讨论 → 需求结构化 → Requirement Baseline → 设计 → Spec → Plan → 任务编排**
+五阶段强制流程：**代码分析（+ Git 检查）→ 需求讨论 → UX 设计审批 → Spec 生成 → User Review → Plan 生成**
 
 ## 快速导航
 
-- 规格引用
 - 执行流程概览
-- Phase 0-0.6：需求分析到 Brief 生成
-- Phase 1-1.5：设计、Spec 与 Intent 审查
-- Phase 2-3：Plan、Task Compilation 与 Hard Stop
-- 创建工作流状态
+- Phase 0：代码分析（+ Git 状态检查）
+- Phase 0.2：需求讨论（条件执行）
+- Phase 0.3：UX 设计审批（HARD-GATE，条件执行）
+- Phase 1：Spec 生成
+- Phase 1.1：User Spec Review（Hard Stop）
+- Phase 2：Plan 生成（含 Self-Review）
+- 规划完成（Hard Stop）
 
 ```
-需求文档 ──▶ 代码分析 ──▶ 需求讨论 ──▶ 需求结构化 ──▶ Requirement Baseline ──▶ Brief ──▶ tech-design.md
-                │             │               │                   │                  │
-                │       💬 逐个澄清       RequirementItem     requirement IDs     📋 模块验收 + TDD 指引
-           codebase-retrieval                                      constraints
-
-tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Spec Review ──▶ Intent Review ──▶ plan.md ──▶ Plan Review ──▶ tasks.md ──▶ 执行
-                    🔍 结构+追溯审查         📘 友好规范         🛑 范围确认          🔍 意图确认      🧭 原子计划       🔍 覆盖审查      🛑 确认任务
+需求文档 ──▶ 代码分析 ──▶ 需求讨论 ──▶ UX 设计审批 ──▶ spec.md ──▶ User Review ──▶ plan.md ──▶ 执行 + 审查
+                │             │           │                │           │               │
+           codebase-     💬 逐个澄清  🎨 流程图设计    📘 统一规范    🛑 用户确认    📋 原子步骤
+           retrieval     🎯 方案选择  📐 页面分层      📐 架构设计                  ✅ 完整代码
+           + Git 检查     🔍 UX 检测   🛑 HARD-GATE      🎯 验收标准                  🚫 No TBD
 ```
 
 ## 规格引用
@@ -28,9 +28,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 | 模块 | 路径 | 说明 |
 |------|------|------|
 | 状态机 | `references/state-machine.md` | 状态文件结构 |
-| 追溯模型 | `references/traceability.md` | requirement item 与 quality gate 定义 |
-| 任务解析 | `references/shared-utils.md` | V2 任务模型与解析函数 |
-| 质量关卡 | `specs/execute/actions/quality-review.md` | 两阶段代码审查 |
+| 追溯模型 | `references/traceability.md` | 需求追溯与验收 |
+| 子 Agent 审查 | `specs/execute/subagent-review.md` | 两阶段代码审查 |
+| 共享工具 | `references/shared-utils.md` | 任务解析函数 |
 
 ---
 
@@ -60,11 +60,6 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未归档的工作流。
 
-**处理原则**:
-- 已归档：可直接启动新工作流
-- 未归档：先通过当前状态页确认是否继续、完成或归档
-- 取消：不创建新的规划产物
-
 ---
 
 ### Phase 0：代码分析（强制）⚠️
@@ -92,290 +87,119 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 1. **需求预分析** — 基于代码分析结果，自动识别待澄清事项
 2. **逐个澄清** — 每次只问一个问题，优先选择题
 3. **方案探索** — 存在互斥实现路径时提出 2-3 种方案
-4. **持久化讨论工件** — 结构化 side-channel，供后续阶段显式消费
+4. **持久化讨论工件** — 结构化 side-channel，供 Spec 生成阶段消费
 
 **详细实现**: 参见 `specs/start/phase-0.2-requirement-discussion.md`
 
 ---
 
-### Phase 0.5：需求结构化提取（条件执行）
+### Phase 0.3：UX 设计审批（HARD-GATE，条件执行）
 
-**目的**: 从 PRD 中按业务场景提取结构化数据，确保可操作细节不丢失，并归一化为后续可追溯的 requirement items 输入
+**目的**: 在 Spec 生成前，强制完成用户操作流程图和页面分层设计
 
-**执行条件**: 仅对文件来源且长度 > 500 的需求执行
+**执行条件**: 检测到前端/GUI 相关需求时触发（纯后端/CLI 项目自动跳过）
 
-**提取方式**：Extraction Spec（约束驱动 + Gate 门禁）
-- 模型根据 PRD 内容自行识别业务场景，按场景分组
-- 4 个 Gate 门禁确保覆盖率、约束完整性、关联完整性、粒度合理
-- 9 个常见维度降级为可选自检 checklist
+**设计流程**:
+1. **生成用户操作流程图** — Mermaid 格式，覆盖首次使用、核心操作、异常处理、返回取消
+2. **生成页面分层设计** — L0 首页（≤ 4 模块）/ L1 功能页 / L2 辅助面板
+3. **自动工作目录探测** — 检测 Claude Code / Cursor / Codex 的本地路径
+4. **HARD-GATE 用户批准** — 设计未经批准不得进入 Spec 生成
 
-**输出要求**:
-- 为 `Phase 0.55` 提供可归一化的 `RequirementItem` 输入
-- 高风险条目应拆分，避免在下游合并丢失
-
-**详细实现**: 参见 `specs/start/phase-0.5-requirement-extraction.md`
+**详细实现**: 参见 `specs/start/phase-0.3-ux-design-gate.md`
 
 ---
 
-### Phase 0.55：Requirement Baseline（条件执行）
+### Phase 1：Spec 生成（强制）⚠️
 
-**目的**: 将结构化需求固化为 requirement IDs、scope decision 和 critical constraints 的真相源
-
-**执行条件**: 仅在 Phase 0.5 成功提取结构化需求后执行
-
-**输出**:
-- `.claude/analysis/{task-name}-requirement-baseline.md`
-- `~/.claude/workflows/{projectId}/requirement-baseline.json`
-
-**关键结果**:
-- requirement IDs
-- `in_scope / partially_in_scope / out_of_scope / blocked`
-- owner（frontend / backend / shared / infra）
-- critical constraints
-- out-of-scope 与 blocked 原因
-
-**详细实现**: 参见 `specs/start/phase-0.55-requirement-baseline.md`
-
----
-
-### Phase 0.6：生成 Acceptance & Implementation Brief（条件执行）
-
-**目的**: 将 Requirement Baseline 转换为按模块组织的统一开发文档，包含验收标准和实现路径
-
-**执行条件**: 仅在 Phase 0.55 成功生成 Requirement Baseline 后执行
-
-**输出**: `.claude/acceptance/{task-name}-brief.md`
-
-**新增硬约束**:
-- 必须生成 requirement-to-brief mapping
-- 必须显式标记 partially covered / uncovered requirements
-- 模块必须携带 `relatedRequirementIds` 和 `constraints`
-
-**详细实现**: 参见 `specs/start/phase-0.6-brief.md`
-
----
-
-### Phase 1：生成技术设计（强制）⚠️
-
-**目的**: 在形成用户可读 Spec 前，先沉淀架构决策、边界与风险，并显式说明需求追溯与 out-of-scope 判定
-
-**输入增加**: Requirement Baseline
-
-**文档定位**:
-1. 需求摘要
-2. 需求详情（结构化提取，如有）
-3. 代码分析结果
-4. Requirement Traceability
-5. 架构设计
-6. 风险与缓解
-7. Critical Constraints to Preserve
-
-> `tech-design.md` 不再作为任务生成的直接解析输入。
-
-**详细实现**: 参见 `specs/start/phase-1-tech-design.md`
-
----
-
-### Phase 1.2：Spec Review / Traceability Review
-
-**目的**: 在写 `spec.md` 之前，对设计进行完整性、清晰度、一致性、范围和追溯审查。
-
-**治理模式**: 显式 `machine_loop`，在 planning side 复用 shared review loop contract；同一份设计会在预算内经历 `review → revise → re-review`，而不是一次性 gate。
+**目的**: 在单一文档中完成需求范围判定、架构设计、验收标准和关键约束
 
 **输入**:
-- `tech-design.md`
-- `discussion-artifact.json`
-- `requirement baseline`
-- `brief`
-
-**输出**:
-- 审查结论（`pass / revise / split`）
-- 缺口清单与修订建议
-- `review_status.spec_review` / `review_status.traceability_review` 中的 loop artifact（attempt、max_attempts、last_decision、next_action）
-
-**重点检查**:
-- `traceabilityCompleteness`
-- `criticalConstraintPreservation`
-- `scopeDecisionExplicitness`
-
-**详细实现**: 参见 `specs/start/phase-1.2-spec-review.md`
-
----
-
-### Phase 1.3：Spec Generation
-
-**目的**: 生成用户友好的设计规范文档，作为 Plan 的稳定输入
+- 需求内容（PRD 或内联）
+- 代码分析结果
+- 讨论工件（如有）
 
 **输出**: `.claude/specs/{task-name}.md`
 
 **核心章节**:
-1. Context
-2. Scope
-3. Requirement Traceability
-4. Critical Requirement Constraints
-5. User-facing behavior
-6. Architecture and module design
-7. File structure
-8. Acceptance mapping
-9. Implementation slices
+1. Context — 背景和目标
+2. Scope — 需求编号 + 范围判定（in/out/blocked）
+3. Constraints — 不可协商的硬约束
+4. User-facing Behavior — 正常/异常/边界行为
+5. Architecture and Module Design — 模块划分 + 技术选型
+6. File Structure — 新建/修改/测试文件
+7. Acceptance Criteria — 按模块的验收条件
+8. Implementation Slices — 渐进交付切片
+9. Open Questions — 待确认问题
 
-**详细实现**: 参见 `specs/start/phase-1.3-spec-generation.md`
+**生成后执行 Self-Review**:
+- 需求覆盖扫描
+- Placeholder 扫描（禁止 TBD/TODO）
+- 内部一致性检查
+- 约束完整性检查
+
+**详细实现**: 参见 `specs/start/phase-1-spec-generation.md`
 
 ---
 
 ### 🛑 Hard Stop 1：User Spec Review
 
-**目的**: 在进入执行计划之前，让用户确认 Spec 的范围、边界和模块切分。
+**目的**: 让用户确认 Spec 的范围、架构和验收标准。
 
-**治理模式**: `human_gate`。这是用户主权确认点，不参与 machine loop 收敛；任何回退都由用户明确决定。
+**治理模式**: `human_gate`。用户主权确认，不参与机器自动修文。
 
 **用户选择**:
-1. **Spec 正确，继续**
-2. **需要修改 Spec**
-3. **需要拆分范围 / 回退设计**
+1. **Spec 正确，继续** → 进入 Plan Generation
+2. **需要修改 Spec** → 回到 Phase 1
+3. **需要拆分范围** → 拆分后重新启动
 
-**状态落盘**:
-- `review_status.user_spec_review.review_mode = 'human_gate'`
-- `last_decision / next_action` 明确记录是继续、回退修订还是拆分范围
-
-**详细实现**: 参见 `specs/start/phase-1.4-spec-user-review.md`
-
----
-
-### Phase 1.5：Intent Review（增量变更意图审查）
-
-**目的**: 基于稳定 `spec.md` 生成 Intent 文档，并先做一次机器一致性检查，再按风险决定是否需要用户确认本次变更方向。
-
-**治理模式**: `conditional_human_gate`。先执行 `IntentConsistencyCheck`，只有命中高影响/跨域/高风险条件时才进入人工 gate；低风险场景可自动通过。
-
-**输出**: `~/.claude/workflows/{projectId}/changes/{changeId}/intent.md`
-
-**Intent 文档内容**:
-- 变更 ID
-- 触发类型（new_requirement）
-- 变更意图
-- `spec_ref`
-- 影响分析（涉及文件、技术约束、可复用组件）
-- 审查状态
-
-**分支行为**:
-- 未命中条件：自动写入 `review_status.intent_review`，`last_decision = pass`，直接进入 Plan Generation
-- 命中条件：进入 Intent Human Gate，由用户确认继续、回退或取消
-
-**详细实现**: 参见 `specs/start/phase-1.5-intent-review.md`
+**详细实现**: 参见 `specs/start/phase-1.1-spec-user-review.md`
 
 ---
 
 ### Phase 2：Plan Generation
 
-**目的**: 从 `spec + requirement baseline + brief + analysisResult` 生成可审查的实施计划
+**目的**: 从 `spec.md` 生成可直接执行的实施计划
+
+**输入**: `spec.md`（唯一规范输入）+ `analysisResult`
 
 **输出**: `.claude/plans/{task-name}.md`
 
 **计划约束**:
-- scope check
-- file structure first
-- governance slices first
-- 原子任务粒度（用于 `steps[]`，不直接等价于 phase 边界）
-- 显式 verification
-- requirement coverage by step
-- non-negotiable requirement constraints
-- 明确质量关卡和提交节点
+- **File Structure First** — 先列文件，再排步骤
+- **Bite-Sized Tasks** — 每步 2-5 分钟
+- **Complete Code** — 每步包含完整代码块
+- **No Placeholders** — 禁止 TBD/TODO/模糊描述
+- **WorkflowTaskV2 Compatible** — 任务块必须使用 `## Tn:` 标题和可解析字段
+- **Spec Section Ref** — 每步标注对应 spec 章节
+
+**生成后执行 Self-Review**:
+- 逐条检查 spec 需求覆盖
+- Placeholder 扫描
+- 跨 task 类型一致性
+- 命令和路径准确性
 
 **详细实现**: 参见 `specs/start/phase-2-plan-generation.md`
-
----
-
-### Phase 2.5：Plan Review
-
-**目的**: 审查计划是否完整、与 Spec / Baseline 对齐、粒度合理、覆盖 requirement 且可执行。
-
-**治理模式**: 显式 `machine_loop`。Plan 会在预算内进行 `review → revise → re-review`，直到通过或耗尽预算，不再是单次 review + revise_required。
-
-**检查维度**:
-- Completeness
-- Spec Alignment
-- Task Decomposition
-- Governance Slice Quality
-- Buildability
-- Requirement Coverage
-- Critical Constraint Preservation
-- Parallel Boundary Readiness
-
-**产物**:
-- `review_status.plan_review` 中记录 `attempt / max_attempts / last_decision / next_action`
-- 失败时保留 blocking issues，供后续回退或人工介入
-
-**详细实现**: 参见 `specs/start/phase-2.5-plan-review.md`
-
----
-
-### Phase 3：Task Compilation
-
-**目的**: 将 `spec + plan + brief + requirement baseline` 编译为运行时任务清单
-
-**输出**: `~/.claude/workflows/{projectId}/tasks-{task-name}.md`
-
-**任务模型方向**:
-- `spec_ref`
-- `plan_ref`
-- `requirement_ids`
-- `critical_constraints`
-- `files.create[] / files.modify[] / files.test[]`
-- `steps[]`
-- `verification`
-- `depends / blocked_by / quality_gate / acceptance_criteria`
-- 可选治理元数据：`boundary_key / continuation_safe / integration_risk / governance_boundary`
-
-**保留能力**:
-- 自动质量关卡
-- 自动提交任务
-- 阻塞依赖分类
-- workflow-state 初始化
-- 追溯指标回写
-
-**详细实现**: 参见 `specs/start/phase-3-task-compilation.md`
 
 ---
 
 ### 🛑 Hard Stop 2：规划完成（强制停止）
 
 **输出摘要**:
-- Requirement Baseline 路径
-- 技术设计路径
 - Spec 路径
 - Plan 路径
-- 任务清单路径
-- Brief 路径（如有）
-- requirement 总数 / in-scope 数
-- uncovered requirements（如有）
+- 需求总数 / in-scope 数
 - 任务数量
-- 工作模式（normal / progressive）
-- 阻塞任务列表（如有）
 
 **文件结构**:
 ```
 .claude/
-├── analysis/
-│   └── {task-name}-requirement-baseline.md
-├── tech-design/
-│   └── {task-name}.md
-├── specs/
-│   └── {task-name}.md
-├── plans/
-│   └── {task-name}.md
-├── acceptance/
-│   └── {task-name}-brief.md
+├── specs/{task-name}.md            ← 统一规范
+└── plans/{task-name}.md            ← 实施计划
 
 ~/.claude/workflows/{projectId}/
-├── workflow-state.json
-├── requirement-baseline.json
-├── tasks-{task-name}.md
+├── workflow-state.json             ← 运行时状态
+├── discussion-artifact.json        ← 讨论工件
 └── changes/
-    └── {changeId}/
-        ├── delta.json
-        ├── intent.md
-        └── review-status.json
 ```
 
 **下一步**: 用户审查后执行 `/workflow execute`
@@ -384,9 +208,9 @@ tech-design.md ──▶ Traceability Review ──▶ spec.md ──▶ User Sp
 
 ### Step 3：创建工作流状态
 
-状态文件应额外记录：
-- requirement baseline 路径
-- baseline 覆盖统计
-- traceability review 状态
-- uncovered requirements
-- plan coverage metrics
+状态文件记录：
+- project_root
+- spec 路径
+- plan 路径
+- user spec review 状态
+- 任务进度
