@@ -52,8 +52,8 @@
 
 检查 `.claude/config/project-config.json` 是否存在。
 
-- **已有配置**：读取并验证项目 ID
-- **配置缺失**：自动基于目录路径生成最小配置（含 projectId），确保状态机可初始化
+- **已有配置**：读取并验证 `project.id`
+- **配置缺失**：自动基于目录路径生成最小配置（含 `project.id`），确保状态机可初始化
 
 **前置条件**: 推荐先执行 `/scan` 生成完整项目配置，但非必须。workflow start 会在配置缺失时自动生成最小配置（`_scanMode: auto-healed`）。
 

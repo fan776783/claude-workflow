@@ -23,11 +23,12 @@ function shouldRunUXDesignGate(
   const uiKeywords = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i;
   if (uiKeywords.test(requirementContent)) return true;
 
-  // 2. 代码分析检测到前端框架
+  // 2. 代码分析检测到前端框架 且 需求涉及 UI 变更
   const hasFrontend = analysisResult.patterns.some(p =>
     /react|vue|angular|svelte|tauri|electron|next\.?js|nuxt|vite/i.test(p.name)
   );
-  if (hasFrontend) return true;
+  const uiBroadKeywords = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i;
+  if (hasFrontend && uiBroadKeywords.test(requirementContent)) return true;
 
   // 3. 需求讨论中涉及交互行为或边界场景
   if (discussionArtifact?.clarifications.some(c =>

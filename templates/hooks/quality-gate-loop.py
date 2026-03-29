@@ -64,7 +64,8 @@ def find_workflow_state() -> tuple[dict | None, str]:
     except (json.JSONDecodeError, OSError):
         return None, ""
 
-    project_id = config.get("projectId", "")
+    project = config.get("project") or {}
+    project_id = project.get("id") or config.get("projectId", "")
     if not project_id:
         return None, ""
 

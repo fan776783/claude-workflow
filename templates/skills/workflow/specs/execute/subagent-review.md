@@ -246,7 +246,7 @@ if (codeQualityResult.status === 'Approved') {
 2. 读取这 3 个 task 修改的文件
 3. 快速检查：spec 需求是否有对应代码实现
 4. 输出结果：`轻量合规检查：通过 / N 项偏差`
-5. 偏差列表（如有）追加到 `workflow-state.json` 的 `execution_reviews` 中
+5. 偏差列表（如有）写入 `workflow-state.json` 的 `quality_gates` 字段（旧字段 `execution_reviews` 迁移规则参见 `references/state-machine.md` → `execution_reviews` 迁移策略）
 
 > 轻量检查不阻塞执行。发现偏差时输出警告，继续下一个 task。
 

@@ -64,7 +64,8 @@ def detect_project_id() -> Optional[str]:
     if config_path.is_file():
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
-            return config.get("projectId")
+            project = config.get("project") or {}
+            return project.get("id") or config.get("projectId")
         except (json.JSONDecodeError, OSError):
             pass
     return None

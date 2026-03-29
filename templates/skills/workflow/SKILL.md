@@ -148,7 +148,8 @@ executeTask() → 验证铁律（Gate Function）→ Spec 合规审查（子 Age
 /workflow start -f "需求"                 # 强制覆盖已有文件
 /workflow start --no-discuss docs/prd.md # 跳过需求讨论
 
-/workflow execute                         # 执行下一个任务
+/workflow execute                         # 恢复/继续执行（默认 continuous）
+/workflow execute --phase                 # 按阶段执行并在 phase 边界暂停
 /workflow execute --retry                 # 重试失败的任务
 /workflow execute --skip                  # 跳过当前任务（慎用）
 
@@ -169,9 +170,14 @@ executeTask() → 验证铁律（Gate Function）→ Spec 合规审查（子 Age
 
 | 用户说 | 系统理解 |
 |--------|----------|
-| "单步执行" | step 模式 |
-| "继续" / "下一阶段" | phase 模式（默认） |
+| "继续" / "连续" | continuous 模式（默认） |
+| "下一阶段" / "单阶段" | phase 模式 |
 | "重试" / "跳过" | retry / skip 模式 |
+
+**继续语义约束**：
+- `/workflow execute`：显式进入执行器，并按默认 `continuous` 模式恢复/继续。
+- `/workflow execute 继续`：与默认执行一致，继续执行直到命中质量关卡、提交前暂停或 `ContextGovernor` 暂停。
+- 裸自然语言“继续”：仅在已存在活动 workflow（`running` / `paused` / `failed` / `blocked`）时可解释为恢复执行；否则应提示用户显式使用 `/workflow execute` 或 `/workflow status`。
 
 ## 工作流程
 
@@ -208,6 +214,7 @@ executeTask() → 验证铁律（Gate Function）→ Spec 合规审查（子 Age
 
 | 状态 | 说明 |
 |------|------|
+| `idle` | 初始状态，无活动任务 |
 | `planned` | 规划完成，等待用户确认或执行 |
 | `spec_review` | Spec 已生成，等待用户确认范围 |
 | `running` | 执行中 |
@@ -258,9 +265,10 @@ executeTask() → 验证铁律（Gate Function）→ Spec 合规审查（子 Age
 |------|------|
 | 审查反馈协议 | [references/review-feedback-protocol.md](references/review-feedback-protocol.md) |
 | 外部依赖 | [references/external-deps.md](references/external-deps.md) |
-| 状态机 | [references/state-machine.md](references/state-machine.md) |
+| 运行时状态机（唯一来源） | [references/state-machine.md](references/state-machine.md) |
 | Traceability | [references/traceability.md](references/traceability.md) |
 | 共享工具 | [references/shared-utils.md](references/shared-utils.md) |
+| 执行入口与恢复解析 | [references/execute-entry.md](references/execute-entry.md) |
 
 ## 前置条件
 

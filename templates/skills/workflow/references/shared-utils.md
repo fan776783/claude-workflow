@@ -16,6 +16,7 @@
 > | `findNextTask()` | `scripts/task_parser.py` | `py -3 task_parser.py find-next --file <f> --completed <ids>` |
 > | `classifyTaskDependencies()` | `scripts/dependency_checker.py` | `py -3 dependency_checker.py classify --name <n> --files <f>` |
 > | `getStatusEmoji()` / `extractStatusFromTitle()` | `scripts/status_utils.py` | `py -3 status_utils.py emoji <status>` |
+> | `resolve execute/continue entry` | `scripts/workflow_cli.py` | `py -3 workflow_cli.py execute [intent]` / `py -3 workflow_cli.py continue [intent]` |
 >
 > 伪代码仍保留作为**接口定义和行为规范**参考。
 
@@ -191,6 +192,8 @@ function generateContextBar(usagePercent: number, warningThreshold: number, dang
 ```
 
 > `shared-utils` 中的上下文结构必须与 `templates/specs/shared/context-awareness.md` 保持一致。任何继续执行判断都应以 projected budget 为准，而不是只看当前 usagePercent。
+>
+> “继续”与 `/workflow execute` 的共享入口解析已收敛到 `scripts/workflow_cli.py`：先判定是否存在可恢复工作流，再决定 execute/retry/skip/phase/continuous 的具体入口语义。
 
 ## 任务解析
 

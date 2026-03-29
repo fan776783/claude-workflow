@@ -105,7 +105,7 @@ if (!fileExists(configPath)) {
 }
 
 const projectConfig = JSON.parse(readFile(configPath));
-const projectId = projectConfig.project?.id;
+const projectId = projectConfig.project?.id || projectConfig.projectId;
 
 if (!projectId) {
   console.log(`🚨 项目配置缺少 project.id，请重新执行 /scan`);

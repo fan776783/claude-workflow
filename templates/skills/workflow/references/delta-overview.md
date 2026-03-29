@@ -29,7 +29,7 @@
 - `prd`: PRD 文件路径（`.md` 结尾且存在）
 - `requirement`: 需求描述文本
 
-**详细实现**: 参见 `specs/delta/input-detection.md`
+**详细实现**: 参见 `specs/delta/impact-analysis.md`
 
 ---
 
@@ -273,13 +273,12 @@ Delta 命令与渐进式工作流无缝集成：
 
 ## 📚 详细实现规格
 
-所有详细的函数实现、数据结构定义、算法细节请参见 `specs/delta/` 目录：
+所有详细的函数实现、数据结构定义、算法细节请参见当前已落地的 `specs/delta/` 文档：
 
-- `input-detection.md` - 输入类型检测
 - `impact-analysis.md` - 影响分析详情
 - `api-sync.md` - API 同步详情
-- `task-delta.md` - 任务变更生成
-- `spec-delta.md` - 规格变更生成
+
+> 说明：输入识别、task delta、spec delta 当前由概览与上述两份文档共同约束，未单独拆分为独立规格文件。
 
 ---
 

@@ -59,7 +59,9 @@
 
 > ⚠️ 不要因为不知道如何填写可选字段而跳过整个状态文件的创建。**最小版本只需 7 个字段**。
 >
-> 其他所有字段（`execution_reviews`, `contextMetrics`, `continuation`, `parallel_groups`, `discussion`, `ux_design`, `git_status` 等）为**可选增强字段**，在需要时按需添加。
+> 其他所有字段（`quality_gates`, `execution_reviews`, `contextMetrics`, `continuation`, `parallel_groups`, `discussion`, `ux_design`, `git_status` 等）为**可选增强字段**，在需要时按需添加。
+>
+> **运行时状态机唯一来源**：本文件是 workflow skill 的运行时 schema 单一真相。`templates/specs/workflow/state-machine.md` 为扩展/共享架构说明，不应覆盖本文件的运行时字段定义。
 
 ---
 
@@ -86,18 +88,28 @@
       "next_action": "continue_to_plan_generation"
     }
   },
-  "execution_reviews": {
+  "quality_gates": {
     "Task-1": {
-      "spec_compliance": {
-        "status": "Compliant",
-        "reviewed_at": "2026-03-29T11:00:00Z",
-        "issues": []
+      "gate_task_id": "Task-1",
+      "review_mode": "machine_loop",
+      "last_decision": "pass",
+      "stage1": {
+        "passed": true,
+        "attempts": 1,
+        "issues_found": 0,
+        "completed_at": "2026-03-29T11:00:00Z"
       },
-      "code_quality": {
-        "status": "Approved",
-        "reviewed_at": "2026-03-29T11:05:00Z",
-        "issues": []
-      }
+      "stage2": {
+        "passed": true,
+        "attempts": 1,
+        "assessment": "approved",
+        "critical_count": 0,
+        "important_count": 0,
+        "minor_count": 0,
+        "completed_at": "2026-03-29T11:05:00Z"
+      },
+      "overall_passed": true,
+      "reviewed_at": "2026-03-29T11:05:00Z"
     }
   },
   "unblocked": [],
@@ -167,14 +179,27 @@
 | `plan_file` | Plan 文档路径 |
 | `project_root` | 项目根目录，用于从任意工作目录解析相对 `spec_file` / `plan_file` |
 | `review_status.user_spec_review` | Phase 1.1 用户 Spec 审查（HumanGovernanceGate） |
-| `execution_reviews` | 执行阶段的子 Agent 审查结果（per task） |
-| `execution_reviews.{taskId}.spec_compliance` | Spec 合规审查结果 |
-| `execution_reviews.{taskId}.code_quality` | 代码质量审查结果 |
+| `quality_gates` | 执行阶段质量关卡结果（execution side review sink，per gate task） |
+| `quality_gates.{taskId}.stage1` | 规格合规审查结果 |
+| `quality_gates.{taskId}.stage2` | 代码质量审查结果 |
+| `execution_reviews` | **旧版字段（只读兼容）**。迁移策略见下方说明 |
 | `unblocked` | 已解除的依赖列表 |
 | `progress` | 任务进度 |
 | `contextMetrics` | 上下文预算指标 |
 | `continuation` | continuation 治理状态 |
 | `delta_tracking` | 增量变更追踪 |
+
+### `execution_reviews` 迁移策略
+
+> **状态**: 旧版字段，仅做只读兼容。所有迁移规则集中定义于此，其他文件引用本节。
+
+| 规则 | 说明 |
+|------|------|
+| **新写入目标** | 所有新审查结果只写入 `quality_gates[taskId]`（stage1 / stage2） |
+| **禁止回写** | 新代码不得创建、更新或回写 `execution_reviews` 字段 |
+| **只读兼容** | 读取审查结果时，若 `quality_gates[taskId]` 不存在，允许降级读取 `execution_reviews[taskId]` |
+| **归一化读取** | 建议通过统一 helper（`getReviewResult()`）封装 fallback 逻辑，避免散落判断 |
+| **迁移终点** | 当所有活跃工作流的状态文件均已使用 `quality_gates` 后，可安全移除 `execution_reviews` 兼容逻辑 |
 
 ## 审查状态接口
 
@@ -190,8 +215,32 @@ interface ReviewStatus {
   };
 }
 
-// 执行阶段的子 Agent 审查结果
-interface ExecutionReview {
+// 执行阶段质量关卡结果（主字段）
+interface QualityGateResult {
+  gate_task_id: string;
+  review_mode?: 'machine_loop';
+  last_decision?: 'pass' | 'revise' | 'rejected';
+  reviewed_at?: string;
+  stage1: {
+    passed: boolean;
+    attempts: number;
+    issues_found: number;
+    completed_at: string;
+  };
+  stage2?: {
+    passed: boolean;
+    attempts: number;
+    assessment: 'approved' | 'needs_fixes' | 'rejected';
+    critical_count: number;
+    important_count: number;
+    minor_count: number;
+    completed_at: string;
+  };
+  overall_passed: boolean;
+}
+
+// 旧版执行审查结果（只读兼容）
+interface LegacyExecutionReview {
   spec_compliance: {
     status: 'Compliant' | 'Issues Found';
     reviewed_at: string;

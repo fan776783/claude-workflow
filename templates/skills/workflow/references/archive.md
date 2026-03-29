@@ -28,7 +28,7 @@ if (!fileExists(configPath)) {
 }
 
 const projectConfig = JSON.parse(readFile(configPath));
-const projectId = projectConfig.project?.id;
+const projectId = projectConfig.project?.id || projectConfig.projectId;
 
 // 路径安全校验
 if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) {

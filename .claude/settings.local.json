@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" execute)",
+      "Bash(python3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" continue)",
+      "Bash(python3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/task_manager.py\" --help)",
+      "Bash(python3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/journal.py\" --help)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" execute)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" continue)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/task_manager.py\" --help)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/journal.py\" --help)",
+      "Bash(codeagent-wrapper:*)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" execute 未知意图)",
+      "Bash(py -3 \"D:/code/claude-workflow/templates/skills/workflow/scripts/workflow_cli.py\" continue 下一阶段)",
+      "Bash(command -v codeagent-wrapper)",
+      "Bash(where.exe codeagent-wrapper:*)",
+      "Bash(printf:*)",
+      "Bash(py:*)",
+      "Bash(npm ls:*)"
+    ]
+  }
+}

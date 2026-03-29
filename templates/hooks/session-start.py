@@ -139,8 +139,9 @@ def main() -> int:
         # No project config — skip injection silently
         return 0
 
-    project_id = config.get("projectId", "")
-    project_name = config.get("projectName", project_root.name)
+    project = config.get("project") or {}
+    project_id = project.get("id") or config.get("projectId", "")
+    project_name = project.get("name") or config.get("projectName", project_root.name)
 
     # 2. Find active workflow state
     state = find_workflow_state(project_id) if project_id else None

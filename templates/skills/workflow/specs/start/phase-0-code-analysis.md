@@ -58,7 +58,7 @@ if (requirement.endsWith('.md') && fileExists(requirement)) {
 
 ### Step 1.3: 项目配置检查与自愈（强制）
 
-**目的**：确保 `project-config.json` 存在，保障 projectId 可用，状态机可初始化。
+**目的**：确保 `project-config.json` 存在，保障 `project.id` 可用，状态机可初始化。
 
 ```typescript
 // 
@@ -95,7 +95,7 @@ function generateStableProjectId(cwd: string): string {
 }
 ```
 
-> **关键变更**：`/workflow start` 不再因缺少 `project-config.json` 而阻塞。自动生成最小配置，确保 projectId 始终可用。
+> **关键变更**：`/workflow start` 不再因缺少 `project-config.json` 而阻塞。自动生成最小配置，确保 `project.id` 始终可用；兼容旧配置时可回退读取 `projectId`。
 
 ---
 

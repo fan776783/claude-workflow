@@ -4,6 +4,8 @@
 
 workflow execute 支持两种执行模式：**连续模式**（默认）和**单 phase 模式**（可选）。
 
+> 审查结果读取：新实现只写入并优先读取 `state.quality_gates[taskId]`。旧字段 `execution_reviews` 的兼容规则和归一化读取 helper 参见 `references/state-machine.md` → `execution_reviews` 迁移策略。
+
 > 核心设计：连续模式执行到质量关卡完成后自动暂停，提示用户审查质量结果。这确保代码质量始终受人工监督，同时最大化自动化执行效率。
 
 > 执行链路直接消费 `WorkflowTaskV2`：任务提取使用 `extractCurrentTaskV2()`，动作判断使用 `actions[]`，实现语义读取 `steps[]`。
@@ -57,11 +59,11 @@ if (executionMode === 'continuous') {
 
     // 如果当前任务是质量关卡，执行完成后立即暂停，展示审查结果
     if (currentTask.quality_gate || normalizeTaskActions(currentTask).includes('quality_review')) {
-      const reviewResult = state.execution_reviews?.[currentTask.id];
-      const specStatus = reviewResult?.spec_compliance?.status || '未执行';
-      const codeStatus = reviewResult?.code_quality?.status || '未执行';
-      const specIssues = reviewResult?.spec_compliance?.issues?.length || 0;
-      const codeIssues = reviewResult?.code_quality?.issues?.length || 0;
+      const reviewResult = getReviewResult(state, currentTask.id);
+      const specStatus = reviewResult?.spec_status || '未执行';
+      const codeStatus = reviewResult?.code_status || '未执行';
+      const specIssues = reviewResult?.spec_issues_count || 0;
+      const codeIssues = reviewResult?.code_issues_count || 0;
 
       console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -101,7 +103,7 @@ if (executionMode === 'continuous') {
 
       if (reviewChoice === '查看详细审查报告') {
         // 展示完整戺查报告
-        displayFullReviewReport(state.execution_reviews[currentTask.id]);
+        displayFullReviewReport(getReviewResult(state, currentTask.id));
         // 再次询问
         continue; // 回到循环头重新展示选项
       }
@@ -170,14 +172,14 @@ if (executionMode === 'phase') {
 
     // 如果当前任务是质量关卡，执行完成后暂停提示用户审查
     if (currentTask.quality_gate || normalizeTaskActions(currentTask).includes('quality_review')) {
-      const reviewResult = state.execution_reviews?.[currentTask.id];
+      const reviewResult = getReviewResult(state, currentTask.id);
       console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 质量关卡完成 — 等待用户审查
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📍 Spec 合规：${reviewResult?.spec_compliance?.status || '未执行'}
-📍 代码质量：${reviewResult?.code_quality?.status || '未执行'}
+📍 Spec 合规：${reviewResult?.spec_status || '未执行'}
+📍 代码质量：${reviewResult?.code_status || '未执行'}
 
 💡 审查后执行 /workflow execute 继续
       `);
@@ -510,7 +512,6 @@ async function executeSkipMode() {
    - hard handoff：生成 continuation artifact 并要求新会话恢复
 
 5. 仅当以上均允许时，才应用 execution_mode 语义
-   - step
    - phase
    - quality_gate
 ```

@@ -1,6 +1,6 @@
-# workflow execute - 执行任务概览 (v3.1)
+# workflow execute - 执行任务概览 (v3.2)
 
-> 精简接口：默认治理 phase 模式，支持自然语言控制执行模式
+> 精简接口：默认治理 continuous 模式，支持自然语言控制执行模式与恢复解析
 
 执行工作流任务。
 
@@ -17,19 +17,24 @@
 
 | 用户说 | 系统理解 |
 |--------|----------|
-| "单步执行" / "step" | 单步模式 |
-| "继续" / "下一阶段" | 阶段模式（默认） |
-| "连续" / "执行到质量关卡" | 连续模式 |
+| "继续" / "连续" | 连续模式（默认） |
+| "下一阶段" / "单阶段" | 阶段模式 |
 | "重试" | 等同 `--retry` |
 | "跳过" | 等同 `--skip` |
+
+### 恢复解析规则
+
+- `/workflow execute`：显式进入执行器，默认按 `continuous` 模式恢复/继续。
+- `/workflow execute 继续`：与默认执行一致。
+- 裸自然语言“继续”：仅在存在活动 workflow（`running` / `paused` / `failed` / `blocked`）时可解释为恢复当前工作流；否则提示用户使用 `/workflow execute` 或 `/workflow status`。
+- 是否真正继续执行，始终先由 `ContextGovernor` 判定，而不是只看自然语言意图。
 
 ## 执行模式
 
 | 模式 | 说明 | 语义暂停点 |
 |------|------|------------|
-| 单步 | 每个执行单元后暂停 | 每个执行单元 |
-| 阶段 | 按治理 phase 连续执行（默认） | 治理边界变化时 |
-| 连续 | 执行到质量关卡 | 质量关卡 / git_commit |
+| 阶段 | 按治理 phase 连续执行 | 治理边界变化时 |
+| 连续 | 执行到质量关卡（默认） | 质量关卡 / git_commit |
 
 > 注意：以上仅是语义暂停点；真正是否继续由 `ContextGovernor` 先决定。
 
@@ -53,8 +58,8 @@
 
 解析命令行参数和自然语言意图：
 - 检测 `--retry` / `--skip` 标志
-- 识别自然语言模式描述（单步/连续/阶段）
-- 确定执行模式优先级：命令行参数 > state 配置 > 默认
+- 识别自然语言模式描述（连续/阶段）
+- 确定执行模式优先级：命令行参数 > 自然语言意图 > state 配置 > 默认
 
 **详细实现**: 参见 `specs/execute/execution-modes.md`
 
@@ -100,7 +105,7 @@
 - Spec 路径（`spec_file`）
 - 确保路径在允许的目录范围内
 
-**详细实现**: 参见 `specs/shared/path-utils.md`
+**详细实现**: 参见 `references/shared-utils.md` 与 `scripts/path_utils.py`
 
 ---
 
@@ -119,7 +124,7 @@
 - 若无法证明独立，则降级为顺序执行或单子 agent 隔离执行
 - 若 projected 使用率达到危险水位，则优先暂停或 handoff，而不是继续吞下后续任务
 
-**详细实现**: 参见 `specs/execute/execution-modes.md`、`specs/workflow/subagent-routing.md`、`../dispatching-parallel-agents/SKILL.md` 与 `references/shared-utils.md`
+**详细实现**: 参见 `specs/execute/execution-modes.md`、`../../../specs/workflow/subagent-routing.md`、`../dispatching-parallel-agents/SKILL.md` 与 `references/shared-utils.md`
 
 ---
 
@@ -168,47 +173,25 @@
 
 ---
 
-### Post-Execution Pipeline（Step 6.5 ~ Checkpoint，统一管线）
+### Post-Execution Pipeline（统一管线）
 
-**铁律：没有新鲜验证证据，不得标记任务为 completed。** 以下操作必须严格按序执行，不可调换顺序。
+**铁律：没有新鲜验证证据，不得标记任务为 completed。**
 
-参见 `references/execution-checklist.md` 获取完整清单。
+每个 task 执行完成后，必须依次完成以下 5 步管线。**详细步骤和 checklist 参见 `references/execution-checklist.md`（唯一权威源）。**
 
-#### 操作 ①：验证（Verification）
+```
+Task 完成 → ①验证 → ②自审查/合规检查 → ③更新 plan.md → ④更新 state.json → ⑤审查（条件） → 下一 Task
+```
 
-根据任务 action 类型执行对应验证命令（或项目默认 build/test/lint），生成结构化证据（命令、退出码、输出摘要、时间戳）。
-- **验证失败** → 标记 `failed`，进入 retry 流程，**下列操作全部跳过**
-- **验证通过** → 继续操作 ②
+| 步骤 | 名称 | 关键规则 |
+|------|------|----------|
+| ① | 验证（Verification） | 失败 → 标记 `failed`，后续步骤全部跳过 |
+| ② | 自审查 + 规格合规检查 | 建议性，永不阻塞 |
+| ③ | 更新 plan.md | 逐 task 立即更新，禁止批量回写 |
+| ④ | 更新 workflow-state.json | 更新 progress + current_tasks + updated_at |
+| ⑤ | 审查触发检查 | quality_review → 完整两阶段审查；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
 
-#### 操作 ②：自审查（Self-Review，建议性）
-
-对 `create_file` / `edit_file` 类型任务，执行单次建议性自审查：完整性、正确性、质量、安全、一致性。**永不阻塞**，始终继续操作 ③。
-
-#### 操作 ③：规格合规检查（Spec Compliance Check）
-
-对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由两阶段审查 Stage 1 接管）。
-
-#### 操作 ④：更新 plan.md（逐 task，立即）
-
-- 在 plan.md 中找到当前 task 对应行（格式 `- [ ] T{N}: ...`）
-- 将 `- [ ]` 替换为 `- [x] ✅`
-- 保存文件
-- ❌ 禁止延迟到所有 task 完成后再批量更新
-
-#### 操作 ⑤：更新 workflow-state.json
-
-- 将当前 task ID 添加到 `progress.completed` 数组
-- 更新 `current_tasks` 为下一个 task ID
-- 更新 `updated_at` 为当前时间
-- 保存文件
-
-#### 操作 ⑥：审查触发检查（条件执行）
-
-- 当前 task 的 `actions` 含 `quality_review`：执行完整两阶段审查（参见 `specs/execute/subagent-review.md`）
-- 自上次审查以来已连续完成 3+ 个常规 task：执行轻量 Spec 合规检查
-- 是最后一个 task：执行全量完成审查
-
-> ⚠️ 跳过操作 ① ~ ⑥ 中任何一步即为执行违规。
+> ⚠️ 跳过 ① ~ ⑤ 中任何一步即为执行违规。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
 
@@ -232,13 +215,13 @@
 2. 计算下一执行单元的 projected 成本
 3. 检查是否存在同阶段 2+ 独立边界，且是否适合 `parallel-boundaries`
 4. 判断是否达到 `warning / danger / hard handoff` 水位
-5. 仅当以上都允许继续时，才应用 `step / phase / quality_gate` 的语义暂停规则
+5. 仅当以上都允许继续时，才应用 `phase / quality_gate` 的语义暂停规则
 
 **Continuation actions**：
 - `continue-direct`：直接继续顺序执行
 - `continue-parallel-boundaries`：按边界并行分派
 - `pause-budget`：因预算压力暂停
-- `pause-governance`：因 `step` 或治理 phase 边界暂停
+- `pause-governance`：因治理 phase 边界暂停
 - `pause-quality-gate`：在质量关卡前暂停
 - `pause-before-commit`：在提交任务前暂停
 - `handoff-required`：达到硬水位，生成 continuation artifact 并建议新会话恢复
@@ -293,7 +276,7 @@
 - 当所有任务都被阻塞时，转为 `blocked` 状态
 - 用户使用 `/workflow unblock <dep>` 解除依赖后继续
 
-**详细实现**: 参见 `specs/workflow/progressive-workflow.md`
+**详细实现**: 参见 `references/external-deps.md`、`references/state-machine.md` 与 `scripts/dependency_checker.py`
 
 ---
 
@@ -324,7 +307,7 @@
 
 所有详细的函数实现、数据结构定义、算法细节请参见 `specs/execute/` 目录：
 
-- `execution-modes.md` - 执行模式详情（单步/阶段/连续/重试/跳过）
+- `execution-modes.md` - 执行模式详情（阶段/连续/重试/跳过）
 - `actions/` - 各个 action 的详细实现
   - `create-file.md` - 创建文件
   - `edit-file.md` - 编辑文件
@@ -338,11 +321,8 @@
 ## 🔄 相关命令
 
 ```bash
-# 继续执行（默认治理 phase 模式）
+# 继续执行（默认治理 continuous 模式）
 /workflow execute
-
-# 单步执行
-/workflow execute step
 
 # 连续执行到质量关卡
 /workflow execute 连续
