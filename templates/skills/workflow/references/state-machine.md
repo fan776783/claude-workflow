@@ -41,7 +41,29 @@
 | `api_spec` | 后端接口规格 | `/workflow unblock api_spec` |
 | `external` | 第三方服务/SDK | `/workflow unblock external` |
 
-## 状态文件结构
+## 最小必需状态（Minimum Viable State）
+
+以下 7 个字段是状态文件的**强制字段**。`/workflow execute` 启动时如果 `workflow-state.json` 不存在，必须创建包含这些字段的最小文件：
+
+```json
+{
+  "project_id": "abc123",
+  "status": "running",
+  "current_tasks": ["T1"],
+  "plan_file": ".claude/plans/example.md",
+  "spec_file": ".claude/specs/example.md",
+  "progress": { "completed": [], "failed": [], "skipped": [] },
+  "updated_at": "2026-03-29T10:00:00Z"
+}
+```
+
+> ⚠️ 不要因为不知道如何填写可选字段而跳过整个状态文件的创建。**最小版本只需 7 个字段**。
+>
+> 其他所有字段（`execution_reviews`, `contextMetrics`, `continuation`, `parallel_groups`, `discussion`, `ux_design`, `git_status` 等）为**可选增强字段**，在需要时按需添加。
+
+---
+
+## 状态文件结构（完整版）
 
 `workflow-state.json` 位于 `~/.claude/workflows/{project-id}/`
 

@@ -1,4 +1,4 @@
-# Phase 0: 代码分析详情
+﻿# Phase 0: 代码分析详情
 
 ## 目的
 
@@ -54,6 +54,51 @@ if (requirement.endsWith('.md') && fileExists(requirement)) {
   console.log(`📝 需求描述：${requirement}\n`);
 }
 ```
+
+
+### Step 1.3: 项目配置检查与自愈（强制）
+
+**目的**：确保 `project-config.json` 存在，保障 projectId 可用，状态机可初始化。
+
+```typescript
+// 
+// Step 1.3: 项目配置检查与自愈
+// 
+const configPath = '.claude/config/project-config.json';
+
+if (fileExists(configPath)) {
+  const config = JSON.parse(readFile(configPath));
+  const projectId = config.project.id;
+  if (!validate_project_id(projectId)) {
+    console.log(' project-config.json 中的项目 ID 无效，请重新执行 /scan');
+    return;
+  }
+  console.log(` 项目配置已加载: ${config.project.name} (${projectId})`);
+} else {
+  console.log(' 未找到 project-config.json，正在自动生成最小配置');
+  const projectId = generateStableProjectId(process.cwd());
+  const projectName = path.basename(process.cwd());
+  const minimalConfig = {
+    project: { id: projectId, name: projectName, type: 'single', bkProjectId: null },
+    tech: { packageManager: 'unknown', buildTool: 'unknown', frameworks: [] },
+    workflow: { enableBKMCP: false },
+    _scanMode: 'auto-healed'
+  };
+  ensureDir('.claude/config');
+  writeFile(configPath, JSON.stringify(minimalConfig, null, 2));
+  console.log(` 最小配置已生成 (projectId: ${projectId})`);
+  console.log(' 后续可执行 /scan --force 更新完整配置');
+}
+
+function generateStableProjectId(cwd: string): string {
+  return crypto.createHash('md5').update(cwd.toLowerCase()).digest('hex').substring(0, 12);
+}
+```
+
+> **关键变更**：`/workflow start` 不再因缺少 `project-config.json` 而阻塞。自动生成最小配置，确保 projectId 始终可用。
+
+---
+
 
 ### Step 1.5: Git 状态检查（强制）
 

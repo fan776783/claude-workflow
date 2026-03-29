@@ -11,6 +11,7 @@ description: "智能项目扫描 - 检测技术栈、生成配置文件和项目
 
 ```bash
 /scan                  # 完整扫描
+/scan --init           # 仅生成 projectId 和最小配置（空项目适用）
 /scan --config-only    # 仅生成配置文件（跳过语义分析）
 /scan --context-only   # 仅生成上下文报告（需已有配置）
 /scan --force          # 强制覆盖（不询问确认）
@@ -18,9 +19,14 @@ description: "智能项目扫描 - 检测技术栈、生成配置文件和项目
 
 ## 输出产物
 
-- `.claude/config/project-config.json` — 项目配置文件
-- `.claude/config/ui-config.json` — UI 设计系统配置（供 figma-ui 等 UI skill 读取）
-- `.claude/repo-context.md` — 项目上下文报告
+根据扫描模式，产出文件不同：
+
+| 模式 | 产出文件 |
+|------|----------|
+| `--init` 或空项目自动触发（最小初始化） | `.claude/config/project-config.json` |
+| `--config-only` | `.claude/config/project-config.json`、`.claude/config/ui-config.json` |
+| `--context-only` | `.claude/repo-context.md`（需已有配置） |
+| 完整扫描（默认） | `.claude/config/project-config.json`、`.claude/config/ui-config.json`、`.claude/repo-context.md` |
 
 ### project-config.json 结构
 
@@ -55,9 +61,77 @@ description: "智能项目扫描 - 检测技术栈、生成配置文件和项目
 ## 执行流程
 
 ```
+Part 0: 空项目检测与 --init 快速路径（新增）
 Part 1: 技术栈检测（文件系统）
 Part 2: 语义代码检索（MCP 深度分析）
 Part 3: 生成报告
+Part 4: 产出完整性检查（新增）
+```
+
+## Part 0: 空项目检测与 --init 快速路径
+
+**目的**：当项目目录为空或用户指定 `--init` 时，生成最小 `project-config.json`，确保 projectId 可用。
+
+```typescript
+const isInitMode = flags.includes('--init');
+const sourceFiles = listFiles('.', {
+  ignore: ['.git', '.claude', 'node_modules', '.vscode', '.idea', '.cursor']
+});
+const isEmpty = sourceFiles.length === 0;
+
+if (isInitMode || isEmpty) {
+  const projectId = generateStableProjectId(process.cwd());
+  const projectName = path.basename(process.cwd());
+
+  const minimalConfig = {
+    project: {
+      id: projectId,
+      name: projectName,
+      type: 'single',
+      bkProjectId: null
+    },
+    tech: {
+      packageManager: 'unknown',
+      buildTool: 'unknown',
+      frameworks: []
+    },
+    workflow: { enableBKMCP: false },
+    _scanMode: 'init'  // init | full
+  };
+
+  ensureDir('.claude/config');
+  writeFile('.claude/config/project-config.json', JSON.stringify(minimalConfig, null, 2));
+
+  console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 最小项目配置已生成
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 项目 ID: ${projectId}
+📁 项目名: ${projectName}
+📄 配置文件: .claude/config/project-config.json
+
+${isEmpty ? '📝 检测到空项目，已跳过技术栈检测和语义分析。' : ''}
+💡 项目有代码后可随时执行 /scan --force 更新完整配置。
+
+📚 下一步：
+  /workflow start "需求描述"
+  `);
+  return;  // 跳过 Part 1~3
+}
+```
+
+### generateStableProjectId
+
+基于目录绝对路径生成确定性 ID（同目录同 ID）：
+
+```typescript
+function generateStableProjectId(cwd: string): string {
+  return crypto.createHash('md5')
+    .update(cwd.toLowerCase())  // 大小写不敏感（Windows 兼容）
+    .digest('hex')
+    .substring(0, 12);
+}
 ```
 
 ## Part 1: 技术栈检测
@@ -169,6 +243,49 @@ mkdir -p ".claude/config"
   1. 查看上下文报告: cat .claude/repo-context.md
   2. 启动工作流: /workflow start "功能需求描述"
   3. UI 还原: /figma-ui <figma-url>（自动读取 ui-config.json）
+```
+
+## Part 4: 产出完整性检查
+
+扫描结束前检查**当前模式下**预期产出文件是否全部生成。
+
+> ⚠️ 本检查仅适用于完整扫描和 `--config-only` 模式。`--init` 路径在 Part 0 已 return，不会执行到此处。
+
+```typescript
+// 按扫描模式确定预期产出
+const expectedOutputsByMode: Record<string, string[]> = {
+  full: [
+    '.claude/config/project-config.json',
+    '.claude/config/ui-config.json',
+    '.claude/repo-context.md'
+  ],
+  'config-only': [
+    '.claude/config/project-config.json',
+    '.claude/config/ui-config.json'
+  ],
+  'context-only': [
+    '.claude/repo-context.md'
+  ]
+  // 注意：init 模式在 Part 0 已 return，不会到达此处
+};
+
+const scanMode = flags.includes('--config-only') ? 'config-only'
+               : flags.includes('--context-only') ? 'context-only'
+               : 'full';
+const expectedOutputs = expectedOutputsByMode[scanMode];
+
+const missing = expectedOutputs.filter(f => !fileExists(f));
+
+if (missing.length > 0) {
+  console.log(`
+⚠️ 扫描完成（模式: ${scanMode}）但以下文件未生成：
+${missing.map(f => `  ❌ ${f}`).join('\n')}
+
+可能原因：
+- MCP 工具不可用 → 仅影响 repo-context.md
+- 项目结构无法识别
+  `);
+}
 ```
 
 ## 与其他命令的关系

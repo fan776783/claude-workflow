@@ -266,6 +266,60 @@ ${clarifications.slice(0, 5).map(c =>
 `);
 ```
 
+
+### Step 4.5: 技术决策反写 project-config.json
+
+**目的**：将讨论过程中确认的技术选型（如 Tauri、React 等）反写到 `project-config.json` 的 `tech` 字段。
+
+```typescript
+// 
+// Step 4.5: 技术决策反写 project-config.json
+// 
+const techDecisions = extractTechDecisions(clarifications);
+
+if (techDecisions.length > 0) {
+  const configPath = '.claude/config/project-config.json';
+  if (fileExists(configPath)) {
+    const config = JSON.parse(readFile(configPath));
+
+    // 仅在 tech 字段为 unknown 时更新（不覆盖 scan 的完整检测结果）
+    if (config.tech.buildTool === 'unknown' || config._scanMode === 'auto-healed') {
+      for (const decision of techDecisions) {
+        if (decision.type === 'framework') {
+          config.tech.frameworks = [...new Set([...config.tech.frameworks, decision.value])];
+        }
+        if (decision.type === 'packageManager') config.tech.packageManager = decision.value;
+        if (decision.type === 'buildTool') config.tech.buildTool = decision.value;
+      }
+      config._scanMode = 'discussion-enriched';
+      writeFile(configPath, JSON.stringify(config, null, 2));
+      console.log(` 技术决策已反写: ${techDecisions.map(d => d.value).join(', ')}`);
+    }
+  }
+}
+
+// 技术关键词映射
+function extractTechDecisions(clarifications: Clarification[]): TechDecision[] {
+  const decisions: TechDecision[] = [];
+  const keywords: Record<string, { type: string; value: string }> = {
+    'tauri': { type: 'framework', value: 'tauri' },
+    'react': { type: 'framework', value: 'react' },
+    'vue': { type: 'framework', value: 'vue' },
+    'next': { type: 'framework', value: 'nextjs' },
+    'vite': { type: 'buildTool', value: 'vite' },
+    'pnpm': { type: 'packageManager', value: 'pnpm' },
+    'npm': { type: 'packageManager', value: 'npm' },
+  };
+  for (const c of clarifications) {
+    const answer = c.answer.toLowerCase();
+    for (const [kw, decision] of Object.entries(keywords)) {
+      if (answer.includes(kw)) decisions.push(decision);
+    }
+  }
+  return decisions;
+}
+```
+
 ## 数据结构
 
 ```typescript
@@ -660,3 +714,13 @@ Spec 生成函数签名为 `generateSpec(requirementContent, analysisResult, dis
 讨论工件持久化为 `~/.claude/workflows/{projectId}/discussion-artifact.json`，用于：
 - Phase 1: Spec 生成（澄清结果 + 方案选择 + 未就绪依赖）
 - 审计追溯：讨论过程可回溯
+
+### ⚠️ 持久化强制要求
+
+讨论结束后（无论用户主动结束还是所有问题澄清完毕），**必须执行 Step 4 的持久化操作**：
+
+1. 构建 `DiscussionArtifact` JSON 对象（含 `clarifications`、`selectedApproach`、`unresolvedDependencies`）
+2. 写入 `~/.claude/workflows/{projectId}/discussion-artifact.json`
+3. 输出确认：`✅ 讨论纪要已保存至 discussion-artifact.json`
+
+> ⚠️ **不得仅依赖对话上下文记忆**。即使讨论内容简短（如只澄清了 1 个问题），也必须生成结构化工件并写入文件。Phase 1 Spec 生成会读取此文件。

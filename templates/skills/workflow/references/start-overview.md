@@ -1,4 +1,4 @@
-# workflow start - 启动工作流 (v5.0)
+﻿# workflow start - 启动工作流 (v5.0)
 
 > 精简三层架构：**需求 → Spec → Plan → 执行 + 子 Agent 审查**
 
@@ -48,11 +48,16 @@
 
 ---
 
-### Step 1：项目配置检查（强制）
+### Step 1：项目配置检查与自愈（强制）
 
-检查 `.claude/config/project-config.json` 是否存在，验证项目 ID。
+检查 `.claude/config/project-config.json` 是否存在。
 
-**前置条件**: 必须先执行 `/scan` 生成项目配置。
+- **已有配置**：读取并验证项目 ID
+- **配置缺失**：自动基于目录路径生成最小配置（含 projectId），确保状态机可初始化
+
+**前置条件**: 推荐先执行 `/scan` 生成完整项目配置，但非必须。workflow start 会在配置缺失时自动生成最小配置（`_scanMode: auto-healed`）。
+
+**详细实现**: 参见 `specs/start/phase-0-code-analysis.md` Step 1.3
 
 ---
 

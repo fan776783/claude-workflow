@@ -71,6 +71,26 @@
 - 失败状态：提示使用 `--retry` 或 `--skip`
 - 阻塞状态：提示使用 `/workflow unblock`
 
+#### ⚠️ 状态文件自愈（强制）
+
+如果 `workflow-state.json` 不存在，**不得跳过状态管理**，必须立即创建最小状态文件：
+
+```json
+{
+  "project_id": "<从 project-config.json 读取>",
+  "status": "running",
+  "current_tasks": ["<plan.md 中第一个未完成任务的 ID>"],
+  "plan_file": ".claude/plans/<name>.md",
+  "spec_file": ".claude/specs/<name>.md",
+  "progress": { "completed": [], "failed": [], "skipped": [] },
+  "updated_at": "<当前 ISO 时间>"
+}
+```
+
+创建后继续执行。参见 `references/state-machine.md` → 最小必需状态。
+
+> ⚠️ 不得因状态文件缺失而跳过整个状态管理层。缺失 = 创建，不是跳过。
+
 ---
 
 ### Step 2：路径安全校验
@@ -148,27 +168,47 @@
 
 ---
 
-### Step 6.5：完成验证（Verification Iron Law）
+### Post-Execution Pipeline（Step 6.5 ~ Checkpoint，统一管线）
 
-**铁律：没有新鲜验证证据，不得标记任务为 completed。**
+**铁律：没有新鲜验证证据，不得标记任务为 completed。** 以下操作必须严格按序执行，不可调换顺序。
 
-根据任务 action 类型执行对应验证命令，生成结构化证据（命令、退出码、输出摘要、时间戳）。验证失败则标记 `failed`，禁止继续。
+参见 `references/execution-checklist.md` 获取完整清单。
 
-**详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
+#### 操作 ①：验证（Verification）
 
----
+根据任务 action 类型执行对应验证命令（或项目默认 build/test/lint），生成结构化证据（命令、退出码、输出摘要、时间戳）。
+- **验证失败** → 标记 `failed`，进入 retry 流程，**下列操作全部跳过**
+- **验证通过** → 继续操作 ②
 
-### Step 6.6：自审查（Self-Review Checklist）
+#### 操作 ②：自审查（Self-Review，建议性）
 
-对 `create_file` / `edit_file` 类型任务，在验证通过后执行单次建议性自审查：完整性（测试覆盖）、正确性（红绿转换）、质量（DRY、错误处理）、安全（输入验证）、一致性（设计对齐）。永不阻塞，始终继续 Step 6.7。
+对 `create_file` / `edit_file` 类型任务，执行单次建议性自审查：完整性、正确性、质量、安全、一致性。**永不阻塞**，始终继续操作 ③。
 
-**详细实现**: 参见 `specs/execute/execution-modes.md` → Step 6.6
+#### 操作 ③：规格合规检查（Spec Compliance Check）
 
----
+对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由两阶段审查 Stage 1 接管）。
 
-### Step 6.7：规格合规检查（Spec Compliance Check）
+#### 操作 ④：更新 plan.md（逐 task，立即）
 
-对 `create_file` / `edit_file` 类型且有 `acceptance_criteria` 的任务，只读检查验收项覆盖情况。发现偏差输出列表，不自动修复。`quality_review` 类型任务跳过（由 shared review loop contract 对齐后的两阶段审查 Stage 1 接管）。
+- 在 plan.md 中找到当前 task 对应行（格式 `- [ ] T{N}: ...`）
+- 将 `- [ ]` 替换为 `- [x] ✅`
+- 保存文件
+- ❌ 禁止延迟到所有 task 完成后再批量更新
+
+#### 操作 ⑤：更新 workflow-state.json
+
+- 将当前 task ID 添加到 `progress.completed` 数组
+- 更新 `current_tasks` 为下一个 task ID
+- 更新 `updated_at` 为当前时间
+- 保存文件
+
+#### 操作 ⑥：审查触发检查（条件执行）
+
+- 当前 task 的 `actions` 含 `quality_review`：执行完整两阶段审查（参见 `specs/execute/subagent-review.md`）
+- 自上次审查以来已连续完成 3+ 个常规 task：执行轻量 Spec 合规检查
+- 是最后一个 task：执行全量完成审查
+
+> ⚠️ 跳过操作 ① ~ ⑥ 中任何一步即为执行违规。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md` → Post-Execution Pipeline
 
@@ -176,10 +216,8 @@
 
 ### Step 7：更新任务状态
 
-执行完成后更新任务状态：
-- 标记任务为已完成（`completed`）
-- 更新 `plan.md` 中的任务状态（添加 ✅ emoji）
-- 更新 `workflow-state.json` 中的进度
+完成 Post-Execution Pipeline 后确认最终状态：
+- 确认任务已标记为 `completed`（Pipeline 操作 ④⑤ 已完成）
 - 记录上下文使用历史与 projected 预算信息
 - 更新连续执行计数（仅作为节奏控制，不再单独决定 continuation）
 
@@ -187,7 +225,7 @@
 
 ### Step 8：ContextGovernor 决定下一步
 
-完成 Step 6.5 / 6.6 / 6.7 与 Step 7 后，不再直接按 `execution_mode` 决定是否继续，而是先调用 `ContextGovernor`：
+完成 Post-Execution Pipeline 与 Step 7 后，不再直接按 `execution_mode` 决定是否继续，而是先调用 `ContextGovernor`：
 
 **决策顺序**：
 1. 检查是否存在硬停止条件（failed / blocked / retry hard stop / 缺少验证证据）

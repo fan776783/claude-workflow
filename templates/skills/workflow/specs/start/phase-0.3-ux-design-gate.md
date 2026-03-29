@@ -344,3 +344,13 @@ UX 设计工件通过结构化传递给 Phase 1 Spec 生成：
 - 页面分层中 L0 首页不得超过 4 个功能模块
 - HARD-GATE 未通过时不得进入 Phase 1 Spec 生成
 - 设计工件必须持久化为 JSON 文件，供后续阶段消费和审计
+
+### ⚠️ 持久化强制要求
+
+用户批准 UX 设计后，**必须执行 Step 5 的持久化操作**：
+
+1. 构建 `UXDesignArtifact` JSON 对象（含流程图 Mermaid 源码、页面分层、批准时间）
+2. 写入 `~/.claude/workflows/{projectId}/ux-design-artifact.json`
+3. 输出确认：`✅ UX 设计工件已保存至 ux-design-artifact.json`
+
+> ⚠️ **设计审批通过但未持久化 = 执行违规**。不得仅在对话中展示设计而不写入文件。Phase 1 Spec 生成会读取此文件中的流程图和页面分层数据。
