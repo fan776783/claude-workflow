@@ -160,6 +160,8 @@ Spec 生成后，必须执行一次内联自审查（非子 Agent）：
 
 发现问题直接修复，无需重新审查。
 
+> 注：此 Self-Review 与执行阶段的「Spec 合规审查（子 Agent）」是不同的机制。Self-Review 为内联自检，聚焦 spec 文档本身的完整性和一致性；执行阶段的 Spec 合规审查（参见 `specs/execute/subagent-review.md`）由独立子 Agent 执行，聚焦**代码实现**与 spec 的一致性，且仅在质量关卡等条件满足时触发。
+
 ## 强制规则
 
 - 所有需求都必须在 Scope 章节有明确判定（in_scope / out_of_scope / blocked）

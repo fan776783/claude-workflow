@@ -768,13 +768,25 @@ if (useSubagent) {
 
 ## Post-Execution Pipeline
 
-> 所有执行模式共享的后置管线。每个任务执行完成后、标记状态前，必须经过此管线。
+> 所有执行模式共享的后置管线。每个任务执行完成后，必须依次经过以下 6 步。**权威定义参见 `references/execution-checklist.md`。**
+>
+> ⚠️ 跳过任何一步即为执行违规。
 
 ```
-executeTask() → Step 6.5（验证铁律）→ Step 6.6（自审查）→ Step 6.7（规格合规）→ Step 7（更新状态）
+executeTask() → ①验证（Step 6.5）→ ②自审查/合规检查（Step 6.6-6.7）→ ③更新 plan.md → ④更新 state.json → ⑤审查（条件触发）→ ⑥Journal（条件）→ 下一 Task
 ```
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 4 种执行模式（continuous/phase/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过 Step 6.5 → Step 6.6 → Step 6.7 再进入 Step 7。质量关卡任务的 `quality_review` action 内部包含两阶段审查（详见 `specs/execute/actions/quality-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
+| 步骤 | 对应实现 | 说明 |
+|------|---------|------|
+| ① 验证 | Step 6.5 | 失败 → 标记 `failed`，后续步骤全部跳过 |
+| ② 自审查 + 合规检查 | Step 6.6 + 6.7 | 建议性，永不阻塞 |
+| ③ 更新 plan.md | — | 逐 task 立即更新，禁止批量回写 |
+| ④ 更新 state.json | Step 7 | 更新 progress + current_tasks + updated_at |
+| ⑤ 审查（条件触发） | — | quality_review → 完整两阶段审查（子 Agent）；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
+| ⑥ Journal（条件） | — | 质量关卡/暂停/完成时记录 |
+
+**适用范围**：直接模式和 Subagent 模式均适用。所有 4 种执行模式（continuous/phase/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过完整 6 步管线。Step 6.5 → 6.6 → 6.7 为内联检查（建议性，不阻塞）；步骤 ⑤ 的完整两阶段审查由子 Agent 执行（或降级为角色切换），仅在满足触发条件时执行（详见 `specs/execute/subagent-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
+
 
 ---
 

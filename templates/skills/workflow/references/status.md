@@ -219,6 +219,24 @@ const progressPercent = totalTasks > 0
 // 渐进式工作流：获取已解除的依赖
 const unblocked = state.unblocked || [];
 const isProgressive = state.mode === 'progressive';
+
+// 会话日志：读取最近 journal 记录（跨 Session 记忆）
+const journalIndexPath = path.join(workflowDir, 'journal', 'index.json');
+let journalEntries = [];
+let latestJournal = null;
+if (fileExists(journalIndexPath)) {
+  try {
+    const journalIndex = JSON.parse(readFile(journalIndexPath));
+    journalEntries = (journalIndex.sessions || []).slice(-5).reverse(); // 最近 5 条
+    if (journalEntries.length > 0) {
+      // 读取最新一条的完整内容（含 decisions / next_steps）
+      const latestFile = path.join(workflowDir, 'journal', 'sessions', journalEntries[0].file);
+      if (fileExists(latestFile)) {
+        latestJournal = JSON.parse(readFile(latestFile));
+      }
+    }
+  } catch (e) { /* journal 可选，不阻塞 status */ }
+}
 ```
 
 ---
@@ -504,6 +522,38 @@ _（未定义成功标准）_
 {{/if}}{{#each state.artifacts}}
 | {{@key}} | `{{this}}` |
 {{/each}}
+
+---
+
+## 📓 最近会话记录
+
+{{#if journalEntries.length}}
+> 💡 来自 `journal/` 的跨 Session 记忆。新 Session 启动时可快速了解之前的工作进展。
+
+| # | 日期 | 标题 | 完成任务 |
+|---|------|------|----------|
+{{#each journalEntries}}
+| {{id}} | {{date}} | {{title}} | {{tasks_count}} 个 |
+{{/each}}
+
+{{#if latestJournal.next_steps.length}}
+**上次 Next Steps**：
+{{#each latestJournal.next_steps}}
+- {{this}}
+{{/each}}
+{{/if}}
+
+{{#if latestJournal.decisions.length}}
+**上次关键决策**：
+{{#each latestJournal.decisions}}
+- {{this}}
+{{/each}}
+{{/if}}
+{{else}}
+_（暂无会话记录。执行工作流后将在关键节点自动记录。）_
+{{/if}}
+
+💡 **查看更多**：`/workflow journal list` · **搜索**：`/workflow journal search "关键词"`
 
 ---
 
