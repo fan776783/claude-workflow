@@ -1,4 +1,4 @@
-# Quick Review Mode (--quick)
+# Quick Review Mode (默认)
 
 适用于日常快速检查，Claude 单模型审查。
 

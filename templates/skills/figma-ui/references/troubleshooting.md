@@ -70,15 +70,7 @@ for (const childId of extractChildNodeIds(metadata)) {
 
 ---
 
-## Gemini Review
-
-### Issue: Gemini 调用超时
-
-**原因**: 网络问题或 Gemini 服务不可用
-
-**解决**: 使用降级方案
-- 当前模型按相同 JSON 格式自行审查
-- 交付摘要注明："降级 visualFidelity: XX/100 (原因: Gemini 超时)"
+## Visual Review
 
 ### Issue: visualFidelity 始终低于门控
 

@@ -78,15 +78,15 @@
 | `comparison.png` | 并排对比图（设计稿 / 实现 / 差异） |
 | `report.json` | 结构化报告 |
 
-## 双模型验证报告
+## 语义验证报告
 
-当使用双模型验证时，报告扩展为：
+当使用语义验证时，报告扩展为：
 
 ```json
 {
   "pixel_diff": { /* image_diff.py 输出 */ },
-  "gemini_review": {
-    "score": 85,
+  "review": {
+    "score": 88,
     "issues": [
       {
         "element": "关闭按钮",
@@ -97,25 +97,20 @@
     ],
     "summary": "整体还原度良好，存在少量间距微调"
   },
-  "claude_review": {
-    "score": 88,
-    "issues": [...],
-    "summary": "..."
-  },
-  "final_verdict": "PASS",
-  "confidence": "HIGH"
+  "final_verdict": "PASS"
 }
 ```
 
 ### 最终判定逻辑
 
 ```
-pixel_diff.verdict == PASS && gemini_score >= 80 && claude_score >= 80
-  → final_verdict: PASS, confidence: HIGH
+pixel_diff.verdict == PASS && review_score >= 80
+  → final_verdict: PASS
 
-pixel_diff.verdict == PASS && (gemini_score >= 70 || claude_score >= 70)
-  → final_verdict: REVIEW, confidence: MEDIUM
+pixel_diff.verdict == PASS && review_score >= 70
+  → final_verdict: REVIEW
 
 其他情况
-  → final_verdict: FAIL, confidence: LOW
+  → final_verdict: FAIL
 ```
+

@@ -356,7 +356,7 @@ const STANDARD_STEPS: TaskStep[] = [
 
 **来源**: Superpowers `receiving-code-review`
 
-**问题**: 当前 diff-review 的 Deep 模式收到 Codex/Gemini 的审查意见后，直接整合输出。没有对审查建议本身进行技术验证，可能导致实施不必要的改动或引入新问题。
+**问题**: 当前 diff-review 的 Deep 模式收到 Codex 的审查意见后，直接整合输出。没有对审查建议本身进行技术验证，可能导致实施不必要的改动或引入新问题。
 
 **改动方案**:
 
@@ -365,7 +365,7 @@ const STANDARD_STEPS: TaskStep[] = [
 ```markdown
 ## 审查反馈验证（Deep 模式）
 
-收到 Codex/Gemini 的审查意见后，当前模型必须对每条 P0/P1 建议执行技术验证：
+收到 Codex 的审查意见后，当前模型必须对每条 P0/P1 建议执行技术验证：
 
 **验证流程**：
 

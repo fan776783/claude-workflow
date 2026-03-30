@@ -4,11 +4,10 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs-extra');
 const semver = require('semver');
-const readline = require('readline');
+const { spawnSync } = require('child_process');
 
 const pkg = require('../package.json');
 const {
-  installBinary,
   installForAgents,
   getInstallationStatus,
 } = require('../lib/installer');
@@ -27,68 +26,31 @@ const LEGACY_SKIP_ENV = 'CLAUDE_WORKFLOW_SKIP_POSTINSTALL';
 const AGENTS_ENV = 'AGENT_WORKFLOW_AGENTS';
 const LEGACY_AGENTS_ENV = 'CLAUDE_WORKFLOW_AGENTS';
 
-// 询问用户是否自动配置 PATH
-async function askAutoConfigurePath() {
-  // 非交互模式直接返回 false
-  if (!process.stdin.isTTY) {
-    return false;
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
+function hasCommand(command) {
+  const result = spawnSync(command, ['--version'], {
+    stdio: 'ignore',
+    shell: false,
   });
-
-  return new Promise((resolve) => {
-    rl.question(`${LOG_PREFIX} 是否自动配置 PATH? (Y/n) `, (answer) => {
-      rl.close();
-      const normalized = answer.trim().toLowerCase();
-      resolve(normalized === '' || normalized === 'y' || normalized === 'yes');
-    });
-  });
+  return !result.error && result.status === 0;
 }
 
-// 配置 PATH 到 shell 配置文件
-async function configurePathForUnix(installDir) {
-  const homeDir = os.homedir();
-  const shell = process.env.SHELL || '';
-  const shellRc = shell.includes('zsh') ? path.join(homeDir, '.zshrc') : path.join(homeDir, '.bashrc');
-  const shellRcDisplay = shell.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-  const exportCommand = `export PATH="${installDir}:$PATH"`;
-
-  try {
-    let rcContent = '';
-    if (await fs.pathExists(shellRc)) {
-      rcContent = await fs.readFile(shellRc, 'utf-8');
-    }
-
-    if (rcContent.includes(installDir) || rcContent.includes('/.local/bin')) {
-      console.log(`${LOG_PREFIX} ✓ PATH 已配置在 ${shellRcDisplay}`);
-      return { success: true, alreadyConfigured: true };
-    }
-
-    const configLine = `\n# Agent Workflow - codeagent-wrapper\n${exportCommand}\n`;
-    await fs.appendFile(shellRc, configLine, 'utf-8');
-    console.log(`${LOG_PREFIX} ✓ 已添加 PATH 到 ${shellRcDisplay}`);
-    console.log(`${LOG_PREFIX} 请运行: source ${shellRcDisplay}`);
-    return { success: true, alreadyConfigured: false };
-  } catch (error) {
-    console.log(`${LOG_PREFIX} ✗ PATH 配置失败: ${error.message}`);
-    return { success: false, error: error.message };
-  }
+function detectPythonCommand() {
+  return ['python3', 'python', 'py'].find(hasCommand) || null;
 }
 
-// 显示 Windows PATH 配置说明
-function showWindowsPathInstructions(installDir) {
-  const winPath = installDir.replace(/\//g, '\\');
-  console.log(`\n${LOG_PREFIX} Windows PATH 配置说明:`);
-  console.log('  方法 1 - 图形界面:');
-  console.log('    1. Win+X → 系统 → 高级系统设置');
-  console.log('    2. 环境变量 → 用户变量 → Path → 编辑');
-  console.log(`    3. 新建 → 添加: ${winPath}`);
-  console.log('    4. 确定保存，重启终端');
-  console.log('\n  方法 2 - PowerShell (管理员):');
-  console.log(`    [System.Environment]::SetEnvironmentVariable('PATH', "$env:PATH;${winPath}", 'User')`);
+function collectRuntimeWarnings() {
+  const warnings = [];
+  const pythonCommand = detectPythonCommand();
+
+  if (!pythonCommand) {
+    warnings.push('Runtime dependency missing: python3/python/py');
+  }
+
+  if (!hasCommand('codex')) {
+    warnings.push('Runtime dependency missing: codex CLI');
+  }
+
+  return { warnings, pythonCommand };
 }
 
 async function main() {
@@ -109,9 +71,6 @@ async function main() {
     installedAt: new Date().toISOString(),
     npmPackage: pkg.name,
     templatesInstalled: false,
-    binaryInstalled: false,
-    binaryPath: null,
-    binaryDir: null,
     agents: {},
     errors: []
   };
@@ -176,6 +135,7 @@ async function main() {
     }
 
     const effectiveVersion = canonicalVersion || previousVersion;
+    const runtimeCheck = collectRuntimeWarnings();
 
     if (effectiveVersion && semver.gt(effectiveVersion, currentVersion)) {
       console.log(`${LOG_PREFIX} 检测到降级: v${effectiveVersion} → v${currentVersion}`);
@@ -213,37 +173,14 @@ async function main() {
       }
     }
 
-    console.log(`\n${LOG_PREFIX} 安装 codeagent-wrapper...`);
-    const binaryResult = await installBinary(packageDir);
-    if (!binaryResult.success) {
-      console.log(`${LOG_PREFIX} codeagent-wrapper 安装跳过: ${binaryResult.reason}`);
-      if (binaryResult.reason === 'binary_not_found') {
-        console.log(`${LOG_PREFIX} 当前平台无预编译二进制，请从 https://github.com/anthropics/claude-code 下载`);
-      } else if (binaryResult.reason === 'verification_failed') {
-        console.log(`${LOG_PREFIX} 二进制文件无法执行，可能是平台不兼容`);
-      }
-      installStatus.errors.push(`Binary: ${binaryResult.reason}`);
-    } else {
-      installStatus.binaryInstalled = true;
-      installStatus.binaryPath = binaryResult.path;
-      installStatus.binaryDir = binaryResult.installDir;
 
-      if (!binaryResult.inPath) {
-        const platform = os.platform();
-        if (platform === 'win32') {
-          showWindowsPathInstructions(binaryResult.installDir);
-        } else {
-          const autoConfig = await askAutoConfigurePath();
-          if (autoConfig) {
-            await configurePathForUnix(binaryResult.installDir);
-          } else {
-            const shell = process.env.SHELL || '';
-            const shellRc = shell.includes('zsh') ? '~/.zshrc' : '~/.bashrc';
-            console.log(`${LOG_PREFIX} 手动配置 PATH:`);
-            console.log(`  export PATH="${binaryResult.installDir}:$PATH"`);
-            console.log(`  # 添加到 ${shellRc} 后运行: source ${shellRc}`);
-          }
-        }
+
+    if (runtimeCheck.warnings.length > 0) {
+      installStatus.errors.push(...runtimeCheck.warnings);
+      console.log(`\n${LOG_PREFIX} 运行时依赖检查:`);
+      runtimeCheck.warnings.forEach(warning => console.log(`${LOG_PREFIX} 警告: ${warning}`));
+      if (runtimeCheck.pythonCommand) {
+        console.log(`${LOG_PREFIX} 检测到 Python 解释器: ${runtimeCheck.pythonCommand}`);
       }
     }
 
@@ -255,6 +192,8 @@ async function main() {
       npmPackage: pkg.name,
       canonicalDir: installStatus.canonicalDir,
       migratedToCanonical: true,
+      runtimeWarnings: runtimeCheck.warnings,
+      pythonCommand: runtimeCheck.pythonCommand,
     }, { spaces: 2 });
 
     console.log(`\n${LOG_PREFIX} 安装位置: ${installStatus.canonicalDir || canonicalDir}`);

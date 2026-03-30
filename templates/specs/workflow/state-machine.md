@@ -57,7 +57,7 @@
       "ui-domain": {
         "completed": ["T2"],
         "pending": ["T3"],
-        "preferredModel": "gemini"
+        "preferredModel": "codex"
       }
     }
   },
@@ -161,7 +161,6 @@
     "executor": null,
     "reviewers": {
       "codex": null,
-      "gemini": null,
       "claude": null
     }
   },
@@ -501,7 +500,7 @@ interface WorkflowTaskV2 {
 
 ```typescript
 type ExecutionPlatform = 'cursor' | 'claude-code' | 'codex' | 'other';
-type ModelProvider = 'codex' | 'gemini' | 'claude' | 'user';
+type ModelProvider = 'codex' | 'claude' | 'user';
 ```
 
 **约定**：

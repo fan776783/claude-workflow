@@ -1,6 +1,6 @@
 # 视觉审查维度
 
-Gemini Visual Review 的详细审查标准。
+Visual Review 的详细审查标准。
 
 ## 目录
 

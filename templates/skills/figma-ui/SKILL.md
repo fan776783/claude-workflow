@@ -20,7 +20,7 @@ description: |
 |------|------|
 | **assetsDir 必传** | 调用 `get_design_context` 前必须先获取 |
 | **视觉优先** | 像素级还原设计稿，不做"优化" |
-| **Gemini Review** | 验证阶段必须调用，不可跳过 |
+| **Visual Review** | 验证阶段必须执行视觉审查，不可跳过 |
 | **还原度门控** | visualFidelity ≥ 90 才能交付 |
 
 **参考文档**：
@@ -167,21 +167,19 @@ if (missing.length > 0) {
 }
 ```
 
-### C.2 Gemini Visual Review（⛔ 必须调用）
+### C.2 Visual Review（⛔ 必须执行）
 
-```bash
-codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
-ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
+当前模型按以下 JSON 格式自行审查 UI 实现与设计稿的视觉一致性。
 
-审查 UI 实现与设计稿的视觉一致性。
-
-设计参考：[附上 get_design_context 返回的结构化设计信息]
-实现代码：[附上组件代码]
+审查内容：
+- 设计参考：[get_design_context 返回的结构化设计信息]
+- 实现代码：[组件代码]
 
 返回 JSON：
+```json
 {
   "visualFidelity": {
-    "score": 0-100,
+    "score": "0-100",
     "issues": [
       {
         "element": "元素名称",
@@ -194,16 +192,15 @@ ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
     ]
   },
   "accessibility": {
-    "score": 0-100,
-    "issues": [...]
+    "score": "0-100",
+    "issues": []
   },
   "codeQuality": {
-    "score": 0-100,
-    "issues": [...]
+    "score": "0-100",
+    "issues": []
   },
-  "overall": 0-100
+  "overall": "0-100"
 }
-EOF
 ```
 
 **审查重点**（按权重排序）：
@@ -243,7 +240,7 @@ accessibility < 70 → 修复可访问性
 │ 修改文件     │ pages/test/index.vue（添加入口）    │
 │ 资源目录     │ public/images/xxx/                  │
 ├──────────────┼─────────────────────────────────────┤
-│ Visual Review│ Gemini visualFidelity: XX/100       │
+│ Visual Review│ visualFidelity: XX/100              │
 │ Accessibility│ XX/100                              │
 │ Overall      │ XX/100                              │
 ├──────────────┼─────────────────────────────────────┤
@@ -259,7 +256,7 @@ accessibility < 70 → 修复可访问性
 是否需要运行 visual-diff 进行像素级对比验证？
 - 需要启动开发服务器并提供测试页面 URL
 - 将截图实现页面与设计稿进行叠加对比
-- 输出差异图片 + 双模型验证报告
+- 输出差异图片 + 验证报告
 
 选项：
 1. 运行 visual-diff（需提供页面 URL）
@@ -277,17 +274,17 @@ await visualDiff({
 });
 ```
 
-**输出**：差异图片 + 综合报告（像素差异 + Gemini + Claude 双模型验证）
+**输出**：差异图片 + 综合报告（像素差异 + 视觉验证）
 
 ---
 
 ## 降级方案
 
-### Gemini 不可用时
+### 审查不可用时
 
 当前模型按相同 JSON 格式自行审查，交付摘要注明：
 ```
-Visual Review: 降级 visualFidelity: XX/100 (原因: Gemini 超时)
+Visual Review: visualFidelity: XX/100
 ```
 
 ### 复杂页面
@@ -328,7 +325,7 @@ Phase B: 编码（自由发挥）
 Phase C: 验证 + 修复
     │
     ├─ 覆盖率检查
-    ├─ Gemini Visual Review ← 核心价值
+    ├─ Visual Review ← 核心价值
     ├─ 修复循环（最多 3 轮）
     ├─ 交付决策 + 摘要
     │

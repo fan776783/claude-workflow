@@ -48,7 +48,7 @@ npm run release 2.0.0     # Explicit version
     ├── skills/              # Skill definitions (portable across tools)
     │   ├── workflow/        # Intelligent workflow system
     │   ├── scan/            # Project scanning
-    │   ├── analyze/         # Code analysis (Codex + Gemini)
+    │   ├── analyze/         # Code analysis (Codex + Claude)
     │   ├── debug/           # Bug fixing workflow
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
@@ -105,12 +105,12 @@ The package includes the following skills (all portable across AI coding tools):
 
 **Development Tools:**
 - `/scan` - Project scanning (tech stack detection + context report generation)
-- `/analyze` - Dual-model analysis (Codex + Gemini parallel)
+- `/analyze` - Codex-assisted analysis (Codex + Claude review)
 - `/debug` - Bug fixing workflow (locate → analyze → fix → review)
 - `/write-tests` - Test writing expert (unit + integration tests)
 
 **Code Review:**
-- `/diff-review` - Code review (Quick/Deep mode with multi-model)
+- `/diff-review` - Code review (Quick by default, `--deep` for Codex-assisted review)
 - `/bug-batch` - Batch bug fixing (pull from Blueking project management)
 - `/dispatching-parallel-agents` - Parallel dispatch for independent domains (independence check + boundary grouping + conflict fallback)
 

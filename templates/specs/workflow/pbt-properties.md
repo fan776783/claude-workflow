@@ -20,7 +20,7 @@ interface PBTProperty {
   falsificationStrategy: string; // 如何证伪
   verifyCmd?: string;            // 可选的验证命令
   targetFiles: string[];         // 关联的文件
-  sourceModel: 'codex' | 'gemini' | 'claude' | 'user';
+  sourceModel: 'codex' | 'claude' | 'user';
   verified: boolean;
 }
 

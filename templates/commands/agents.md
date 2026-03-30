@@ -21,8 +21,8 @@ allowed-tools: Read(*)
 
 | 命令 | 功能 |
 |------|------|
-| `/analyze "描述"` ⭐⭐ 🎯 | 双模型技术分析（Codex + Gemini 并行） |
-| `/debug "问题"` ⭐ 🎯 | 多模型调试（Codex 后端 + Gemini 前端） |
+| `/analyze "描述"` ⭐⭐ 🎯 | Codex 技术分析 + Claude 前端分析 |
+| `/debug "问题"` ⭐ 🎯 | Codex 协作调试（后端/逻辑） |
 
 ---
 
@@ -30,8 +30,8 @@ allowed-tools: Read(*)
 
 | 命令 | 功能 |
 |------|------|
-| `/diff-review` ⭐ 🎯 | 多模型代码审查（默认 Deep 模式） |
-| `/diff-review --quick` | Claude 单模型快速审查 |
+| `/diff-review` ⭐ 🎯 | Claude 单模型快速审查（默认 Quick 模式） |
+| `/diff-review --deep` | Codex 协作深度审查 |
 | `/diff-review --staged` | 仅审查已暂存变更 |
 | `/diff-review --branch <base>` | 审查相对分支的变更 |
 
@@ -75,7 +75,7 @@ allowed-tools: Read(*)
 
 | 命令 | 功能 |
 |------|------|
-| `/figma-ui <URL>` ⭐ 🎯 | Figma 设计稿到代码（双模型 + 视觉验证） |
+| `/figma-ui <URL>` ⭐ 🎯 | Figma 设计稿到代码（视觉验证） |
 
 ---
 

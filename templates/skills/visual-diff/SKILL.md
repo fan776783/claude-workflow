@@ -1,7 +1,7 @@
 ---
 name: visual-diff
 description: |
-  UI 视觉差异对比验证，支持像素级对比 + 双模型（Gemini + Claude）语义验证。
+  UI 视觉差异对比验证，支持像素级对比 + 语义验证。
   触发条件：
   (1) 用户调用 /visual-diff <url> [--design <path>]
   (2) figma-ui Phase C 完成后自动衔接
@@ -11,7 +11,7 @@ description: |
 
 # Visual Diff - UI 视觉差异验证
 
-像素级对比 + 双模型语义验证，确保 UI 还原度。
+像素级对比 + 语义验证，确保 UI 还原度。
 
 ## 核心流程
 
@@ -19,7 +19,7 @@ description: |
 1. 获取设计稿截图
 2. Chrome MCP 截图实现页面
 3. 像素级差异分析（image_diff.py）
-4. 双模型语义验证（Gemini + Claude）
+4. 当前模型语义验证
 5. 输出差异图片 + 综合报告
 ```
 
@@ -109,23 +109,15 @@ python "$AGENT_WORKFLOW_CANONICAL_DIR/skills/visual-diff/scripts/image_diff.py" 
 
 ---
 
-## Phase 3: 双模型语义验证
+## Phase 3: 语义验证
 
-### 3.1 Gemini 验证
+### 3.1 当前模型验证
 
-```bash
-codeagent-wrapper --backend gemini - ${workdir} <<'EOF'
-ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
+读取设计稿和实现截图，进行视觉对比分析，输出以下 JSON 格式：
 
-对比设计稿和实现截图，分析视觉差异。
-
-设计稿：[附上 design.png]
-实现：[附上 impl.png]
-像素差异报告：[附上 report.json]
-
-返回 JSON：
+```json
 {
-  "score": 0-100,
+  "score": "0-100",
   "issues": [
     {
       "element": "元素名称",
@@ -136,29 +128,18 @@ ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
   ],
   "summary": "整体评价"
 }
-EOF
 ```
 
-### 3.2 Claude 验证（当前模型）
-
-读取设计稿和实现截图，独立进行视觉对比分析，输出相同格式的 JSON。
-
-### 3.3 交叉验证
+### 3.2 综合判定
 
 ```typescript
-// 综合两个模型的评分
-const avgScore = (geminiScore + claudeScore) / 2;
-
-// 合并 issues（去重）
-const allIssues = mergeIssues(geminiIssues, claudeIssues);
+// 综合像素对比和语义验证
+const score = claudeReview.score;
 
 // 判定
 const verdict =
-  pixelDiff.verdict === 'PASS' && avgScore >= 80 ? 'PASS' :
-  pixelDiff.verdict !== 'FAIL' && avgScore >= 70 ? 'REVIEW' : 'FAIL';
-
-const confidence =
-  Math.abs(geminiScore - claudeScore) < 10 ? 'HIGH' : 'MEDIUM';
+  pixelDiff.verdict === 'PASS' && score >= 80 ? 'PASS' :
+  pixelDiff.verdict !== 'FAIL' && score >= 70 ? 'REVIEW' : 'FAIL';
 ```
 
 ---
@@ -187,26 +168,21 @@ const confidence =
     "overall_diff_percentage": 3.45,
     "verdict": "PASS"
   },
-  "gemini_review": {
-    "score": 85,
-    "issues": [...]
-  },
-  "claude_review": {
+  "review": {
     "score": 88,
-    "issues": [...]
+    "issues": []
   },
-  "final_verdict": "PASS",
-  "confidence": "HIGH"
+  "final_verdict": "PASS"
 }
 ```
 
 ### 判定标准
 
-| 条件 | verdict | confidence |
-|------|---------|------------|
-| pixel PASS + 双模型 ≥80 | ✅ PASS | HIGH |
-| pixel PASS/REVIEW + 任一模型 ≥70 | ⚠️ REVIEW | MEDIUM |
-| 其他 | ❌ FAIL | LOW |
+| 条件 | verdict |
+|------|---------|
+| pixel PASS + 评分 ≥80 | ✅ PASS |
+| pixel PASS/REVIEW + 评分 ≥70 | ⚠️ REVIEW |
+| 其他 | ❌ FAIL |
 
 ---
 

@@ -31,7 +31,7 @@ interface ContextBoundary {
     files: RegExp[];                   // 文件路径匹配
     keywords: RegExp[];                // 任务名称关键词
   };
-  preferredModel: 'codex' | 'gemini' | 'auto';  // 推荐模型
+  preferredModel: 'codex' | 'auto';           // 推荐模型
   description: string;                 // 边界说明
 }
 
@@ -146,7 +146,7 @@ const CONTEXT_BOUNDARIES: ContextBoundary[] = [
         /组件|页面|界面|样式|布局|ui|component|page|view|style|css/i
       ]
     },
-    preferredModel: 'gemini',  // UI 相关优先 Gemini
+    preferredModel: 'auto',  // UI 相关由当前模型处理
     description: '前端组件、页面、样式'
   },
   {
@@ -278,30 +278,14 @@ function groupTasksByBoundary(
  *
  * auto 模式下根据任务内容智能选择：
  * - 后端关键词 → Codex
- * - 前端关键词 → Gemini
- * - 其他 → Codex（默认）
+ * - 前端关键词 → 当前模型直接处理
  */
 function selectModelForBoundary(
   boundary: ContextBoundary,
   tasks: Task[]
-): 'codex' | 'gemini' {
-  if (boundary.preferredModel !== 'auto') {
-    return boundary.preferredModel;
-  }
-
-  // auto 模式：根据任务内容判断
-  const backendKeywords = /后端|api|service|database|server|backend/i;
-  const frontendKeywords = /前端|组件|样式|ui|frontend|component|style/i;
-
-  let backendScore = 0;
-  let frontendScore = 0;
-
-  for (const task of tasks) {
-    if (backendKeywords.test(task.name)) backendScore++;
-    if (frontendKeywords.test(task.name)) frontendScore++;
-  }
-
-  return frontendScore > backendScore ? 'gemini' : 'codex';
+): 'codex' {
+  // 统一使用 Codex，前端任务由当前模型直接处理而非通过 subagent
+  return 'codex';
 }
 ```
 
@@ -383,27 +367,15 @@ ${[...boundaryGroups.entries()].map(([id, { boundary, tasks }]) => {
   }
 
   // 4. 按边界执行（同模型的边界并行）
-  const codexBoundaries = [...boundaryGroups.entries()]
-    .filter(([, { boundary, tasks }]) => selectModelForBoundary(boundary, tasks) === 'codex');
-  const geminiBoundaries = [...boundaryGroups.entries()]
-    .filter(([, { boundary, tasks }]) => selectModelForBoundary(boundary, tasks) === 'gemini');
+  // 以 Codex 统一执行所有边界
+  const allBoundaries = [...boundaryGroups.entries()];
 
   // Codex 边界并行
-  if (codexBoundaries.length > 0) {
-    console.log(`\n🤖 **Codex 执行** (${codexBoundaries.length} 个边界)\n`);
+  if (allBoundaries.length > 0) {
+    console.log(`\n🤖 **Codex 执行** (${allBoundaries.length} 个边界)\n`);
     await Promise.all(
-      codexBoundaries.map(([boundaryId, { boundary, tasks }]) =>
+      allBoundaries.map(([boundaryId, { boundary, tasks }]) =>
         executeBoundaryTasks(boundaryId, boundary, tasks, 'codex', state)
-      )
-    );
-  }
-
-  // Gemini 边界并行
-  if (geminiBoundaries.length > 0) {
-    console.log(`\n🎨 **Gemini 执行** (${geminiBoundaries.length} 个边界)\n`);
-    await Promise.all(
-      geminiBoundaries.map(([boundaryId, { boundary, tasks }]) =>
-        executeBoundaryTasks(boundaryId, boundary, tasks, 'gemini', state)
       )
     );
   }
@@ -417,7 +389,7 @@ async function executeBoundaryTasks(
   boundaryId: string,
   boundary: ContextBoundary,
   tasks: Task[],
-  model: 'codex' | 'gemini',
+  model: 'codex',
   state: WorkflowState
 ): Promise<void> {
   state.boundaryScheduling.currentBoundary = boundaryId;
@@ -461,5 +433,5 @@ async function executeBoundaryTasks(
 1. **仅在存在 2+ 独立任务 / 问题域时启用边界模式**：否则回退顺序执行
 2. **跨栈任务只有在相互独立时才适合边界模式**：不要把所有前后端任务一股脑并行
 3. **避免边界内依赖**：同边界任务应相互独立
-4. **尊重推荐模型**：安全相关用 Codex，UI 用 Gemini
+4. **统一使用 Codex**：所有 subagent 任务统一使用 Codex，前端任务由当前模型直接处理
 5. **配合 Context Awareness**：边界切换时检查上下文使用率

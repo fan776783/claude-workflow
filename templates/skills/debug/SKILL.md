@@ -1,6 +1,6 @@
 ---
 name: debug
-description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 → 修复 → 模型审查。既可处理单个缺陷，也可作为 bug-batch 的单修复单元执行协议，支持关联缺陷、重复缺陷和共享根因场景。修复完成后输出是否允许进入状态流转的结论。"
+description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 → 修复 → Codex 审查。既可处理单个缺陷，也可作为 bug-batch 的单修复单元执行协议，支持关联缺陷、重复缺陷和共享根因场景。修复完成后输出是否允许进入状态流转的结论。"
 ---
 
 # 调试与修复
@@ -113,11 +113,11 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 ### 1.2 识别问题类型
 
-| 关键词 | 类型 | 审查模型 |
+| 关键词 | 类型 | 审查方式 |
 |--------|------|----------|
-| 白屏、渲染、样式、组件、状态 | 前端 | Gemini |
-| API、数据库、500、超时、权限 | 后端 | Codex |
-| 混合特征 | 全栈 | Codex（优先后端视角） |
+| 白屏、渲染、样式、组件、状态 | 前端 | 当前模型直接审查 |
+| API、数据库、500、超时、权限 | 后端 | Codex 审查 |
+| 混合特征 | 全栈 | Codex 审查（后端逻辑优先） |
 
 若一个 `FixUnit` 同时覆盖前后端问题，以**共享根因所在层**为主；无法判断时按全栈处理。
 
@@ -301,57 +301,21 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 ## Phase 4: 模型审查 + 状态流转就绪判断
 
-修复完成后，根据 Phase 1 识别的问题类型选择**一个**模型审查。
+修复完成后，根据 Phase 1 识别的问题类型选择审查方式。
 
 ### 路由规则
 
-- 前端问题 → Gemini 审查
+- 前端问题 → 当前模型直接审查
 - 后端问题 → Codex 审查
 - 全栈问题 → Codex 审查（后端逻辑优先）
 
-```bash
-# Codex 审查（后端/逻辑问题）
-codeagent-wrapper --backend codex - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.claude/prompts/codex/reviewer.md
+按 `collaborating-with-codex` skill 调用（后台执行，不设 timeout）：
 
-<TASK>
-Review bug fix:
-**Bug / FixUnit**: {{问题描述或修复单元编号}}
-**Root cause**: {{根本原因}}
-**Fix**: {{方案摘要}}
-
-## Diff
-{{git diff 内容}}
-
-Evaluate: root cause resolution, regression risk, edge cases, code quality
-</TASK>
-
-OUTPUT FORMAT: Review comments only, sort by P0→P3
-EOF
+```
+PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sorted by P0→P3. Review bug fix: Bug/FixUnit: {{问题描述或修复单元编号}}. Root cause: {{根本原因}}. Fix: {{方案摘要}}. Diff: {{git diff 内容}}. Evaluate: root cause resolution, regression risk, edge cases, code quality. OUTPUT FORMAT: Review comments only, sort by P0→P3."
 ```
 
-```bash
-# Gemini 审查（前端/UI 问题）
-codeagent-wrapper --backend gemini - $PROJECT_DIR <<'EOF'
-ROLE_FILE: ~/.claude/prompts/gemini/reviewer.md
-
-<TASK>
-Review bug fix:
-**Bug / FixUnit**: {{问题描述或修复单元编号}}
-**Root cause**: {{根本原因}}
-**Fix**: {{方案摘要}}
-
-## Diff
-{{git diff 内容}}
-
-Evaluate: UI consistency, user experience, component impact, accessibility
-</TASK>
-
-OUTPUT FORMAT: Review comments only, sort by P0→P3
-EOF
-```
-
-**降级策略**：模型不可用时由当前模型直接审查。
+**降级策略**：Codex 不可用时由当前模型直接审查。
 
 ### 4.1 状态流转就绪判断
 
@@ -398,4 +362,4 @@ EOF
 5. **最小改动** — 优先局部修复，避免大范围重构
 6. **重复不单修** — 重复缺陷默认继承主修复结果，但必须验证其确实被覆盖
 7. **状态流转要有依据** — 只有 `status_transition_ready = true` 才允许上层流程推进状态更新
-8. **按需审查** — 根据问题类型路由到对应专家模型
+8. **按需审查** — 后端/全栈问题路由到 Codex，前端问题由当前模型直接审查
