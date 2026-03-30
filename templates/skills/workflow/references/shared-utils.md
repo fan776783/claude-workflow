@@ -1,369 +1,91 @@
-# 共享工具函数 (v3.1)
+# 共享工具函数 (v4.0)
 
-工作流系统中多处使用的共享函数。
+工作流系统中多处使用的共享函数。**所有逻辑已实现为 Python 脚本**，执行时直接调用脚本，不依赖伪代码。
 
-> **Python 工具库**：以下伪代码中的确定性逻辑已提取为可执行的 Python 脚本，位于 `scripts/` 目录。
-> 在实际执行时，优先使用脚本调用以保证一致性：
->
-> | 伪代码函数 | Python 脚本 | CLI 用法 |
-> |-----------|------------|---------|
-> | `resolveUnder()` | `scripts/path_utils.py` | `py -3 path_utils.py resolve <base> <path>` |
-> | `estimateContextTokens()` | `scripts/context_budget.py` | `py -3 context_budget.py estimate <files...>` |
-> | `calculateDynamicMaxTasks()` | `scripts/context_budget.py` | `py -3 context_budget.py max-tasks --complexity <c> --usage <n>` |
-> | `generateContextBar()` | `scripts/context_budget.py` | `py -3 context_budget.py context-bar --usage <n>` |
-> | `evaluateBudgetThresholds()` | `scripts/context_budget.py` | `py -3 context_budget.py budget --projected-usage <n>` |
-> | `parseWorkflowTasksV2FromMarkdown()` | `scripts/task_parser.py` | `py -3 task_parser.py parse <file>` |
-> | `findNextTask()` | `scripts/task_parser.py` | `py -3 task_parser.py find-next --file <f> --completed <ids>` |
-> | `classifyTaskDependencies()` | `scripts/dependency_checker.py` | `py -3 dependency_checker.py classify --name <n> --files <f>` |
-> | `getStatusEmoji()` / `extractStatusFromTitle()` | `scripts/status_utils.py` | `py -3 status_utils.py emoji <status>` |
-> | `resolve execute/continue entry` | `scripts/workflow_cli.py` | `py -3 workflow_cli.py execute [intent]` / `py -3 workflow_cli.py continue [intent]` |
->
-> 伪代码仍保留作为**接口定义和行为规范**参考。
+## Python 工具库
 
-## 路径安全
+> ⚠️ 以下为**唯一权威实现**。MD 中不再保留伪代码副本。
 
-```typescript
-/**
- * 安全解析相对路径（防止路径遍历攻击）
- */
-function resolveUnder(baseDir: string, relativePath: string): string | null {
-  if (!relativePath ||
-      path.isAbsolute(relativePath) ||
-      relativePath.includes('..')) {
-    return null;
-  }
-  if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(relativePath)) {
-    return null;
-  }
-  if (/^\/|\/\/|\/\s*$/.test(relativePath)) {
-    return null;
-  }
-  const resolved = path.resolve(baseDir, relativePath);
-  const normalizedBase = path.resolve(baseDir);
-  if (resolved !== normalizedBase &&
-      !resolved.startsWith(normalizedBase + path.sep)) {
-    return null;
-  }
-  return resolved;
-}
+### 统一入口
+
+```bash
+py -3 workflow_cli.py <command>    # 统一 CLI 入口（推荐）
 ```
 
-## 状态 Emoji 处理
+| 命令 | 功能 | 等效旧伪代码 |
+|------|------|-------------|
+| `next` | 查询下一步该做什么 | `findNextTask()` |
+| `advance T3` | 完成 + 推进 + 可选 journal | — |
+| `context` | 聚合启动上下文 | — |
+| `status` | 快速工作流状态 | Step 1-2 of status.md |
+| `list` | 列出所有任务 | `parseWorkflowTasksV2FromMarkdown()` |
+| `progress` | 进度统计 | `calculateProgress()` |
+| `parallel` | 查找可并行任务 | `classifyTaskDependencies()` |
+| `budget` | 上下文预算评估 | `evaluateBudgetThresholds()` |
+| `journal list` | 最近会话记录 | — |
 
-```typescript
-const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
-const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u;
+### 底层脚本（按需直接调用）
 
-function extractStatusFromTitle(title: string): string | null {
-  const match = title.match(STATUS_EMOJI_REGEX);
-  if (!match) return null;
-  const emoji = match[0].trim();
-  if (emoji === '✅') return 'completed';
-  if (emoji === '⏳') return 'in_progress';
-  if (emoji === '❌') return 'failed';
-  if (emoji.startsWith('⏭')) return 'skipped';
-  return null;
-}
+| 脚本 | 功能 | CLI 用法 |
+|------|------|---------|
+| `path_utils.py` | 路径安全校验 | `py -3 path_utils.py resolve <base> <path>` |
+| `task_parser.py` | Markdown 任务解析 | `py -3 task_parser.py parse <file>` |
+| `task_manager.py` | 任务状态管理 | `py -3 task_manager.py complete T3` |
+| `state_manager.py` | 状态文件读写 | `py -3 state_manager.py read <path>` |
+| `status_utils.py` | Emoji / 状态工具 | `py -3 status_utils.py emoji completed` |
+| `context_budget.py` | 上下文预算计算 | `py -3 context_budget.py budget --projected-usage 65` |
+| `dependency_checker.py` | 依赖检查 | `py -3 dependency_checker.py classify --name <n> --files <f>` |
+| `journal.py` | 会话日志管理 | `py -3 journal.py add --title "..." --summary "..."` |
+| `verification.py` | 验证辅助 | `py -3 verification.py check <file>` |
 
-function getStatusEmoji(status: string): string {
-  if (status.includes('completed')) return ' ✅';
-  if (status.includes('in_progress')) return ' ⏳';
-  if (status.includes('failed')) return ' ❌';
-  if (status.includes('skipped')) return ' ⏭️';
-  return '';
-}
-```
+---
 
-## 通用工具
+## 数据模型参考
 
-```typescript
-/**
- * 数组去重添加
- */
-function addUnique<T>(arr: T[], item: T): void {
-  if (!arr.includes(item)) arr.push(item);
-}
+### WorkflowTaskV2
 
-/**
- * 正则转义
- */
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+任务模型定义在 `scripts/task_parser.py:WorkflowTaskV2` dataclass：
 
-/**
- * 解析质量关卡标记
- */
-function parseQualityGate(body: string): boolean {
-  const match = body.match(/\*\*质量关卡\*\*:\s*(true|false)/i);
-  if (!match) return false;
-  return match[1].toLowerCase() === 'true';
-}
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | str | 任务 ID（T1, T2, ...） |
+| `name` | str | 任务名称 |
+| `phase` | str | 阶段（implement / test / review） |
+| `files` | TaskFiles | 创建/修改/测试文件集合 |
+| `leverage` | list[str] | 可复用组件 |
+| `spec_ref` | str | Spec 章节引用 |
+| `plan_ref` | str | Plan 章节引用 |
+| `acceptance_criteria` | list[str] | 验收条件 |
+| `depends` | list[str] | 任务依赖 |
+| `blocked_by` | list[str] | 阻塞依赖（外部） |
+| `quality_gate` | bool | 是否为质量关卡 |
+| `status` | str | pending / in_progress / completed / failed / skipped / blocked |
+| `actions` | list[str] | create_file / edit_file / run_tests / quality_review / git_commit |
+| `steps` | list[TaskStep] | 步骤列表 |
+| `verification` | TaskVerification | 验证命令和预期输出 |
 
-/**
- * 提取字段值
- */
-function extractField(body: string, fieldName: string): string | null {
-  const regex = new RegExp(`\\*\\*${fieldName}\\*\\*:\\s*\`?([^\`\\n]+)\`?`);
-  const match = body.match(regex);
-  return match ? match[1].trim() : null;
-}
-```
+### 状态 Emoji 映射
 
-## 上下文感知
+| 状态 | Emoji | Python 函数 |
+|------|-------|------------|
+| completed | ✅ | `status_utils.get_status_emoji("completed")` |
+| in_progress | ⏳ | `status_utils.get_status_emoji("in_progress")` |
+| failed | ❌ | `status_utils.get_status_emoji("failed")` |
+| skipped | ⏭️ | `status_utils.get_status_emoji("skipped")` |
 
-```typescript
-interface ContextMetrics {
-  maxContextTokens: number;
-  estimatedTokens: number;
-  projectedNextTurnTokens: number;
-  reservedExecutionTokens: number;
-  reservedVerificationTokens: number;
-  reservedReviewTokens: number;
-  reservedSafetyBufferTokens: number;
-  usagePercent: number;
-  projectedUsagePercent: number;
-  warningThreshold: number;      // 默认 60
-  dangerThreshold: number;       // 默认 80
-  hardHandoffThreshold: number;  // 默认 90
-  maxConsecutiveTasks: number;   // 节奏控制，不再单独主导 continuation
-  history: Array<{
-    taskId: string;
-    phase: string;
-    preTaskTokens: number;
-    postTaskTokens: number;
-    tokenDelta: number;
-    executionPath: 'direct' | 'single-subagent' | 'parallel-boundaries';
-    triggeredVerification: boolean;
-    triggeredReview: boolean;
-    timestamp: string;
-  }>;
-}
+### 上下文预算阈值
 
-function estimateContextTokens(contents: Array<string | null | undefined>): number {
-  let totalChars = 0;
-  for (const content of contents) {
-    if (content) totalChars += content.length;
-  }
-  return Math.round(totalChars / 4);
-}
+| 阈值 | 默认值 | 含义 |
+|------|--------|------|
+| warning | 60% | 警告区，优化执行路径 |
+| danger | 80% | 危险区，优先暂停 |
+| hard_handoff | 90% | 硬停止，生成 continuation artifact |
 
-function calculateDynamicMaxTasks(
-  taskComplexity: 'simple' | 'medium' | 'complex',
-  usagePercent: number
-): number {
-  const baseLimit = taskComplexity === 'simple' ? 8 :
-                    taskComplexity === 'medium' ? 5 : 3;
-  if (usagePercent >= 80) return 1;
-  if (usagePercent >= 70) return Math.max(2, baseLimit - 3);
-  if (usagePercent >= 50) return Math.max(3, baseLimit - 1);
-  return baseLimit;
-}
+---
 
-function detectTaskComplexity(task: WorkflowTaskV2): 'simple' | 'medium' | 'complex' {
-  const actions = task.actions.length;
-  const fileCount = [
-    ...(task.files.create || []),
-    ...(task.files.modify || []),
-    ...(task.files.test || [])
-  ].length;
-  const isQualityGate = !!task.quality_gate;
-  const hasStructuredSteps = task.steps.length > 0;
+## 注意事项
 
-  if (isQualityGate || hasStructuredSteps || fileCount > 1) return 'complex';
-  if (actions > 2) return 'medium';
-  return 'simple';
-}
-
-function generateContextBar(usagePercent: number, warningThreshold: number, dangerThreshold: number): string {
-  const filled = Math.round(usagePercent / 5);
-  let bar = '';
-  for (let i = 0; i < 20; i++) {
-    if (i < filled) {
-      if (i >= dangerThreshold / 5) bar += '🟥';
-      else if (i >= warningThreshold / 5) bar += '🟨';
-      else bar += '🟩';
-    } else {
-      bar += '░';
-    }
-  }
-  return `[${bar}] ${usagePercent}%`;
-}
-```
-
-> `shared-utils` 中的上下文结构必须与 `templates/specs/shared/context-awareness.md` 保持一致。任何继续执行判断都应以 projected budget 为准，而不是只看当前 usagePercent。
->
-> “继续”与 `/workflow execute` 的共享入口解析已收敛到 `scripts/workflow_cli.py`：先判定是否存在可恢复工作流，再决定 execute/retry/skip/phase/continuous 的具体入口语义。
-
-## 任务解析
-
-> `tasks.md` 仅使用 V2 任务模型。状态页、执行链路、delta 流程都直接消费 `files{}`、`actions[]`、`steps[]`、`spec_ref`、`plan_ref`、`acceptance_criteria` 等字段，不再维护旧任务格式的映射层。
-
-```typescript
-interface WorkflowTaskV2 {
-  id: string;
-  name: string;
-  phase: string;
-  files: {
-    create?: string[];
-    modify?: string[];
-    test?: string[];
-  };
-  leverage?: string[];
-  spec_ref: string;
-  plan_ref: string;
-  acceptance_criteria?: string[];
-  depends?: string[];
-  blocked_by?: string[];
-  quality_gate?: boolean;
-  status: 'pending' | 'blocked' | 'in_progress' | 'completed' | 'failed' | 'skipped';
-  actions: Array<'create_file' | 'edit_file' | 'run_tests' | 'quality_review' | 'git_commit'>;
-  steps: Array<{
-    id: string;
-    description: string;
-    expected: string;
-    verification?: string;
-  }>;
-  verification?: {
-    commands?: string[];
-    expected_output?: string[];
-    notes?: string[];
-  };
-}
-
-function extractTaskBlock(content: string, taskId: string): string {
-  const escapedId = escapeRegExp(taskId);
-  const taskRegex = new RegExp(`##+ ${escapedId}:[\\s\\S]*?(?=\\n##+ T\\d+:|\\Z)`);
-  return content.match(taskRegex)?.[0] || '';
-}
-
-function extractListField(body: string, fieldName: string): string[] {
-  const value = extractField(body, fieldName);
-  return value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
-}
-
-function parseTaskFiles(body: string): WorkflowTaskV2['files'] {
-  return {
-    create: extractListField(body, '创建文件'),
-    modify: extractListField(body, '修改文件'),
-    test: extractListField(body, '测试文件')
-  };
-}
-
-function extractAcceptanceCriteriaFromTaskBlock(content: string, taskId: string): string[] {
-  const raw = extractField(extractTaskBlock(content, taskId), '验收项');
-  return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
-}
-
-function extractStepsFromTaskBlock(content: string, taskId: string): WorkflowTaskV2['steps'] {
-  const taskBlock = extractTaskBlock(content, taskId);
-  const stepsSection = taskBlock.match(/- \*\*步骤\*\*:[\s\S]*$/)?.[0] || '';
-  const stepMatches = [...stepsSection.matchAll(/-\s+([A-Z]\d+):\s+(.+?)\s+→\s+(.+?)(?:（验证：(.*?)）)?$/gm)];
-  return stepMatches.map(match => ({
-    id: match[1],
-    description: match[2],
-    expected: match[3],
-    verification: match[4] || undefined
-  }));
-}
-
-function parseTaskVerification(body: string): WorkflowTaskV2['verification'] {
-  const commands = extractListField(body, '验证命令');
-  const expected_output = extractListField(body, '验证期望');
-  const notes = extractListField(body, '验证备注');
-  return commands.length || expected_output.length || notes.length
-    ? { commands, expected_output, notes }
-    : undefined;
-}
-
-function parseWorkflowTasksV2FromMarkdown(content: string): WorkflowTaskV2[] {
-  const taskIds = [...content.matchAll(/##+ (T\d+):/g)].map(m => m[1]);
-
-  return taskIds.map(taskId => {
-    const body = extractTaskBlock(content, taskId);
-    const titleMatch = body.match(/##+ (T\d+):\s*(.+?)\s*\n/m);
-    const rawTitle = titleMatch?.[2] || taskId;
-    const titleStatus = extractStatusFromTitle(rawTitle);
-    const name = rawTitle.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
-
-    return {
-      id: taskId,
-      name,
-      phase: extractField(body, '阶段') || 'implement',
-      files: parseTaskFiles(body),
-      leverage: extractListField(body, '复用'),
-      spec_ref: extractField(body, 'Spec 参考') || '§Unknown',
-      plan_ref: extractField(body, 'Plan 参考') || 'P-UNKNOWN',
-      acceptance_criteria: extractAcceptanceCriteriaFromTaskBlock(content, taskId),
-      depends: extractListField(body, '依赖'),
-      blocked_by: extractListField(body, '阻塞依赖'),
-      quality_gate: parseQualityGate(body),
-      status: (titleStatus || extractField(body, '状态') || 'pending') as WorkflowTaskV2['status'],
-      actions: extractListField(body, 'actions') as WorkflowTaskV2['actions'],
-      steps: extractStepsFromTaskBlock(content, taskId),
-      verification: parseTaskVerification(body)
-    };
-  });
-}
-
-function findNextTask(content: string, progress: Progress): string | null {
-  const tasks = parseWorkflowTasksV2FromMarkdown(content);
-
-  for (const task of tasks) {
-    if (!progress.completed.includes(task.id) &&
-        !progress.skipped.includes(task.id) &&
-        !progress.failed.includes(task.id) &&
-        !progress.blocked?.includes(task.id)) {
-      return task.id;
-    }
-  }
-
-  return null;
-}
-
-function countTasks(content: string): number {
-  return parseWorkflowTasksV2FromMarkdown(content).length;
-}
-```
-
-
-## Markdown 状态更新
-
-```typescript
-function updateTaskStatusInMarkdown(filePath: string, taskId: string, newStatus: string) {
-  let content = readFile(filePath);
-  const escapedId = escapeRegExp(taskId);
-
-  const taskRegex = new RegExp(
-    `(##+ ${escapedId}:[\\s\\S]*?)(?=\\n##+ T\\d+:|$)`,
-    'm'
-  );
-  const taskMatch = content.match(taskRegex);
-
-  if (!taskMatch) {
-    console.log(`⚠️ 未找到任务 ${taskId}`);
-    return;
-  }
-
-  const taskBlock = taskMatch[1];
-  let updatedBlock = taskBlock;
-
-  const statusFieldRegex = /(- \*\*状态\*\*:\s*)([^\n]+)/;
-  if (statusFieldRegex.test(taskBlock)) {
-    updatedBlock = taskBlock.replace(statusFieldRegex, (_, prefix) => prefix + newStatus);
-  } else {
-    const titleLineRegex = new RegExp(
-      `(##+ ${escapedId}:\\s*)(.+?)(\\s*\\n)`,
-      'm'
-    );
-    const statusEmoji = getStatusEmoji(newStatus);
-    updatedBlock = taskBlock.replace(titleLineRegex, (_, prefix, title, suffix) => {
-      const cleanTitle = title.replace(STRIP_STATUS_EMOJI_REGEX, '').trim();
-      return `${prefix}${cleanTitle}${statusEmoji}${suffix}`;
-    });
-  }
-
-  content = content.replace(taskBlock, updatedBlock);
-  writeFile(filePath, content);
-}
-```
+- "继续"与 `/workflow execute` 的共享入口解析已收敛到 `scripts/workflow_cli.py`
+- 任务解析只使用 V2 模型，不再维护旧格式映射
+- 上下文结构必须与 `templates/specs/shared/context-awareness.md` 保持一致
+- 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent

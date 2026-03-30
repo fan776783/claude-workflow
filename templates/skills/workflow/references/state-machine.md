@@ -203,76 +203,41 @@
 
 ## 审查状态接口
 
-```typescript
-// 简化后只保留 User Spec Review + 执行阶段子 Agent 审查
-interface ReviewStatus {
-  user_spec_review: {
-    status: 'pending' | 'approved' | 'revise_required' | 'rejected';
-    review_mode: 'human_gate';
-    reviewed_at?: string;
-    reviewer: 'user';
-    next_action?: string;
-  };
-}
+> **实现参考**：`scripts/state_manager.py` 负责审查状态的读写。以下为 JSON 字段规范。
 
-// 执行阶段质量关卡结果（主字段）
-interface QualityGateResult {
-  gate_task_id: string;
-  review_mode?: 'machine_loop';
-  last_decision?: 'pass' | 'revise' | 'rejected';
-  reviewed_at?: string;
-  stage1: {
-    passed: boolean;
-    attempts: number;
-    issues_found: number;
-    completed_at: string;
-  };
-  stage2?: {
-    passed: boolean;
-    attempts: number;
-    assessment: 'approved' | 'needs_fixes' | 'rejected';
-    critical_count: number;
-    important_count: number;
-    minor_count: number;
-    completed_at: string;
-  };
-  overall_passed: boolean;
-}
+### `review_status.user_spec_review`（Phase 1.1 用户审查）
 
-// 旧版执行审查结果（只读兼容）
-interface LegacyExecutionReview {
-  spec_compliance: {
-    status: 'Compliant' | 'Issues Found';
-    reviewed_at: string;
-    issues: Array<{
-      file: string;
-      line?: number;
-      description: string;
-      fix_suggestion: string;
-    }>;
-  };
-  code_quality: {
-    status: 'Approved' | 'Issues Found';
-    reviewed_at: string;
-    issues: Array<{
-      severity: 'Critical' | 'Important';
-      file: string;
-      line?: number;
-      description: string;
-      fix_suggestion: string;
-    }>;
-  };
-}
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status` | `pending / approved / revise_required / rejected` | 审查决策 |
+| `review_mode` | `human_gate` | 固定为人工审查 |
+| `reviewed_at` | ISO 时间 | 审查时间 |
+| `reviewer` | `user` | 审查者 |
+| `next_action` | string | 后续动作提示 |
 
-// Per-task 运行时状态
-interface TaskRuntime {
-  retry_count: number;
-  last_failure_stage: 'execution' | 'verification' | 'spec_compliance' | 'code_quality';
-  last_failure_reason: string;
-  hard_stop_triggered: boolean;
-  debugging_phases_completed: ('investigation' | 'pattern' | 'hypothesis' | 'implementation')[];
-}
-```
+### `quality_gates[taskId]`（执行阶段质量关卡）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `gate_task_id` | string | 关卡对应的任务 ID |
+| `review_mode` | `machine_loop` | 机器审查循环 |
+| `last_decision` | `pass / revise / rejected` | 最后审查决策 |
+| `stage1.passed` | boolean | 规格合规审查是否通过 |
+| `stage1.attempts` | number | 尝试次数 |
+| `stage2.passed` | boolean | 代码质量审查是否通过 |
+| `stage2.assessment` | `approved / needs_fixes / rejected` | 质量评估 |
+| `stage2.critical_count` | number | Critical 级别问题数 |
+| `overall_passed` | boolean | 总体是否通过 |
+
+### Per-task 运行时状态
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `retry_count` | number | 重试次数 |
+| `last_failure_stage` | `execution / verification / spec_compliance / code_quality` | 最后失败阶段 |
+| `last_failure_reason` | string | 失败原因 |
+| `hard_stop_triggered` | boolean | 是否触发硬停止 |
+| `debugging_phases_completed` | array | 已完成的调试阶段 |
 
 ## 状态转换
 

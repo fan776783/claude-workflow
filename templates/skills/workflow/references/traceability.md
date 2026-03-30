@@ -18,37 +18,28 @@ plan 步骤对 spec 章节的引用（如 §5.1），用于在执行后的 Spec 
 
 spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Spec 合规审查子 Agent 使用。
 
-## 数据结构
+### Requirement（spec.md 中的需求条目）
 
-```typescript
-interface Requirement {
-  id: string;                           // R-001
-  summary: string;                      // 面向下游的短描述
-  scope_status: ScopeStatus;            // 范围判定
-  constraints: string[];                // 硬约束
-  owner: 'frontend' | 'backend' | 'shared' | 'infra';
-  exclusion_reason?: string;            // out_of_scope / blocked 的原因
-}
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 需求 ID（R-001 起） |
+| `summary` | string | 面向下游的短描述 |
+| `scope_status` | `in_scope / out_of_scope / blocked` | 范围判定 |
+| `constraints` | string[] | 硬约束 |
+| `owner` | `frontend / backend / shared / infra` | 所有者 |
+| `exclusion_reason` | string? | out_of_scope / blocked 的原因 |
 
-type ScopeStatus = 'in_scope' | 'out_of_scope' | 'blocked';
-```
+### PlanTask（plan.md 中的任务条目）
 
-```typescript
-interface PlanTask {
-  name: string;
-  specRef: string;                      // §X.X
-  requirementIds: string[];             // R-001, R-002
-  files: string[];
-  steps: PlanStep[];
-}
-
-interface PlanStep {
-  description: string;
-  code?: string;
-  verifyCommand?: string;
-  expectedResult?: string;
-}
-```
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 任务名称 |
+| `specRef` | string | §X.X 章节引用 |
+| `requirementIds` | string[] | R-001, R-002 |
+| `files` | string[] | 涉及文件 |
+| `steps[].description` | string | 步骤描述 |
+| `steps[].verifyCommand` | string? | 验证命令 |
+| `steps[].expectedResult` | string? | 预期结果 |
 
 ## scope_status 定义
 

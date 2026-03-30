@@ -16,31 +16,12 @@
   → IMPLEMENT（按优先级逐项修复）
 ```
 
-```typescript
-async function handleReviewFeedback(
-  feedback: CodeQualityResult | SpecComplianceResult
-): Promise<void> {
-  const allIssues = collectAllIssues(feedback);
+**处理步骤**：
 
-  // 1. READ + UNDERSTAND：完整理解每个反馈项
-  for (const issue of allIssues) {
-    if (!isIssueClear(issue)) {
-      // 不理解 → 提问，不实现
-      // 原因：项目之间可能有关联，部分理解 = 错误实现
-      return;
-    }
-  }
-
-  // 2. VERIFY + EVALUATE：对照代码库验证
-  // 3. RESPOND：技术回应（或推回）
-  // 4. IMPLEMENT：按优先级逐项修复
-  const sorted = sortByPriority(allIssues);
-  for (const issue of sorted) {
-    await fixIssue(issue);
-    await verifyFix(issue); // 每项修完单独测试
-  }
-}
-```
+1. **READ + UNDERSTAND**：完整阅读所有反馈项。任一项不清楚 → 停下提问，不实现任何内容
+2. **VERIFY + EVALUATE**：对照当前代码库验证每项反馈是否正确、是否适用
+3. **RESPOND**：技术回应（或用技术推理推回不正确的反馈）
+4. **IMPLEMENT**：按优先级排序后逐项修复，每项修完单独测试
 
 ## 禁止的回应
 
