@@ -63,7 +63,22 @@ if (!fileExists(yttConfigPath)) {
 
 ---
 
-### Step 2: 执行 ytt 命令
+### Step 2: 生成变更记录
+
+sync 模式也必须接入 delta tracking，确保审计链完整。
+
+```typescript
+// 生成变更 ID 并创建变更目录
+state.delta_tracking = state.delta_tracking || { enabled: true, change_counter: 0, applied_changes: [] };
+state.delta_tracking.change_counter++;
+const changeId = `CHG-${String(state.delta_tracking.change_counter).padStart(3, '0')}`;
+const changeDir = path.join(workflowDir, 'changes', changeId);
+mkdirSync(changeDir, { recursive: true });
+```
+
+---
+
+### Step 3: 执行 ytt 命令
 
 ```typescript
 console.log(`⏳ 执行 pnpm ytt 同步 API...`);
@@ -75,8 +90,19 @@ const result = await Bash({
 });
 
 if (result.exitCode !== 0) {
+  // 回滚：标记变更为失败态，避免 orphaned 目录和计数跳号
+  writeFile(path.join(changeDir, 'delta.json'), JSON.stringify({
+    changeId,
+    trigger: { type: 'sync', source: 'pnpm ytt' },
+    status: 'failed',
+    error: result.stderr?.substring(0, 500),
+    createdAt: new Date().toISOString()
+  }, null, 2));
+  // 不将失败变更加入 applied_changes，但保留目录用于排查
+  writeFile(statePath, JSON.stringify(state, null, 2));
+
   console.log(`
-🚨 ytt 执行失败
+🚨 ytt 执行失败（变更 ${changeId} 已记录为失败态）
 
 错误信息：
 ${result.stderr}
@@ -102,7 +128,7 @@ ${result.stdout}
 
 ---
 
-### Step 3: 解析生成的 API 文件
+### Step 4: 解析生成的 API 文件
 
 ```typescript
 // 查找所有生成的 API 文件
@@ -129,7 +155,7 @@ console.log(`
 
 ---
 
-### Step 4: 对比接口变化
+### Step 5: 对比接口变化
 
 ```typescript
 // 获取旧 API 信息
@@ -154,7 +180,7 @@ ${apiDiff.modified.map(api => `  ~ ${api.name}: ${api.changes}`).join('\n')}
 
 ---
 
-### Step 5: 更新 API 上下文
+### Step 6: 更新 API 上下文
 
 ```typescript
 // 更新 state.api_context
@@ -164,13 +190,11 @@ state.api_context = {
   source: 'ytt',
   version: extractApiVersion(result.stdout)
 };
-
-writeFile(statePath, JSON.stringify(state, null, 2));
 ```
 
 ---
 
-### Step 6: 解除 api_spec 阻塞
+### Step 7: 解除 api_spec 阻塞
 
 ```typescript
 // 自动解除 api_spec 阻塞
@@ -181,12 +205,75 @@ if (!state.unblocked?.includes('api_spec')) {
 // 更新被阻塞任务的状态
 updateBlockedTasks(state, tasksPath);
 
+// 如果工作流级状态为 blocked，迁移到 running
+if (state.status === 'blocked') {
+  state.status = 'running';
+}
+
+// 持久化最终状态（api_context、unblocked、progress.blocked、status）
+writeFile(statePath, JSON.stringify(state, null, 2));
+
+const newlyUnblockedTasks = getUnblockedTasks(state, tasksPath);
+
 console.log(`
 ✅ 已解除 api_spec 阻塞
 
 可执行的任务：
-${getUnblockedTasks(state, tasksPath).map(t => `- ${t.id}: ${t.name}`).join('\n')}
+${newlyUnblockedTasks.map(t => `- ${t.id}: ${t.name}`).join('\n')}
 `);
+```
+
+---
+
+### Step 8: 写入 delta 文档
+
+在阻塞解除之后写入，确保 `unblockedTasks` 数据准确。
+
+```typescript
+// 写入 delta.json（unblockedTasks 在 Step 7 解除阻塞后计算，数据准确）
+const deltaJson = {
+  changeId,
+  parent: state.delta_tracking.applied_changes.slice(-1)[0] || null,
+  trigger: { type: 'sync', source: 'pnpm ytt', description: 'API 全量同步' },
+  impact: {
+    added: apiDiff.added.map(a => a.name),
+    removed: apiDiff.removed.map(a => a.name),
+    modified: apiDiff.modified.map(a => a.name),
+  },
+  unblockedTasks: newlyUnblockedTasks.map(t => t.id),
+  createdAt: new Date().toISOString()
+};
+writeFile(path.join(changeDir, 'delta.json'), JSON.stringify(deltaJson, null, 2));
+
+// 写入 intent.md
+const intentMd = [
+  `# ${changeId}: API 全量同步`,
+  '',
+  `## 变更意图`,
+  `执行 \`pnpm ytt\` 同步全部 API 代码，解除 api_spec 阻塞。`,
+  '',
+  `## 变更内容`,
+  `- 新增接口：${apiDiff.added.length}`,
+  `- 删除接口：${apiDiff.removed.length}`,
+  `- 修改接口：${apiDiff.modified.length}`,
+  `- 解除阻塞任务：${newlyUnblockedTasks.length}`,
+  '',
+  `## 审查状态`,
+  `- [x] 自动应用（sync 模式）`
+].join('\n');
+writeFile(path.join(changeDir, 'intent.md'), intentMd);
+
+// 写入 review-status.json
+writeFile(path.join(changeDir, 'review-status.json'), JSON.stringify({
+  status: 'auto_applied',
+  mode: 'sync',
+  reviewedAt: new Date().toISOString()
+}, null, 2));
+
+// 更新 tracking 状态
+state.delta_tracking.current_change = changeId;
+state.delta_tracking.applied_changes.push(changeId);
+writeFile(statePath, JSON.stringify(state, null, 2));
 ```
 
 ---
@@ -349,8 +436,10 @@ function updateBlockedTasks(state: any, tasksPath: string): void {
         updatedContent = updateTaskBlockedBy(updatedContent, task.id, []);
         updatedContent = updateTaskStatus(updatedContent, task.id, 'pending');
 
-        // 从 state.progress.blocked 中移除
-        state.progress.blocked = state.progress.blocked.filter(id => id !== task.id);
+        // 从 state.progress.blocked 中移除（兼容最小状态 schema，blocked 为可选字段）
+        if (Array.isArray(state.progress.blocked)) {
+          state.progress.blocked = state.progress.blocked.filter(id => id !== task.id);
+        }
 
         unblockedCount++;
       } else {
@@ -383,20 +472,28 @@ function updateTaskBlockedBy(
 
   const escapedId = escapeRegExp(taskId);
 
-  // 匹配 blocked_by 行
-  const regex = new RegExp(
-    `(##+ ${escapedId}:[\\s\\S]*?)(- \\*\\*阻塞依赖\\*\\*:\\s*\`[^\`]+\`)`,
-    'gm'
+  // 先匹配整个任务块（到下一个任务头或文件末尾）
+  // 兼容 T\d+ 和 Task-\d+ 两种 ID 格式
+  const blockRegex = new RegExp(
+    `(^##+\\s+${escapedId}:.*?)(?=^##+\\s+(?:T|Task-)\\d+:|$)`,
+    'gms'
   );
 
-  if (blockedBy.length === 0) {
-    // 移除 blocked_by 行
-    return content.replace(regex, '$1');
-  } else {
-    // 更新 blocked_by 列表
-    const newLine = `- **阻塞依赖**: \`${blockedBy.join(', ')}\``;
-    return content.replace(regex, `$1${newLine}`);
-  }
+  return content.replace(blockRegex, (block) => {
+    const lineRegex = /^[ \t]*- \*\*阻塞依赖\*\*:\s*`[^`\n]*`\r?\n?/m;
+
+    if (blockedBy.length === 0) {
+      // 删除 blocked_by 行（含换行符）
+      return block.replace(lineRegex, '');
+    }
+
+    const newLine = `- **阻塞依赖**: \`${blockedBy.join(', ')}\`\n`;
+    if (lineRegex.test(block)) {
+      return block.replace(lineRegex, newLine);
+    }
+    // 原来不存在 blocked_by 行时，在任务头后插入
+    return block.replace(/^(##+\s+.*\n)/, `$1${newLine}`);
+  });
 }
 ```
 

@@ -75,7 +75,7 @@
   "project_name": "my-project",
   "project_root": "/workspace/my-project",
   "status": "running",
-  "current_tasks": ["Task-1"],
+  "current_tasks": ["T1"],
   "execution_mode": "phase",
   "spec_file": ".claude/specs/example.md",
   "plan_file": ".claude/plans/example.md",
@@ -89,8 +89,8 @@
     }
   },
   "quality_gates": {
-    "Task-1": {
-      "gate_task_id": "Task-1",
+    "T1": {
+      "gate_task_id": "T1",
       "review_mode": "machine_loop",
       "last_decision": "pass",
       "stage1": {
@@ -118,7 +118,7 @@
     "executor": null
   },
   "progress": {
-    "completed": ["Task-1"],
+    "completed": ["T1"],
     "blocked": [],
     "failed": [],
     "skipped": []
@@ -142,7 +142,7 @@
       "action": "continue-direct",
       "reason": "mode-phase-boundary",
       "severity": "info",
-      "nextTaskIds": ["Task-2"]
+      "nextTaskIds": ["T2"]
     },
     "handoff_required": false
   },

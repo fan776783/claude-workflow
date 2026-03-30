@@ -73,6 +73,15 @@ interface TaskToRemove {
 分析 API 变更对现有任务的影响。
 
 ```typescript
+// 工具函数：获取下一个可用任务编号（避免 ID 碰撞）
+// 兼容 T\d+ 和 Task-\d+ 两种 ID 格式
+function getNextTaskIndex(tasks: Array<{ id: string }>): number {
+  return tasks.reduce((max, task) => {
+    const match = /^(?:T|Task-)(\d+)$/.exec(task.id || '');
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0) + 1;
+}
+
 function analyzeApiDelta(
   apiContent: string,
   existingTasks: WorkflowTaskV2[],
@@ -99,9 +108,11 @@ function analyzeApiDelta(
   };
 
   // 5. 新增接口 → 新增任务
+  let nextIdx = getNextTaskIndex(existingTasks);
   for (const api of apiDiff.added) {
+    const apiTaskId = `T${nextIdx++}`;
     impact.tasksToAdd.push({
-      id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+      id: apiTaskId,
       name: `实现 ${api.name} 接口调用`,
       phase: 'ui-integrate',
       files: { modify: [`src/services/${api.module}Service.ts`] },
@@ -126,8 +137,9 @@ function analyzeApiDelta(
     // 如果有对应的 UI 组件，添加集成任务
     const relatedComponent = findRelatedComponent(api.name, existingTasks);
     if (relatedComponent) {
+      const integrateTaskId = `T${nextIdx++}`;
       impact.tasksToAdd.push({
-        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+        id: integrateTaskId,
         name: `集成 ${api.name} 到 ${relatedComponent.name}`,
         phase: 'ui-integrate',
         files: {
@@ -142,7 +154,7 @@ function analyzeApiDelta(
           description: `在 ${relatedComponent.name} 中调用 ${api.name} 接口`,
           expected: '组件完成接口集成'
         }],
-        depends: [`T${existingTasks.length + impact.tasksToAdd.length}`],
+        depends: [apiTaskId],
         rationale: `新增接口需要集成到现有组件`
       });
     }
@@ -210,8 +222,13 @@ function analyzePrdDelta(
   // 2. 提取现有需求（从 spec）
   const existingRequirements = extractRequirementsFromSpec(specContent);
 
-  // 3. 对比需求变化
-  const reqDiff = diffRequirements(existingRequirements, newRequirements || prdContent);
+  // 3. 对比需求变化（类型归一化，避免混合 string 与 RequirementItem[]）
+  const reqDiff = newRequirements
+    ? diffRequirements(existingRequirements, newRequirements)
+    : simpleTextDiff(
+        serializeRequirements(existingRequirements),
+        prdContent
+      );
 
   // 4. 分析影响
   const impact: ImpactAnalysis = {
@@ -225,11 +242,31 @@ function analyzePrdDelta(
   };
 
   // 5. 新增需求 → 新增任务
+  let nextIdx = getNextTaskIndex(existingTasks);
   for (const req of reqDiff.added) {
-    // 根据需求类型生成任务
+    // simpleTextDiff 返回的 added 项无 type 字段，用通用任务处理
+    if (!req.type) {
+      impact.tasksToAdd.push({
+        id: `T${nextIdx++}`,
+        name: `实现需求：${(req.description || '').substring(0, 50)}`,
+        phase: 'infra',
+        files: { modify: [] },
+        spec_ref: '§4 User-facing Behavior',
+        plan_ref: `P-req-${nextIdx - 1}`,
+        actions: ['edit_file'],
+        steps: [{
+          id: 'D1',
+          description: req.description || '待细化',
+          expected: '需求已实现'
+        }],
+        rationale: `PRD 文本 diff 新增需求`
+      });
+      continue;
+    }
+    // 根据需求类型生成任务（结构化 diff 分支）
     if (req.type === 'form_field') {
       impact.tasksToAdd.push({
-        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+        id: `T${nextIdx++}`,
         name: `添加表单字段：${req.fieldName}`,
         phase: 'ui-form',
         files: {
@@ -248,7 +285,7 @@ function analyzePrdDelta(
       });
     } else if (req.type === 'business_rule') {
       impact.tasksToAdd.push({
-        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+        id: `T${nextIdx++}`,
         name: `实现业务规则：${req.ruleName}`,
         phase: 'infra',
         files: { modify: ['src/utils/businessRules.ts'] },
@@ -264,7 +301,7 @@ function analyzePrdDelta(
       });
     } else if (req.type === 'ui_component') {
       impact.tasksToAdd.push({
-        id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+        id: `T${nextIdx++}`,
         name: `创建组件：${req.componentName}`,
         phase: 'ui-display',
         files: { create: [`src/components/${req.componentName}.vue`] },
@@ -296,14 +333,15 @@ function analyzePrdDelta(
 
   // 7. 修改需求 → 修改任务
   for (const req of reqDiff.modified) {
-    const relatedTasks = findTasksByRequirement(req.before, existingTasks);
+    const reqRef = req.before || req;
+    const relatedTasks = findTasksByRequirement(reqRef, existingTasks);
     for (const task of relatedTasks) {
       impact.tasksToModify.push({
         id: task.id,
         name: task.name,
         changes: req.changes,
         before: { steps: task.steps },
-        after: { steps: [{ id: 'D1', description: req.after.description, expected: '需求变化已实现' }] },
+        after: { steps: [{ id: 'D1', description: req.after?.description || req.changes, expected: '需求变化已实现' }] },
         rationale: `需求变更：${req.changes}`
       });
     }
@@ -328,25 +366,33 @@ function analyzePrdDelta(
 分析需求描述对现有任务的影响。
 
 ```typescript
-function analyzeRequirementDelta(
+async function analyzeRequirementDelta(
   requirement: string,
   specContent: string,
   existingTasks: WorkflowTaskV2[]
-): ImpactAnalysis {
-  // 1. 使用 codebase-retrieval 分析需求
-  const analysisResult = await mcp__auggie-mcp__codebase-retrieval({
-    information_request: `
-      分析以下需求变更：
+): Promise<ImpactAnalysis> {
+  // 1. 使用 codebase-retrieval 分析需求，MCP 不可用时降级到本地启发式分析
+  let analysisResult: RequirementAnalysisResult;
+  let analysisSource: 'mcp' | 'heuristic' = 'mcp';
 
-      ${requirement}
+  try {
+    analysisResult = await mcp__auggie-mcp__codebase-retrieval({
+      information_request: `
+        分析以下需求变更：
 
-      请提供：
-      1. 需要新增的功能模块
-      2. 需要修改的现有模块
-      3. 受影响的文件和组件
-      4. 技术约束和依赖
-    `
-  });
+        ${requirement}
+
+        请提供：
+        1. 需要新增的功能模块
+        2. 需要修改的现有模块
+        3. 受影响的文件和组件
+        4. 技术约束和依赖
+      `
+    });
+  } catch {
+    analysisSource = 'heuristic';
+    analysisResult = heuristicRequirementAnalysis(requirement, specContent, existingTasks);
+  }
 
   // 2. 解析分析结果
   const impact: ImpactAnalysis = {
@@ -355,15 +401,16 @@ function analyzeRequirementDelta(
     tasksToRemove: [],
     affectedFiles: extractAffectedFiles(analysisResult),
     affectedModules: extractAffectedModules(analysisResult),
-    riskLevel: 'low',
+    riskLevel: analysisSource === 'heuristic' ? 'medium' : 'low',
     estimatedEffort: '1-2h'
   };
 
   // 3. 生成新增任务
+  let nextIdx = getNextTaskIndex(existingTasks);
   const newModules = extractNewModules(analysisResult);
   for (const module of newModules) {
     impact.tasksToAdd.push({
-      id: `T${existingTasks.length + impact.tasksToAdd.length + 1}`,
+      id: `T${nextIdx++}`,
       name: module.name,
       phase: determinePhase(module),
       files: { modify: [module.file] },
@@ -395,17 +442,68 @@ function analyzeRequirementDelta(
     }
   }
 
-  // 5. 计算风险等级
-  impact.riskLevel = calculateRiskLevel({
+  // 5. 计算风险等级（heuristic 模式下风险至少为 medium）
+  const calculatedRisk = calculateRiskLevel({
     added: newModules,
     modified: modifiedModules,
     removed: []
   });
+  if (analysisSource === 'heuristic' && calculatedRisk === 'low') {
+    impact.riskLevel = 'medium';
+  } else {
+    impact.riskLevel = calculatedRisk;
+  }
 
   // 6. 估算工作量
   impact.estimatedEffort = estimateEffort(impact);
 
   return impact;
+}
+```
+
+### heuristicRequirementAnalysis
+
+MCP 不可用时的本地降级分析：基于 spec 和现有任务的关键词匹配。
+
+```typescript
+function heuristicRequirementAnalysis(
+  requirement: string,
+  specContent: string,
+  existingTasks: WorkflowTaskV2[]
+): RequirementAnalysisResult {
+  const reqTokens = tokenize(requirement);
+
+  // 从现有任务和 spec 中提取已知文件和模块
+  const knownFiles = new Set<string>();
+  const knownModules = new Set<string>();
+  for (const task of existingTasks) {
+    [...(task.files?.create || []), ...(task.files?.modify || [])].forEach(f => knownFiles.add(f));
+    if (task.phase) knownModules.add(task.phase);
+  }
+
+  // 基于关键词匹配找受影响文件
+  const affectedFiles = [...knownFiles].filter(f =>
+    reqTokens.some(t => f.toLowerCase().includes(t))
+  );
+
+  // 如果需求描述提到新增/创建等意图且没有命中已有文件，推断为新模块
+  const newModuleIntent = /新增|创建|添加|新建|implement|create|add/i.test(requirement);
+  const newModules: Array<{ name: string; file: string; description: string }> = [];
+  if (newModuleIntent && affectedFiles.length === 0) {
+    newModules.push({
+      name: requirement.substring(0, 50),
+      file: 'src/modules/new-feature.ts',  // 占位，需人工确认
+      description: requirement.substring(0, 100)
+    });
+  }
+
+  return {
+    newModules,
+    modifiedModules: affectedFiles.map(f => ({ file: f, changes: requirement.substring(0, 100) })),
+    affectedFiles,
+    affectedModules: [...knownModules],
+    source: 'heuristic'
+  };
 }
 ```
 
@@ -518,12 +616,12 @@ function detectApiChanges(
 
 ```typescript
 interface RequirementDiff {
-  added: Requirement[];
-  removed: Requirement[];
+  added: RequirementItem[];
+  removed: RequirementItem[];
   modified: Array<{
     changes: string;
-    before: Requirement;
-    after: Requirement;
+    before: RequirementItem;
+    after: RequirementItem;
   }>;
 }
 
@@ -531,12 +629,18 @@ function diffRequirements(
   oldReq: string | RequirementItem[],
   newReq: string | RequirementItem[]
 ): RequirementDiff {
-  // 如果是字符串，进行简单的文本对比
+  // 类型不一致时先归一化为字符串
+  if (typeof oldReq !== typeof newReq) {
+    return simpleTextDiff(
+      serializeRequirements(oldReq),
+      serializeRequirements(newReq)
+    );
+  }
+
   if (typeof oldReq === 'string' && typeof newReq === 'string') {
     return simpleTextDiff(oldReq, newReq);
   }
 
-  // 如果是结构化需求，进行详细对比
   return structuredRequirementDiff(oldReq as RequirementItem[], newReq as RequirementItem[]);
 }
 ```
@@ -613,14 +717,30 @@ function findTasksByApi(apiName: string, tasks: WorkflowTaskV2[]): WorkflowTaskV
 根据需求查找相关任务。
 
 ```typescript
-function findTasksByRequirement(req: Requirement, tasks: WorkflowTaskV2[]): WorkflowTaskV2[] {
+function findTasksByRequirement(req: RequirementItem, tasks: WorkflowTaskV2[]): WorkflowTaskV2[] {
   return tasks.filter(task => {
-    const taskText = task.steps.map(step => `${step.description} ${step.expected}`).join(' ').toLowerCase();
-    const reqDesc = req.description?.toLowerCase() || '';
+    // 优先结构化关联
+    if (req.id && task.requirementIds?.includes(req.id)) return true;
 
-    return taskText.includes(reqDesc) ||
-           reqDesc.includes(taskText);
+    // 文本兜底：基于 token 重叠度，避免短文本误匹配
+    const reqTokens = tokenize(req.description || '');
+    const taskTokens = tokenize(
+      task.steps.map(step => `${step.description} ${step.expected}`).join(' ')
+      + ' ' + (task.name || '')
+    );
+
+    if (reqTokens.length === 0 || taskTokens.length === 0) return false;
+
+    const overlap = reqTokens.filter(t => taskTokens.includes(t));
+    return overlap.length >= 2 && (overlap.length / Math.min(reqTokens.length, taskTokens.length)) >= 0.6;
   });
+}
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase()
+    .replace(/[^\w\u4e00-\u9fff]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 1);
 }
 ```
 

@@ -205,6 +205,7 @@ executeTask() → 验证铁律（Gate Function）→ Spec 合规审查（子 Age
 ├── changes/
 │   └── CHG-001/
 │       ├── delta.json
+│       ├── intent.md
 │       └── review-status.json
 └── archive/
     └── CHG-001/
