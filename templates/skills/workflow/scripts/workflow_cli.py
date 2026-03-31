@@ -213,17 +213,19 @@ def cmd_advance(
     借鉴 Trellis task.py advance：一条命令完成状态机推进，
     AI 不需要分别调用 complete → next → journal。
     """
-    # Step 1: Complete current task
+    # Step 1: 完成当前任务
     complete_result = cmd_complete(task_id, project_id, project_root)
     if "error" in complete_result:
         return complete_result
 
-    # Step 2: Find next task
+    # Step 2: 查询下一个任务
     next_result = cmd_next(project_id, project_root)
     next_task = next_result.get("next_task")
 
-    # Step 3: Update state's current_tasks
-    state, state_path, _, _ = resolve_state_and_tasks(project_id, project_root)
+    # Step 3: 读取最新 state（cmd_complete 已写入磁盘），更新 current_tasks
+    state, state_path, tasks_content, _ = resolve_state_and_tasks(
+        project_id, project_root
+    )
     if state and state_path:
         if next_task and isinstance(next_task, dict):
             state["current_tasks"] = [next_task["id"]]
@@ -231,16 +233,23 @@ def cmd_advance(
             state["current_tasks"] = [next_task]
         else:
             state["current_tasks"] = []
-            # Check if all done
+            # 判断是否全部完成：需要 completed + skipped == total
             progress = state.get("progress", {})
-            completed_count = len(progress.get("completed", []))
-            total_msg = next_result.get("message", "")
-            if "所有" in total_msg or completed_count > 0:
+            completed_ids = progress.get("completed", [])
+            skipped_ids = progress.get("skipped", [])
+            finished_count = len(completed_ids) + len(skipped_ids)
+            # 通过 tasks_content 获取总任务数
+            total_tasks = 0
+            if tasks_content:
+                from task_parser import count_tasks  # type: ignore
+
+                total_tasks = count_tasks(tasks_content)
+            if total_tasks > 0 and finished_count >= total_tasks:
                 state["status"] = "completed"
                 state["completed_at"] = datetime.now().isoformat()
         write_state(state_path, state)
 
-    # Step 4: Optional journal record
+    # Step 4: 可选的 journal 记录
     journal_result = None
     if journal_summary:
         try:
@@ -248,14 +257,22 @@ def cmd_advance(
 
             pid = project_id or detect_project_id()
             if pid:
+                next_id = (
+                    next_task["id"]
+                    if isinstance(next_task, dict)
+                    else next_task
+                )
                 journal_result = cmd_add(
                     pid,
-                    title=f"完成 {task_id}" + (f" → {next_task['id']}" if isinstance(next_task, dict) else ""),
+                    title=f"完成 {task_id}"
+                    + (f" → {next_id}" if next_id else ""),
                     workflow_id=pid,
                     tasks_completed=[task_id],
                     summary=journal_summary,
                     decisions=decisions or [],
-                    next_steps=[f"下一任务: {next_task['id'] if isinstance(next_task, dict) else next_task}"] if next_task else [],
+                    next_steps=(
+                        [f"下一任务: {next_id}"] if next_id else []
+                    ),
                 )
         except ImportError:
             journal_result = {"error": "journal 模块不可用"}

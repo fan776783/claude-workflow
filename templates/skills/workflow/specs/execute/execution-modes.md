@@ -780,7 +780,7 @@ executeTask() → ①验证（Step 6.5）→ ②自审查/合规检查（Step 6.
 |------|---------|------|
 | ① 验证 | Step 6.5 | 失败 → 标记 `failed`，后续步骤全部跳过 |
 | ② 自审查 + 合规检查 | Step 6.6 + 6.7 | 建议性，永不阻塞 |
-| ③ 更新 plan.md | — | 逐 task 立即更新，禁止批量回写 |
+| ③ 更新 plan.md | `task_parser.update_task_status_in_markdown()` | 逐 task 立即更新，禁止批量回写 |
 | ④ 更新 state.json | Step 7 | 更新 progress + current_tasks + updated_at |
 | ⑤ 审查（条件触发） | — | quality_review → 完整两阶段审查（子 Agent）；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
 | ⑥ Journal（条件） | — | 质量关卡/暂停/完成时记录 |

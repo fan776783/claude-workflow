@@ -81,6 +81,34 @@ py -3 workflow_cli.py <command>    # 统一 CLI 入口（推荐）
 | danger | 80% | 危险区，优先暂停 |
 | hard_handoff | 90% | 硬停止，生成 continuation artifact |
 
+### ContextMetrics（workflow-state.json 中的上下文预算指标）
+
+状态文件中 `contextMetrics` 字段的完整定义，供构建和读取时参考：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `maxContextTokens` | number | 平台最大上下文容量 |
+| `estimatedTokens` | number | 当前预估 token 用量 |
+| `projectedNextTurnTokens` | number | 预估下一轮 token 用量 |
+| `reservedExecutionTokens` | number | 执行预留 |
+| `reservedVerificationTokens` | number | 验证预留 |
+| `reservedReviewTokens` | number | 审查预留 |
+| `reservedSafetyBufferTokens` | number | 安全缓冲预留 |
+| `usagePercent` | number | 当前使用百分比 |
+| `projectedUsagePercent` | number | 预估使用百分比（continuation 决策依据） |
+| `warningThreshold` | number | 警告阈值（默认 60） |
+| `dangerThreshold` | number | 危险阈值（默认 80） |
+| `hardHandoffThreshold` | number | 硬停止阈值（默认 90） |
+| `maxConsecutiveTasks` | number | 最大连续执行任务数（节奏控制） |
+| `history[]` | array | 每次任务执行的 token 用量记录 |
+| `history[].taskId` | string | 任务 ID |
+| `history[].preTaskTokens` | number | 执行前 token |
+| `history[].postTaskTokens` | number | 执行后 token |
+| `history[].tokenDelta` | number | token 增量 |
+| `history[].executionPath` | `direct / single-subagent / parallel-boundaries` | 执行路径 |
+
+> 动态任务上限由 `context_budget.py:calculate_dynamic_max_tasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
+
 ---
 
 ## 注意事项

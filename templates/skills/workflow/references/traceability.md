@@ -6,9 +6,7 @@
 
 ## 术语
 
-### Requirement（需求条目）
-
-spec.md 的 Scope 章节中的编号条目（R-001 起），是最小可追溯的需求单位。每条需求包含 ID、摘要、范围状态、约束和所有者。
+**Requirement（需求条目）**：spec.md 的 Scope 章节中的编号条目（R-001 起），是最小可追溯的需求单位。每条需求包含 ID、摘要、范围状态、约束和所有者。字段定义见下方表格。
 
 ### Spec Section Ref
 
@@ -84,7 +82,7 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 
 ### Execution Gate（子 Agent Spec 合规审查）
 
-在每个 task 执行后由 Spec 合规审查子 Agent 执行：
+在满足审查触发条件时（quality_review action / 连续 3 个常规 task / 最后 task）由 Spec 合规审查子 Agent 执行：
 
 - 代码是否匹配 spec 描述的行为
 - spec Constraints 是否被正确实现

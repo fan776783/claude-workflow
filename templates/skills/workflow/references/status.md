@@ -104,6 +104,7 @@ AI 获取脚本数据后，按以下格式向用户展示状态报告：
 
 📓 **最近会话记录**：
 {最近 5 条 journal 记录，含 title / date / tasks_count}
+{最新一条的 next_steps 和 decisions}
 
 🎯 **质量关卡**：
 {对每个 quality_gate 显示通过状态}
@@ -115,10 +116,49 @@ AI 获取脚本数据后，按以下格式向用户展示状态报告：
 {usage_percent}% / {context_bar}
 ```
 
+### 条件字段展示规则
+
+| 条件 | 展示内容 |
+|------|---------|
+| `failure_reason` 非空 | 在状态行下方显示 `⚠️ 失败原因：{failure_reason}` |
+| 存在 `blocked` 任务 | 在任务统计表中追加 `⏳ 阻塞 \| {blocked_count}` 行 |
+| `quality_gates[taskId]` 存在 | 显示各关卡的 `stage1.passed` / `stage2.passed` / `overall_passed` |
+| `continuation.handoff_required` 为 true | 显示 `🔄 需要 handoff：{continuation.last_decision.reason}` |
+| 存在 journal 记录 | 最近 5 条摘要 + 最新一条的 `next_steps` 和 `decisions` |
+
+### Journal 数据展示格式
+
+```bash
+# 获取 journal 数据
+py -3 workflow_cli.py journal list
+```
+
+在详细模式的 `📓 最近会话记录` 区块中展示：
+
+```
+📓 **最近会话记录**：
+
+| # | 日期 | 标题 | 完成任务 |
+|---|------|------|----------|
+| 3 | 2026-03-30 | 完成 T3 → T4 | 1 个 |
+| 2 | 2026-03-29 | 完成认证模块 | 3 个 |
+
+**上次 Next Steps**：
+- T4 需要等待后端接口
+- T5 可继续
+
+**上次关键决策**：
+- 选择 JWT 而非 session 方案
+```
+
+> 无 journal 记录时显示：_（暂无会话记录。执行工作流后将在关键节点自动记录。）_
+
+💡 **查看更多**：`/workflow journal list` · **搜索**：`/workflow journal search "关键词"`
+
 ### 各状态下的下一步操作
 
 | 当前状态 | 下一步提示 |
-|---------|-----------|
+|---------|-----------|\
 | `planned` | 审查 Spec 和 Plan 后执行 `/workflow execute` |
 | `spec_review` | 审查 `spec.md` 后确认或修改 |
 | `running` | 继续执行 `/workflow execute` |
