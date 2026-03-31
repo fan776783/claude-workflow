@@ -1,5 +1,7 @@
 # workflow execute - 执行任务概览 (v3.2)
 
+> 本文件为摘要层，不定义新的状态字段、触发规则或执行语义；具体行为以 `references/execute-entry.md`、`references/state-machine.md` 与 `specs/execute/*.md` 为准。
+>
 > 精简接口：默认治理 continuous 模式，支持自然语言控制执行模式与恢复解析
 
 执行工作流任务。
@@ -8,6 +10,7 @@
 
 | 参数 | 说明 |
 |------|------|
+| `--phase` | 阶段模式：按治理 phase 执行并在边界暂停 |
 | `--retry` | 重试模式：重试失败的任务 |
 | `--skip` | 跳过模式：跳过当前任务（慎用） |
 
@@ -26,7 +29,7 @@
 
 - `/workflow execute`：显式进入执行器，默认按 `continuous` 模式恢复/继续。
 - `/workflow execute 继续`：与默认执行一致。
-- 裸自然语言“继续”：仅在存在活动 workflow（`running` / `paused` / `failed` / `blocked`）时可解释为恢复当前工作流；否则提示用户使用 `/workflow execute` 或 `/workflow status`。
+- 裸自然语言“继续”：仅在存在活动 workflow（`running` / `paused` / `failed` / `blocked`）且当前对话仍处于该 workflow 任务链上时可解释为恢复当前工作流；否则提示用户使用 `/workflow execute` 或 `/workflow status`。
 - 是否真正继续执行，始终先由 `ContextGovernor` 判定，而不是只看自然语言意图。
 
 ## 执行模式
@@ -38,7 +41,7 @@
 
 > 注意：以上仅是语义暂停点；真正是否继续由 `ContextGovernor` 先决定。
 
-> **Subagent 模式**：平台支持时自动启用（或任务数 > 5），每个任务在独立 subagent 中执行，避免上下文膨胀。
+> **Subagent / 并行路由**：仅在平台支持且能证明同阶段任务彼此独立时启用；是否使用 `parallel-boundaries` 由 `ContextGovernor` 与独立性检查共同决定，不能仅按任务数量自动开启。
 >
 > **平台映射**：
 > - Claude Code / Cursor：使用 `Task` 子 agent
@@ -57,9 +60,9 @@
 ### Step 0：解析执行模式
 
 解析命令行参数和自然语言意图：
-- 检测 `--retry` / `--skip` 标志
+- 检测 `--retry` / `--skip` / `--phase` 标志
 - 识别自然语言模式描述（连续/阶段）
-- 确定执行模式优先级：命令行参数 > 自然语言意图 > state 配置 > 默认
+- 确定执行模式优先级：显式模式 > 自然语言意图 > `state.execution_mode` > 默认
 
 **详细实现**: 参见 `specs/execute/execution-modes.md`
 
@@ -180,7 +183,7 @@
 每个 task 执行完成后，必须依次完成以下 6 步管线。**详细步骤和 checklist 参见 `references/execution-checklist.md`（唯一权威源）。**
 
 ```
-Task 完成 → ①验证 → ②自审查/合规检查 → ③更新 plan.md → ④更新 state.json → ⑤审查（条件） → ⑥Journal 记录 → 下一 Task
+Task 完成 → ①验证 → ②自审查/合规检查 → ③更新 plan.md → ④更新 state.json → ⑤审查（条件） → ⑥Journal 记录（条件） → 下一 Task
 ```
 
 | 步骤 | 名称 | 关键规则 |
@@ -265,8 +268,11 @@ python3 scripts/journal.py add \
 
 跳过当前任务（慎用）：
 1. 标记当前任务为 `skipped`
-2. 移动到下一个任务
-3. 继续工作流
+2. 更新 `plan.md` 与 `workflow-state.json`
+3. 移动到下一个任务
+4. 按原执行模式继续工作流
+
+> `skip` 属于例外路径，不是“task 完成”路径；因此不执行实现验证、Step ② 本地检查或完整完成流水线。
 
 **详细实现**: 参见 `specs/execute/execution-modes.md`
 

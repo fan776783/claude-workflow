@@ -46,6 +46,7 @@ role: plan
 ## Self-Review Checklist
 
 > Plan 生成后必须逐条检查。
+> 下列 checkbox 仅用于自审展示，不是任务解析格式；plan parser 仍以 `## Tn:` 的 WorkflowTaskV2 任务块为准。
 
 - [ ] **Spec coverage** — 逐条 spec 需求，确认每条都有对应 task
 - [ ] **Placeholder scan** — 搜索 TBD/TODO/模糊描述，全部替换为实际内容

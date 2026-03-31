@@ -56,10 +56,21 @@ console.log(`
 // 需求预分析：识别需要澄清的维度
 const allGaps = analyzeRequirementGaps(requirementContent, analysisResult);
 
-// ── 短路：无 gap 时直接通过 ──
+// ── 短路：无 gap 时生成最小讨论工件并继续 ──
 if (allGaps.length === 0) {
-  console.log('✅ 未发现需澄清项，跳过需求讨论');
-  // discussionArtifact 保持 null，后续阶段走原逻辑
+  const discussionArtifact: DiscussionArtifact = {
+    timestamp: new Date().toISOString(),
+    requirementSource: requirementSource,
+    clarifications: [],
+    selectedApproach: null,
+    unresolvedDependencies: []
+  };
+
+  ensureDir(workflowDir);
+  const artifactPath = path.join(workflowDir, 'discussion-artifact.json');
+  writeFile(artifactPath, JSON.stringify(discussionArtifact, null, 2));
+
+  console.log('✅ 未发现需澄清项，已生成最小 discussion-artifact.json');
   return;
 }
 
@@ -714,6 +725,8 @@ Spec 生成函数签名为 `generateSpec(requirementContent, analysisResult, dis
 讨论工件持久化为 `~/.claude/workflows/{projectId}/discussion-artifact.json`，用于：
 - Phase 1: Spec 生成（澄清结果 + 方案选择 + 未就绪依赖）
 - 审计追溯：讨论过程可回溯
+
+> 若 Phase 0.2 被整体跳过（如 `--no-discuss` 或简短明确的内联需求），允许不存在讨论工件；但只要进入 Phase 0.2 执行路径，即使未发现 gap，也必须落盘最小 `discussion-artifact.json`。
 
 ### ⚠️ 持久化强制要求
 

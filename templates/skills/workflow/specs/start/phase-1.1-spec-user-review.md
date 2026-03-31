@@ -18,7 +18,7 @@
 
 - 用户审查结论
 - `review_status.user_spec_review`
-- 如不通过，回退到 Phase 1
+- 如不通过，回退到 Phase 1 或 Phase 0.3
 
 ## 实现细节
 
@@ -59,7 +59,6 @@ const specChoice = await AskUserQuestion({
 
 ```typescript
 if (specChoice === 'Spec 正确，继续') {
-  state.status = 'planned';
   state.review_status.user_spec_review = {
     status: 'approved',
     review_mode: 'human_gate',
@@ -80,6 +79,32 @@ if (specChoice === '需要修改 Spec') {
     next_action: 'return_to_phase_1_spec_generation'
   };
   console.log(`⏸️ 请先修改 Spec：${specPath}`);
+  return;
+}
+
+if (specChoice === '页面分层需要调整') {
+  state.status = 'spec_review';
+  state.review_status.user_spec_review = {
+    status: 'revise_required',
+    review_mode: 'human_gate',
+    reviewed_at: new Date().toISOString(),
+    reviewer: 'user',
+    next_action: 'return_to_phase_0_3_ux_design_gate'
+  };
+  console.log('⏸️ 请回到 Phase 0.3 调整页面分层后重新生成 Spec。');
+  return;
+}
+
+if (specChoice === '缺少用户流程') {
+  state.status = 'spec_review';
+  state.review_status.user_spec_review = {
+    status: 'revise_required',
+    review_mode: 'human_gate',
+    reviewed_at: new Date().toISOString(),
+    reviewer: 'user',
+    next_action: 'return_to_phase_0_3_ux_design_gate'
+  };
+  console.log('⏸️ 请回到 Phase 0.3 补充用户流程或首次使用引导后重新生成 Spec。');
   return;
 }
 
@@ -125,5 +150,5 @@ function summarizeSpec(specContent: string): string {
 ## 输出结果约定
 
 - **approved**：进入 Phase 2 Plan Generation
-- **revise_required**：返回 Phase 1 Spec Generation
+- **revise_required**：返回 Phase 1 Spec Generation，或在 UX 结构问题时返回 Phase 0.3 UX 设计审批
 - **rejected**：拆分范围后重新启动

@@ -19,7 +19,7 @@
 - `/workflow execute 下一阶段` / `/workflow execute 单阶段` → `phase`
 - `/workflow execute 重试` → `retry`
 - `/workflow execute 跳过` → `skip`
-- 未识别的自然语言意图：不得静默覆盖已知偏好；应返回 warning，并回退到 `preferred_mode`（若存在）或 `continuous`
+- 未识别的自然语言意图：不得静默覆盖已知偏好；应返回 warning，并回退到 `execution_mode`（若存在）或 `continuous`
 
 ### 3. 裸自然语言“继续”
 
@@ -50,7 +50,7 @@
 4. 调用 `ContextGovernor`
 5. 决定 `continue-direct` / `continue-parallel-boundaries` / `pause-*` / `handoff-required`
 
-**模式优先级**：`explicit_mode` > `intent` > `preferred_mode` > `continuous`
+**模式优先级**：`explicit_mode` > `intent` > `execution_mode` > `continuous`
 
 ## 重要约束
 

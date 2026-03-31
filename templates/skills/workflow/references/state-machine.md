@@ -14,8 +14,9 @@
 | 状态 | 说明 |
 |------|------|
 | `idle` | 初始状态，无活动任务 |
-| `planned` | 规划完成，等待用户审查后执行 |
 | `spec_review` | Spec 已生成，等待用户确认范围 |
+| `planning` | Spec 已批准，正在生成或整理 Plan |
+| `planned` | Plan 已生成，规划完成，等待执行 |
 | `running` | 工作流执行中 |
 | `paused` | 暂停等待用户操作 |
 | `blocked` | 等待外部依赖（接口/第三方能力） |
@@ -242,11 +243,11 @@
 ## 状态转换
 
 ```
-idle → planned (workflow-start 完成规划)
-planned → spec_review (spec 生成，等待用户确认)
-spec_review → planned (spec 已批准，继续 plan 生成)
+idle → spec_review (spec 生成完成，等待用户确认)
+spec_review → planning (spec 已批准，进入 plan 生成)
 spec_review → spec_review (用户要求修改 Spec)
 spec_review → idle (用户拒绝并终止)
+planning → planned (plan 生成完成)
 planned → running (workflow-execute 开始执行)
 planned → idle (用户取消)
 running → paused (暂停 / 预算暂停)

@@ -398,8 +398,11 @@ Phase 4：实施修复
 
 **行为**：
 - 标记当前任务为 `skipped`
+- 更新 `plan.md` 与 `workflow-state.json`
 - 移动到下一个任务
 - 继续工作流（根据原执行模式）
+
+> Skip 属于**例外路径**，不是“task 完成”路径，因此不执行实现验证、Step ② 本地检查或完整审查流水线；但必须留下清晰的 `skipped` 状态供后续审查与恢复使用。
 
 **适用场景**：
 - 任务暂时无法执行（等待外部依赖）
@@ -785,7 +788,7 @@ executeTask() → ①验证（Step 6.5）→ ②自审查/合规检查（Step 6.
 | ⑤ 审查（条件触发） | — | quality_review → 完整两阶段审查（子 Agent）；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
 | ⑥ Journal（条件） | — | 质量关卡/暂停/完成时记录 |
 
-**适用范围**：直接模式和 Subagent 模式均适用。所有 4 种执行模式（continuous/phase/retry/skip）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过完整 6 步管线。Step 6.5 → 6.6 → 6.7 为内联检查（建议性，不阻塞）；步骤 ⑤ 的完整两阶段审查由子 Agent 执行（或降级为角色切换），仅在满足触发条件时执行（详见 `specs/execute/subagent-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。
+**适用范围**：直接模式和 Subagent 模式均适用。所有完成型执行路径（continuous / phase / retry 中真正完成 task 的情况）在调用 `executeTask()` / `executeTaskInSubagent()` 后，都必须经过完整 6 步管线。Step 6.5 → 6.6 → 6.7 为内联检查（建议性，不阻塞）；步骤 ⑤ 的完整两阶段审查由子 Agent 执行（或降级为角色切换），仅在满足触发条件时执行（详见 `specs/execute/subagent-review.md`）。并行执行时，每个并行任务独立经过此管线；具体 dispatch / wait / cleanup / conflict fallback 规则遵循 `../../dispatching-parallel-agents/SKILL.md`。`skip` 为显式例外路径，仅更新 plan/state 并标记 `skipped`，不进入完整完成流水线。
 
 
 ---
@@ -934,9 +937,9 @@ interface VerificationEvidence {
 
 | 结果 | 处理 |
 |------|------|
-| 全部覆盖 | 继续 Step 7 |
-| 存在偏差 | 输出偏差列表，追加补充任务到 plan.md，当前任务仍标记 completed |
-| 严重偏差（缺失核心功能） | 标记 `failed`，提示用户 |
+| 全部覆盖 | 输出通过结果，继续 Step 7 |
+| 存在偏差 | 输出偏差列表，建议补充 task 或回看 spec，当前 task 仍按验证结果保持完成 |
+| 严重偏差（缺失核心功能） | 输出严重偏差警告，并要求在后续质量关卡或人工审查中处理；当前步骤本身不单独将 task 标记为 `failed` |
 
 ---
 

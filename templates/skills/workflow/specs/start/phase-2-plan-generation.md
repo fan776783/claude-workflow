@@ -13,7 +13,7 @@
 ## 输入
 
 - `spec.md`（唯一规范输入）
-- `analysisResult`（代码分析结果，用于确定可复用组件）
+- `analysisResult`（代码分析结果，仅作为可复用组件和文件规划的辅助上下文，不改变 spec 作为唯一规范来源的地位）
 
 ## 输出
 
@@ -21,7 +21,7 @@
 
 ## 设计原则
 
-- **Spec-Only Input** — Plan 仅消费 spec.md，不消费其他文档
+- **Spec-Normative Input** — spec.md 是唯一规范输入；`analysisResult` 仅作为文件规划与复用提示的辅助上下文
 - **File Structure First** — 先列文件，再排步骤
 - **Bite-Sized Tasks** — 每步 2-5 分钟的原子操作
 - **Complete Code** — 每步包含完整代码块（不是伪代码或描述）

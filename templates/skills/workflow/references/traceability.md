@@ -80,9 +80,15 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 - 所有 in_scope 需求至少映射到一个 plan task（通过 specRef / requirementIds）
 - 所有 plan step 包含完整代码（No Placeholders）
 
-### Execution Gate（子 Agent Spec 合规审查）
+### Execution Gate（执行期规格对照检查）
 
-在满足审查触发条件时（quality_review action / 连续 3 个常规 task / 最后 task）由 Spec 合规审查子 Agent 执行：
+在满足审查触发条件时执行规格对照检查：
+
+- `quality_review` action → 进入完整两阶段审查的 Stage 1：Spec 合规审查
+- 连续 3 个常规 task → 执行轻量合规检查
+- 最后一个 task → 在最终全量审查中执行 Spec 合规审查
+
+所有场景都应检查：
 
 - 代码是否匹配 spec 描述的行为
 - spec Constraints 是否被正确实现

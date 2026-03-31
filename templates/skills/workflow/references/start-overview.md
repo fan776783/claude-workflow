@@ -1,8 +1,10 @@
 ﻿# workflow start - 启动工作流 (v5.0)
 
+> 本文件为摘要层，不定义新的状态字段、触发规则或执行语义；具体行为以 `specs/start/*.md` 与 `references/state-machine.md` 为准。
+>
 > 精简三层架构：**需求 → Spec → Plan → 执行 + 子 Agent 审查**
 
-五阶段强制流程：**代码分析（+ Git 检查）→ 需求讨论 → UX 设计审批 → Spec 生成 → User Review → Plan 生成**
+启动阶段主流程：**Phase 0 代码分析 → Phase 0.2 需求讨论（条件）→ Phase 0.3 UX 设计审批（条件 HARD-GATE）→ Phase 1 Spec 生成 → Phase 1.1 User Review → Phase 2 Plan 生成**
 
 ## 快速导航
 
@@ -122,19 +124,21 @@
 - 需求内容（PRD 或内联）
 - 代码分析结果
 - 讨论工件（如有）
+- UX 设计工件（如有，且若触发则必须先审批通过）
 
 **输出**: `.claude/specs/{task-name}.md`
 
 **核心章节**:
 1. Context — 背景和目标
 2. Scope — 需求编号 + 范围判定（in/out/blocked）
-3. Constraints — 不可协商的硬约束
-4. User-facing Behavior — 正常/异常/边界行为
-5. Architecture and Module Design — 模块划分 + 技术选型
-6. File Structure — 新建/修改/测试文件
-7. Acceptance Criteria — 按模块的验收条件
-8. Implementation Slices — 渐进交付切片
-9. Open Questions — 待确认问题
+3. Clarification Summary — Phase 0.2 澄清结果、已选方案、未就绪依赖
+4. Constraints — 不可协商的硬约束 + UX 预设工作区/环境约束
+5. User-facing Behavior — 正常/异常/边界行为 + UX 流程图
+6. Architecture and Module Design — 模块划分 + 技术选型 + 页面分层信息架构
+7. File Structure — 新建/修改/测试文件
+8. Acceptance Criteria — 按模块的验收条件
+9. Implementation Slices — 渐进交付切片
+10. Open Questions — 待确认问题
 
 **生成后执行 Self-Review**:
 - 需求覆盖扫描
@@ -153,9 +157,11 @@
 **治理模式**: `human_gate`。用户主权确认，不参与机器自动修文。
 
 **用户选择**:
-1. **Spec 正确，继续** → 进入 Plan Generation
+1. **Spec 正确，继续** → 进入 Phase 2 Plan Generation
 2. **需要修改 Spec** → 回到 Phase 1
-3. **需要拆分范围** → 拆分后重新启动
+3. **页面分层需要调整** → 回到 Phase 0.3，调整页面分层后重新生成 Spec
+4. **缺少用户流程** → 回到 Phase 0.3，补充流程图/首次使用引导后重新生成 Spec
+5. **需要拆分范围** → 拆分后重新启动
 
 **详细实现**: 参见 `specs/start/phase-1.1-spec-user-review.md`
 
@@ -165,7 +171,9 @@
 
 **目的**: 从 `spec.md` 生成可直接执行的实施计划
 
-**输入**: `spec.md`（唯一规范输入）+ `analysisResult`
+**前置状态**: `planning`（Spec 已批准，正在生成或整理 Plan）
+
+**输入**: `spec.md`（唯一规范输入）+ `analysisResult`（仅作为文件规划与复用提示的辅助上下文）
 
 **输出**: `.claude/plans/{task-name}.md`
 
@@ -189,6 +197,11 @@
 
 ### 🛑 Hard Stop 2：规划完成（强制停止）
 
+**状态结果**:
+- Phase 1.1 审批通过后，状态进入 `planning`
+- Phase 2 完成后，状态写入 `planned`
+- `/workflow execute` 启动时再由 `planned → running`
+
 **输出摘要**:
 - Spec 路径
 - Plan 路径
@@ -203,7 +216,8 @@
 
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json             ← 运行时状态
-├── discussion-artifact.json        ← 讨论工件
+├── discussion-artifact.json        ← 讨论工件（若 Phase 0.2 执行则必须存在）
+├── ux-design-artifact.json         ← UX 设计工件（若 Phase 0.3 触发并通过则存在）
 └── changes/
 ```
 

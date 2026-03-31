@@ -8,7 +8,7 @@
 
 ## 执行时机
 
-**强制执行**：Phase 0（代码分析）和 Phase 0.2（需求讨论，如有）完成后。
+**强制执行**：Phase 0（代码分析）完成后执行；若 Phase 0.2（需求讨论）被触发则必须先完成，若 Phase 0.3（UX 设计审批）被触发则必须先审批通过。
 
 ## 输入
 
@@ -92,9 +92,10 @@ const specContent = replaceVars(specTemplate, {
   scope_summary: renderScopeSummary(classifiedRequirements),
   out_of_scope_summary: renderOutOfScope(classifiedRequirements),
   blocked_summary: renderBlocked(classifiedRequirements),
-  critical_constraints: renderConstraints(classifiedRequirements),
+  clarification_summary: renderClarificationSummary(discussionArtifact),
+  critical_constraints: renderConstraints(classifiedRequirements, uxDesignArtifact?.detectedWorkspaces),
   user_facing_behavior: renderUserFacingBehavior(classifiedRequirements, uxDesignArtifact),
-  architecture_summary: renderArchitecture(architectureDecisions),
+  architecture_summary: renderArchitecture(architectureDecisions, discussionArtifact),
   file_structure: renderFileStructure(architectureDecisions.fileStructure),
   acceptance_criteria: renderAcceptanceCriteria(acceptanceCriteria),
   implementation_slices: renderSlices(classifiedRequirements)
@@ -123,27 +124,31 @@ role: spec
 ### 2. Scope
 基于需求判定 in-scope / out-of-scope / blocked。每条需求编号 R-001 起。
 
-### 3. Constraints
-集中列出不可协商的关键约束（字段名、条件分支、上限值等）。
+### 3. Clarification Summary
+汇总 Phase 0.2 的关键澄清结论、选定方案和未就绪依赖（若存在讨论工件）。
 
-### 4. User-facing Behavior
+### 4. Constraints
+集中列出不可协商的关键约束（字段名、条件分支、上限值等）。
+**包含**：多 Agent / 工作区相关的预设目录与环境约束（来自 Phase 0.3 UX 设计工件，如有）。
+
+### 5. User-facing Behavior
 正常流程、异常流程、边界行为、可观察输出。
 **包含**：用户操作流程图（Mermaid），从首次打开到核心操作完成的完整路径（来自 Phase 0.3 UX 设计工件）。
 
-### 5. Architecture and Module Design
+### 6. Architecture and Module Design
 模块划分、数据模型、接口设计、技术选型、风险与权衡。
-**包含**：页面信息架构表（层级、页面、功能、导航方式）（来自 Phase 0.3 UX 设计工件）。
+**包含**：页面信息架构表（层级、页面、功能、导航方式）（来自 Phase 0.3 UX 设计工件）；若讨论阶段已选定方案，则作为架构设计起点。
 
-### 6. File Structure
+### 7. File Structure
 新建、修改、测试文件清单。
 
-### 7. Acceptance Criteria
+### 8. Acceptance Criteria
 按模块组织的验收条件和测试策略。
 
-### 8. Implementation Slices
+### 9. Implementation Slices
 按可渐进交付的切片组织，标注 Related Requirement IDs。
 
-### 9. Open Questions
+### 10. Open Questions
 待确认的问题。
 
 ## Spec Self-Review

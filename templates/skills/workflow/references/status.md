@@ -158,9 +158,10 @@ py -3 workflow_cli.py journal list
 ### 各状态下的下一步操作
 
 | 当前状态 | 下一步提示 |
-|---------|-----------|\
-| `planned` | 审查 Spec 和 Plan 后执行 `/workflow execute` |
+|---------|-----------|
 | `spec_review` | 审查 `spec.md` 后确认或修改 |
+| `planning` | 等待或检查 Plan 生成过程；完成后进入 `planned` |
+| `planned` | 审查 Spec 和 Plan 后执行 `/workflow execute` |
 | `running` | 继续执行 `/workflow execute` |
 | `paused` | 根据暂停原因处理后 `/workflow execute` |
 | `blocked` | 使用 `/workflow unblock <dep>` 解除依赖 |
