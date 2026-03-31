@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from path_utils import get_workflows_dir
 from status_utils import add_unique
+from workflow_types import ensure_state_defaults, next_change_id, build_user_spec_review
 
 
 # =============================================================================
@@ -48,6 +49,7 @@ def write_state(state_path: str, state: Dict[str, Any]) -> None:
 
     使用临时文件 + rename 确保写入不会导致文件损坏。
     """
+    state = normalize_for_write(state)
     state["updated_at"] = datetime.now().isoformat()
 
     dir_path = os.path.dirname(state_path)
@@ -75,6 +77,121 @@ def read_state_from_project(project_id: str) -> Optional[Dict[str, Any]]:
     if not os.path.isfile(state_path):
         return None
     return read_state(state_path)
+
+
+def normalize_for_write(state: Dict[str, Any]) -> Dict[str, Any]:
+    """在写入前补齐标准字段。"""
+    return ensure_state_defaults(state)
+
+
+def record_delta_change(
+    state: Dict[str, Any],
+    change_id: Optional[str] = None,
+    mark_applied: bool = True,
+) -> str:
+    """更新 delta_tracking 并返回 change id。"""
+    normalized = ensure_state_defaults(state)
+    tracking = normalized.setdefault("delta_tracking", {})
+    resolved_change_id = change_id or next_change_id(tracking)
+    tracking["current_change"] = resolved_change_id
+    tracking["change_counter"] = max(
+        int(tracking.get("change_counter") or 0),
+        int(resolved_change_id.split("-")[-1]),
+    )
+    applied_changes = tracking.setdefault("applied_changes", [])
+    if mark_applied and resolved_change_id not in applied_changes:
+        applied_changes.append(resolved_change_id)
+    return resolved_change_id
+
+
+def update_api_context(
+    state: Dict[str, Any],
+    interfaces: Optional[List[Dict[str, Any]]] = None,
+    source: Optional[str] = None,
+    version: Optional[str] = None,
+    last_sync: Optional[str] = None,
+) -> Dict[str, Any]:
+    """更新 API 同步上下文。"""
+    normalized = ensure_state_defaults(state)
+    api_context = normalized.setdefault("api_context", {})
+    if interfaces is not None:
+        api_context["interfaces"] = interfaces
+    if source is not None:
+        api_context["source"] = source
+    if version is not None:
+        api_context["version"] = version
+    api_context["lastSync"] = last_sync or datetime.now().isoformat()
+    return api_context
+
+
+def mark_dependency_unblocked(
+    state: Dict[str, Any],
+    dependency: str,
+    tasks_to_unblock: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """记录依赖已解除，并同步 blocked/running 状态。"""
+    normalized = ensure_state_defaults(state)
+    unblocked = normalized.setdefault("unblocked", [])
+    add_unique(unblocked, dependency)
+
+    if tasks_to_unblock:
+        blocked = normalized.setdefault("progress", {}).setdefault("blocked", [])
+        normalized["progress"]["blocked"] = [
+            task_id for task_id in blocked if task_id not in tasks_to_unblock
+        ]
+
+    if normalized.get("status") == "blocked":
+        normalized["status"] = "running"
+    return normalized
+
+
+def update_discussion_record(
+    state: Dict[str, Any],
+    artifact_path: Optional[str],
+    clarification_count: int,
+    completed: bool = True,
+) -> Dict[str, Any]:
+    normalized = ensure_state_defaults(state)
+    normalized["discussion"] = {
+        "completed": completed,
+        "artifact_path": artifact_path,
+        "clarification_count": clarification_count,
+    }
+    return normalized["discussion"]
+
+
+def update_ux_design_record(
+    state: Dict[str, Any],
+    artifact_path: Optional[str],
+    flowchart_scenarios: int = 0,
+    page_count: int = 0,
+    approved: bool = False,
+) -> Dict[str, Any]:
+    normalized = ensure_state_defaults(state)
+    normalized["ux_design"] = {
+        "completed": approved,
+        "artifact_path": artifact_path,
+        "flowchart_scenarios": flowchart_scenarios,
+        "page_count": page_count,
+        "approved_at": datetime.now().isoformat() if approved else None,
+    }
+    return normalized["ux_design"]
+
+
+def update_user_spec_review(
+    state: Dict[str, Any],
+    status: str,
+    next_action: Optional[str],
+    reviewer: str = "user",
+) -> Dict[str, Any]:
+    normalized = ensure_state_defaults(state)
+    review_status = normalized.setdefault("review_status", {})
+    review_status["user_spec_review"] = build_user_spec_review(
+        status=status,
+        next_action=next_action,
+        reviewer=reviewer,
+    )
+    return review_status["user_spec_review"]
 
 
 # =============================================================================

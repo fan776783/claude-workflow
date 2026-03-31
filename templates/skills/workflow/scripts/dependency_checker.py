@@ -56,6 +56,33 @@ def check_blocked_deps(
     return {"satisfied": len(missing) == 0, "missing": missing}
 
 
+def reconcile_blocked_tasks(
+    tasks: List[Dict[str, Any]],
+    unblocked: List[str],
+    blocked_progress: Optional[List[str]] = None,
+) -> Dict[str, List[str]]:
+    """根据 blocked_by 与 unblocked 重新计算 blocked/newly_unblocked。"""
+    previous_blocked = set(blocked_progress or [])
+    unblocked_set = set(unblocked)
+    current_blocked: List[str] = []
+    newly_unblocked: List[str] = []
+
+    for task in tasks:
+        task_id = task.get("id")
+        blocked_by = task.get("blocked_by") or []
+        missing = [dep for dep in blocked_by if dep not in unblocked_set]
+        if not missing:
+            if task_id in previous_blocked:
+                newly_unblocked.append(task_id)
+        elif task_id:
+            current_blocked.append(task_id)
+
+    return {
+        "blocked": current_blocked,
+        "newly_unblocked": newly_unblocked,
+    }
+
+
 # =============================================================================
 # Dependency Auto-Classification
 # =============================================================================

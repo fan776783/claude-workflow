@@ -15,7 +15,7 @@
 所有操作必须严格遵循以下系统约束：
 
 - **交互语言**：工具/模型交互用 **English**；用户输出用 **中文**
-- **会话连续性**：记录 `SESSION_ID`，后续任务**强制思考**是否继续对话
+- **会话连续性**：记录 `sessionId`，后续任务**强制思考**是否继续对话
 - **沙箱安全**：Codex **零写入权限**，输出必须为 `unified diff patch`
 - **代码主权**：外部模型输出为"脏原型"，交付代码**必须由当前模型重构**
 - **代码风格**：精简高效、无冗余；注释/文档遵循**非必要不形成**原则
@@ -77,20 +77,20 @@
 PROMPT: "ROLE: Technical Analyst. CONSTRAINTS: READ-ONLY, output analysis report only. Analyze: <用户问题>. Context: <从 Phase 1 获取的相关代码和架构信息>. OUTPUT: Detailed technical analysis with recommendations."
 ```
 
-用 `TaskOutput` 等待结果，**📌 保存 SESSION_ID**。
+用 `TaskOutput` 等待结果，**📌 保存 `sessionId`**。
 
 ### Phase 3: 原型获取
 
 | Mode | 执行 |
 |------|------|
 | none | 跳过 |
-| codex | Codex 生成 Diff（复用会话 `--SESSION_ID`）→ `TaskOutput` 收集 |
+| codex | Codex 生成 Diff（复用会话 `--session-id`）→ `TaskOutput` 收集 |
 
-按 `collaborating-with-codex` skill 调用（复用会话 `--SESSION_ID`）：
+按 `collaborating-with-codex` skill 调用（复用会话 `--session-id`）：
 
 ```
 PROMPT: "ROLE: System Architect. CONSTRAINTS: READ-ONLY, output Unified Diff Patch ONLY. <后续需求>. OUTPUT: Unified Diff Patch ONLY."
-# 复用会话：追加 --SESSION_ID "<uuid-from-phase-2>"
+# 复用会话：追加 --session-id "<uuid-from-phase-2>"
 ```
 
 输出: `Unified Diff Patch ONLY`
@@ -131,7 +131,7 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 "ROLE: <角色>. CONSTRAINTS: READ-ONLY. <任务描述>. OUTPUT: <输出格式>"
 ```
 
-**会话恢复**：追加 `--SESSION_ID "<uuid>"` 参数。
+**会话恢复**：追加 `--session-id "<uuid>"` 参数。
 
 ### 异步执行
 
@@ -139,13 +139,13 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 
 ### 会话复用
 
-每次调用返回 JSON `{"success": true, "SESSION_ID": "xxx", "agent_messages": "..."}`，后续阶段用 `--SESSION_ID <id>` 复用上下文。
+每次调用返回 JSON `{"success": true, "sessionId": "xxx", "agentMessages": "..."}`，后续阶段用 `--session-id <id>` 复用上下文。
 
 ---
 
 ## 3. Expert Roles
 
-调用 Codex 时通过 `--PROMPT` 内联角色前缀：
+调用 Codex 时通过 `--prompt` 内联角色前缀：
 
 | 阶段 | 角色前缀 |
 |------|----------|

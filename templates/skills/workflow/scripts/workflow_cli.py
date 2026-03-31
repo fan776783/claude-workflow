@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from path_utils import validate_project_id  # type: ignore
+from path_utils import get_workflows_dir, validate_project_id  # type: ignore
 from state_manager import read_state, write_state  # type: ignore
 from task_manager import (  # type: ignore
     cmd_complete,
@@ -45,11 +45,14 @@ from task_manager import (  # type: ignore
     cmd_next,
     cmd_parallel,
     cmd_progress,
+    cmd_runtime_summary,
     cmd_status,
     detect_project_id,
     detect_project_root,
     resolve_state_and_tasks,
 )
+from lifecycle_cmds import cmd_archive, cmd_delta, cmd_start, cmd_unblock  # type: ignore
+from execution_sequencer import build_execute_entry  # type: ignore
 
 # =============================================================================
 # Constants
@@ -68,132 +71,6 @@ EXECUTION_MODE_ALIASES = {
     "跳过": "skip",
     "skip": "skip",
 }
-
-
-# =============================================================================
-# Original Execute/Continue Commands
-# =============================================================================
-
-
-def load_project_config(project_root: Path) -> Optional[Dict[str, Any]]:
-    config_path = project_root / ".claude" / "config" / "project-config.json"
-    if not config_path.is_file():
-        return None
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def extract_project_id(config: Optional[Dict[str, Any]]) -> Optional[str]:
-    if not config:
-        return None
-    project = config.get("project") or {}
-    project_id = project.get("id") or config.get("projectId")
-    if not project_id or not validate_project_id(project_id):
-        return None
-    return project_id
-
-
-def load_state(project_id: str) -> Optional[Dict[str, Any]]:
-    state_path = Path.home() / ".claude" / "workflows" / project_id / "workflow-state.json"
-    if not state_path.is_file():
-        return None
-    try:
-        return read_state(str(state_path))
-    except Exception:
-        return None
-
-
-def resolve_execute_mode(
-    intent: Optional[str],
-    explicit_mode: Optional[str],
-    preferred_mode: Optional[str] = None,
-) -> tuple[str, Optional[str]]:
-    if explicit_mode:
-        return explicit_mode, None
-    if intent:
-        resolved = EXECUTION_MODE_ALIASES.get(intent)
-        if resolved:
-            return resolved, None
-        return preferred_mode or "continuous", f"unrecognized_intent:{intent}"
-    if preferred_mode:
-        return preferred_mode, None
-    return "continuous", None
-
-
-def resolve_entry(
-    command: str,
-    intent: Optional[str],
-    explicit_mode: Optional[str],
-    project_root: Path,
-) -> Dict[str, Any]:
-    config = load_project_config(project_root)
-    project_id = extract_project_id(config) or detect_project_id()
-    state = load_state(project_id) if project_id else None
-
-    if command == "execute":
-        mode, warning = resolve_execute_mode(intent, explicit_mode)
-        result = {
-            "entry_action": "execute",
-            "resolved_mode": mode,
-            "project_id": project_id,
-            "state_status": state.get("status") if state else None,
-            "can_resume": bool(state),
-            "reason": "explicit_execute",
-        }
-        if warning:
-            result["warning"] = warning
-        return result
-
-    if command == "continue":
-        if not state:
-            return {
-                "entry_action": "none",
-                "project_id": project_id,
-                "state_status": None,
-                "can_resume": False,
-                "reason": "no_active_workflow",
-                "message": "未发现活动工作流，请先执行 /workflow status 或 /workflow execute。",
-            }
-
-        status = state.get("status")
-        if status not in ACTIVE_STATUSES:
-            return {
-                "entry_action": "none",
-                "project_id": project_id,
-                "state_status": status,
-                "can_resume": False,
-                "reason": "status_not_resumable",
-                "message": f'当前状态 {status} 不支持直接恢复，请使用 /workflow status 查看详情。',
-            }
-
-        continuation = state.get("continuation") or {}
-        preferred_mode = state.get("execution_mode") or "continuous"
-        last_decision = continuation.get("last_decision") or {}
-        resolved_mode, warning = resolve_execute_mode(intent, explicit_mode, preferred_mode)
-
-        result = {
-            "entry_action": "execute",
-            "resolved_mode": resolved_mode,
-            "project_id": project_id,
-            "state_status": status,
-            "can_resume": True,
-            "reason": "implicit_continue_resume",
-            "continuation_action": last_decision.get("action"),
-            "continuation_reason": last_decision.get("reason"),
-        }
-        if warning:
-            result["warning"] = warning
-        return result
-
-    return {
-        "entry_action": "none",
-        "project_id": project_id,
-        "state_status": state.get("status") if state else None,
-        "can_resume": False,
-        "reason": "unknown_command",
-    }
 
 
 # =============================================================================
@@ -311,6 +188,13 @@ def cmd_context(
     # 1. Workflow status
     status = cmd_status(pid, project_root)
     result["workflow"] = status
+    runtime = {
+        "delta_tracking": status.get("delta_tracking", {}),
+        "planning_gates": status.get("planning_gates", {}),
+        "quality_gate_summary": status.get("quality_gate_summary", {}),
+        "unblocked": status.get("unblocked", []),
+    }
+    result["runtime"] = runtime
 
     # 2. Next task
     next_info = cmd_next(pid, project_root)
@@ -393,6 +277,7 @@ def main() -> int:
   progress      进度统计
   parallel      查找可并行任务
   budget        上下文预算评估
+  unblock       解除外部阻塞依赖
   journal       管理会话日志
 """,
     )
@@ -420,6 +305,29 @@ def main() -> int:
 
     # --- next ---
     sub.add_parser("next", help="查询下一步该做什么")
+
+    # --- start ---
+    p_start = sub.add_parser("start", help="启动工作流规划")
+    p_start.add_argument("requirement", help="需求文本或 .md 文件")
+    p_start.add_argument("-f", "--force", action="store_true", help="覆盖已有工作流或产物")
+    p_start.add_argument("--no-discuss", action="store_true", help="跳过需求讨论标记")
+    p_start.add_argument(
+        "--spec-choice",
+        default="Spec 正确，继续",
+        help="spec review 选择，如 'Spec 正确，继续' / '需要修改 Spec' / '页面分层需要调整' / '缺少用户流程' / '需要拆分范围'",
+    )
+
+    # --- delta ---
+    p_delta = sub.add_parser("delta", help="记录增量变更")
+    p_delta.add_argument("source", nargs="?", default="", help="变更来源：空/需求文本/PRD/API 文件")
+
+    # --- archive ---
+    p_archive = sub.add_parser("archive", help="归档已完成工作流")
+    p_archive.add_argument("--summary", action="store_true", help="生成归档摘要")
+
+    # --- unblock ---
+    p_unblock = sub.add_parser("unblock", help="解除外部阻塞依赖")
+    p_unblock.add_argument("dependency", help="依赖标识，如 api_spec / external")
 
     # --- advance ---
     p_adv = sub.add_parser("advance", help="完成当前任务 + 推进到下一个")
@@ -477,10 +385,41 @@ def main() -> int:
 
     if args.command in ("execute", "continue"):
         pr = Path(project_root) if project_root else Path.cwd()
-        result = resolve_entry(args.command, args.intent, getattr(args, "mode", None), pr)
+        result = build_execute_entry(args.command, args.intent, getattr(args, "mode", None), pr)
 
     elif args.command == "next":
         result = cmd_next(pid, project_root)
+
+    elif args.command == "start":
+        result = cmd_start(
+            args.requirement,
+            force=args.force,
+            no_discuss=args.no_discuss,
+            project_id=pid,
+            project_root=project_root,
+            spec_choice=args.spec_choice,
+        )
+
+    elif args.command == "delta":
+        result = cmd_delta(
+            args.source,
+            project_id=pid,
+            project_root=project_root,
+        )
+
+    elif args.command == "archive":
+        result = cmd_archive(
+            summary=args.summary,
+            project_id=pid,
+            project_root=project_root,
+        )
+
+    elif args.command == "unblock":
+        result = cmd_unblock(
+            args.dependency,
+            project_id=pid,
+            project_root=project_root,
+        )
 
     elif args.command == "advance":
         result = cmd_advance(

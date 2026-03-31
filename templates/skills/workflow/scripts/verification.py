@@ -124,6 +124,27 @@ def validate_evidence(evidence: Dict[str, Any]) -> Dict[str, Any]:
     return {"valid": len(missing) == 0, "missing_fields": missing}
 
 
+def validate_verification_order(
+    evidence: Optional[Dict[str, Any]],
+    state_updated: bool,
+    plan_updated: bool,
+    quality_gate_passed: bool = True,
+) -> Dict[str, Any]:
+    """检查 Verification Iron Law：验证必须先于 plan/state 更新。"""
+    result = validate_evidence(evidence or {}) if evidence else {"valid": False, "missing_fields": ["evidence"]}
+    violations: List[str] = []
+    if not result["valid"]:
+        violations.append("missing_or_invalid_evidence")
+    if (state_updated or plan_updated) and not result["valid"]:
+        violations.append("updated_before_verification")
+    if not quality_gate_passed:
+        violations.append("quality_gate_not_passed")
+    return {
+        "valid": not violations,
+        "violations": violations,
+    }
+
+
 # =============================================================================
 # CLI Entry
 # =============================================================================

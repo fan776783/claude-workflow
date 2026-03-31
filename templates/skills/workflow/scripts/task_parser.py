@@ -334,6 +334,34 @@ def update_task_status_in_markdown(
     return pattern.sub(replacer, content, count=1)
 
 
+def replace_task_block(content: str, task_id: str, new_block: str) -> str:
+    """替换指定任务块。"""
+    block = extract_task_block(content, task_id)
+    if not block:
+        return content
+    normalized = new_block.rstrip() + "\n"
+    return content.replace(block, normalized, 1)
+
+
+def append_task_blocks(content: str, blocks: List[str]) -> str:
+    """在任务区末尾追加任务块。"""
+    suffix = "\n" if content.endswith("\n") else "\n\n"
+    appended = "\n".join(block.rstrip() for block in blocks if block.strip())
+    if not appended:
+        return content
+    return content + suffix + appended + "\n"
+
+
+def remove_tasks_from_markdown(content: str, task_ids: List[str]) -> str:
+    """移除指定任务块。"""
+    updated = content
+    for task_id in task_ids:
+        block = extract_task_block(updated, task_id)
+        if block:
+            updated = updated.replace(block, "", 1)
+    return re.sub(r"\n{3,}", "\n\n", updated).strip() + "\n"
+
+
 # =============================================================================
 # Serialization Helper
 # =============================================================================

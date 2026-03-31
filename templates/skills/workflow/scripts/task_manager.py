@@ -126,6 +126,27 @@ def resolve_state_and_tasks(
 # =============================================================================
 
 
+def build_runtime_summary(state: Dict[str, Any]) -> Dict[str, Any]:
+    review_status = state.get("review_status") or {}
+    quality_gates = state.get("quality_gates") or {}
+    return {
+        "delta_tracking": state.get("delta_tracking", {}),
+        "planning_gates": {
+            "discussion": state.get("discussion", {}),
+            "ux_design": state.get("ux_design", {}),
+            "user_spec_review": review_status.get("user_spec_review", {}),
+        },
+        "quality_gate_summary": {
+            "count": len(quality_gates.keys()),
+            "passed": sorted(
+                task_id for task_id, gate in quality_gates.items() if gate.get("overall_passed")
+            ),
+            "task_ids": sorted(quality_gates.keys()),
+        },
+        "unblocked": state.get("unblocked", []),
+    }
+
+
 def cmd_status(
     project_id: Optional[str] = None, project_root: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -146,6 +167,7 @@ def cmd_status(
         progress.get("failed", []),
     )
 
+    runtime = build_runtime_summary(state)
     result = {
         "workflow_status": state.get("status"),
         "current_tasks": current,
@@ -155,6 +177,7 @@ def cmd_status(
         "skipped": len(progress.get("skipped", [])),
         "progress_percent": pct,
         "progress_bar": generate_progress_bar(pct),
+        **runtime,
     }
 
     if state.get("failure_reason"):
@@ -369,6 +392,17 @@ def cmd_context_budget(
     budget["consecutive_count"] = state.get("consecutive_count", 0)
 
     return budget
+
+
+def cmd_runtime_summary(
+    project_id: Optional[str] = None, project_root: Optional[str] = None
+) -> Dict[str, Any]:
+    """聚合读侧 runtime 摘要，供 status/context/CLI 复用。"""
+    state, _, _, _ = resolve_state_and_tasks(project_id, project_root)
+    if not state:
+        return {"error": "没有活跃的工作流"}
+
+    return build_runtime_summary(state)
 
 
 # =============================================================================
