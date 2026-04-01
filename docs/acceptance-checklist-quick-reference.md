@@ -158,10 +158,9 @@ grep "Requirement-to-Brief Mapping" .claude/acceptance/*-brief.md -A 40
 
 ## 相关文档
 
-- **系统说明**：`templates/skills/workflow/references/brief.md`
-- **流程总览**：`templates/skills/workflow/references/start-overview.md`
-- **需求基线模板**：`templates/skills/workflow/templates/requirement-baseline-template.md`
-- **Brief 模板**：`templates/skills/workflow/templates/brief-template.md`
+- **流程总览**：`templates/skills/workflow-planning/references/start-overview.md`
+- **当前入口**：`templates/commands/workflow.md`
+- **规划技能**：`templates/skills/workflow-planning/SKILL.md`
 
 ## 示例输出
 

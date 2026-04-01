@@ -1,8 +1,8 @@
 # 工作流状态机（扩展架构说明）
 
 > ⚠️ 本文件用于描述跨 skill / 共享架构层的扩展状态模型。
-> workflow skill 的**运行时状态机唯一来源**是 `templates/skills/workflow/references/state-machine.md`。
-> 若运行时字段定义与本文件冲突，以 skill 内状态机为准。
+> workflow 的**运行时状态机唯一来源**是 `templates/specs/workflow-runtime/state-machine.md`（shared workflow runtime 文档）。
+> 若运行时字段定义与本文件冲突，以 shared runtime 状态机为准。
 
 ## 状态定义
 

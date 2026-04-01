@@ -1,54 +1,47 @@
 # Acceptance & Implementation Brief 使用指南
 
-> **DEPRECATED**: 本文档保留为迁移说明。当前 workflow 已不再生成独立“验收清单”，请统一使用 `templates/skills/workflow/references/brief.md` 与 `templates/skills/workflow/templates/brief-template.md`。
+> **DEPRECATED**: 本文档保留为迁移说明。当前 workflow 已不再生成独立“验收清单”，也不再维护旧的 Brief 模板路径；请统一使用 `/workflow start` 进入 `spec.md` / `plan.md` 规划链路。
 
 ## 当前结论
 
-当前 `workflow` 的 Phase 0.6 会生成一份统一的 `Brief`，把旧版本中的“验收清单”和“实现指南”合并为同一份开发参考文档。
+当前 `workflow` 已将旧版“验收清单 / 实现指南”分散文档收敛为统一的规划链路：
+
+- `spec.md`：范围、约束、设计、验收标准
+- `plan.md`：可执行步骤、文件清单、验证命令
 
 ## 路径迁移
 
-| 旧路径 | 新路径 |
-|--------|--------|
-| `.claude/acceptance/{name}-checklist.md` | `.claude/acceptance/{name}-brief.md` |
-| `templates/docs/acceptance-checklist-template.md` | `templates/skills/workflow/templates/brief-template.md` |
-| `templates/skills/workflow/references/acceptance-checklist.md` | `templates/skills/workflow/references/brief.md` |
+| 旧路径 | 当前入口 |
+|--------|---------|
+| `.claude/acceptance/{name}-checklist.md` | `.claude/specs/{name}.md` + `.claude/plans/{name}.md` |
+| `templates/docs/acceptance-checklist-template.md` | `templates/commands/workflow.md` |
+| `templates/skills/workflow/references/acceptance-checklist.md` | `templates/skills/workflow-planning/references/start-overview.md` |
+| `templates/skills/workflow/references/start-overview.md` | `templates/skills/workflow-planning/references/start-overview.md` |
 
 ## 现在应该怎么用
 
-### 1. 生成 Brief
+### 1. 启动规划
 
 ```bash
 /workflow start docs/prd.md
 ```
 
-### 2. 查看 Brief
+### 2. 查看规划产物
 
 ```bash
-ls .claude/acceptance/
-code .claude/acceptance/<task-name>-brief.md
+ls .claude/specs/
+ls .claude/plans/
+code .claude/specs/<task-name>.md
+code .claude/plans/<task-name>.md
 ```
 
-### 3. 查看任务关联的验收项
+### 3. 查看流程说明
 
-```bash
-grep "T3:" ~/.claude/workflows/*/tasks-*.md -A 10 | grep "验收项"
-grep "AC-M1.1" .claude/acceptance/*-brief.md -A 15
-```
-
-## Brief 中包含什么
-
-- Requirement Coverage Summary
-- Requirement-to-Brief Mapping
-- 模块级 Acceptance Criteria
-- Test Strategy
-- Implementation Hints
-- Coverage Gaps
-- Acceptance Pass Criteria
+- `templates/commands/workflow.md`
+- `templates/skills/workflow-planning/references/start-overview.md`
 
 ## 相关文档
 
-- `templates/skills/workflow/references/brief.md`
-- `templates/skills/workflow/references/start-overview.md`
-- `templates/skills/workflow/templates/brief-template.md`
-- `templates/skills/workflow/templates/requirement-baseline-template.md`
+- `templates/commands/workflow.md`
+- `templates/skills/workflow-planning/SKILL.md`
+- `templates/skills/workflow-planning/references/start-overview.md`

@@ -55,7 +55,7 @@ allowed-tools: Read(*)
 
 ---
 
-## 🚀 工作流 (Skill)
+## 🚀 工作流 (Command)
 
 **统一入口**: `/workflow <action> [args]`
 
@@ -83,6 +83,7 @@ allowed-tools: Read(*)
 
 | 命令 | 功能 |
 |------|------|
+| `/workflow <action>` ⭐⭐⭐ | 统一 workflow 命令入口（路由到 planning / executing / delta / runtime） |
 | `/git-rollback` | 交互式 Git 回滚（reset/revert） |
 | `/enhance` | Prompt 增强 |
 
@@ -109,9 +110,9 @@ allowed-tools: Read(*)
 
 | 类型 | 数量 |
 |------|------|
-| Skills | 10 个 |
-| Commands | 3 个 |
+| Skills | 9 个 |
+| Commands | 4 个 |
 
-**Skills**: analyze, bug-batch, debug, diff-review, dispatching-parallel-agents, figma-ui, scan, visual-diff, workflow, write-tests
+**Skills**: analyze, bug-batch, debug, diff-review, dispatching-parallel-agents, figma-ui, scan, visual-diff, write-tests
 
-**Commands**: agents, enhance, git-rollback
+**Commands**: agents, enhance, git-rollback, workflow

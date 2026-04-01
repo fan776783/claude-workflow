@@ -46,7 +46,10 @@ npm run release 2.0.0     # Explicit version
 │   └── release.sh           # Release automation
 └── templates/               # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
-    │   ├── workflow/        # Intelligent workflow system
+    │   ├── workflow-planning/ # Planning entry for /workflow start
+    │   ├── workflow-executing/ # Execution entry for /workflow execute
+    │   ├── workflow-reviewing/ # Review protocol entry for workflow quality gates
+    │   ├── workflow-delta/  # Delta entry for /workflow delta
     │   ├── scan/            # Project scanning
     │   ├── analyze/         # Code analysis (Codex + Claude)
     │   ├── debug/           # Bug fixing workflow
@@ -62,6 +65,7 @@ npm run release 2.0.0     # Explicit version
     │   ├── codex/           # Codex role prompts
     │   └── gemini/          # Gemini role prompts
     ├── utils/               # Utility templates
+    ├── project/             # Project-level templates and config scaffolding
     └── specs/               # Specification documents
 ```
 
@@ -96,12 +100,16 @@ npm run release 2.0.0     # Explicit version
 The package includes the following skills (all portable across AI coding tools):
 
 **Core Workflow:**
-- `/workflow` - Intelligent workflow system (requirement analysis → task planning → auto execution, with planning-side review loops and execution quality gates)
-  - `start` - Analyze requirements and create execution plan
-  - `execute` - Run next pending task (supports `--retry`, `--skip`)
-  - `delta` - Handle incremental changes (PRD updates, API sync)
-  - `status` - Show workflow progress
-  - `archive` - Archive completed workflows
+- `/workflow` - Public workflow command entrypoint for command-capable agents (stable `/workflow start|execute|delta|status|archive` surface exposed from `templates/commands/workflow.md` and backed by specialized workflow skills plus shared runtime docs)
+  - `start` - Routed to `workflow-planning`
+  - `execute` - Routed to `workflow-executing`
+  - `delta` - Routed to `workflow-delta`
+  - `status` - Still served from shared workflow runtime docs
+  - `archive` - Still served from shared workflow runtime docs
+- `workflow-planning` - Planning skill for `/workflow start` (analysis → discussion → UX gate → Spec → Plan)
+- `workflow-executing` - Execution skill for `/workflow execute` (continuation governance + validation + quality gates)
+- `workflow-reviewing` - Review skill used by workflow quality gates (spec compliance + code quality)
+- `workflow-delta` - Delta skill for `/workflow delta` (PRD/API/requirement changes)
 
 **Development Tools:**
 - `/scan` - Project scanning (tech stack detection + context report generation)

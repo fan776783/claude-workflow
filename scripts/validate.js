@@ -44,15 +44,48 @@ function runPythonValidation(args, options = {}) {
   }
 }
 
-async function validateWorkflowContracts(repoRoot, errors) {
-  const workflowRoot = path.join(repoRoot, 'templates', 'skills', 'workflow');
-  if (!(await fs.pathExists(workflowRoot))) {
-    return;
+async function collectMarkdownFiles(rootDir) {
+  const files = [];
+  if (!(await fs.pathExists(rootDir))) {
+    return files;
   }
 
-  const scriptsDir = path.join(workflowRoot, 'scripts');
+  const entries = await fs.readdir(rootDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectMarkdownFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+async function validateWorkflowContracts(repoRoot, errors) {
+  const workflowCommandFile = path.join(repoRoot, 'templates', 'commands', 'workflow.md');
+  const runtimeRefsDir = path.join(repoRoot, 'templates', 'specs', 'workflow-runtime');
+  const runtimeTemplatesDir = path.join(repoRoot, 'templates', 'specs', 'workflow-templates');
+  const runtimeScriptsDir = path.join(repoRoot, 'templates', 'utils', 'workflow');
+  const guardPaths = [
+    [workflowCommandFile, 'workflow command 入口'],
+    [runtimeRefsDir, 'workflow-runtime references'],
+    [runtimeTemplatesDir, 'workflow-templates'],
+    [runtimeScriptsDir, 'workflow utils/scripts'],
+  ];
+  for (const [p, label] of guardPaths) {
+    if (!(await fs.pathExists(p))) {
+      errors.push(`workflow 缺少 ${label}: ${path.relative(repoRoot, p)}`);
+    }
+  }
+  if (errors.length > 0) return;
+
+  const scriptsDir = runtimeScriptsDir;
   const scriptFiles = (await fs.readdir(scriptsDir)).filter(file => file.endsWith('.py'));
   const requiredWorkflowScripts = ['workflow_cli.py', 'task_parser.py', 'workflow_types.py', 'traceability.py', 'doc_contracts.py', 'lifecycle_cmds.py', 'quality_review.py', 'execution_sequencer.py'];
+  const workflowDocSkills = ['workflow-planning', 'workflow-executing', 'workflow-reviewing', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {
     if (!scriptFiles.includes(file)) {
@@ -67,14 +100,24 @@ async function validateWorkflowContracts(repoRoot, errors) {
   }
 
   const cliFile = path.join(scriptsDir, 'workflow_cli.py');
-  const overviewFile = path.join(workflowRoot, 'SKILL.md');
-  const planTemplateFile = path.join(workflowRoot, 'templates', 'plan-template.md');
-  const referencesDir = path.join(workflowRoot, 'references');
+  const overviewFile = workflowCommandFile;
+  const planTemplateFile = path.join(runtimeTemplatesDir, 'plan-template.md');
+  const referencesDir = runtimeRefsDir;
   const extraDocs = (await fs.pathExists(referencesDir))
     ? (await fs.readdir(referencesDir))
         .filter(file => file.endsWith('.md'))
         .map(file => path.join(referencesDir, file))
     : [];
+  const splitSkillDocs = [];
+
+  for (const skillName of workflowDocSkills) {
+    const skillRoot = path.join(repoRoot, 'templates', 'skills', skillName);
+    if (!(await fs.pathExists(skillRoot))) {
+      errors.push(`workflow doc surface 缺少 ${skillName}/`);
+      continue;
+    }
+    splitSkillDocs.push(...await collectMarkdownFiles(skillRoot));
+  }
 
   const pyCompile = runPythonValidation(
     ['-m', 'py_compile', ...scriptFiles.map(file => path.join(scriptsDir, file))],
@@ -110,7 +153,7 @@ async function validateWorkflowContracts(repoRoot, errors) {
     planTemplateFile,
   ];
 
-  for (const doc of extraDocs) {
+  for (const doc of [...extraDocs, ...splitSkillDocs]) {
     contractArgs.push('--doc', doc);
   }
   for (const file of scriptFiles) {

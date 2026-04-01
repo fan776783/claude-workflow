@@ -1,6 +1,6 @@
 # Claude Code 工作流体系指南
 
-> 以 `workflow` skill 为核心的 AI 编码工作流说明文档
+> 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
 **文档版本**：v11.0.0  
 **最后更新**：2026-03-29  
@@ -12,7 +12,7 @@
 
 - [1. 文档定位](#1-文档定位)
 - [2. 安装与同步](#2-安装与同步)
-- [3. workflow skill 总览](#3-workflow-skill-总览)
+- [3. workflow command 总览](#3-workflow-command-总览)
 - [4. workflow 完整流程](#4-workflow-完整流程)
 - [5. `/workflow start` 规划流程详解](#5-workflow-start-规划流程详解)
 - [6. `/workflow execute` 执行流程详解](#6-workflow-execute-执行流程详解)
@@ -110,9 +110,19 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 ---
 
-## 3. workflow skill 总览
+## 3. workflow command 总览
 
-`workflow` 是整个体系的主控 skill，负责把“一个模糊需求”变成“可执行、可追踪、可恢复”的工作流。
+`/workflow` 现在是整个体系的**统一 command 入口**，负责保持 `/workflow` 命令面稳定，并把规划、执行、审查、增量变更路由到专项 workflow skills。
+
+当前拆分为：
+
+- `templates/commands/workflow.md`：统一 command 入口
+- `workflow-planning`：`/workflow start` 的规划阶段说明
+- `workflow-executing`：`/workflow execute` 的执行阶段说明
+- `workflow-reviewing`：两阶段审查协议（由 execute 内部质量关卡触发）
+- `workflow-delta`：`/workflow delta` 的增量变更说明
+
+整体仍然把“一个模糊需求”变成“可执行、可追踪、可恢复”的工作流。
 
 ### 3.1 当前规划模型
 
@@ -615,9 +625,9 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ## 参考资料
 
-- `templates/skills/workflow/SKILL.md`
-- `templates/skills/workflow/references/start-overview.md`
-- `templates/skills/workflow/references/execute-overview.md`
-- `templates/skills/workflow/references/delta-overview.md`
-- `templates/skills/workflow/references/status.md`
-- `templates/skills/workflow/references/state-machine.md`
+- `templates/commands/workflow.md`（统一 command 入口）
+- `templates/skills/workflow-planning/SKILL.md`
+- `templates/skills/workflow-executing/SKILL.md`
+- `templates/skills/workflow-reviewing/SKILL.md`
+- `templates/skills/workflow-delta/SKILL.md`
+- `templates/specs/workflow-runtime/state-machine.md`

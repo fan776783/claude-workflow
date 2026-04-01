@@ -1,6 +1,6 @@
 # @justinfan/agent-workflow
 
-以 `workflow` skill 为核心的多 AI 编码工具工作流工具集。
+以 `workflow` command 入口 + 专项 workflow skills 为核心的多 AI 编码工具工作流工具集。
 
 它提供一套可移植的 Skills 体系，用于把需求从“自然语言描述”推进到“Spec / Plan / 可执行任务”，并支持 Claude Code、Cursor、Codex、Gemini CLI、Droid 等多种 AI 编码工具。
 
@@ -8,7 +8,7 @@
 
 ## 核心能力
 
-- `workflow`：主线工作流，覆盖代码分析、需求讨论、UX 设计审批、Spec 生成、Plan 生成、执行治理与归档
+- `workflow`：主线 workflow command，覆盖代码分析、需求讨论、UX 设计审批、Spec 生成、Plan 生成、执行治理与归档
 - `scan`：扫描项目技术栈并生成项目配置
 - `debug`：结构化定位与修复单点问题
 - `diff-review`：基于 diff 的代码审查
@@ -21,8 +21,15 @@
 
 ## workflow 的当前模型
 
-当前 `workflow` 采用三层工件模型：
+当前 `workflow` 采用“**command 入口 + 专项 workflow skills + 共享运行时**”的结构：
 
+- `templates/commands/workflow.md`：保持 `/workflow start|execute|delta|status|archive` 的稳定公共 command 入口
+- `workflow-planning`：承接 `/workflow start` 的规划阶段说明
+- `workflow-executing`：承接 `/workflow execute` 的执行阶段说明
+- `workflow-reviewing`：承接两阶段审查协议（由 execute 内部触发，不直接暴露成 action）
+- `workflow-delta`：承接 `/workflow delta` 的增量变更说明
+
+在此结构下，工作流仍保持三层工件模型：
 - `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
 - `plan.md`：可直接执行的原子步骤、文件清单与验证命令
 - 执行层：按计划产出代码，并经过验证与两阶段审查
@@ -178,10 +185,12 @@ flowchart TD
 如需查看更完整说明，可参考：
 
 - `Claude-Code-工作流体系指南.md`
-- `templates/skills/workflow/SKILL.md`
-- `templates/skills/workflow/references/start-overview.md`
-- `templates/skills/workflow/references/execute-overview.md`
-- `templates/skills/workflow/references/delta-overview.md`
+- `templates/commands/workflow.md`（统一 command 入口）
+- `templates/skills/workflow-planning/SKILL.md`
+- `templates/skills/workflow-executing/SKILL.md`
+- `templates/skills/workflow-reviewing/SKILL.md`
+- `templates/skills/workflow-delta/SKILL.md`
+- `templates/specs/workflow-runtime/state-machine.md`
 
 ---
 

@@ -274,7 +274,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 ```bash
 # 1. 解析并行组（使用 workflow 的 dependency_checker）
-py -3 ../workflow/scripts/dependency_checker.py parallel --tasks-file tasks.json --completed T1,T2
+py -3 ../../utils/workflow/dependency_checker.py parallel --tasks-file tasks.json --completed T1,T2
 
 # 2. 分派
 py -3 scripts/dispatch_runner.py dispatch --tasks-json tasks.json --task-ids T3,T4 --group-id batch1
