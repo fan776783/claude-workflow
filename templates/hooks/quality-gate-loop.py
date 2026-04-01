@@ -40,6 +40,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "skills" / "workflow" / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from path_utils import detect_project_id_from_root, get_workflows_dir
+
 if sys.platform == "win32":
     import io as _io
     if hasattr(sys.stdout, "reconfigure"):
@@ -55,21 +61,15 @@ STATE_TIMEOUT_MINUTES = 30
 
 def find_workflow_state() -> tuple[dict | None, str]:
     """Find active workflow state. Returns (state, state_dir)."""
-    config_path = Path.cwd() / ".claude" / "config" / "project-config.json"
-    if not config_path.is_file():
-        return None, ""
-
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None, ""
-
-    project = config.get("project") or {}
-    project_id = project.get("id") or config.get("projectId", "")
+    project_id = detect_project_id_from_root(str(Path.cwd()))
     if not project_id:
         return None, ""
 
-    state_dir = str(Path.home() / ".claude" / "workflows" / project_id)
+    workflow_dir = get_workflows_dir(project_id)
+    if not workflow_dir:
+        return None, ""
+
+    state_dir = str(Path(workflow_dir))
     state_path = os.path.join(state_dir, "workflow-state.json")
 
     if not os.path.isfile(state_path):

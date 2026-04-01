@@ -1,5 +1,17 @@
 # Phase 1.1: User Spec Review 详情
 
+## 快速导航
+
+- 想看为什么必须做用户确认：看“目的”
+- 想看展示摘要与请求确认：看 Step 1 / Step 2
+- 想看不通过如何回退：看输出与状态更新章节
+- 想看这是哪种 governance gate：看开头说明
+
+## 何时读取
+
+- `spec.md` 生成完成，准备进入 Plan Generation 之前
+- 需要确认 HumanGovernanceGate 的交互与回退规则时
+
 ## 目的
 
 在进入 Plan 生成前，让用户显式确认 `spec.md` 的范围、架构设计、验收标准和关键约束。

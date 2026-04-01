@@ -1,5 +1,17 @@
 # 辅助函数详情
 
+## 快速导航
+
+- 想看任务查找与解析：看“任务查找函数”
+- 想看状态更新与完成检查：看对应状态/验证章节
+- 想找确定性脚本入口：看开头 Python 工具库表格
+- 想看 review result 读取命令：搜 `review-result`
+
+## 何时读取
+
+- 需要补充 execute 流程中的底层 helper 细节时
+- 需要确认某个伪代码 helper 已被哪个 Python 脚本替代时
+
 ## 概述
 
 execute 流程中使用的辅助函数，用于任务查找、状态更新、完成检查等。
@@ -141,6 +153,59 @@ function getTaskIntentText(task: WorkflowTaskV2): string {
   return task.steps.map(step => `${step.id} ${step.description} ${step.expected}`).join(' ');
 }
 ```
+
+---
+
+## 审查结果读取
+
+### getReviewResult
+
+统一读取任务的审查结果，兼容 `quality_gates`（新）和 `execution_reviews`（旧）两种字段。
+
+> **@implemented-in**: `scripts/state_manager.py` → `get_review_result(state, task_id)`
+>
+> CLI 调用：`python3 scripts/state_manager.py review-result --task-id T1`
+>
+> 兼容逻辑来源：`references/state-machine.md` → `execution_reviews` 迁移策略
+
+**优先级**：`quality_gates[taskId]` > `execution_reviews[taskId]`
+
+**行为**：
+1. 先检查 `state.quality_gates[taskId]`，存在则直接返回
+2. 若不存在，降级检查 `state.execution_reviews[taskId]`（只读兼容）
+3. 旧字段数据归一化为 `quality_gates` 格式，附加 `_source: "execution_reviews"` 标记
+4. 两处都不存在返回 `null`
+
+```typescript
+// 伪代码参考（确定性实现在 Python 脚本中）
+function getReviewResult(state: WorkflowState, taskId: string): QualityGateResult | null {
+  // 1. 优先新字段
+  const gate = state.quality_gates?.[taskId];
+  if (gate) return gate;
+
+  // 2. 降级旧字段（只读兼容，不回写）
+  const legacy = state.execution_reviews?.[taskId];
+  if (legacy) {
+    return {
+      gate_task_id: taskId,
+      review_mode: legacy.review_mode ?? 'machine_loop',
+      last_decision: legacy.last_decision ?? 'unknown',
+      stage1: legacy.stage1,
+      stage2: legacy.stage2,
+      overall_passed: legacy.overall_passed ?? false,
+      reviewed_at: legacy.reviewed_at,
+      _source: 'execution_reviews',
+    };
+  }
+
+  return null;
+}
+```
+
+**调用场景**：
+- `continuous-mode.md` / `phase-mode.md`：质量关卡完成后读取审查结果展示
+- `post-execution-pipeline.md`：Step ⑤ 审查触发检查时读取历史审查状态
+- `subagent-review.md`：两阶段审查写入后的状态确认
 
 ---
 

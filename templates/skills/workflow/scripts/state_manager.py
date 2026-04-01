@@ -17,9 +17,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from path_utils import get_workflows_dir
+from path_utils import (
+    assert_canonical_workflow_state_path,
+    detect_project_id_from_root,
+    get_workflow_state_path,
+)
 from status_utils import add_unique
-from workflow_types import ensure_state_defaults, next_change_id, build_user_spec_review
+from workflow_types import ensure_state_defaults, get_review_result, next_change_id, build_user_spec_review
 
 
 # =============================================================================
@@ -27,7 +31,22 @@ from workflow_types import ensure_state_defaults, next_change_id, build_user_spe
 # =============================================================================
 
 
-def read_state(state_path: str) -> Dict[str, Any]:
+def resolve_state_path(project_id: str) -> str:
+    """通过项目 ID 解析 canonical state 路径。"""
+    state_path = get_workflow_state_path(project_id)
+    if not state_path:
+        raise ValueError(f"invalid project id: {project_id}")
+    return assert_canonical_workflow_state_path(state_path, project_id)
+
+
+def resolve_cli_state_path(path_or_project: str) -> str:
+    try:
+        return assert_canonical_workflow_state_path(path_or_project)
+    except ValueError:
+        return resolve_state_path(path_or_project)
+
+
+def read_state(state_path: str, project_id: Optional[str] = None) -> Dict[str, Any]:
     """读取 workflow-state.json。
 
     Args:
@@ -40,25 +59,27 @@ def read_state(state_path: str) -> Dict[str, Any]:
         FileNotFoundError: 文件不存在
         json.JSONDecodeError: JSON 格式错误
     """
-    with open(state_path, "r", encoding="utf-8") as f:
+    resolved_path = assert_canonical_workflow_state_path(state_path, project_id)
+    with open(resolved_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def write_state(state_path: str, state: Dict[str, Any]) -> None:
+def write_state(state_path: str, state: Dict[str, Any], project_id: Optional[str] = None) -> None:
     """原子写入 workflow-state.json。
 
     使用临时文件 + rename 确保写入不会导致文件损坏。
     """
+    resolved_path = assert_canonical_workflow_state_path(state_path, project_id or str(state.get("project_id") or ""))
     state = normalize_for_write(state)
     state["updated_at"] = datetime.now().isoformat()
 
-    dir_path = os.path.dirname(state_path)
+    dir_path = os.path.dirname(resolved_path)
     fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
         # Atomic rename (on same filesystem)
-        os.replace(tmp_path, state_path)
+        os.replace(tmp_path, resolved_path)
     except Exception:
         # Clean up temp file on failure
         try:
@@ -70,13 +91,13 @@ def write_state(state_path: str, state: Dict[str, Any]) -> None:
 
 def read_state_from_project(project_id: str) -> Optional[Dict[str, Any]]:
     """通过项目 ID 读取状态文件。"""
-    wdir = get_workflows_dir(project_id)
-    if not wdir:
+    try:
+        state_path = resolve_state_path(project_id)
+    except ValueError:
         return None
-    state_path = os.path.join(wdir, "workflow-state.json")
     if not os.path.isfile(state_path):
         return None
-    return read_state(state_path)
+    return read_state(state_path, project_id)
 
 
 def normalize_for_write(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -334,6 +355,8 @@ def reset_consecutive_count(state: Dict[str, Any]) -> None:
     state["consecutive_count"] = 0
 
 
+
+
 # =============================================================================
 # Progress Helpers
 # =============================================================================
@@ -367,55 +390,105 @@ def generate_progress_bar(percent: int) -> str:
     return f"[{bar}] {percent}%"
 
 
+def resolve_cli_project_id(args: Any) -> Optional[str]:
+    project_id = getattr(args, "project_id", None)
+    if project_id:
+        return project_id
+    project_root = getattr(args, "project_root", None)
+    return detect_project_id_from_root(project_root)
+
+
 # =============================================================================
 # CLI Entry
 # =============================================================================
+
+
+def state_file_exists(state_path: str) -> bool:
+    return os.path.isfile(state_path)
 
 
 def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="工作流状态管理器")
+    parser.add_argument("--project-id", help="项目 ID（不指定则自动检测）")
+    parser.add_argument("--project-root", help="项目根目录（用于自动检测项目 ID）")
     sub = parser.add_subparsers(dest="command")
 
     # read
     p_read = sub.add_parser("read", help="读取状态文件")
-    p_read.add_argument("path", help="状态文件路径")
+    p_read.add_argument("path", nargs="?")
 
     # complete
     p_complete = sub.add_parser("complete", help="标记工作流完成")
-    p_complete.add_argument("path", help="状态文件路径")
+    p_complete.add_argument("path", nargs="?")
     p_complete.add_argument("--total-tasks", type=int, required=True, help="任务总数")
 
     # error
     p_error = sub.add_parser("error", help="记录任务错误")
-    p_error.add_argument("path", help="状态文件路径")
+    p_error.add_argument("path", nargs="?")
     p_error.add_argument("--task-id", required=True, help="任务 ID")
     p_error.add_argument("--task-name", required=True, help="任务名称")
     p_error.add_argument("--message", required=True, help="错误信息")
 
     # progress
     p_progress = sub.add_parser("progress", help="计算进度")
-    p_progress.add_argument("path", help="状态文件路径")
+    p_progress.add_argument("path", nargs="?")
+
+    # review-result
+    p_review = sub.add_parser("review-result", help="读取任务审查结果（兼容 quality_gates / execution_reviews）")
+    p_review.add_argument("path", nargs="?")
+    p_review.add_argument("--task-id", required=True, help="任务 ID")
 
     args = parser.parse_args()
+    state_path_arg = getattr(args, "path", None)
+    if state_path_arg:
+        try:
+            state_path = resolve_cli_state_path(state_path_arg)
+            project_id = None
+        except ValueError as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return 1
+    else:
+        project_id = resolve_cli_project_id(args)
+        if not project_id:
+            print(json.dumps({"error": "无法检测项目 ID，请使用 --project-id 或 --project-root 指定"}, ensure_ascii=False))
+            return 1
+
+        try:
+            state_path = resolve_state_path(project_id)
+        except ValueError as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return 1
 
     if args.command == "read":
-        state = read_state(args.path)
+        if not state_file_exists(state_path):
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = read_state(state_path, project_id)
         print(json.dumps(state, indent=2, ensure_ascii=False))
 
     elif args.command == "complete":
-        state = read_state(args.path)
-        stats = complete_workflow(state, args.path, args.total_tasks)
+        if not state_file_exists(state_path):
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = read_state(state_path, project_id)
+        stats = complete_workflow(state, state_path, args.total_tasks)
         print(json.dumps(stats, ensure_ascii=False))
 
     elif args.command == "error":
-        state = read_state(args.path)
-        handle_task_error(state, args.path, args.task_id, args.task_name, args.message)
+        if not state_file_exists(state_path):
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = read_state(state_path, project_id)
+        handle_task_error(state, state_path, args.task_id, args.task_name, args.message)
         print(json.dumps({"recorded": True}))
 
     elif args.command == "progress":
-        state = read_state(args.path)
+        if not state_file_exists(state_path):
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = read_state(state_path, project_id)
         progress = state.get("progress", {})
         total = state.get("_total_tasks", 0)
         pct = calculate_progress(
@@ -426,6 +499,17 @@ def main() -> int:
         )
         bar = generate_progress_bar(pct)
         print(json.dumps({"percent": pct, "bar": bar}))
+
+    elif args.command == "review-result":
+        if not state_file_exists(state_path):
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = read_state(state_path, project_id)
+        result = get_review_result(state, args.task_id)
+        if result is None:
+            print(json.dumps({"found": False, "task_id": args.task_id}, ensure_ascii=False))
+        else:
+            print(json.dumps({"found": True, "task_id": args.task_id, "result": result}, ensure_ascii=False, indent=2))
 
     else:
         parser.print_help()

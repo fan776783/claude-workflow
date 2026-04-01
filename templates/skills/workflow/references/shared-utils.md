@@ -2,6 +2,18 @@
 
 工作流系统中多处使用的共享函数。**所有逻辑已实现为 Python 脚本**，执行时直接调用脚本，不依赖伪代码。
 
+## 快速导航
+
+- 想找统一入口：看“统一入口”
+- 想按脚本查命令：看“底层脚本（按需直接调用）”
+- 想看路径/状态/任务解析能力分别在哪：看对应表格
+- 想确认运行时与项目工件边界：结合 `references/state-machine.md`
+
+## 何时读取
+
+- 需要确定 workflow Python 工具该如何调用时
+- 需要确认统一 CLI、底层脚本与数据模型引用关系时
+
 ## Python 工具库
 
 > ⚠️ 以下为**唯一权威实现**。MD 中不再保留伪代码副本。
@@ -9,7 +21,7 @@
 ### 统一入口
 
 ```bash
-py -3 workflow_cli.py <command>    # 统一 CLI 入口（推荐）
+python3 scripts/workflow_cli.py <command>    # 统一 CLI 入口（推荐）
 ```
 
 | 命令 | 功能 | 等效旧伪代码 |
@@ -28,15 +40,15 @@ py -3 workflow_cli.py <command>    # 统一 CLI 入口（推荐）
 
 | 脚本 | 功能 | CLI 用法 |
 |------|------|---------|
-| `path_utils.py` | 路径安全校验 | `py -3 path_utils.py resolve <base> <path>` |
-| `task_parser.py` | Markdown 任务解析 | `py -3 task_parser.py parse <file>` |
-| `task_manager.py` | 任务状态管理 | `py -3 task_manager.py complete T3` |
-| `state_manager.py` | 状态文件读写 | `py -3 state_manager.py read <path>` |
-| `status_utils.py` | Emoji / 状态工具 | `py -3 status_utils.py emoji completed` |
-| `context_budget.py` | 上下文预算计算 | `py -3 context_budget.py budget --projected-usage 65` |
-| `dependency_checker.py` | 依赖检查 | `py -3 dependency_checker.py classify --name <n> --files <f>` |
-| `journal.py` | 会话日志管理 | `py -3 journal.py add --title "..." --summary "..."` |
-| `verification.py` | 验证辅助 | `py -3 verification.py check <file>` |
+| `path_utils.py` | 路径安全校验 | `python3 scripts/path_utils.py resolve <base> <path>` |
+| `task_parser.py` | Markdown 任务解析 | `python3 scripts/task_parser.py parse <file>` |
+| `task_manager.py` | 任务状态管理 | `python3 scripts/task_manager.py complete T3` |
+| `state_manager.py` | 状态文件读写 | `python3 scripts/state_manager.py --project-id <id> read` |
+| `status_utils.py` | Emoji / 状态工具 | `python3 scripts/status_utils.py emoji completed` |
+| `context_budget.py` | 上下文预算计算 | `python3 scripts/context_budget.py budget --projected-usage 65` |
+| `dependency_checker.py` | 依赖检查 | `python3 scripts/dependency_checker.py classify --name <n> --files <f>` |
+| `journal.py` | 会话日志管理 | `python3 scripts/workflow_cli.py journal add --title "..." --summary "..."` |
+| `verification.py` | 验证辅助 | `python3 scripts/verification.py check <file>` |
 
 ---
 
@@ -113,7 +125,10 @@ py -3 workflow_cli.py <command>    # 统一 CLI 入口（推荐）
 
 ## 注意事项
 
+- `workflow-state.json` 只能位于 `~/.claude/workflows/{projectId}/workflow-state.json`
+- 项目目录 `.claude/` 仅承载项目配置与 spec/plan 等工件，禁止作为 runtime state 存储位置
+- 统一状态操作优先使用 `workflow_cli.py`，底层 `state_manager.py` 不接受项目本地 state path
 - "继续"与 `/workflow execute` 的共享入口解析已收敛到 `scripts/workflow_cli.py`
 - 任务解析只使用 V2 模型，不再维护旧格式映射
-- 上下文结构必须与 `templates/specs/shared/context-awareness.md` 保持一致
+- 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
 - 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent

@@ -62,13 +62,15 @@
 >
 > 其他所有字段（`quality_gates`, `execution_reviews`, `contextMetrics`, `continuation`, `parallel_groups`, `discussion`, `ux_design`, `git_status` 等）为**可选增强字段**，在需要时按需添加。
 >
-> **运行时状态机唯一来源**：本文件是 workflow skill 的运行时 schema 单一真相。`templates/specs/workflow/state-machine.md` 为扩展/共享架构说明，不应覆盖本文件的运行时字段定义。
+> **运行时状态机唯一来源**：本文件是 workflow skill 的运行时 schema 单一真相。若仓库另有共享状态机扩展说明，应视为补充背景，不得覆盖本文件的运行时字段定义。
 
 ---
 
 ## 状态文件结构（完整版）
 
 `workflow-state.json` 位于 `~/.claude/workflows/{project-id}/`
+
+> 项目目录下的 `.claude/` 仅用于 `project-config.json`、spec、plan 等项目工件。`workflow-state.json` 不得存在于项目目录，也不得从项目本地路径读写。
 
 ```json
 {
@@ -172,6 +174,21 @@
 }
 ```
 
+### 工作流目录文件清单
+
+```
+~/.claude/workflows/{projectId}/
+├── workflow-state.json             ← 运行时状态（唯一来源）
+├── analysis-result.json            ← Phase 0 代码分析结果缓存（P2 持久化）
+├── discussion-artifact.json        ← 讨论工件（Phase 0.2）
+├── ux-design-artifact.json         ← UX 设计工件（Phase 0.3）
+├── journal/                        ← 会话日志
+├── changes/                        ← delta 变更记录
+└── archive/                        ← 归档（含 analysis-result.json）
+```
+
+> 归档时（`/workflow archive`），`analysis-result.json` 随 `changes/` 一并移入 `archive/`。
+
 ### 字段说明
 
 | 字段 | 说明 |
@@ -199,7 +216,7 @@
 | **新写入目标** | 所有新审查结果只写入 `quality_gates[taskId]`（stage1 / stage2） |
 | **禁止回写** | 新代码不得创建、更新或回写 `execution_reviews` 字段 |
 | **只读兼容** | 读取审查结果时，若 `quality_gates[taskId]` 不存在，允许降级读取 `execution_reviews[taskId]` |
-| **归一化读取** | 建议通过统一 helper（`getReviewResult()`）封装 fallback 逻辑，避免散落判断 |
+| **归一化读取** | 已实现于 `scripts/state_manager.py` → `get_review_result()`，封装 fallback 逻辑。CLI: `python3 scripts/state_manager.py review-result --task-id <id>` |
 | **迁移终点** | 当所有活跃工作流的状态文件均已使用 `quality_gates` 后，可安全移除 `execution_reviews` 兼容逻辑 |
 
 ## 审查状态接口

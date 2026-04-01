@@ -32,6 +32,12 @@ import os
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "skills" / "workflow" / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from path_utils import detect_project_id_from_root, get_workflows_dir
+
 if sys.platform == "win32":
     import io as _io
     if hasattr(sys.stdout, "reconfigure"):
@@ -65,21 +71,15 @@ def extract_section(content: str, heading: str, max_chars: int = 2000) -> str:
 
 def find_workflow_state() -> dict | None:
     """Find active workflow state."""
-    config_path = Path.cwd() / ".claude" / "config" / "project-config.json"
-    if not config_path.is_file():
-        return None
-
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-
-    project = config.get("project") or {}
-    project_id = project.get("id") or config.get("projectId", "")
+    project_id = detect_project_id_from_root(str(Path.cwd()))
     if not project_id:
         return None
 
-    state_path = Path.home() / ".claude" / "workflows" / project_id / "workflow-state.json"
+    workflow_dir = get_workflows_dir(project_id)
+    if not workflow_dir:
+        return None
+
+    state_path = Path(workflow_dir) / "workflow-state.json"
     if not state_path.is_file():
         return None
 
@@ -104,8 +104,11 @@ def build_task_context(state: dict) -> str:
     project_id = state.get("projectId") or state.get("project_id", "")
     tasks_file = state.get("tasks_file", "")
     if tasks_file:
-        wf_dir = Path.home() / ".claude" / "workflows" / project_id
-        tasks_content = read_file(str(wf_dir / tasks_file))
+        workflow_dir = get_workflows_dir(project_id)
+        if workflow_dir:
+            tasks_content = read_file(str(Path(workflow_dir) / tasks_file))
+        else:
+            tasks_content = ""
         if tasks_content:
             # Extract task block
             import re

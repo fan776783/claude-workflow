@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from path_utils import get_workflows_dir, validate_project_id
+from path_utils import get_workflow_state_path, get_workflows_dir, validate_project_id
 from plan_delta import apply_task_deltas, build_task_delta_examples, create_delta_artifacts, summarize_task_deltas, to_pretty_json
 from state_manager import (
     mark_dependency_unblocked,
@@ -190,12 +190,13 @@ def resolve_workflow_runtime(
         return None, root, None, None, None
 
     workflow_dir_raw = get_workflows_dir(resolved_project_id)
-    if not workflow_dir_raw:
+    state_path_raw = get_workflow_state_path(resolved_project_id)
+    if not workflow_dir_raw or not state_path_raw:
         return resolved_project_id, root, None, None, None
 
     workflow_dir = Path(workflow_dir_raw)
-    state_path = workflow_dir / "workflow-state.json"
-    state = read_state(str(state_path)) if state_path.is_file() else None
+    state_path = Path(state_path_raw)
+    state = read_state(str(state_path), resolved_project_id) if state_path.is_file() else None
     return resolved_project_id, root, workflow_dir, state_path, state
 
 
@@ -459,7 +460,8 @@ def cmd_delta(
     task_deltas: List[Dict[str, Any]] = []
     _, _, tasks_content, tasks_path = resolve_state_and_tasks(resolved_project_id, str(root))
     if tasks_content and tasks_path and trigger["type"] == "requirement":
-        task_deltas = build_task_delta_examples(change_id, trigger)
+        existing_tasks = [task_to_dict(task) for task in parse_tasks_v2(tasks_content)]
+        task_deltas = build_task_delta_examples(change_id, trigger, existing_tasks)
         updated_tasks = apply_task_deltas(tasks_content, task_deltas)
         Path(tasks_path).write_text(updated_tasks, encoding="utf-8")
         artifacts["delta"]["task_deltas"] = task_deltas

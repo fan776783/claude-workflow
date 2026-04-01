@@ -8,17 +8,25 @@ from pathlib import Path
 from unittest.mock import patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "templates" / "skills" / "workflow" / "scripts"
+DISPATCH_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "templates" / "skills" / "dispatching-parallel-agents" / "scripts"
 CLI_SCRIPT = SCRIPT_DIR / "workflow_cli.py"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
+if str(DISPATCH_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(DISPATCH_SCRIPT_DIR))
 
+import dispatch_runner
 import execution_sequencer
 import lifecycle_cmds
 import planning_gates
 import quality_review
 import self_review
+import state_manager
 import verification
-from plan_delta import apply_task_deltas, build_task_delta_examples
+from path_utils import get_workflow_state_path, validate_project_id
+from plan_delta import apply_task_deltas, build_task_delta_examples, get_next_task_index
+from state_manager import resolve_state_path as resolve_state_path_by_project
+from workflow_types import get_review_result
 
 
 PLAN_FIXTURE = """## T1: 第一个任务
@@ -59,6 +67,23 @@ def minimum_state(status="running", current_tasks=None):
     }
 
 
+def create_canonical_state_file(
+    home: Path,
+    project_id: str = "proj-test",
+    status: str = "running",
+    current_tasks=None,
+) -> Path:
+    state_path_raw = get_workflow_state_path(project_id)
+    assert state_path_raw is not None
+    state_path = Path(state_path_raw)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(minimum_state(status=status, current_tasks=current_tasks), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return state_path
+
+
 class LifecycleCmdsTests(unittest.TestCase):
     def test_detect_delta_trigger_variants(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -88,8 +113,44 @@ class LifecycleCmdsTests(unittest.TestCase):
         self.assertIn("## T3: 新增任务", updated)
 
     def test_build_task_delta_examples_cover_add_modify_remove(self):
-        deltas = build_task_delta_examples("CHG-001", {"description": "新增导出字段"})
+        deltas = build_task_delta_examples(
+            "CHG-001",
+            {"description": "新增导出字段"},
+            [{"id": "T1"}, {"id": "T2"}],
+        )
         self.assertEqual([delta["action"] for delta in deltas], ["add", "modify", "remove"])
+
+    def test_get_next_task_index_counts_deprecated_ids(self):
+        tasks = [
+            {"id": "T1"},
+            {"id": "T2"},
+            {"id": "T4"},
+            {"id": "T3", "deprecated": True},
+        ]
+        self.assertEqual(get_next_task_index(tasks), 5)
+
+    def test_build_task_delta_examples_uses_next_available_task_id(self):
+        deltas = build_task_delta_examples(
+            "CHG-001",
+            {"description": "新增导出字段"},
+            [{"id": "T1"}, {"id": "Task-7"}, {"id": "T8", "deprecated": True}],
+        )
+        self.assertIn("## T9: 响应增量变更 CHG-001", deltas[0]["task_markdown"])
+        self.assertEqual(deltas[1]["task_id"], "T1")
+        self.assertEqual(deltas[2]["task_id"], "Task-7")
+
+    def test_apply_task_deltas_examples_modify_and_remove_existing_tasks(self):
+        deltas = build_task_delta_examples(
+            "CHG-001",
+            {"description": "新增导出字段"},
+            [{"id": "T1"}, {"id": "T2"}],
+        )
+
+        updated = apply_task_deltas(PLAN_FIXTURE, deltas)
+
+        self.assertIn("## T3: 响应增量变更 CHG-001", updated)
+        self.assertIn("## T1: 第一个任务（增量调整）", updated)
+        self.assertNotIn("## T2: 第二个任务", updated)
 
 
 class PlanningGateTests(unittest.TestCase):
@@ -121,6 +182,40 @@ class PlanningGateTests(unittest.TestCase):
 
 
 class QualityReviewTests(unittest.TestCase):
+    def test_get_review_result_prefers_quality_gates(self):
+        state = minimum_state()
+        state["quality_gates"] = {
+            "T3": quality_review.build_pass_gate_result(task_id="T3", base_commit="abc123")
+        }
+
+        review = get_review_result(state, "T3")
+
+        self.assertIsNotNone(review)
+        self.assertTrue(review["overall_passed"])
+        self.assertEqual(review["gate_task_id"], "T3")
+
+    def test_get_review_result_falls_back_to_execution_reviews(self):
+        state = minimum_state()
+        state["execution_reviews"] = {
+            "T4": {
+                "review_mode": "machine_loop",
+                "last_decision": "pass",
+                "spec_compliance": {"passed": True, "attempts": 1},
+                "code_quality": {"passed": True, "assessment": "approved"},
+                "overall_passed": True,
+                "reviewed_at": "2026-03-31T00:00:00",
+            }
+        }
+
+        review = get_review_result(state, "T4")
+
+        self.assertIsNotNone(review)
+        self.assertTrue(review["overall_passed"])
+        self.assertEqual(review["gate_task_id"], "T4")
+
+    def test_get_review_result_returns_none_when_missing(self):
+        self.assertIsNone(get_review_result(minimum_state(), "T99"))
+
     def test_build_pass_gate_result_and_evidence(self):
         gate = quality_review.build_pass_gate_result(
             task_id="T8",
@@ -169,16 +264,127 @@ class QualityReviewTests(unittest.TestCase):
 
     def test_write_and_read_quality_gate_result(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "workflow-state.json"
-            state_path.write_text(json.dumps(minimum_state()), encoding="utf-8")
-            gate = quality_review.build_pass_gate_result(task_id="T3", base_commit="abc123")
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                state_path = create_canonical_state_file(Path(tmpdir))
+                gate = quality_review.build_pass_gate_result(task_id="T3", base_commit="abc123")
 
-            quality_review.write_quality_gate_result(str(state_path), "T3", gate)
-            review = quality_review.read_quality_gate_result(str(state_path), "T3")
+                quality_review.write_quality_gate_result(str(state_path), "T3", gate, "proj-test")
+                review = quality_review.read_quality_gate_result(str(state_path), "T3", "proj-test")
 
-            self.assertIsNotNone(review)
-            self.assertTrue(review["overall_passed"])
-            self.assertEqual(review["gate_task_id"], "T3")
+                self.assertIsNotNone(review)
+                self.assertTrue(review["overall_passed"])
+                self.assertEqual(review["gate_task_id"], "T3")
+    def test_quality_review_returns_structured_errors_when_project_state_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            home = root / "home"
+            home.mkdir(parents=True, exist_ok=True)
+            extra_env = {"HOME": str(home)}
+            quality_script = SCRIPT_DIR / "quality_review.py"
+
+            read_result = subprocess.run(
+                [sys.executable, str(quality_script), "read", "T3", "--project-id", "reviewzz999"],
+                capture_output=True,
+                text=True,
+                env={**os.environ, **extra_env, "PYTHONPATH": f"{SCRIPT_DIR}{os.pathsep}{os.environ.get('PYTHONPATH', '')}" if os.environ.get('PYTHONPATH') else str(SCRIPT_DIR)},
+                check=False,
+            )
+            self.assertEqual(read_result.returncode, 1, msg=read_result.stderr)
+            self.assertEqual(json.loads(read_result.stdout)["error"], "没有活跃的工作流")
+
+            pass_result = subprocess.run(
+                [sys.executable, str(quality_script), "pass", "T3", "--base-commit", "abc123", "--project-id", "reviewzz999"],
+                capture_output=True,
+                text=True,
+                env={**os.environ, **extra_env, "PYTHONPATH": f"{SCRIPT_DIR}{os.pathsep}{os.environ.get('PYTHONPATH', '')}" if os.environ.get('PYTHONPATH') else str(SCRIPT_DIR)},
+                check=False,
+            )
+            self.assertEqual(pass_result.returncode, 1, msg=pass_result.stderr)
+            self.assertEqual(json.loads(pass_result.stdout)["error"], "没有活跃的工作流")
+
+            fail_result = subprocess.run(
+                [sys.executable, str(quality_script), "fail", "T3", "--failed-stage", "stage1", "--base-commit", "abc123", "--project-id", "reviewzz999"],
+                capture_output=True,
+                text=True,
+                env={**os.environ, **extra_env, "PYTHONPATH": f"{SCRIPT_DIR}{os.pathsep}{os.environ.get('PYTHONPATH', '')}" if os.environ.get('PYTHONPATH') else str(SCRIPT_DIR)},
+                check=False,
+            )
+            self.assertEqual(fail_result.returncode, 1, msg=fail_result.stderr)
+            self.assertEqual(json.loads(fail_result.stdout)["error"], "没有活跃的工作流")
+
+    def test_validate_project_id_accepts_safe_ids(self):
+        self.assertTrue(validate_project_id("proj_test-123"))
+
+    def test_validate_project_id_rejects_unsafe_ids(self):
+        self.assertFalse(validate_project_id(""))
+        self.assertFalse(validate_project_id("../etc/passwd"))
+        self.assertFalse(validate_project_id("proj/test"))
+
+
+class DispatchingParallelAgentsTests(unittest.TestCase):
+    def test_requires_worktree_skips_clear_read_only_task(self):
+        task = {
+            "id": "R1",
+            "name": "Investigate lock contention",
+            "steps": [{"description": "Analyze recent failures", "expected": "Summarize root cause"}],
+            "acceptance_criteria": ["Provide analysis only"],
+        }
+
+        self.assertFalse(dispatch_runner.requires_worktree(task))
+
+    def test_requires_worktree_defaults_to_true_for_ambiguous_task(self):
+        task = {
+            "id": "A1",
+            "name": "Handle workflow task",
+            "steps": [{"description": "Process task", "expected": "Complete task"}],
+        }
+
+        self.assertTrue(dispatch_runner.requires_worktree(task))
+
+    def test_dispatch_group_mixes_read_only_and_write_tasks(self):
+        tasks = [
+            {
+                "id": "R1",
+                "name": "Investigate lock contention",
+                "steps": [{"description": "Analyze failures", "expected": "Summarize root cause"}],
+                "acceptance_criteria": ["Provide analysis only"],
+            },
+            {
+                "id": "W1",
+                "name": "Fix dispatch worktree policy",
+                "files": {"modify": ["dispatch_runner.py"]},
+                "steps": [{"description": "Implement serialized provisioning", "expected": "Use isolated worktree"}],
+            },
+        ]
+
+        with patch.object(dispatch_runner, "create_worktree", return_value={"created": True, "path": "/tmp/W1"}) as mocked_create, \
+             patch.object(dispatch_runner, "register_agent", side_effect=[{"agent_id": "agent-r1"}, {"agent_id": "agent-w1"}]):
+            result = dispatch_runner.dispatch_group(tasks, group_id="G1", use_worktree=True, project_root="/tmp/project")
+
+        self.assertEqual(result["group_id"], "G1")
+        self.assertEqual(len(result["manifests"]), 2)
+        self.assertFalse(result["manifests"][0]["requires_worktree"])
+        self.assertIsNone(result["manifests"][0]["worktree_path"])
+        self.assertTrue(result["manifests"][1]["requires_worktree"])
+        self.assertEqual(result["manifests"][1]["worktree_path"], "/tmp/W1")
+        mocked_create.assert_called_once_with("workflow/w1", "W1", cwd="/tmp/project")
+
+    def test_dispatch_group_returns_error_when_worktree_provision_fails(self):
+        task = {
+            "id": "W1",
+            "name": "Fix dispatch worktree policy",
+            "files": {"modify": ["dispatch_runner.py"]},
+            "steps": [{"description": "Implement serialized provisioning", "expected": "Use isolated worktree"}],
+        }
+
+        with patch.object(dispatch_runner, "create_worktree", return_value={"error": "lock timeout"}), \
+             patch.object(dispatch_runner, "register_agent") as mocked_register:
+            result = dispatch_runner.dispatch_group([task], group_id="G1", use_worktree=True, project_root="/tmp/project")
+
+        self.assertEqual(result["error"], "lock timeout")
+        self.assertEqual(result["failed_task_id"], "W1")
+        self.assertEqual(result["manifests"], [])
+        mocked_register.assert_not_called()
 
 
 class SelfReviewAndVerificationTests(unittest.TestCase):
@@ -243,78 +449,160 @@ class ExecutionSequencerTests(unittest.TestCase):
 
     def test_apply_governance_decision_updates_continuation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "workflow-state.json"
-            state_path.write_text(json.dumps(minimum_state()), encoding="utf-8")
-            state = json.loads(state_path.read_text(encoding="utf-8"))
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                state_path = create_canonical_state_file(Path(tmpdir))
+                state = json.loads(state_path.read_text(encoding="utf-8"))
 
-            updated = execution_sequencer.apply_governance_decision(
-                state,
-                {"action": "pause-budget", "reason": "context-danger", "severity": "warning"},
-                str(state_path),
-                ["T2"],
-            )
+                updated = execution_sequencer.apply_governance_decision(
+                    state,
+                    {"action": "pause-budget", "reason": "context-danger", "severity": "warning"},
+                    str(state_path),
+                    ["T2"],
+                )
 
-            self.assertEqual(updated["status"], "paused")
-            persisted = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(persisted["continuation"]["last_decision"]["action"], "pause-budget")
-            self.assertEqual(persisted["continuation"]["last_decision"]["nextTaskIds"], ["T2"])
+                self.assertEqual(updated["status"], "paused")
+                persisted = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(persisted["continuation"]["last_decision"]["action"], "pause-budget")
+                self.assertEqual(persisted["continuation"]["last_decision"]["nextTaskIds"], ["T2"])
 
     def test_mark_task_skipped_advances_to_next_task(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            state_path = root / "workflow-state.json"
-            tasks_path = root / "plan.md"
-            state_path.write_text(json.dumps(minimum_state()), encoding="utf-8")
-            tasks_path.write_text(PLAN_FIXTURE, encoding="utf-8")
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                root = Path(tmpdir)
+                state_path = create_canonical_state_file(root)
+                tasks_path = root / "plan.md"
+                tasks_path.write_text(PLAN_FIXTURE, encoding="utf-8")
 
-            result = execution_sequencer.mark_task_skipped(
-                str(state_path),
-                str(tasks_path),
-                PLAN_FIXTURE,
-                "T1",
-            )
-            updated_state = json.loads(state_path.read_text(encoding="utf-8"))
-            updated_plan = tasks_path.read_text(encoding="utf-8")
+                result = execution_sequencer.mark_task_skipped(
+                    str(state_path),
+                    str(tasks_path),
+                    PLAN_FIXTURE,
+                    "T1",
+                )
+                updated_state = json.loads(state_path.read_text(encoding="utf-8"))
+                updated_plan = tasks_path.read_text(encoding="utf-8")
 
-            self.assertTrue(result["skipped"])
-            self.assertEqual(result["next_task_id"], "T2")
-            self.assertEqual(updated_state["current_tasks"], ["T2"])
-            self.assertIn("T1", updated_state["progress"]["skipped"])
-            self.assertIn("⏭️", updated_plan)
+                self.assertTrue(result["skipped"])
+                self.assertEqual(result["next_task_id"], "T2")
+                self.assertEqual(updated_state["current_tasks"], ["T2"])
+                self.assertEqual(updated_state["status"], "running")
+                self.assertIn("T1", updated_state["progress"]["skipped"])
+                self.assertIn("⏭️", updated_plan)
+
+    def test_mark_task_skipped_recovers_from_failed_status(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                root = Path(tmpdir)
+                state_path = create_canonical_state_file(root, status="failed")
+                tasks_path = root / "plan.md"
+                tasks_path.write_text(PLAN_FIXTURE, encoding="utf-8")
+
+                result = execution_sequencer.mark_task_skipped(
+                    str(state_path),
+                    str(tasks_path),
+                    PLAN_FIXTURE,
+                    "T1",
+                )
+                updated_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+                self.assertEqual(result["workflow_status"], "running")
+                self.assertEqual(updated_state["status"], "running")
+                self.assertEqual(updated_state["current_tasks"], ["T2"])
+
+    def test_mark_task_skipped_completes_when_last_task(self):
+        single_task_plan = """## T2: 第二个任务
+- **阶段**: test
+- **Spec 参考**: §2
+- **Plan 参考**: P2
+- **状态**: pending
+- **actions**: run_tests
+- **步骤**:
+  - A2: 运行测试 → 完成第二个任务
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                root = Path(tmpdir)
+                state_path = create_canonical_state_file(root, status="failed", current_tasks=["T2"])
+                tasks_path = root / "plan.md"
+                tasks_path.write_text(single_task_plan, encoding="utf-8")
+
+                result = execution_sequencer.mark_task_skipped(
+                    str(state_path),
+                    str(tasks_path),
+                    single_task_plan,
+                    "T2",
+                )
+                updated_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+                self.assertIsNone(result["next_task_id"])
+                self.assertEqual(result["workflow_status"], "completed")
+                self.assertEqual(updated_state["status"], "completed")
+                self.assertEqual(updated_state["current_tasks"], [])
+
+    def test_prepare_parallel_sequential_fallback_rolls_back_completed_tasks(self):
+        state = minimum_state()
+        state["status"] = "paused"
+        state["current_tasks"] = ["T9"]
+        state["progress"]["completed"] = ["T2", "T3", "T4"]
+        state["parallel_groups"] = [
+            {
+                "id": "G1",
+                "task_ids": ["T3", "T4"],
+                "status": "completed",
+                "started_at": "2026-03-31T00:00:00",
+                "conflict_detected": False,
+            }
+        ]
+
+        result = execution_sequencer.prepare_parallel_sequential_fallback(state, "G1", ["T3", "T4"])
+        updated_state = result["state"]
+
+        self.assertEqual(result["rerun_task_ids"], ["T3", "T4"])
+        self.assertEqual(updated_state["progress"]["completed"], ["T2"])
+        self.assertEqual(updated_state["current_tasks"], ["T3", "T4"])
+        self.assertEqual(updated_state["status"], "running")
+        self.assertTrue(updated_state["parallel_groups"][0]["conflict_detected"])
+        self.assertEqual(updated_state["parallel_groups"][0]["status"], "failed")
+        self.assertEqual(
+            updated_state["continuation"]["last_decision"]["reason"],
+            "parallel-conflict-sequential-fallback",
+        )
 
     def test_prepare_retry_sets_running_and_hard_stop(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "workflow-state.json"
-            state = minimum_state(status="failed")
-            state["failure_reason"] = "boom"
-            state_path.write_text(json.dumps(state), encoding="utf-8")
+            with patch.dict(os.environ, {"HOME": tmpdir}):
+                state_path = create_canonical_state_file(Path(tmpdir), status="failed")
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                state["failure_reason"] = "boom"
+                state_path.write_text(json.dumps(state), encoding="utf-8")
 
-            first = execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
-            self.assertTrue(first["retryable"])
+                first = execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
+                self.assertTrue(first["retryable"])
 
-            failed_state = json.loads(state_path.read_text(encoding="utf-8"))
-            failed_state["status"] = "failed"
-            state_path.write_text(json.dumps(failed_state), encoding="utf-8")
-            execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
+                failed_state = json.loads(state_path.read_text(encoding="utf-8"))
+                failed_state["status"] = "failed"
+                state_path.write_text(json.dumps(failed_state), encoding="utf-8")
+                execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
 
-            failed_state = json.loads(state_path.read_text(encoding="utf-8"))
-            failed_state["status"] = "failed"
-            state_path.write_text(json.dumps(failed_state), encoding="utf-8")
-            third = execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
+                failed_state = json.loads(state_path.read_text(encoding="utf-8"))
+                failed_state["status"] = "failed"
+                state_path.write_text(json.dumps(failed_state), encoding="utf-8")
+                third = execution_sequencer.prepare_retry(str(state_path), "T1", "boom")
 
-            self.assertFalse(third["retryable"])
-            self.assertEqual(third["reason"], "hard-stop")
+                self.assertFalse(third["retryable"])
+                self.assertEqual(third["reason"], "hard-stop")
 
 
 class WorkflowCliTests(unittest.TestCase):
-    def run_cli(self, *args, cwd=None, extra_env=None):
+    def run_cli(self, *args, cwd=None, extra_env=None, script=None):
         env = os.environ.copy()
         pythonpath = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{SCRIPT_DIR}{os.pathsep}{pythonpath}" if pythonpath else str(SCRIPT_DIR)
         if extra_env:
             env.update(extra_env)
+        target = script or CLI_SCRIPT
         return subprocess.run(
-            [sys.executable, str(CLI_SCRIPT), *args],
+            [sys.executable, str(target), *args],
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
@@ -410,13 +698,14 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(state["delta_tracking"]["change_counter"], 1)
             self.assertEqual(delta_payload["task_delta_summary"]["add"], 1)
             self.assertEqual(delta_payload["task_delta_summary"]["modify"], 1)
-            self.assertEqual(delta_payload["task_delta_summary"]["remove"], 1)
+            self.assertEqual(delta_payload["task_delta_summary"]["remove"], 0)
 
             plan_path = root / start_payload["plan_file"]
             plan_content = plan_path.read_text(encoding="utf-8")
             self.assertIn("响应增量变更 CHG-001", plan_content)
-            self.assertIn("第一个任务（增量调整）", plan_content)
-            self.assertNotIn("## T2: 第二个任务", plan_content)
+            self.assertIn("## T2: 响应增量变更 CHG-001", plan_content)
+            self.assertIn("## T1: 第一个任务（增量调整）", plan_content)
+            self.assertNotIn("## T1: 第一个任务\n", plan_content)
 
     def test_cli_unblock_updates_blocked_state(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -479,6 +768,160 @@ class WorkflowCliTests(unittest.TestCase):
             updated_state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(updated_state["status"], "archived")
             self.assertIsNone(updated_state["delta_tracking"]["current_change"])
+
+    def test_helper_clis_accept_legacy_state_path_arguments(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extra_env, home = self.make_cli_env(root)
+            with patch.dict(os.environ, {"HOME": str(home)}):
+                state_path = create_canonical_state_file(home)
+            tasks_path = root / "plan.md"
+            tasks_path.write_text(PLAN_FIXTURE, encoding="utf-8")
+
+            quality_script = SCRIPT_DIR / "quality_review.py"
+            execution_script = SCRIPT_DIR / "execution_sequencer.py"
+            state_script = SCRIPT_DIR / "state_manager.py"
+
+            pass_result = self.run_cli(
+                "pass",
+                "T3",
+                "--base-commit",
+                "abc123",
+                "--state-file",
+                str(state_path),
+                extra_env=extra_env,
+                script=quality_script,
+            )
+            self.assertEqual(pass_result.returncode, 0, msg=pass_result.stderr)
+
+            read_result = self.run_cli(
+                "read",
+                str(state_path),
+                "T3",
+                extra_env=extra_env,
+                script=quality_script,
+            )
+            self.assertEqual(read_result.returncode, 0, msg=read_result.stderr)
+            self.assertTrue(json.loads(read_result.stdout)["review"]["overall_passed"])
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["status"] = "failed"
+            state["failure_reason"] = "boom"
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            retry_result = self.run_cli(
+                "retry",
+                str(state_path),
+                "T1",
+                "--reason",
+                "boom",
+                extra_env=extra_env,
+                script=execution_script,
+            )
+            self.assertEqual(retry_result.returncode, 0, msg=retry_result.stderr)
+
+            progress_result = self.run_cli(
+                "progress",
+                str(state_path),
+                extra_env=extra_env,
+                script=state_script,
+            )
+            self.assertEqual(progress_result.returncode, 0, msg=progress_result.stderr)
+            self.assertIn("percent", json.loads(progress_result.stdout))
+
+    def test_helper_clis_return_structured_errors_without_state_reference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extra_env, _ = self.make_cli_env(root)
+
+            quality_script = SCRIPT_DIR / "quality_review.py"
+            execution_script = SCRIPT_DIR / "execution_sequencer.py"
+            state_script = SCRIPT_DIR / "state_manager.py"
+
+            quality_result = self.run_cli("read", "T3", extra_env=extra_env, script=quality_script)
+            self.assertEqual(quality_result.returncode, 1)
+            self.assertEqual(json.loads(quality_result.stdout)["error"], "missing state reference")
+
+            execution_result = self.run_cli("retry", "proj-test", "T1", extra_env=extra_env, script=execution_script)
+            self.assertEqual(execution_result.returncode, 1, msg=execution_result.stderr)
+            self.assertEqual(json.loads(execution_result.stdout)["error"], "没有活跃的工作流")
+
+            context_result = self.run_cli("context", "--project-id", "proj-test", extra_env=extra_env, script=execution_script)
+            self.assertEqual(context_result.returncode, 1, msg=context_result.stderr)
+            self.assertEqual(json.loads(context_result.stdout)["error"], "没有活跃的工作流")
+
+            skip_result = self.run_cli("skip", "proj-test", str(CLI_SCRIPT), "T1", extra_env=extra_env, script=execution_script)
+            self.assertEqual(skip_result.returncode, 1, msg=skip_result.stderr)
+            self.assertEqual(json.loads(skip_result.stdout)["error"], "没有活跃的工作流")
+
+            state_result = self.run_cli("--project-id", "proj-test", "progress", extra_env=extra_env, script=state_script)
+            self.assertEqual(state_result.returncode, 1)
+            self.assertEqual(json.loads(state_result.stdout)["error"], "没有活跃的工作流")
+
+    def test_task_manager_resolves_legacy_absolute_plan_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extra_env, home = self.make_cli_env(root)
+            with patch.dict(os.environ, {"HOME": str(home)}):
+                state_path = create_canonical_state_file(home)
+            absolute_plan = root / ".claude" / "plans" / "legacy.md"
+            absolute_plan.parent.mkdir(parents=True, exist_ok=True)
+            absolute_plan.write_text(PLAN_FIXTURE, encoding="utf-8")
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["plan_file"] = str(absolute_plan)
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            status_result = self.run_cli("--project-id", "proj-test", "status", cwd=root, extra_env=extra_env)
+            self.assertEqual(status_result.returncode, 0, msg=status_result.stderr)
+            payload = json.loads(status_result.stdout)
+            self.assertEqual(payload["current_tasks"], ["T1"])
+            self.assertEqual(payload["total_tasks"], 2)
+
+    def test_task_manager_resolves_legacy_relative_plan_file_with_spaces_and_unicode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extra_env, home = self.make_cli_env(root)
+            with patch.dict(os.environ, {"HOME": str(home)}):
+                state_path = create_canonical_state_file(home)
+            relative_plan = Path(".claude") / "plans" / "导出 计划.md"
+            plan_path = root / relative_plan
+            plan_path.parent.mkdir(parents=True, exist_ok=True)
+            plan_path.write_text(PLAN_FIXTURE, encoding="utf-8")
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["plan_file"] = relative_plan.as_posix()
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+
+            status_result = self.run_cli("--project-id", "proj-test", "status", cwd=root, extra_env=extra_env)
+            self.assertEqual(status_result.returncode, 0, msg=status_result.stderr)
+            payload = json.loads(status_result.stdout)
+            self.assertEqual(payload["current_tasks"], ["T1"])
+            self.assertEqual(payload["total_tasks"], 2)
+
+    def test_write_state_accepts_legacy_project_id_field(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            with patch.dict(os.environ, {"HOME": str(home)}):
+                state_path = Path(resolve_state_path_by_project("proj-test"))
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                legacy_state = {
+                    "projectId": "proj-test",
+                    "status": "running",
+                    "current_tasks": ["T1"],
+                    "plan_file": ".claude/plans/test.md",
+                    "spec_file": ".claude/specs/test.md",
+                    "progress": {
+                        "completed": [],
+                        "blocked": [],
+                        "failed": [],
+                        "skipped": [],
+                    },
+                }
+                state_manager.write_state(str(state_path), legacy_state)
+                persisted = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(persisted["project_id"], "proj-test")
+                self.assertEqual(persisted["projectId"], "proj-test")
 
     def test_cli_status_and_context_include_runtime_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -2,6 +2,18 @@
 
 归档已完成的工作流；若存在 delta 变更记录，则将 `changes/` 目录移动到 `archive/`。
 
+## 快速导航
+
+- 想看归档前检查：看 Step 1
+- 想看 archive 目录搬迁：看 Step 2 / Step 3
+- 想看 summary 生成：看 `--summary` 相关步骤
+- 想确认运行时状态位置：看 `references/state-machine.md`
+
+## 何时读取
+
+- 用户调用 `/workflow archive`
+- 需要把已完成 workflow 和 delta 记录封存时
+
 ## 使用方法
 
 ```bash
@@ -111,6 +123,14 @@ console.log(`
 - 归档变更数: ${changeIds.length}
 - 归档目录: ${archiveDir}
 `);
+
+// P2/Q2: 归档 analysis-result.json
+const analysisPath = path.join(workflowDir, 'analysis-result.json');
+if (fileExists(analysisPath)) {
+  const analysisArchivePath = path.join(archiveDir, 'analysis-result.json');
+  await Bash({ command: `mv "${analysisPath}" "${analysisArchivePath}"` });
+  console.log(`✅ 已归档代码分析结果: analysis-result.json`);
+}
 ```
 
 ---
@@ -212,11 +232,12 @@ console.log(`
 **文件结构**:
 ~/.claude/workflows/${projectId}/
 ├── workflow-state.json        ← 状态已更新为 archived
-├── archive/                   ← 归档目录（仅当存在 delta 变更时包含 CHG-*）
-│   └── CHG-*/
-│       ├── delta.json
-│       ├── intent.md
-│       └── review-status.json
+├── archive/                   ← 归档目录
+│   ├── CHG-*/                 ← delta 变更记录（仅当存在时）
+│   │   ├── delta.json
+│   │   ├── intent.md
+│   │   └── review-status.json
+│   └── analysis-result.json   ← Phase 0 代码分析结果
 └── changes/                   ← 若为空可不存在
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

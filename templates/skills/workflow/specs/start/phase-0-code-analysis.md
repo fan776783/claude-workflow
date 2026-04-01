@@ -1,4 +1,16 @@
-﻿# Phase 0: 代码分析详情
+# Phase 0: 代码分析详情
+
+## 快速导航
+
+- 想看参数解析：看 Step 1
+- 想看 Git 状态检查：搜 Step 1.1
+- 想看项目配置自愈：看对应 project-config 章节
+- 想看代码库分析输出：看后续 analysisResult 相关章节
+
+## 何时读取
+
+- `/workflow start` 刚启动时
+- 需要确认需求输入解析、Git 前置检查与代码分析边界时
 
 ## 目的
 
@@ -56,6 +68,115 @@ if (requirement.endsWith('.md') && fileExists(requirement)) {
 ```
 
 
+### Step 1.1: Git 状态检查（强制，参数解析后立即执行）
+
+> ℹ️ 提前到参数解析后、配置检查前执行。确保恢复路径（Step 2 检测到已有工作流）也必须经过 Git 检查。
+
+```typescript
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Step 1.1: Git 状态检查（参数解析后立即执行）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 需要写隔离的子代理（如 Spec 合规审查、代码质量审查）依赖 git worktree 进行隔离执行。
+// 明确只读的分析/审查型子代理可无 worktree 运行，但不允许对写隔离场景静默降级。
+
+interface GitStatus {
+  ready: boolean;
+  reason?: 'not_git_repo' | 'no_commits';
+  message?: string;
+}
+
+function checkGitStatus(): GitStatus {
+  try {
+    const isGitRepo = execSync('git rev-parse --is-inside-work-tree', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim() === 'true';
+
+    if (!isGitRepo) {
+      return {
+        ready: false,
+        reason: 'not_git_repo',
+        message: '当前项目不在 git 仓库中。需要写隔离的子代理仍需要 git worktree。'
+      };
+    }
+
+    const hasCommits = execSync('git log --oneline -1', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    }).trim().length > 0;
+
+    if (!hasCommits) {
+      return {
+        ready: false,
+        reason: 'no_commits',
+        message: 'Git 仓库没有初始提交。请先提交一次后再启动工作流。'
+      };
+    }
+
+    return { ready: true };
+  } catch {
+    return {
+      ready: false,
+      reason: 'not_git_repo',
+      message: '无法检测 git 状态。请确认项目在 git 仓库中。'
+    };
+  }
+}
+
+const gitStatus = checkGitStatus();
+
+if (!gitStatus.ready) {
+  console.log(`
+⚠️ Git 状态检查未通过
+
+${gitStatus.message}
+
+推荐操作：
+${gitStatus.reason === 'not_git_repo'
+  ? '  git init && git add . && git commit -m "Initial commit"'
+  : '  git add . && git commit -m "Initial commit"'}
+
+原因：workflow 中需要写隔离的子代理（如 Spec 合规审查、代码质量审查）依赖 git worktree
+进行隔离执行。明确只读的分析/审查型子代理可以无 worktree 运行，但写隔离场景如果没有 git 仓库，仍会导致这些审查降级为
+主会话内执行，损失审查独立性。
+  `);
+
+  // HARD-GATE: 不允许静默降级
+  const gitChoice = await AskUserQuestion({
+    questions: [{
+      question: '请选择如何处理：',
+      header: 'Git 状态检查',
+      multiSelect: false,
+      options: [
+        { label: '我来初始化 git', description: '暂停工作流，手动执行 git init + commit 后重试' },
+        { label: '无子代理继续', description: '⚠️ 放弃子代理隔离，所有审查在主会话执行' }
+      ]
+    }]
+  });
+
+  if (gitChoice === '我来初始化 git') {
+    console.log('⏸️ 请初始化 git 仓库后重新执行 /workflow start');
+    return;
+  }
+
+  // 用户显式选择了降级，记录到状态
+  state.git_status = {
+    initialized: false,
+    subagent_available: false,
+    user_acknowledged_degradation: true
+  };
+  console.log('⚠️ 用户选择无子代理模式。所有审查将在主会话中执行。');
+} else {
+  state.git_status = {
+    initialized: true,
+    subagent_available: true,
+    user_acknowledged_degradation: false
+  };
+}
+```
+
+---
+
 ### Step 1.3: 项目配置检查与自愈（强制）
 
 **目的**：确保 `project-config.json` 存在，保障 `project.id` 可用，状态机可初始化。
@@ -96,114 +217,6 @@ function generateStableProjectId(cwd: string): string {
 ```
 
 > **关键变更**：`/workflow start` 不再因缺少 `project-config.json` 而阻塞。自动生成最小配置，确保 `project.id` 始终可用；兼容旧配置时可回退读取 `projectId`。
-
----
-
-
-### Step 1.5: Git 状态检查（强制）
-
-```typescript
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Step 1.5: Git 状态检查
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 子代理（Spec 合规审查、代码质量审查）依赖 git worktree 进行隔离执行。
-// 如果没有 git 仓库，子代理将无法创建。不允许静默降级。
-
-interface GitStatus {
-  ready: boolean;
-  reason?: 'not_git_repo' | 'no_commits';
-  message?: string;
-}
-
-function checkGitStatus(): GitStatus {
-  try {
-    const isGitRepo = execSync('git rev-parse --is-inside-work-tree', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).trim() === 'true';
-
-    if (!isGitRepo) {
-      return {
-        ready: false,
-        reason: 'not_git_repo',
-        message: '当前项目不在 git 仓库中。子代理需要 git worktree 进行隔离。'
-      };
-    }
-
-    const hasCommits = execSync('git log --oneline -1', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).trim().length > 0;
-
-    if (!hasCommits) {
-      return {
-        ready: false,
-        reason: 'no_commits',
-        message: 'Git 仓库没有初始提交。请先提交一次后再启动工作流。'
-      };
-    }
-
-    return { ready: true };
-  } catch {
-    return {
-      ready: false,
-      reason: 'not_git_repo',
-      message: '无法检测 git 状态。请确认项目在 git 仓库中。'
-    };
-  }
-}
-
-const gitStatus = checkGitStatus();
-
-if (!gitStatus.ready) {
-  console.log(`
-⚠️ Git 状态检查未通过
-
-${gitStatus.message}
-
-推荐操作：
-${gitStatus.reason === 'not_git_repo'
-  ? '  git init && git add . && git commit -m "Initial commit"'
-  : '  git add . && git commit -m "Initial commit"'}
-
-原因：workflow 的子代理（Spec 合规审查、代码质量审查）依赖 git worktree
-进行隔离执行。如果没有 git 仓库，子代理将无法创建，导致所有审查降级为
-主会话内执行，损失审查独立性。
-  `);
-
-  // HARD-GATE: 不允许静默降级
-  const gitChoice = await AskUserQuestion({
-    questions: [{
-      question: '请选择如何处理：',
-      header: 'Git 状态检查',
-      multiSelect: false,
-      options: [
-        { label: '我来初始化 git', description: '暂停工作流，手动执行 git init + commit 后重试' },
-        { label: '无子代理继续', description: '⚠️ 放弃子代理隔离，所有审查在主会话执行' }
-      ]
-    }]
-  });
-
-  if (gitChoice === '我来初始化 git') {
-    console.log('⏸️ 请初始化 git 仓库后重新执行 /workflow start');
-    return;
-  }
-
-  // 用户显式选择了降级，记录到状态
-  state.git_status = {
-    initialized: false,
-    subagent_available: false,
-    user_acknowledged_degradation: true
-  };
-  console.log('⚠️ 用户选择无子代理模式。所有审查将在主会话中执行。');
-} else {
-  state.git_status = {
-    initialized: true,
-    subagent_available: true,
-    user_acknowledged_degradation: false
-  };
-}
-```
 
 ---
 
@@ -358,3 +371,32 @@ function extractDependencies(codeContext: string): Dependency[] {
 - Phase 2: Plan 生成（识别可复用组件、确定实施顺序与任务文件清单）
 - Execute: 任务执行与并行分组（注入依赖、blocked_by 与任务级引用）
 - 约束系统初始化（提取技术约束）
+
+### Step 4: 持久化分析结果
+
+> 避免后续阶段重复执行代码分析，确保 Session 中断后可恢复。
+
+```typescript
+// 持久化分析结果到工作流目录
+const analysisPath = path.join(workflowDir, 'analysis-result.json');
+writeFile(analysisPath, JSON.stringify({
+  ...analysisResult,
+  created_at: new Date().toISOString(),
+  source: 'phase-0-code-analysis'
+}, null, 2));
+console.log(`💾 分析结果已持久化: ${analysisPath}`);
+```
+
+**后续阶段读取逻辑**：
+```typescript
+// Phase 0.2 / Phase 1 / Phase 2 启动时优先从文件加载
+const analysisPath = path.join(workflowDir, 'analysis-result.json');
+let analysisResult: AnalysisResult;
+if (fileExists(analysisPath)) {
+  analysisResult = JSON.parse(readFile(analysisPath));
+  console.log('✅ 已加载缓存的代码分析结果');
+} else {
+  // 缓存不存在，重新执行分析
+  analysisResult = await executeCodeAnalysis(requirementContent);
+}
+```

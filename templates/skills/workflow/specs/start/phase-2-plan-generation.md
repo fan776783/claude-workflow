@@ -1,5 +1,17 @@
 # Phase 2: Plan Generation 详情
 
+## 快速导航
+
+- 想看 plan 的硬约束：看“设计原则”与 “No Placeholders 规则”
+- 想看输出路径和模板：看“输出”与 Step 1
+- 想看 WorkflowTaskV2 兼容要求：看设计原则与任务块章节
+- 想看 Self-Review：搜 self-review / review loop
+
+## 何时读取
+
+- Spec 已批准，准备生成 `plan.md` 时
+- 需要确认 plan 是否足够细、可直接执行时
+
 ## 目的
 
 从已批准的 `spec.md` 生成可直接执行的实施计划。Plan 的每一步都必须包含完整的代码块和验证命令，禁止任何占位符。

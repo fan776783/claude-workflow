@@ -1,5 +1,17 @@
 # 影响分析详情
 
+## 快速导航
+
+- 想看 delta 影响分析的数据结构：看“数据结构”
+- 想看新增/修改/删除任务如何表示：看 `TaskToAdd` / `TaskToModify` / `TaskToRemove`
+- 想看风险与影响模块分析：看后续分析规则章节
+- 想看 API / PRD / requirement 三类输入如何落到 impact：结合 `references/delta-overview.md`
+
+## 何时读取
+
+- `/workflow delta` 已识别输入类型，准备分析影响范围时
+- 需要确认 delta 输出结构与 task 变更模型时
+
 ## 概述
 
 Delta 命令的核心功能是分析变更对现有工作流的影响，识别需要新增、修改或废弃的任务。
@@ -54,6 +66,7 @@ interface TaskToModify {
   before: Partial<WorkflowTaskV2>;
   after: Partial<WorkflowTaskV2>;
   rationale: string;
+  completedWarning?: string;  // P10: 已完成任务被修改的回归风险警告
 }
 
 interface TaskToRemove {
@@ -61,6 +74,7 @@ interface TaskToRemove {
   name: string;
   reason: string;
   deprecated: boolean;
+  completedWarning?: string;  // P10: 已完成任务被废弃的回归风险警告
 }
 ```
 
@@ -75,6 +89,8 @@ interface TaskToRemove {
 ```typescript
 // 工具函数：获取下一个可用任务编号（避免 ID 碰撞）
 // 兼容 T\d+ 和 Task-\d+ 两种 ID 格式
+// 输入契约：tasks 必须包含所有历史上已出现过的任务（包括 deprecated / removed），
+// 任何出现过的编号都视为已占用，不允许复用。
 function getNextTaskIndex(tasks: Array<{ id: string }>): number {
   return tasks.reduce((max, task) => {
     const match = /^(?:T|Task-)(\d+)$/.exec(task.id || '');
@@ -164,12 +180,18 @@ function analyzeApiDelta(
   for (const api of apiDiff.removed) {
     const relatedTasks = findTasksByApi(api.name, existingTasks);
     for (const task of relatedTasks) {
-      impact.tasksToRemove.push({
+      const entry: TaskToRemove = {
         id: task.id,
         name: task.name,
         reason: `接口 ${api.name} 已删除`,
         deprecated: true
-      });
+      };
+      // P10: 已完成任务回退保护
+      if (state?.progress?.completed?.includes(task.id)) {
+        entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，废弃可能导致回归`;
+        impact.riskLevel = 'high';
+      }
+      impact.tasksToRemove.push(entry);
     }
   }
 
@@ -177,14 +199,20 @@ function analyzeApiDelta(
   for (const api of apiDiff.modified) {
     const relatedTasks = findTasksByApi(api.name, existingTasks);
     for (const task of relatedTasks) {
-      impact.tasksToModify.push({
+      const entry: TaskToModify = {
         id: task.id,
         name: task.name,
         changes: api.changes,
         before: { steps: task.steps },
         after: { steps: [...task.steps, { id: 'D1', description: `接口变化：${api.changes}`, expected: '相关调用与类型已同步' }] },
         rationale: `接口 ${api.name} 签名变更`
-      });
+      };
+      // P10: 已完成任务回退保护
+      if (state?.progress?.completed?.includes(task.id)) {
+        entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，修改可能导致回归`;
+        impact.riskLevel = 'high';
+      }
+      impact.tasksToModify.push(entry);
     }
   }
 
@@ -492,7 +520,7 @@ function heuristicRequirementAnalysis(
   if (newModuleIntent && affectedFiles.length === 0) {
     newModules.push({
       name: requirement.substring(0, 50),
-      file: 'src/modules/new-feature.ts',  // 占位，需人工确认
+      file: '__PLACEHOLDER__/new-feature.ts',  // ⚠️ 占位路径，Step 6 Hard Stop 时强制要求用户替换为真实路径
       description: requirement.substring(0, 100)
     });
   }

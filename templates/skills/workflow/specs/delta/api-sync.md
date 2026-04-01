@@ -1,5 +1,17 @@
 # API 同步详情
 
+## 快速导航
+
+- 想看 sync / api 两种模式：看“同步模式”
+- 想看 `pnpm ytt` / `ytt.config.ts` 约束：看各模式说明与后续步骤
+- 想看 unblock / state.api_context 更新：看对应处理步骤
+- 想看哪些内容属于项目示例而非 workflow 通用契约：结合 `references/external-deps.md`
+
+## 何时读取
+
+- `/workflow delta` 识别为 API 相关输入时
+- 需要确认 API 生成、接口 diff、解除 `api_spec` 阻塞规则时
+
 ## 概述
 
 API 同步是 workflow delta 的核心功能之一，用于处理后端接口变更和前端 API 代码生成。
@@ -194,43 +206,17 @@ state.api_context = {
 
 ---
 
-### Step 7: 解除 api_spec 阻塞
+### Step 7: 写入 delta 文档（先审计）
+
+> 「先审计后生效」原则：先写入变更记录（delta.json + intent.md + review-status.json），再执行状态变更。
+> 这确保即使 state 写入失败，审计记录也已存在，可用于排查。
 
 ```typescript
-// 自动解除 api_spec 阻塞
-if (!state.unblocked?.includes('api_spec')) {
-  state.unblocked = [...(state.unblocked || []), 'api_spec'];
-}
+// 预判可解除阻塞的任务（此时 state 尚未持久化，使用内存中的 unblocked 列表预计算）
+const projectedUnblocked = [...(state.unblocked || []), 'api_spec'];
+const newlyUnblockedTasks = getUnblockedTasksProjected(projectedUnblocked, tasksPath);
 
-// 更新被阻塞任务的状态
-updateBlockedTasks(state, tasksPath);
-
-// 如果工作流级状态为 blocked，迁移到 running
-if (state.status === 'blocked') {
-  state.status = 'running';
-}
-
-// 持久化最终状态（api_context、unblocked、progress.blocked、status）
-writeFile(statePath, JSON.stringify(state, null, 2));
-
-const newlyUnblockedTasks = getUnblockedTasks(state, tasksPath);
-
-console.log(`
-✅ 已解除 api_spec 阻塞
-
-可执行的任务：
-${newlyUnblockedTasks.map(t => `- ${t.id}: ${t.name}`).join('\n')}
-`);
-```
-
----
-
-### Step 8: 写入 delta 文档
-
-在阻塞解除之后写入，确保 `unblockedTasks` 数据准确。
-
-```typescript
-// 写入 delta.json（unblockedTasks 在 Step 7 解除阻塞后计算，数据准确）
+// 写入 delta.json
 const deltaJson = {
   changeId,
   parent: state.delta_tracking.applied_changes.slice(-1)[0] || null,
@@ -269,11 +255,41 @@ writeFile(path.join(changeDir, 'review-status.json'), JSON.stringify({
   mode: 'sync',
   reviewedAt: new Date().toISOString()
 }, null, 2));
+```
 
-// 更新 tracking 状态
+---
+
+### Step 8: 解除 api_spec 阻塞 + 持久化 state（后生效）
+
+> 审计记录已写入（Step 7），现在执行状态变更并一次性持久化。
+
+```typescript
+// 自动解除 api_spec 阻塞
+if (!state.unblocked?.includes('api_spec')) {
+  state.unblocked = [...(state.unblocked || []), 'api_spec'];
+}
+
+// 更新被阻塞任务的状态
+updateBlockedTasks(state, tasksPath);
+
+// 如果工作流级状态为 blocked，迁移到 running
+if (state.status === 'blocked') {
+  state.status = 'running';
+}
+
+// 更新 tracking 状态（与 api_context 、unblocked 、progress 一并持久化）
 state.delta_tracking.current_change = changeId;
 state.delta_tracking.applied_changes.push(changeId);
+
+// 一次性持久化最终状态（api_context + unblocked + progress.blocked + status + delta_tracking）
 writeFile(statePath, JSON.stringify(state, null, 2));
+
+console.log(`
+✅ 已解除 api_spec 阻塞
+
+可执行的任务：
+${newlyUnblockedTasks.map(t => `- ${t.id}: ${t.name}`).join('\n')}
+`);
 ```
 
 ---

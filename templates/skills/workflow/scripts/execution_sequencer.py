@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from context_budget import calculate_max_tasks, detect_complexity, evaluate_budget_thresholds
+from path_utils import assert_canonical_workflow_state_path, detect_project_id_from_root, get_workflow_state_path, validate_project_id
 from state_manager import read_state, update_continuation, write_state
 from task_manager import detect_project_id, resolve_state_and_tasks
 from task_parser import count_tasks, find_next_task, parse_tasks_v2, task_to_dict, update_task_status_in_markdown
@@ -35,7 +36,29 @@ def extract_project_id(config: Optional[Dict[str, Any]]) -> Optional[str]:
         return None
     project = config.get("project") or {}
     project_id = project.get("id") or config.get("projectId")
-    return project_id or None
+    if not validate_project_id(str(project_id or "")):
+        return None
+    return str(project_id)
+
+
+def resolve_state_path_for_project(project_id: str) -> Optional[str]:
+    return get_workflow_state_path(project_id) if validate_project_id(project_id) else None
+
+
+def resolve_cli_state_path(state_or_project: str) -> Optional[str]:
+    if validate_project_id(state_or_project):
+        return resolve_state_path_for_project(state_or_project)
+    try:
+        return assert_canonical_workflow_state_path(state_or_project)
+    except ValueError:
+        return None
+
+
+def resolve_existing_state_path(state_or_project: str) -> Optional[str]:
+    state_path = resolve_cli_state_path(state_or_project)
+    if not state_path or not Path(state_path).is_file():
+        return None
+    return state_path
 
 
 def build_execute_entry(
@@ -45,7 +68,7 @@ def build_execute_entry(
     project_root: Path,
 ) -> Dict[str, Any]:
     config = load_project_config(project_root)
-    project_id = extract_project_id(config) or detect_project_id()
+    project_id = extract_project_id(config) or detect_project_id(str(project_root))
     context = load_execution_context(project_id=project_id, project_root=str(project_root))
     state = context.get("state") if "error" not in context else None
 
@@ -271,6 +294,47 @@ def update_after_task_completion(
     return normalized_state
 
 
+def prepare_parallel_sequential_fallback(
+    state: Dict[str, Any],
+    group_id: str,
+    task_ids: List[str],
+) -> Dict[str, Any]:
+    normalized_state = ensure_state_defaults(state)
+    rerun_task_ids = [task_id for task_id in task_ids if task_id]
+    rerun_set = set(rerun_task_ids)
+
+    progress = normalized_state.setdefault("progress", {})
+    completed = progress.setdefault("completed", [])
+    progress["completed"] = [task_id for task_id in completed if task_id not in rerun_set]
+
+    parallel_groups = normalized_state.setdefault("parallel_groups", [])
+    for group in parallel_groups:
+        if group.get("id") == group_id:
+            group["status"] = "failed"
+            group["conflict_detected"] = True
+            break
+
+    normalized_state["current_tasks"] = rerun_task_ids
+    normalized_state["status"] = "running" if rerun_task_ids else normalized_state.get("status", "running")
+    normalized_state["failure_reason"] = None
+    update_continuation(
+        normalized_state,
+        action="continue-direct",
+        reason="parallel-conflict-sequential-fallback",
+        severity="warning",
+        next_task_ids=rerun_task_ids,
+        handoff_required=False,
+    )
+
+    return {
+        "group_id": group_id,
+        "rerun_task_ids": rerun_task_ids,
+        "workflow_status": normalized_state.get("status"),
+        "conflict_detected": True,
+        "state": normalized_state,
+    }
+
+
 def mark_task_skipped(
     state_path: str,
     tasks_path: str,
@@ -398,32 +462,37 @@ def main() -> int:
     p_ctx.add_argument("--project-root")
 
     p_skip = sub.add_parser("skip", help="跳过当前任务")
-    p_skip.add_argument("state_file")
+    p_skip.add_argument("state_or_project")
     p_skip.add_argument("tasks_file")
     p_skip.add_argument("task_id")
 
     p_retry = sub.add_parser("retry", help="准备失败任务重试")
-    p_retry.add_argument("state_file")
+    p_retry.add_argument("state_or_project")
     p_retry.add_argument("task_id")
     p_retry.add_argument("--reason")
     p_retry.add_argument("--failure-stage", default="execution")
 
     p_retry_reset = sub.add_parser("retry-reset", help="重置任务重试运行时")
-    p_retry_reset.add_argument("state_file")
+    p_retry_reset.add_argument("state_or_project")
     p_retry_reset.add_argument("task_id")
 
     p_decide = sub.add_parser("decide", help="执行 ContextGovernor 决策")
-    p_decide.add_argument("state_file")
+    p_decide.add_argument("state_or_project")
     p_decide.add_argument("--execution-mode", default="continuous")
     p_decide.add_argument("--pause-before-commit", action="store_true")
     p_decide.add_argument("--has-parallel-boundary", action="store_true")
     p_decide.add_argument("--next-task-json", default="")
 
     p_apply = sub.add_parser("apply-decision", help="写入 continuation 决策")
-    p_apply.add_argument("state_file")
+    p_apply.add_argument("state_or_project")
     p_apply.add_argument("--decision-json", required=True)
     p_apply.add_argument("--next-task-ids", default="")
     p_apply.add_argument("--artifact-path")
+
+    p_parallel_fallback = sub.add_parser("parallel-fallback", help="准备并行冲突后的顺序降级状态")
+    p_parallel_fallback.add_argument("state_or_project")
+    p_parallel_fallback.add_argument("group_id")
+    p_parallel_fallback.add_argument("--task-ids", required=True)
 
     args = parser.parse_args()
 
@@ -432,35 +501,74 @@ def main() -> int:
         return 0
 
     if args.command == "context":
-        print(json.dumps(load_execution_context(args.project_id, args.project_root), ensure_ascii=False))
-        return 0
+        result = load_execution_context(args.project_id, args.project_root)
+        print(json.dumps(result, ensure_ascii=False))
+        return 1 if "error" in result else 0
 
     if args.command == "skip":
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
         with open(args.tasks_file, "r", encoding="utf-8") as file:
             tasks_content = file.read()
-        print(json.dumps(mark_task_skipped(args.state_file, args.tasks_file, tasks_content, args.task_id), ensure_ascii=False))
+        print(json.dumps(mark_task_skipped(state_path, args.tasks_file, tasks_content, args.task_id), ensure_ascii=False))
         return 0
 
     if args.command == "retry":
-        print(json.dumps(prepare_retry(args.state_file, args.task_id, args.reason, args.failure_stage), ensure_ascii=False))
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        print(json.dumps(prepare_retry(state_path, args.task_id, args.reason, args.failure_stage), ensure_ascii=False))
         return 0
 
     if args.command == "retry-reset":
-        print(json.dumps(reset_retry_runtime(args.state_file, args.task_id), ensure_ascii=False))
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        print(json.dumps(reset_retry_runtime(state_path, args.task_id), ensure_ascii=False))
         return 0
 
     if args.command == "decide":
-        state = ensure_state_defaults(read_state(args.state_file))
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = ensure_state_defaults(read_state(state_path))
         next_task = json.loads(args.next_task_json) if args.next_task_json else None
         print(json.dumps(decide_governance_action(state, next_task, args.execution_mode, args.pause_before_commit, args.has_parallel_boundary), ensure_ascii=False))
         return 0
 
     if args.command == "apply-decision":
-        state = ensure_state_defaults(read_state(args.state_file))
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = ensure_state_defaults(read_state(state_path))
         decision = json.loads(args.decision_json)
         next_task_ids = [item.strip() for item in args.next_task_ids.split(",") if item.strip()]
-        updated_state = apply_governance_decision(state, decision, args.state_file, next_task_ids, args.artifact_path)
+        updated_state = apply_governance_decision(state, decision, state_path, next_task_ids, args.artifact_path)
         print(json.dumps({"status": updated_state.get("status"), "continuation": updated_state.get("continuation")}, ensure_ascii=False))
+        return 0
+
+    if args.command == "parallel-fallback":
+        state_path = resolve_existing_state_path(args.state_or_project)
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        state = ensure_state_defaults(read_state(state_path))
+        task_ids = [item.strip() for item in args.task_ids.split(",") if item.strip()]
+        result = prepare_parallel_sequential_fallback(state, args.group_id, task_ids)
+        write_state(state_path, result["state"])
+        print(json.dumps({
+            "group_id": result["group_id"],
+            "rerun_task_ids": result["rerun_task_ids"],
+            "workflow_status": result["workflow_status"],
+            "conflict_detected": result["conflict_detected"],
+            "continuation": result["state"].get("continuation"),
+        }, ensure_ascii=False))
         return 0
 
     parser.print_help()

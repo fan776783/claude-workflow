@@ -36,8 +36,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from path_utils import get_workflows_dir, validate_project_id  # type: ignore
-from state_manager import read_state, write_state  # type: ignore
+from state_manager import write_state  # type: ignore
 from task_manager import (  # type: ignore
     cmd_complete,
     cmd_context_budget,
@@ -132,7 +131,7 @@ def cmd_advance(
         try:
             from journal import cmd_add  # type: ignore
 
-            pid = project_id or detect_project_id()
+            pid = project_id or detect_project_id(project_root)
             if pid:
                 next_id = (
                     next_task["id"]
@@ -451,7 +450,7 @@ def main() -> int:
     elif args.command == "journal":
         from journal import cmd_add, cmd_get, cmd_list as jl, cmd_search  # type: ignore
 
-        resolved_pid = pid or detect_project_id()
+        resolved_pid = pid or detect_project_id(project_root)
         if not resolved_pid:
             result = {"error": "无法检测项目 ID，请使用 --project-id 指定"}
         elif args.journal_command == "add":

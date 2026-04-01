@@ -12,9 +12,11 @@ from __future__ import annotations
 import json
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from state_manager import read_state, write_state
+from path_utils import assert_canonical_workflow_state_path
+from state_manager import read_state, resolve_state_path, write_state
 from verification import create_evidence
 from workflow_types import ensure_state_defaults, get_review_result
 
@@ -223,17 +225,34 @@ def write_quality_gate_result(
     state_path: str,
     task_id: str,
     gate_result: Dict[str, Any],
+    project_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    state = ensure_state_defaults(read_state(state_path))
+    state = ensure_state_defaults(read_state(state_path, project_id))
     quality_gates = state.setdefault("quality_gates", {})
     quality_gates[task_id] = gate_result
-    write_state(state_path, state)
+    write_state(state_path, state, project_id)
     return gate_result
 
 
-def read_quality_gate_result(state_path: str, task_id: str) -> Optional[Dict[str, Any]]:
-    state = ensure_state_defaults(read_state(state_path))
+def read_quality_gate_result(state_path: str, task_id: str, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    state = ensure_state_defaults(read_state(state_path, project_id))
     return get_review_result(state, task_id)
+
+
+def resolve_cli_state_path(project_id: Optional[str] = None, state_file: Optional[str] = None) -> str:
+    if state_file:
+        return assert_canonical_workflow_state_path(state_file, project_id)
+    if project_id:
+        return resolve_state_path(project_id)
+    raise ValueError("missing state reference")
+
+
+def resolve_existing_cli_state_path(project_id: Optional[str] = None, state_file: Optional[str] = None) -> Optional[str]:
+    try:
+        state_path = resolve_cli_state_path(project_id, state_file)
+    except ValueError:
+        return None
+    return state_path if Path(state_path).is_file() else None
 
 
 def create_quality_review_evidence(task_id: str, gate_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -276,6 +295,7 @@ def main() -> int:
     p_pass.add_argument("--requirement-ids", default="")
     p_pass.add_argument("--critical-constraints", default="")
     p_pass.add_argument("--reviewer", default="subagent")
+    p_pass.add_argument("--project-id")
     p_pass.add_argument("--state-file")
 
     p_fail = sub.add_parser("fail", help="生成失败态 quality gate 结果")
@@ -292,11 +312,13 @@ def main() -> int:
     p_fail.add_argument("--critical-constraints", default="")
     p_fail.add_argument("--reviewer", default="subagent")
     p_fail.add_argument("--last-result-json", default="{}")
+    p_fail.add_argument("--project-id")
     p_fail.add_argument("--state-file")
 
     p_read = sub.add_parser("read", help="读取 quality gate 结果")
-    p_read.add_argument("state_file")
-    p_read.add_argument("task_id")
+    p_read.add_argument("task_or_state")
+    p_read.add_argument("task_id", nargs="?")
+    p_read.add_argument("--project-id")
 
     sub.add_parser("budget", help="读取 quality review 预算")
 
@@ -321,8 +343,12 @@ def main() -> int:
             minor_count=args.minor_count,
             reviewer=args.reviewer,
         )
-        if args.state_file:
-            write_quality_gate_result(args.state_file, args.task_id, gate_result)
+        state_path = resolve_existing_cli_state_path(args.project_id, args.state_file) if (args.project_id or args.state_file) else None
+        if (args.project_id or args.state_file) and not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        if state_path:
+            write_quality_gate_result(state_path, args.task_id, gate_result, args.project_id)
         print(json.dumps({"gate_result": gate_result, "evidence": create_quality_review_evidence(args.task_id, gate_result)}, ensure_ascii=False))
         return 0
 
@@ -347,13 +373,33 @@ def main() -> int:
             last_result=last_result,
             reviewer=args.reviewer,
         )
-        if args.state_file:
-            write_quality_gate_result(args.state_file, args.task_id, gate_result)
+        state_path = resolve_existing_cli_state_path(args.project_id, args.state_file) if (args.project_id or args.state_file) else None
+        if (args.project_id or args.state_file) and not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        if state_path:
+            write_quality_gate_result(state_path, args.task_id, gate_result, args.project_id)
         print(json.dumps({"gate_result": gate_result, "evidence": create_quality_review_evidence(args.task_id, gate_result)}, ensure_ascii=False))
         return 0
 
     if args.command == "read":
-        print(json.dumps({"review": read_quality_gate_result(args.state_file, args.task_id)}, ensure_ascii=False))
+        try:
+            if args.task_id:
+                state_path = resolve_existing_cli_state_path(args.project_id, args.task_or_state)
+                task_id = args.task_id
+            elif args.project_id:
+                state_path = resolve_existing_cli_state_path(args.project_id, None)
+                task_id = args.task_or_state
+            else:
+                print(json.dumps({"error": "missing state reference"}, ensure_ascii=False))
+                return 1
+        except ValueError as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return 1
+        if not state_path:
+            print(json.dumps({"error": "没有活跃的工作流"}, ensure_ascii=False))
+            return 1
+        print(json.dumps({"review": read_quality_gate_result(state_path, task_id, args.project_id)}, ensure_ascii=False))
         return 0
 
     if args.command == "budget":

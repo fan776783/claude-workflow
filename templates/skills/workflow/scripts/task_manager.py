@@ -37,6 +37,7 @@ from context_budget import (
     generate_context_bar,
 )
 from dependency_checker import check_task_deps, find_parallel_groups
+from path_utils import detect_project_id_from_root, get_workflow_state_path, resolve_under, validate_project_id
 from state_manager import (
     calculate_progress,
     generate_progress_bar,
@@ -59,16 +60,8 @@ from task_parser import (
 # =============================================================================
 
 
-def detect_project_id() -> Optional[str]:
-    config_path = Path.cwd() / ".claude" / "config" / "project-config.json"
-    if config_path.is_file():
-        try:
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-            project = config.get("project") or {}
-            return project.get("id") or config.get("projectId")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return None
+def detect_project_id(project_root: Optional[str] = None) -> Optional[str]:
+    return detect_project_id_from_root(project_root)
 
 
 def detect_project_root(project_root: Optional[str] = None) -> Path:
@@ -81,35 +74,51 @@ def detect_project_root(project_root: Optional[str] = None) -> Path:
     return Path.cwd()
 
 
+def resolve_plan_artifact_path(
+    project_root: Path,
+    artifact_ref: str,
+) -> Optional[Path]:
+    if not artifact_ref:
+        return None
+
+    candidate = Path(artifact_ref)
+    if candidate.is_absolute():
+        return candidate
+
+    resolved = resolve_under(str(project_root), artifact_ref)
+    if resolved:
+        return Path(resolved)
+
+    fallback = (project_root / artifact_ref).resolve(strict=False)
+    project_root_resolved = project_root.resolve(strict=False)
+    if fallback == project_root_resolved or str(fallback).startswith(str(project_root_resolved) + os.sep):
+        return fallback
+    return None
+
+
 def resolve_state_and_tasks(
     project_id: Optional[str] = None,
     project_root: Optional[str] = None,
 ) -> tuple[Dict[str, Any] | None, str | None, str | None, str | None]:
     """Resolve state, state_path, task/plan content, artifact path."""
-    pid = project_id or detect_project_id()
-    if not pid:
+    pid = project_id or detect_project_id(project_root)
+    if not pid or not validate_project_id(pid):
         return None, None, None, None
 
-    state_dir = Path.home() / ".claude" / "workflows" / pid
-    state_path = state_dir / "workflow-state.json"
+    state_path_raw = get_workflow_state_path(pid)
+    if not state_path_raw:
+        return None, None, None, None
+    state_path = Path(state_path_raw)
 
     if not state_path.is_file():
         return None, None, None, None
 
-    state = read_state(str(state_path))
+    state = read_state(str(state_path), pid)
     resolved_project_root = detect_project_root(
         project_root or state.get("project_root")
     )
     plan_file = state.get("plan_file", "")
-    artifact_path: Optional[Path] = None
-
-    if plan_file:
-        candidate = Path(plan_file)
-        artifact_path = (
-            candidate
-            if candidate.is_absolute()
-            else (resolved_project_root / candidate)
-        )
+    artifact_path = resolve_plan_artifact_path(resolved_project_root, plan_file)
 
     if not artifact_path:
         return state, str(state_path), None, None

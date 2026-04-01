@@ -6,7 +6,9 @@
 >
 > `workflow` 现已区分 planning side review loops 与 execution quality gates：Phase 1.2 / Phase 2.5 为 `machine_loop`，Phase 1.4 为 `human_gate`，Phase 1.5 为 `conditional_human_gate`；执行阶段 `quality_review` 则作为 shared review loop contract 的 execution adapter 写入 `quality_gates.*`。
 >
-> 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。
+> 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。并行批次中仅为会写文件的任务 provision worktree，provisioning 串行完成后再并行启动 agent；明确只读的分析/审查任务优先避免不必要的 worktree。
+>
+> **Claude Code worktree guardrail**：即使**没有显式触发** `/dispatching-parallel-agents`，也不要在同一仓库里同时启动多个 `isolation: "worktree"` 的并行子 agent。只读搜索 / 分析 / 审查任务优先不使用 worktree；若多个子 agent 都需要写隔离，必须先串行准备 worktree（或串行启动），再并行执行实际任务，避免触发 Git `.git/config.lock` 竞争。
 
 ---
 
@@ -16,13 +18,13 @@
 
 - **交互语言**：工具/模型交互用 **English**；用户输出用 **中文**
 - **会话连续性**：记录 `sessionId`，后续任务**强制思考**是否继续对话
-- **沙箱安全**：Codex **零写入权限**，输出必须为 `unified diff patch`
+- **执行隔离**：Codex 的 sandbox 权限、是否只读以及输出形式，统一以 `collaborating-with-codex` skill contract 为准
 - **代码主权**：外部模型输出为"脏原型"，交付代码**必须由当前模型重构**
 - **代码风格**：精简高效、无冗余；注释/文档遵循**非必要不形成**原则
 - **针对性改动**：严禁影响现有功能
 - **上下文检索**：优先用 `mcp__auggie-mcp__codebase-retrieval`，减少 search/find/grep
 - **判断依据**：以代码和工具搜索结果为准，禁止猜测
-- **强制并行**：调用 Codex 时必须使用 **Run in the background**（**不设置** timeout）
+- **异步执行**：是否后台执行、如何等待结果与超时策略，统一以 `collaborating-with-codex` skill contract 为准
 
 ### 协作架构
 
@@ -69,38 +71,27 @@
 | Mode | 执行 |
 |------|------|
 | none | 跳过，直接 Phase 4 |
-| codex | Codex 分析 → 当前模型补充前端视角 → **Hard Stop**: 展示计划，询问 **"Shall I proceed? (Y/N)"** |
+| codex | 调用 Codex 做技术分析，当前模型补充前端视角与实现约束，然后 **Hard Stop**：展示计划，询问 **"Shall I proceed? (Y/N)"** |
 
-**Codex 调用**（`run_in_background: true`，**不设置** timeout），按 `collaborating-with-codex` skill 调用：
-
-```
-PROMPT: "ROLE: Technical Analyst. CONSTRAINTS: READ-ONLY, output analysis report only. Analyze: <用户问题>. Context: <从 Phase 1 获取的相关代码和架构信息>. OUTPUT: Detailed technical analysis with recommendations."
-```
-
-用 `TaskOutput` 等待结果，**📌 保存 `sessionId`**。
+执行时遵循 `collaborating-with-codex` skill 的任务模式与会话规则，并保存后续阶段需要复用的 `sessionId`。
 
 ### Phase 3: 原型获取
 
 | Mode | 执行 |
 |------|------|
 | none | 跳过 |
-| codex | Codex 生成 Diff（复用会话 `--session-id`）→ `TaskOutput` 收集 |
+| codex | 复用上一阶段会话，让 Codex 产出可供参考的实现原型（如 diff、重构建议或实现草案） |
 
-按 `collaborating-with-codex` skill 调用（复用会话 `--session-id`）：
+原型只作为参考材料，具体输出形式与会话恢复方式统一以 `collaborating-with-codex` skill 为准。
 
-```
-PROMPT: "ROLE: System Architect. CONSTRAINTS: READ-ONLY, output Unified Diff Patch ONLY. <后续需求>. OUTPUT: Unified Diff Patch ONLY."
-# 复用会话：追加 --session-id "<uuid-from-phase-2>"
-```
-
-输出: `Unified Diff Patch ONLY`
+输出: 供当前模型重构的实现原型
 
 ### Phase 4: 编码实施
 
 **当前模型执行**：
 
 1. 将外部原型视为"脏原型"，仅作参考
-2. 读取 Codex Diff → **思维沙箱**（模拟应用并检查逻辑）→ **重构**（清理）→ 最终代码
+2. 读取 Codex 输出 → **思维沙箱**（模拟应用并检查逻辑）→ **重构**（清理）→ 最终代码
 3. 重构为干净的生产级代码
 4. 验证无副作用
 
@@ -109,13 +100,9 @@ PROMPT: "ROLE: System Architect. CONSTRAINTS: READ-ONLY, output Unified Diff Pat
 | Mode | 执行 |
 |------|------|
 | none | 当前模型自检后交付 |
-| codex | Codex 审查（`run_in_background: true`）→ 整合反馈后交付 |
+| codex | 需要外部审查时，复用 `collaborating-with-codex` skill 提供的审查能力，整合反馈后交付 |
 
-按 `collaborating-with-codex` skill 调用：
-
-```
-PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sorted by P0→P3. Review the following changes: <diff_content>. Evaluate: logic correctness, security, performance, error handling, edge cases. OUTPUT FORMAT: Review comments only, sort by P0→P3 priority."
-```
+审查模式、是否使用 built-in review 或 adversarial review、以及相关参数约束，统一以 skill 文档和桥接脚本实现为准。
 
 ---
 
@@ -123,53 +110,42 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 
 ### 调用语法
 
-> **完整命令格式和参数说明参见 `collaborating-with-codex` skill。**
+> **完整命令格式、参数、会话恢复、后台执行与审查模式参见 `collaborating-with-codex` skill。**
 
-**PROMPT 模板**：
+### 使用约定
 
-```
-"ROLE: <角色>. CONSTRAINTS: READ-ONLY. <任务描述>. OUTPUT: <输出格式>"
-```
-
-**会话恢复**：追加 `--session-id "<uuid>"` 参数。
-
-### 异步执行
-
-使用 `run_in_background: true` 执行（**不设置** timeout），通过 `TaskOutput` 等待结果。
-
-### 会话复用
-
-每次调用返回 JSON `{"success": true, "sessionId": "xxx", "agentMessages": "..."}`，后续阶段用 `--session-id <id>` 复用上下文。
+- 任务协作、会话复用、后台执行等能力统一复用 `collaborating-with-codex` skill。
+- Prompt 仅作为任务指令载体；具体角色表达、sandbox、review 模式和返回结构不在此重复定义。
+- 如果 skill 文档与本文件存在差异，以 skill 文档和桥接脚本实现为准。
 
 ---
 
 ## 3. Expert Roles
 
-调用 Codex 时通过 `--prompt` 内联角色前缀：
+本节只定义**高层协作职责**，不重复 `collaborating-with-codex` skill 的命令参数、审查模式、会话恢复或 sandbox 细节。
 
-| 阶段 | 角色前缀 |
-|------|----------|
-| 分析 | `ROLE: Technical Analyst. CONSTRAINTS: READ-ONLY, output analysis report only.` |
-| 规划 | `ROLE: System Architect. CONSTRAINTS: READ-ONLY, output Unified Diff Patch ONLY.` |
-| 审查 | `ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sorted by P0→P3.` |
-| 调试 | `ROLE: Backend Debugger. CONSTRAINTS: READ-ONLY, output diagnostic report only.` |
-| 测试 | `ROLE: Test Engineer. CONSTRAINTS: READ-ONLY, output test analysis report only.` |
-| 优化 | `ROLE: Performance Optimizer. CONSTRAINTS: READ-ONLY, output optimization recommendations only.` |
+具体调用 contract 统一以 `templates/skills/collaborating-with-codex/SKILL.md` 与桥接脚本实现为准。
 
-### Codex 专长
+### Codex 角色定位
 
-| 专长领域 | 权威范围 | 约束 |
+| 专长领域 | 适用场景 | 边界 |
 |----------|----------|------|
-| API 设计、数据库、安全、性能、算法 | **技术权威** | 零写入权限 + Diff Only |
+| API 设计、数据库、安全、性能、算法、复杂调试 | 后端逻辑、代码审计、根因分析、重构建议 | 作为外部协作模型提供分析、diff 原型或审查意见；最终交付代码仍由当前模型重构并落盘 |
 
 ### 当前模型职责
 
 当前运行的模型作为**全栈编排者**，负责：
-- 协调 Codex 协作
-- 独立处理前端/UI 任务
-- 将"脏原型"重构为生产级代码
-- 执行所有文件写入操作
-- 最终质量把关与交付验证
+- 判断是否需要调用 Codex，以及选择合适的协作模式
+- 整合 Codex 返回的分析、diff 原型或审查意见
+- 独立处理前端/UI 任务，或在全栈任务中完成前端侧实现与收口
+- 将外部模型输出视为参考材料，重构为干净的生产级代码
+- 执行所有文件写入、验证与最终质量把关
+
+### 角色使用原则
+
+- 分析、调试、审查、优化等任务可以为 Codex 提供明确角色语境，但角色前缀只是提示方式，不构成稳定接口。
+- 审查能力优先复用 `collaborating-with-codex` skill 已定义的 review 模式，而不是在此重复约定 prompt 细节。
+- 会话复用、后台执行、read-only / workspace-write 等执行语义，统一以 skill 文档和脚本实现为准。
 
 ---
 

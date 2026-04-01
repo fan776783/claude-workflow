@@ -2,7 +2,21 @@
 
 读取 `workflow-state.json` + `plan.md`，生成进度报告。
 
+> `workflow-state.json` 只允许位于 `~/.claude/workflows/{projectId}/workflow-state.json`；项目目录 `.claude/` 不得承载运行时状态文件。
+
 > **实现方式**：所有状态读取和报告生成逻辑由 Python 脚本处理，AI 调用脚本获取结构化数据后格式化输出。
+
+## 快速导航
+
+- 想看简洁/详细/JSON 三种输出：看“渐进披露模式”
+- 想看状态读取命令：看 Step 1
+- 想看下一步建议与预算信息：看后续步骤
+- 想看统一 CLI：结合 `references/shared-utils.md`
+
+## 何时读取
+
+- 用户调用 `/workflow status`
+- 需要确认当前 task、进度、预算、最近 journal 或下一步建议时
 
 ## 渐进披露模式
 
@@ -20,7 +34,7 @@
 
 ```bash
 # 获取结构化状态数据
-py -3 workflow_cli.py status
+python3 scripts/workflow_cli.py status
 
 # 输出示例：
 # {
@@ -35,7 +49,7 @@ py -3 workflow_cli.py status
 # }
 ```
 
-**JSON 模式**：`py -3 workflow_cli.py status` 的输出直接满足 `--json` 需求。
+**JSON 模式**：`python3 scripts/workflow_cli.py status` 的输出直接满足 `--json` 需求。
 
 **错误情况**：
 - 无项目配置 → 提示执行 `/scan`
@@ -46,19 +60,19 @@ py -3 workflow_cli.py status
 
 ```bash
 # 详细进度（含约束信息）
-py -3 workflow_cli.py progress
+python3 scripts/workflow_cli.py progress
 
 # 下一个待执行任务
-py -3 workflow_cli.py next
+python3 scripts/workflow_cli.py next
 
 # 上下文预算
-py -3 workflow_cli.py budget
+python3 scripts/workflow_cli.py budget
 
 # 最近会话记录
-py -3 workflow_cli.py journal list
+python3 scripts/workflow_cli.py journal list
 
 # 聚合上下文（一条命令获取全部信息）
-py -3 workflow_cli.py context
+python3 scripts/workflow_cli.py context
 ```
 
 ---
@@ -130,7 +144,7 @@ AI 获取脚本数据后，按以下格式向用户展示状态报告：
 
 ```bash
 # 获取 journal 数据
-py -3 workflow_cli.py journal list
+python3 scripts/workflow_cli.py journal list
 ```
 
 在详细模式的 `📓 最近会话记录` 区块中展示：

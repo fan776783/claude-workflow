@@ -2,6 +2,20 @@
 
 统一入口：处理需求更新、API 变更等外部规格变化。
 
+## 快速导航
+
+- 想先判断输入会被识别成什么：看 Step 0
+- 想看 change id / delta 文档结构：看 Step 2 / Step 4
+- 想看 PRD / requirement 影响分析：看 Step 3 与 `specs/delta/impact-analysis.md`
+- 想看 API 同步与 unblock 规则：看 Step 5 与 `specs/delta/api-sync.md`
+- 想确认哪些示例是项目特定约定：看 `references/external-deps.md`
+
+## 何时读取
+
+- 用户调用 `/workflow delta`
+- 需要处理 PRD 变化、需求变更、API 文件变化或批量 API 同步时
+- 需要确认 delta 文档、状态迁移与 unblock 语义时
+
 ## 使用方法
 
 ```bash
@@ -122,8 +136,32 @@
 
 显示变更摘要，等待用户确认：
 
+**前置检查**：
+- **占位路径检测**（P9）：扫描 `tasksToAdd` 中的 `files` 字段，若包含 `__PLACEHOLDER__` 前缀路径，在摘要中用 `⚠️` 高亮标注，强制要求用户提供真实路径后才可应用
+- **已完成任务回归风险**（P10）：扫描 `tasksToModify` / `tasksToRemove` 中的 `completedWarning` 字段，若存在则用 `⚠️` 高亮标注回归风险
+
+```typescript
+// 前置安全检查
+const placeholderTasks = impact.tasksToAdd.filter(t =>
+  Object.values(t.files || {}).flat().some(f => f.startsWith('__PLACEHOLDER__'))
+);
+if (placeholderTasks.length > 0) {
+  console.log(`⚠️ 以下任务包含占位路径，请在确认前修改：`);
+  placeholderTasks.forEach(t => console.log(`  - ${t.id}: ${t.name}`));
+}
+
+const regressionRisks = [
+  ...impact.tasksToModify.filter(t => t.completedWarning),
+  ...impact.tasksToRemove.filter(t => t.completedWarning)
+];
+if (regressionRisks.length > 0) {
+  console.log(`⚠️ 以下变更涉及已完成任务，可能导致回归：`);
+  regressionRisks.forEach(t => console.log(`  - ${t.completedWarning}`));
+}
+```
+
 **用户选择**：
-1. **应用变更**: 更新 `spec.md` 和 `plan.md`
+1. **应用变更**: 更新 `spec.md` 和 `plan.md`（占位路径必须先替换）
 2. **手动编辑**: 暂停，编辑 intent.md 后重新执行
 3. **取消**: 放弃本次变更
 

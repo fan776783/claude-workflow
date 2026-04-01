@@ -1,4 +1,4 @@
-﻿# workflow start - 启动工作流 (v5.0)
+# workflow start - 启动工作流 (v5.0)
 
 > 本文件为摘要层，不定义新的状态字段、触发规则或执行语义；具体行为以 `specs/start/*.md` 与 `references/state-machine.md` 为准。
 >
@@ -50,6 +50,17 @@
 
 ---
 
+### Step 0.5：Git 状态检查（强制）
+
+参数解析后立即执行 Git 状态检查，确保恢复路径（Step 2 检测到已有工作流）也必须经过此检查：
+
+- Git 仓库存在且有初始提交 → 继续
+- 不在 Git 仓库 / 无提交 → HARD-GATE，用户选择初始化或降级
+
+**详细实现**: 参见 `specs/start/phase-0-code-analysis.md` Step 1.1
+
+---
+
 ### Step 1：项目配置检查与自愈（强制）
 
 检查 `.claude/config/project-config.json` 是否存在。
@@ -67,6 +78,45 @@
 
 检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未归档的工作流。
 
+**决策树**：
+
+```
+检测到 workflow-state.json？
+│
+├─ 不存在 → 继续 Phase 0（新建工作流）
+│
+└─ 存在 → 读取 status 字段
+   │
+   ├─ status: completed
+   │   → 提示用户先归档：`/workflow archive`
+   │   → 归档完成后自动继续 Phase 0
+   │
+   ├─ status: running / paused
+   │   → 展示当前任务进度摘要
+   │   → 用户选择：
+   │     ├─ 恢复执行 → `/workflow execute` 恢复
+   │     └─ 覆盖（--force） → 备份旧 state → 重新进入 Phase 0
+   │
+   ├─ status: failed
+   │   → 展示失败任务和原因
+   │   → 用户选择：
+   │     ├─ 重试 → `/workflow execute --retry`
+   │     └─ 覆盖（--force） → 备份旧 state → 重新进入 Phase 0
+   │
+   ├─ status: blocked
+   │   → 展示阻塞依赖列表
+   │   → 用户选择：
+   │     ├─ 解除阻塞 → `/workflow unblock <dep>`
+   │     └─ 覆盖（--force） → 备份旧 state → 重新进入 Phase 0
+   │
+   └─ status: archived
+       → 等同于"不存在"，继续 Phase 0
+```
+
+> 覆盖时必须要求 `--force` 标志或用户显式确认，防止误删进行中的工作流。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。
+
+**详细实现**: 参见 `specs/start/phase-0-code-analysis.md` Step 2
+
 ---
 
 ### Phase 0：代码分析（强制）⚠️
@@ -81,6 +131,8 @@
 5. 需要注意的依赖关系
 
 **详细实现**: 参见 `specs/start/phase-0-code-analysis.md`
+
+**持久化**: Phase 0 完成后，分析结果写入 `~/.claude/workflows/{projectId}/analysis-result.json`，后续阶段优先从文件加载，避免重复分析。
 
 ---
 

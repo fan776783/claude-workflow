@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from path_utils import detect_project_id_from_root, get_workflows_dir
+
 
 # =============================================================================
 # Constants
@@ -36,7 +38,10 @@ MAX_SESSIONS_PER_INDEX = 100  # 超过后自动归档旧条目
 
 def get_journal_dir(project_id: str) -> Path:
     """Get journal directory for a project."""
-    return Path.home() / ".claude" / "workflows" / project_id / "journal"
+    workflows_dir = get_workflows_dir(project_id)
+    if not workflows_dir:
+        raise ValueError(f"invalid project id: {project_id}")
+    return Path(workflows_dir) / "journal"
 
 
 def read_index(journal_dir: Path) -> Dict[str, Any]:
@@ -195,17 +200,9 @@ def cmd_get(project_id: str, session_id: int) -> Dict[str, Any]:
 # =============================================================================
 
 
-def detect_project_id() -> Optional[str]:
+def detect_project_id(project_root: Optional[str] = None) -> Optional[str]:
     """Auto-detect project ID from project-config.json."""
-    config_path = Path.cwd() / ".claude" / "config" / "project-config.json"
-    if config_path.is_file():
-        try:
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-            project = config.get("project") or {}
-            return project.get("id") or config.get("projectId")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return None
+    return detect_project_id_from_root(project_root)
 
 
 # =============================================================================

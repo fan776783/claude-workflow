@@ -27,6 +27,17 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agent_registry import register_agent, update_agent_status, get_group_status
 from worktree_manager import create_worktree, get_repo_root
 
+READ_ONLY_TERMS = {
+    "analyze", "analysis", "inspect", "investigate", "investigation",
+    "review", "trace", "diagnose", "diagnostic", "plan", "document",
+    "audit", "explore", "research", "read", "verify", "summarize",
+}
+WRITE_TERMS = {
+    "implement", "fix", "edit", "update", "refactor", "create",
+    "delete", "rename", "migrate", "write", "modify", "patch",
+    "add", "remove", "replace", "change",
+}
+
 
 # =============================================================================
 # Context Building
@@ -113,6 +124,72 @@ def build_minimal_context(
 
 
 # =============================================================================
+# Worktree Policy
+# =============================================================================
+
+
+def _collect_task_text(task: Dict[str, Any]) -> str:
+    """Flatten task text fields for lightweight intent checks."""
+    parts = [str(task.get("name", ""))]
+
+    for step in task.get("steps", []) or []:
+        parts.extend([
+            str(step.get("description", "")),
+            str(step.get("expected", "")),
+        ])
+
+    for criterion in task.get("acceptance_criteria", []) or []:
+        parts.append(str(criterion))
+
+    verification = task.get("verification", {}) or {}
+    for command in verification.get("commands", []) or []:
+        parts.append(str(command))
+
+    return " ".join(parts).lower()
+
+
+
+def _task_files_empty(task: Dict[str, Any]) -> bool:
+    """Return true when the task declares no file writes or test files."""
+    files = task.get("files", {}) or {}
+    for key in ("create", "modify", "test"):
+        values = files.get(key) or []
+        if values:
+            return False
+    return True
+
+
+
+def requires_worktree(task: Dict[str, Any]) -> bool:
+    """Conservatively decide whether a task needs filesystem isolation."""
+    if not _task_files_empty(task):
+        return True
+
+    text = _collect_task_text(task)
+    if not text:
+        return True
+
+    has_read_only_signal = any(term in text for term in READ_ONLY_TERMS)
+    has_write_signal = any(term in text for term in WRITE_TERMS)
+
+    if has_write_signal:
+        return True
+    if has_read_only_signal:
+        return False
+    return True
+
+
+
+def provisioning_note(task: Dict[str, Any], needs_worktree: bool) -> str:
+    """Explain the dispatch provisioning decision for visibility."""
+    if not needs_worktree:
+        return "read-only task detected; skipping worktree provisioning"
+    if _task_files_empty(task):
+        return "task intent ambiguous; defaulting to worktree isolation"
+    return "task declares file targets; provisioning worktree"
+
+
+# =============================================================================
 # Dispatch
 # =============================================================================
 
@@ -127,10 +204,10 @@ def dispatch_group(
     """Dispatch a group of tasks to parallel sub-agents.
 
     This function orchestrates the dispatch process:
-    1. Create worktrees (if enabled)
+    1. Provision worktrees serially when required
     2. Register agents
     3. Build minimal context
-    4. Store dispatch manifests
+    4. Store dispatch manifests for later parallel launch
 
     The actual agent launching is platform-specific and handled by
     the AI orchestrator using the manifests this function produces.
@@ -143,13 +220,25 @@ def dispatch_group(
     for task in tasks:
         tid = task.get("id", "unknown")
         branch = f"workflow/{tid.lower()}"
+        needs_worktree = use_worktree and requires_worktree(task)
+        note = provisioning_note(task, needs_worktree)
 
-        # Create worktree if requested
+        # Provision worktrees serially during manifest preparation.
         worktree_path = None
-        if use_worktree:
+        if needs_worktree:
             wt_result = create_worktree(branch, tid, cwd=root)
             if wt_result.get("created") or wt_result.get("exists"):
                 worktree_path = wt_result.get("path")
+            elif wt_result.get("error"):
+                return {
+                    "error": wt_result["error"],
+                    "failed_task_id": tid,
+                    "group_id": gid,
+                    "manifests": manifests,
+                    "platform": platform,
+                    "use_worktree": use_worktree,
+                    "created_at": datetime.now().isoformat(),
+                }
 
         # Register agent
         agent = register_agent(
@@ -170,6 +259,8 @@ def dispatch_group(
             "task_name": task.get("name", ""),
             "group_id": gid,
             "platform": platform,
+            "requires_worktree": needs_worktree,
+            "provisioning_note": note,
             "worktree_path": worktree_path,
             "context": context,
             "context_length": len(context),

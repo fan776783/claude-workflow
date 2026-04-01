@@ -9,6 +9,7 @@ workflow plan delta helper。
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -94,6 +95,16 @@ def summarize_task_deltas(task_deltas: Optional[List[Dict[str, Any]]]) -> Dict[s
     return summary
 
 
+def get_next_task_index(tasks: List[Dict[str, Any]]) -> int:
+    max_index = 0
+    for task in tasks:
+        task_id = str(task.get("id") or "")
+        match = re.match(r"^(?:T|Task-)(\d+)$", task_id)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return max_index + 1
+
+
 def apply_task_deltas(content: str, task_deltas: List[Dict[str, Any]]) -> str:
     updated = content
     additions: List[str] = []
@@ -119,23 +130,45 @@ def apply_task_deltas(content: str, task_deltas: List[Dict[str, Any]]) -> str:
     return updated
 
 
-def build_task_delta_examples(change_id: str, trigger: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_task_delta_examples(
+    change_id: str,
+    trigger: Dict[str, Any],
+    existing_tasks: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     description = trigger.get("description") or change_id
-    return [
+    existing_tasks = existing_tasks or []
+    next_index = get_next_task_index(existing_tasks)
+    add_task_id = f"T{next_index}"
+
+    existing_task_ids = [str(task.get("id") or "") for task in existing_tasks if str(task.get("id") or "")]
+    modify_task_id = existing_task_ids[0] if existing_task_ids else None
+    remove_task_id = existing_task_ids[1] if len(existing_task_ids) > 1 else None
+
+    deltas: List[Dict[str, Any]] = [
         {
             "action": "add",
-            "task_markdown": f"## T99: 响应增量变更 {change_id}\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P-delta-{change_id.lower()}\n- **需求 ID**: R-001\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - D1: 响应变更 {description} → 完成增量处理\n- **验证命令**: `python3 -m unittest tests/test_workflow_python_helpers.py`\n- **验证期望**: `OK`\n",
-        },
-        {
-            "action": "modify",
-            "task_id": "T1",
-            "task_markdown": "## T1: 第一个任务（增量调整）\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P1\n- **需求 ID**: R-001\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - A1: 修改实现并吸收增量变化 → 完成第一个任务\n- **验证命令**: `python3 -m unittest tests/test_workflow_python_helpers.py`\n- **验证期望**: `OK`\n",
-        },
-        {
-            "action": "remove",
-            "task_id": "T2",
-        },
+            "task_markdown": f"## {add_task_id}: 响应增量变更 {change_id}\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P-delta-{change_id.lower()}\n- **需求 ID**: R-001\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - D1: 响应变更 {description} → 完成增量处理\n- **验证命令**: `python3 -m unittest tests/test_workflow_python_helpers.py`\n- **验证期望**: `OK`\n",
+        }
     ]
+
+    if modify_task_id:
+        deltas.append(
+            {
+                "action": "modify",
+                "task_id": modify_task_id,
+                "task_markdown": f"## {modify_task_id}: 第一个任务（增量调整）\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P1\n- **需求 ID**: R-001\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - A1: 修改实现并吸收增量变化 → 完成第一个任务\n- **验证命令**: `python3 -m unittest tests/test_workflow_python_helpers.py`\n- **验证期望**: `OK`\n",
+            }
+        )
+
+    if remove_task_id:
+        deltas.append(
+            {
+                "action": "remove",
+                "task_id": remove_task_id,
+            }
+        )
+
+    return deltas
 
 
 def build_sync_audit_payload(

@@ -185,6 +185,8 @@ def build_minimum_state(
 
 def ensure_state_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(state)
+    if not normalized.get("project_id") and normalized.get("projectId"):
+        normalized["project_id"] = normalized["projectId"]
     normalized.setdefault("status", "idle")
     normalized.setdefault("current_tasks", [])
     normalized.setdefault("progress", {})

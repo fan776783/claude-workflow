@@ -4,6 +4,18 @@
 >
 > 本文档同时把 `quality_review` 明确定位为 **shared review loop contract 的 execution adapter**：planning side 使用 `review_status.*`，execution side 使用 `quality_gates.*`，两者共享 review subject / budget / artifact / sink 语义，但不强制同构。
 
+## 快速导航
+
+- 想看 quality_review 在执行阶段的定位：看“概述”
+- 想看 shared review loop contract 对齐点：看“与 shared review loop contract 的对齐”
+- 想看两阶段审查流程：看“执行流程”
+- 想看 Stage 1 / Stage 2 的输入输出：看各阶段章节
+
+## 何时读取
+
+- 当前 task 的 `actions` 包含 `quality_review`
+- 需要确认质量关卡如何写入 `quality_gates.*` 并驱动审查循环时
+
 ## 概述
 
 `quality_review` action 在质量关卡（`quality_gate = true`）任务中执行，替代原有的“单次代码审查 + 评分阈值”逻辑。审查对象是**聚合 diff 窗口**——上次通过的质量关卡到当前关卡之间的所有代码变更。

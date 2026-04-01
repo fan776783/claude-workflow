@@ -30,6 +30,12 @@ import os
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "skills" / "workflow" / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from path_utils import get_workflow_state_path
+
 # Windows UTF-8 fix (from Trellis)
 if sys.platform == "win32":
     import io as _io
@@ -66,7 +72,10 @@ def find_project_config(start: Path) -> dict | None:
 
 def find_workflow_state(project_id: str) -> dict | None:
     """Find workflow-state.json for the given project."""
-    state_path = Path.home() / ".claude" / "workflows" / project_id / "workflow-state.json"
+    state_path_raw = get_workflow_state_path(project_id)
+    if not state_path_raw:
+        return None
+    state_path = Path(state_path_raw)
     if state_path.is_file():
         try:
             return json.loads(state_path.read_text(encoding="utf-8"))

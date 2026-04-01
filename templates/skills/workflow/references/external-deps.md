@@ -2,6 +2,18 @@
 
 工作流的外部依赖管理。
 
+## 快速导航
+
+- 想区分 workflow / figma-ui / visual-diff 的职责：看“设计理念”
+- 想看 `api_spec` 的来源与处理入口：看“API 依赖”
+- 想判断哪些路径/命令只是项目示例：看对应示例段落，按项目现状核实
+- 想处理 API 变更：回到 `references/delta-overview.md` 与 `specs/delta/api-sync.md`
+
+## 何时读取
+
+- 需要理解 workflow 与外部系统（尤其 API 同步）的边界时
+- 需要判断某个 delta / unblock 行为是否属于外部依赖管理时
+
 ## 设计理念
 
 **职责分离原则**：

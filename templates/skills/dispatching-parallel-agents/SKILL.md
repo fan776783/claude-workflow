@@ -174,7 +174,17 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 - UI 优先更偏前端/交互的执行者
 - `auto` 边界根据任务名称和文件类型动态选择
 
-### Step 6：构造最小上下文并分派
+### Step 6a：串行 provisioning 与隔离准备
+
+在真正启动并行子 agent 之前，先完成本批次的隔离准备。这里的目标不是开始执行任务，而是**只处理会触发共享 Git 元数据写入的 provisioning**。
+
+- 若任务会写文件、修改测试或语义上无法证明只读，则默认需要 worktree
+- 若任务是明确的 analysis / review / investigation / trace / diagnose / plan / document 类只读任务，可跳过 worktree
+- 无法证明只读时，一律按需要 worktree 处理
+- 所有 `git worktree add/remove/prune` 必须使用 repo 级串行保护，避免并发触发 `.git/config.lock` 竞争
+- provisioning 完成后，再进入并行子 agent 启动阶段
+
+### Step 6b：构造最小上下文并并行分派
 
 每个子 agent 上下文至少包含：
 
@@ -194,7 +204,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 ### Step 7：结果回收与清理
 
-- 并行分派时使用后台运行
+- provisioning 完成后，再使用后台运行启动并行子 agent
 - 主会话逐个等待结果并记录成功/失败
 - Codex 类平台在回收后显式执行清理
 - 每个任务完成后仍要经过 workflow 自身的验证铁律、规格合规与状态更新管线
@@ -207,7 +217,10 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 2. 若出现冲突或验证失败：
    - 标记 `parallel_groups[*].conflict_detected = true`
    - 将批次状态改为 `failed`
-   - 回滚“仅因并行暂记完成”的状态
+   - 回滚“仅因并行暂记完成”的 `progress.completed` 记录
+   - 将 `current_tasks` 重置为该批次待顺序重跑的任务集合
+   - 将 workflow 状态恢复到可继续执行的状态（通常为 `running`）
+   - 保留子 agent 产物与诊断信息，但不保留“该批次已完成”的最终结论
    - 按原顺序重新顺序执行
 3. 若仅个别任务失败：
    - 失败任务标记 `failed`
@@ -220,7 +233,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 1. `execute` 的 Step 3：识别是否存在 2+ 独立问题域 / 任务域
 2. `execute` 的 ContextGovernor：主会话已进入 warning 区，且可证明边界独立时，优先评估 `parallel-boundaries`
-3. `execute` 的 Step 6：把已确认独立的并行批次路由到多子 agent
+3. `execute` 的 Step 6：先完成串行 provisioning，再把已确认独立的并行批次路由到多子 agent
 4. 任意需要“one agent per domain + 并行执行 + 主会话汇总验证”的场景
 
 如果只是单个任务的普通 subagent 执行，或 `quality_review` Stage 2 的单 reviewer 审查，则不应把它们强行归入本 skill。
@@ -252,9 +265,9 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 | 脚本 | 对应步骤 | CLI 用法 |
 |------|---------|---------|
-| `worktree_manager.py` | Step 6 隔离执行 | `create --branch <b> --task-id <t>` / `list` / `remove` / `cleanup` |
+| `worktree_manager.py` | Step 6a 隔离 provisioning | `create --branch <b> --task-id <t>` / `list` / `remove` / `cleanup` |
 | `agent_registry.py` | Step 7 生命周期管理 | `register --task-id <t>` / `update --agent-id <id> --status <s>` / `list` |
-| `dispatch_runner.py` | Step 4-6 分组+上下文构建+分派 | `dispatch --tasks-json <f> --task-ids T3,T4` |
+| `dispatch_runner.py` | Step 4-6b 分组+上下文构建+分派 | `dispatch --tasks-json <f> --task-ids T3,T4` |
 | `result_collector.py` | Step 7-8 回收+冲突检测 | `collect --group-id <g>` / `check-conflicts --group-id <g>` |
 
 ### 典型工作流

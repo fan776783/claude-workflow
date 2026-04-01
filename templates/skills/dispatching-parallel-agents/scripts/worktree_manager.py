@@ -21,14 +21,20 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 
 # =============================================================================
 # Git Worktree Operations
 # =============================================================================
+
+LOCK_FILENAME = "worktree-provision.lock"
+LOCK_TIMEOUT_SECONDS = 10.0
+LOCK_RETRY_INTERVAL_SECONDS = 0.2
 
 
 def _run_git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
@@ -62,6 +68,41 @@ def get_worktree_base_dir(repo_root: str) -> str:
 def _normalize_path(path: str) -> str:
     """Normalize a filesystem path for reliable comparisons."""
     return os.path.normcase(os.path.realpath(path))
+
+
+def _get_lock_path(repo_root: str) -> str:
+    """Return the repository-scoped lock file path for worktree provisioning."""
+    return os.path.join(repo_root, ".git", LOCK_FILENAME)
+
+
+@contextmanager
+def _worktree_provision_lock(repo_root: str) -> Iterator[None]:
+    """Serialize git worktree mutations for a repository."""
+    lock_path = _get_lock_path(repo_root)
+    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    "Timed out waiting for worktree provisioning lock "
+                    f"after {LOCK_TIMEOUT_SECONDS:.1f}s: {lock_path}"
+                )
+            time.sleep(LOCK_RETRY_INTERVAL_SECONDS)
+
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+            lock_file.write(f"pid={os.getpid()}\n")
+            lock_file.write(f"acquired_at={datetime.now().isoformat()}\n")
+        yield
+    finally:
+        try:
+            os.remove(lock_path)
+        except FileNotFoundError:
+            pass
 
 
 def _active_worktree_paths(cwd: Optional[str] = None) -> set[str]:
@@ -138,56 +179,65 @@ def create_worktree(
     if not repo_root:
         return {"error": "Not in a git repository"}
 
-    base_dir = get_worktree_base_dir(repo_root)
-    worktree_path = os.path.join(base_dir, task_id)
+    try:
+        with _worktree_provision_lock(repo_root):
+            base_dir = get_worktree_base_dir(repo_root)
+            worktree_path = os.path.join(base_dir, task_id)
 
-    # Check if an active worktree already exists for this path.
-    if os.path.isdir(worktree_path):
-        active_paths = _active_worktree_paths(cwd)
-        if _normalize_path(worktree_path) in active_paths:
+            # Check if an active worktree already exists for this path.
+            if os.path.isdir(worktree_path):
+                active_paths = _active_worktree_paths(cwd)
+                if _normalize_path(worktree_path) in active_paths:
+                    return {
+                        "exists": True,
+                        "path": worktree_path,
+                        "branch": branch,
+                        "task_id": task_id,
+                    }
+
+                # Self-heal stale generated directories left by interrupted runs.
+                try:
+                    _remove_stale_worktree_dir(worktree_path, base_dir)
+                except OSError as exc:
+                    return {
+                        "error": (
+                            "Failed to clean stale worktree directory "
+                            f"{worktree_path}: {exc}"
+                        )
+                    }
+
+            # Create base directory
+            os.makedirs(base_dir, exist_ok=True)
+
+            # Create worktree with new branch
+            result = _run_git(
+                "worktree", "add", "-b", branch, worktree_path, base_branch,
+                cwd=cwd,
+            )
+
+            if result.returncode != 0:
+                # Branch might already exist, try without -b
+                result = _run_git(
+                    "worktree", "add", worktree_path, branch,
+                    cwd=cwd,
+                )
+                if result.returncode != 0:
+                    return {
+                        "error": (
+                            "Failed to create worktree: "
+                            f"{result.stderr.strip()}"
+                        )
+                    }
+
             return {
-                "exists": True,
+                "created": True,
                 "path": worktree_path,
                 "branch": branch,
                 "task_id": task_id,
+                "created_at": datetime.now().isoformat(),
             }
-
-        # Self-heal stale generated directories left by interrupted runs.
-        try:
-            _remove_stale_worktree_dir(worktree_path, base_dir)
-        except OSError as exc:
-            return {
-                "error": (
-                    "Failed to clean stale worktree directory "
-                    f"{worktree_path}: {exc}"
-                )
-            }
-
-    # Create base directory
-    os.makedirs(base_dir, exist_ok=True)
-
-    # Create worktree with new branch
-    result = _run_git(
-        "worktree", "add", "-b", branch, worktree_path, base_branch,
-        cwd=cwd,
-    )
-
-    if result.returncode != 0:
-        # Branch might already exist, try without -b
-        result = _run_git(
-            "worktree", "add", worktree_path, branch,
-            cwd=cwd,
-        )
-        if result.returncode != 0:
-            return {"error": f"Failed to create worktree: {result.stderr.strip()}"}
-
-    return {
-        "created": True,
-        "path": worktree_path,
-        "branch": branch,
-        "task_id": task_id,
-        "created_at": datetime.now().isoformat(),
-    }
+    except TimeoutError as exc:
+        return {"error": str(exc), "task_id": task_id, "branch": branch}
 
 
 def remove_worktree(
@@ -201,58 +251,67 @@ def remove_worktree(
     if not repo_root:
         return {"error": "Not in a git repository"}
 
-    base_dir = get_worktree_base_dir(repo_root)
-    worktree_path = os.path.join(base_dir, task_id)
+    try:
+        with _worktree_provision_lock(repo_root):
+            base_dir = get_worktree_base_dir(repo_root)
+            worktree_path = os.path.join(base_dir, task_id)
 
-    if not os.path.isdir(worktree_path):
-        return {"error": f"Worktree for {task_id} not found"}
+            if not os.path.isdir(worktree_path):
+                return {"error": f"Worktree for {task_id} not found"}
 
-    args = ["worktree", "remove"]
-    if force:
-        args.append("--force")
-    args.append(worktree_path)
+            args = ["worktree", "remove"]
+            if force:
+                args.append("--force")
+            args.append(worktree_path)
 
-    result = _run_git(*args, cwd=cwd)
-    if result.returncode != 0:
-        return {"error": f"Failed to remove worktree: {result.stderr.strip()}"}
+            result = _run_git(*args, cwd=cwd)
+            if result.returncode != 0:
+                return {"error": f"Failed to remove worktree: {result.stderr.strip()}"}
 
-    return {"removed": True, "task_id": task_id, "path": worktree_path}
+            return {"removed": True, "task_id": task_id, "path": worktree_path}
+    except TimeoutError as exc:
+        return {"error": str(exc), "task_id": task_id}
 
 
 def cleanup_worktrees(cwd: Optional[str] = None) -> Dict[str, Any]:
     """Prune stale worktrees."""
-    result = _run_git("worktree", "prune", cwd=cwd)
-    removed = []
-    failed = []
-
-    # Also clean the base directory
     cwd = cwd or os.getcwd()
     repo_root = get_repo_root(cwd)
-    if repo_root:
-        base_dir = get_worktree_base_dir(repo_root)
-        if os.path.isdir(base_dir):
-            # List active worktree paths
-            active = _active_worktree_paths(cwd)
-            for entry in os.listdir(base_dir):
-                full = os.path.join(base_dir, entry)
-                if (
-                    os.path.isdir(full)
-                    and _normalize_path(full) not in active
-                ):
-                    try:
-                        _remove_stale_worktree_dir(full, base_dir)
-                        removed.append(entry)
-                    except OSError as exc:
-                        failed.append({
-                            "path": full,
-                            "error": str(exc),
-                        })
+    if not repo_root:
+        return {"error": "Not in a git repository"}
 
-    return {
-        "pruned": result.returncode == 0,
-        "removed_stale_dirs": removed,
-        "failed_stale_dirs": failed,
-    }
+    try:
+        with _worktree_provision_lock(repo_root):
+            result = _run_git("worktree", "prune", cwd=cwd)
+            removed = []
+            failed = []
+
+            base_dir = get_worktree_base_dir(repo_root)
+            if os.path.isdir(base_dir):
+                # List active worktree paths
+                active = _active_worktree_paths(cwd)
+                for entry in os.listdir(base_dir):
+                    full = os.path.join(base_dir, entry)
+                    if (
+                        os.path.isdir(full)
+                        and _normalize_path(full) not in active
+                    ):
+                        try:
+                            _remove_stale_worktree_dir(full, base_dir)
+                            removed.append(entry)
+                        except OSError as exc:
+                            failed.append({
+                                "path": full,
+                                "error": str(exc),
+                            })
+
+            return {
+                "pruned": result.returncode == 0,
+                "removed_stale_dirs": removed,
+                "failed_stale_dirs": failed,
+            }
+    except TimeoutError as exc:
+        return {"error": str(exc)}
 
 
 # =============================================================================
