@@ -90,10 +90,14 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 常用变体：
 
 ```bash
+# 全局安装（默认）：会同步模板到用户目录
+# Claude Code 的 Worktree hooks 也会自动注入到 ~/.claude/settings.json
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
+
 # 同步到指定 Agent
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -a claude-code,cursor -y
 
-# 项目级安装
+# 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/settings.json
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
 
 # 从源码仓库同步
