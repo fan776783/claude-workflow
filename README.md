@@ -193,14 +193,13 @@ flowchart TD
 
 ## 支持的 AI 编码工具
 
-当前支持 10+ AI 编码工具，包括：
+当前支持 9 个 AI 编码工具，包括：
 
 - Claude Code
 - Cursor
 - Codex
 - Gemini CLI
 - GitHub Copilot
-- Kilo Code
 - OpenCode
 - Qoder
 - Antigravity
@@ -214,7 +213,6 @@ flowchart TD
 
 - `Claude-Code-工作流体系指南.md`
 - `templates/commands/workflow.md`（统一 command 入口）
-- `templates/commands/agents.md`（全部命令索引）
 - `templates/skills/workflow-planning/SKILL.md`
 - `templates/skills/workflow-executing/SKILL.md`
 - `templates/skills/workflow-reviewing/SKILL.md`

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。
 
-**Key Architecture**: Skills-based system supporting 10+ AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
+**Key Architecture**: Skills-based system supporting multiple AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
 
 ## Commands
 
@@ -91,7 +91,7 @@ npm run release 2.0.0     # Explicit version
 4. Backups saved to `.meta/backups/`
 
 **Supported Agents:**
-- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, Kilo Code, OpenCode, Qoder
+- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
 
 **Template Directories:** `DIRECT_LINK_DIRS = ['commands', 'prompts', 'utils', 'specs']`, `SKILLS_DIR = 'skills'`
 
