@@ -10,7 +10,16 @@
 
 ### Spec Section Ref
 
-plan 步骤对 spec 章节的引用（如 §5.1），用于在执行后的 Spec 合规审查中对照检查。
+plan 步骤对 spec 章节的引用，用于在执行后的 Spec 合规审查中对照检查。
+
+**格式规范**：`§` 前缀 + spec 章节编号（按 markdown 标题顺序，1-indexed）。嵌套用点分隔。
+
+| 格式 | 含义 | 示例 |
+|------|------|------|
+| `§N` | 顶级章节（`## N. Title`） | `§2` = Scope 章节 |
+| `§N.M` | 嵌套子章节 | `§5.1` = User-facing Behavior 的第 1 个子节 |
+
+**验证规则**：Self-Review 和 Spec 合规审查时，所有 `§X.X` 引用必须能映射到 spec.md 中实际存在的 markdown 标题。无法映射的引用视为 Plan 缺陷。
 
 ### Acceptance Criteria
 
@@ -32,12 +41,12 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `name` | string | 任务名称 |
-| `specRef` | string | §X.X 章节引用 |
-| `requirementIds` | string[] | R-001, R-002 |
+| `spec_ref` | string | §X.X 章节引用 |
+| `requirement_ids` | string[] | R-001, R-002 |
 | `files` | string[] | 涉及文件 |
 | `steps[].description` | string | 步骤描述 |
-| `steps[].verifyCommand` | string? | 验证命令 |
-| `steps[].expectedResult` | string? | 预期结果 |
+| `steps[].verification` | string? | 验证命令 |
+| `steps[].expected` | string? | 预期结果 |
 
 ## scope_status 定义
 
@@ -77,7 +86,7 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 
 在 plan 生成后的 Self-Review 中执行：
 
-- 所有 in_scope 需求至少映射到一个 plan task（通过 specRef / requirementIds）
+- 所有 in_scope 需求至少映射到一个 plan task（通过 spec_ref / requirement_ids）
 - 所有 plan step 包含完整代码（No Placeholders）
 
 ### Execution Gate（执行期规格对照检查）

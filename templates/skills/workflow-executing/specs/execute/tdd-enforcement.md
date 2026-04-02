@@ -41,11 +41,27 @@
 ## Red-Green-Refactor 执行流程
 
 ```typescript
-async function executeWithTdd(task: WorkflowTaskV2, guideContent: string): Promise<void> {
-  const testTemplates = extractRelevantTests(guideContent, task);
+async function executeWithTdd(task: WorkflowTaskV2, state: WorkflowState, guideContent: string): Promise<void> {
+  let testTemplates = extractRelevantTests(guideContent, task);
 
   if (testTemplates.length === 0) {
-    return executeTaskDirect(task); // 无相关测试模板，退化
+    // ── TDD 降级：尝试从 spec 生成最小测试 ──
+    const specDerivedTests = await synthesizeTestsFromSpec(task);
+    if (specDerivedTests.length > 0) {
+      testTemplates = specDerivedTests;
+      // 继续正常 TDD 流程
+    } else {
+      // 确属不可生成测试模板，显式降级
+      const reason = `任务 ${task.id}：无测试模板且无法从 spec/acceptance_criteria 生成，TDD 不适用`;
+      console.warn(`⚠️ TDD 降级：${reason}`);
+      // 记录降级事件到 state.task_metadata，供后续审查参考
+      if (!state.task_metadata) state.task_metadata = {};
+      state.task_metadata[task.id] = {
+        ...state.task_metadata[task.id],
+        tdd_degraded: { reason, timestamp: new Date().toISOString() }
+      };
+      return executeTaskDirect(task);
+    }
   }
 
   let completedCycles = 0;

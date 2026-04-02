@@ -284,28 +284,35 @@ def cmd_start(
         analysis_patterns=analysis_patterns,
         discussion_artifact=discussion_artifact,
     )
-    ux_artifact = {
-        "flowchart": {
-            "mermaidCode": "flowchart TD\n  A[Start] --> B[Complete]",
-            "scenarios": [
-                {"name": "首次使用", "description": "初始进入", "coveredNodes": ["A"]},
-                {"name": "核心操作", "description": "执行主路径", "coveredNodes": ["B"]},
-                {"name": "异常处理", "description": "处理边界情况", "coveredNodes": ["B"]},
-            ],
-        },
-        "pageHierarchy": {
-            "pages": [
-                {"level": "L0", "name": task_name, "features": [summary], "navigation": "direct"}
-            ],
-            "navigation": {
-                "type": "router" if ux_required else "direct",
-                "routes": ["/"] if ux_required else [],
-            },
-        },
-        "detectedWorkspaces": detect_agent_workspaces(str(Path.home())) if needs_workspace_detection(requirement_text) else [],
-    }
-    ux_validation = validate_ux_artifact(ux_artifact)
     ux_path = workflow_dir / "ux-design-artifact.json"
+
+    # 条件工件：仅在对应 phase 需要执行时才生成 artifact
+    # discussion-artifact 始终生成（Phase 0.2 即使跳过也落盘最小工件）
+    # ux-design-artifact 仅在 UX gate 触发时生成
+    ux_artifact = None
+    ux_validation = {"ok": True, "missing": [], "scenario_count": 0, "page_count": 0}
+    if ux_required:
+        ux_artifact = {
+            "flowchart": {
+                "mermaidCode": "flowchart TD\n  A[Start] --> B[Complete]",
+                "scenarios": [
+                    {"name": "首次使用", "description": "初始进入", "coveredNodes": ["A"]},
+                    {"name": "核心操作", "description": "执行主路径", "coveredNodes": ["B"]},
+                    {"name": "异常处理", "description": "处理边界情况", "coveredNodes": ["B"]},
+                ],
+            },
+            "pageHierarchy": {
+                "pages": [
+                    {"level": "L0", "name": task_name, "features": [summary], "navigation": "direct"}
+                ],
+                "navigation": {
+                    "type": "router",
+                    "routes": ["/"],
+                },
+            },
+            "detectedWorkspaces": detect_agent_workspaces(str(Path.home())) if needs_workspace_detection(requirement_text) else [],
+        }
+        ux_validation = validate_ux_artifact(ux_artifact)
 
     now = datetime.now().isoformat()
     template_root = Path(__file__).resolve().parents[2] / "specs" / "workflow-templates"
@@ -361,7 +368,8 @@ def cmd_start(
     spec_path.write_text(spec_content, encoding="utf-8")
     plan_path.write_text(plan_content, encoding="utf-8")
     discussion_path.write_text(json.dumps(discussion_artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    ux_path.write_text(json.dumps(ux_artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if ux_artifact is not None:
+        ux_path.write_text(json.dumps(ux_artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     state = build_minimum_state(
         resolved_project_id,
@@ -375,13 +383,14 @@ def cmd_start(
     state["task_name"] = task_name
     state["requirement_source"] = requirement_source
     update_discussion_record(state, str(discussion_path), len(discussion_artifact["clarifications"]), completed=not discussion_required)
-    update_ux_design_record(
-        state,
-        str(ux_path),
-        flowchart_scenarios=ux_validation["scenario_count"],
-        page_count=ux_validation["page_count"],
-        approved=ux_validation["ok"],
-    )
+    if ux_artifact is not None:
+        update_ux_design_record(
+            state,
+            str(ux_path),
+            flowchart_scenarios=ux_validation["scenario_count"],
+            page_count=ux_validation["page_count"],
+            approved=ux_validation["ok"],
+        )
     update_user_spec_review(state, spec_review["status"], spec_review["next_action"])
     write_state(str(state_path), state)
 

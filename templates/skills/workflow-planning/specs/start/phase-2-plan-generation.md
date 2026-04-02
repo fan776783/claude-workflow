@@ -26,6 +26,16 @@
 
 - `spec.md`（唯一规范输入）
 - `analysisResult`（代码分析结果，仅作为可复用组件和文件规划的辅助上下文，不改变 spec 作为唯一规范来源的地位）
+- `discussion-artifact.json`（仅用于 drift 检查，不作为规范数据源 — 见下方 Drift Check）
+
+### Discussion-Artifact Drift Check
+
+Phase 1 Spec 生成已消费 discussion-artifact 并将决策写入 spec。Phase 2 读取 discussion-artifact **仅做一致性校验**，不从中生成新任务：
+
+1. 若 `selectedApproach` 存在，验证 spec Architecture 章节是否反映了该方案。偏差 → 回退 Phase 1 修订 Spec，**不在 Plan 中补任务**。
+2. 若 `unresolvedDependencies` 存在，验证 spec Scope 章节对应需求标记为 `blocked`。缺失 → 回退 Phase 1。
+
+> ⚠️ Plan 阶段不得基于 discussion-artifact 发明 spec 中不存在的任务。发现偏差一律回退 Spec 修订。
 
 ## 输出
 
@@ -37,7 +47,7 @@
 - **File Structure First** — 先列文件，再排步骤
 - **Bite-Sized Tasks** — 每步 2-5 分钟的原子操作
 - **Complete Code** — 每步包含完整代码块（不是伪代码或描述）
-- **Exact Commands** — 验证命令包含预期输出
+- **Exact Commands** — 验证命令包含预期输出（Self-Review 仅检查命令语法和路径存在性；语义正确性在执行阶段验证）
 - **No Placeholders** — 禁止 TBD/TODO/"类似 Task N"/模糊描述
 - **WorkflowTaskV2 Compatible** — 任务块必须使用 `## Tn:` 标题和 V2 字段，供执行器直接解析
 - **Spec Section Ref** — 每步标注对应的 spec 章节
@@ -88,13 +98,13 @@ for (const slice of slices) {
         modify: file.isNew ? [] : [file.path],
         test: file.testPath ? [file.testPath] : []
       },
-      specRef: slice.specRef,
-      planRef: `P-${slice.name}`,
-      acceptanceCriteria: deriveAcceptanceCriteriaForSlice(slice),
+      spec_ref: slice.specRef,
+      plan_ref: `P-${slice.name}`,
+      acceptance_criteria: deriveAcceptanceCriteriaForSlice(slice),
       actions: deriveTaskActions(file),
       verification: {
         commands: deriveVerificationCommands(file),
-        expectedOutput: deriveExpectedOutputs(file)
+        expected_output: deriveExpectedOutputs(file)
       },
       steps: [
         {
@@ -141,9 +151,46 @@ const planContent = replaceVars(planTemplate, {
 writeFile(planPath, planContent);
 ```
 
+### Step 4.5: Discussion-Artifact Drift Check
+
+```typescript
+// 仅做一致性校验，不作为规范数据源
+const discussionPath = path.join(workflowDir, 'discussion-artifact.json');
+if (fileExists(discussionPath)) {
+  const discussion = JSON.parse(readFile(discussionPath));
+
+  // 检查 selectedApproach 是否反映在 spec Architecture 章节
+  if (discussion.selectedApproach) {
+    const archSection = extractSection(specContent, '## 5. Architecture and Module Design');
+    if (!archSection?.includes(discussion.selectedApproach.name)) {
+      console.error(`❌ Drift: discussion 选定方案 "${discussion.selectedApproach.name}" 未在 Spec Architecture 章节体现`);
+      console.log('⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan');
+      return;
+    }
+  }
+
+  // 检查 unresolvedDependencies 是否标记为 blocked
+  for (const dep of discussion.unresolvedDependencies || []) {
+    if (dep.status === 'not_started') {
+      const scopeSection = extractSection(specContent, '## 2. Scope');
+      // 检查该依赖的描述关键词是否出现在 blocked 条目中
+      const depKeyword = dep.description.split(/\s+/).slice(0, 3).join(' ');
+      const blockedPattern = new RegExp(`blocked[\\s\\S]{0,200}${escapeRegExp(depKeyword)}`, 'i');
+      if (!scopeSection || !blockedPattern.test(scopeSection)) {
+        console.error(`❌ Drift: discussion 未就绪依赖 "${dep.description}" 未在 Spec Scope 中标记为 blocked`);
+        console.log('⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan');
+        return;
+      }
+    }
+  }
+}
+```
+
 ### Step 5: Self-Review
 
-Plan 生成后立即执行自审查：
+Plan 生成后立即执行自审查。Self-Review 只检查**无需执行即可判断**的内容（语法、格式、覆盖率），语义正确性验证推迟到执行阶段的 Verification Iron Law 和质量关卡。
+
+> 参见执行阶段验证链：`workflow-executing/specs/execute/post-execution-pipeline.md` Step 6.5 Verification Iron Law
 
 ```typescript
 function selfReviewPlan(planContent: string, specContent: string): void {
@@ -153,7 +200,7 @@ function selfReviewPlan(planContent: string, specContent: string): void {
 
   for (const req of specRequirements) {
     const covered = planTasks.some(task =>
-      task.specRef === req.sectionRef || task.code.includes(req.keyword)
+      task.spec_ref === req.sectionRef || task.code.includes(req.keyword)
     );
     if (!covered) {
       console.warn(`⚠️ Spec 需求 [${req.id}] 未在 plan 中找到对应 task`);
@@ -179,6 +226,21 @@ function selfReviewPlan(planContent: string, specContent: string): void {
       console.warn(`⚠️ Plan 使用了未定义的符号: ${used}`);
     }
   }
+
+  // 4. Command syntax + path existence: 验证命令格式和文件路径（非语义正确性）
+  for (const task of planTasks) {
+    for (const step of task.steps || []) {
+      if (step.verification) {
+        // 检查命令语法格式合理性（如括号匹配、管道符使用）
+        // 检查引用的文件路径是否在 File Structure 中声明
+        // 注意：不验证命令执行后是否通过，语义验证在执行阶段完成
+      }
+    }
+  }
+
+  // 5. Discussion-artifact drift check（若 Step 4.5 未阻塞到这里，记录通过）
+  console.log('✅ Self-Review 通过（语法/覆盖率/格式检查）');
+  console.log('ℹ️ 语义正确性验证将在执行阶段的质量关卡中完成');
 }
 
 selfReviewPlan(planContent, specContent);
@@ -227,6 +289,15 @@ selfReviewPlan(planContent, specContent);
   - S3: 运行测试与 lint → 所有验证通过（验证：`pnpm test tests/components/FeatureCard.test.tsx && pnpm lint`）
 ```
 
+## 任务依赖说明
+
+Plan 中任务的 `depends` 和 `blocked_by` 字段遵循共享 schema 定义（见 `state-machine.md` WorkflowTaskV2）：
+
+- **`depends`**：任务间的内部顺序依赖（T2 depends on T1 = T1 完成后 T2 才可开始）。Plan 按 Implementation Slices 顺序排列任务，**默认隐式串行**；仅在需要显式并行或跨 slice 引用时才手动填写。
+- **`blocked_by`**：外部阻塞依赖（`api_spec` / `external`），表示任务需要等待外部资源就绪。不用于任务间内部顺序。
+
+> ⚠️ `blocked_by` 不是 `depends` 的同义词。执行期的并行判定由 `workflow-executing` 的 `canRunInParallel()` 处理（文件集、传递依赖、语义引用），Plan 不重复定义并行规则。
+
 ## 强制规则
 
 - 所有 spec 中的 in_scope 需求至少映射到一个 plan task
@@ -234,3 +305,4 @@ selfReviewPlan(planContent, specContent);
 - 禁止任何占位符内容
 - 验证命令必须包含预期输出
 - Self-Review 不通过时必须修复后才能提交
+- Discussion-artifact drift check 发现偏差时必须回退 Spec 修订，不得在 Plan 中补偿

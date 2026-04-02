@@ -210,6 +210,10 @@ const GATE_BUDGET = {
 - 示例：Stage 1 尝试 2 次 (2) + Stage 2 尝试 2 次 (2) = 总计 4 次
 - 预算耗尽：标记任务 `failed`，向用户报告剩余问题
 
+**预算遥测（每次审查尝试后输出）**：
+- 每次审查未通过后，输出 `审查预算：attempt ${current}/${max}，剩余 ${remaining} 次`
+- 预算耗尽时，输出终态说明：`审查预算耗尽（${max}/${max}），阻塞问题：[列表]，建议：手动修复后 --retry 或 --skip`
+
 **性能优化**：
 - Stage 1 由当前模型执行（无外部调用，低成本）
 - Stage 2 对 Claude Code / Cursor 使用单次 `Task` reviewer，对 Codex 使用单次 `spawn_agent` reviewer，并限制 diff 上下文（≤50000 字符）
@@ -256,6 +260,7 @@ async function executeQualityReview(
     }
 
     if (!specResult.passed) {
+      console.log(`审查预算：attempt ${totalAttempts}/${budget}，剩余 ${budget - totalAttempts} 次`);
       await fixSpecIssues(specResult);
       diffWindow = computeDiffWindow(state); // 修复后重算 diff 窗口
     }
@@ -281,6 +286,7 @@ async function executeQualityReview(
     }
 
     if (qualityResult.assessment === 'needs_fixes') {
+      console.log(`审查预算：attempt ${totalAttempts}/${budget}，剩余 ${budget - totalAttempts} 次`);
       await fixQualityIssues(qualityResult);
       diffWindow = computeDiffWindow(state); // 修复后重算 diff 窗口
       stage2HadFixes = true;
@@ -306,7 +312,7 @@ async function executeQualityReview(
     gate_task_id: task.id,
     subject: reviewSubject,
     max_attempts: budget,
-    attempt: totalAttempts,
+    attempt: Math.min(totalAttempts, GATE_BUDGET.maxTotalLoops),
     last_decision: 'pass',
     next_action: 'continue_execution',
     commit_hash: currentCommit,
@@ -360,6 +366,10 @@ function markGateFailed(
   totalAttempts: number
 ): VerificationEvidence {
   const budgetExhausted = totalAttempts > GATE_BUDGET.maxTotalLoops;
+  if (budgetExhausted) {
+    const usedAttempts = GATE_BUDGET.maxTotalLoops; // 显示为 max/max，避免 off-by-one
+    console.log(`审查预算耗尽（${usedAttempts}/${GATE_BUDGET.maxTotalLoops}），阻塞问题：${collectBlockingIssues(lastResult).map(i => i.description).join('; ')}，建议：手动修复后 --retry 或 --skip`);
+  }
   const terminalDecision = budgetExhausted || failedStage === 'stage2' ? 'rejected' : 'revise';
   const nextAction = terminalDecision === 'rejected'
     ? 'mark_task_failed_or_escalate'
@@ -371,7 +381,7 @@ function markGateFailed(
     gate_task_id: task.id,
     subject,
     max_attempts: GATE_BUDGET.maxTotalLoops,
-    attempt: totalAttempts,
+    attempt: Math.min(totalAttempts, GATE_BUDGET.maxTotalLoops),
     last_decision: terminalDecision,
     next_action: nextAction,
     blocking_issues: collectBlockingIssues(lastResult),

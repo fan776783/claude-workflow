@@ -51,7 +51,7 @@ role: plan
 - [ ] **Spec coverage** — 逐条 spec 需求，确认每条都有对应 task
 - [ ] **Placeholder scan** — 搜索 TBD/TODO/模糊描述，全部替换为实际内容
 - [ ] **Type consistency** — 跨 task 的类型名、函数名、属性名是否一致
-- [ ] **Command accuracy** — 验证命令和文件路径是否正确
+- [ ] **Command accuracy** — 验证命令语法和文件路径是否正确（语义正确性在执行阶段验证）
 - [ ] **Gaps** — 如发现 spec 需求无 task 对应，立即补充 task
 
 ---

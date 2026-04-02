@@ -129,7 +129,18 @@ if (specChoice === '需要拆分范围') {
     reviewer: 'user',
     next_action: 'split_scope'
   };
-  console.log('⏸️ 请拆分 Spec 范围后重新启动');
+  console.log(`
+⏸️ 需要拆分 Spec 范围
+
+当前 Spec 已保存为：${specPath}
+
+恢复方式：
+1. 手动缩小 ${specPath} 的 Scope 章节范围，然后使用 /workflow start -f 覆盖启动
+2. 或使用 /workflow start -f "新的缩小范围需求" 全新启动
+3. 将 out-of-scope 部分另起一个独立的 /workflow start
+
+注意：当前工作流状态为 spec_review，可通过 /workflow status 查看。
+  `);
   return;
 }
 ```
@@ -163,4 +174,4 @@ function summarizeSpec(specContent: string): string {
 
 - **approved**：进入 Phase 2 Plan Generation
 - **revise_required**：返回 Phase 1 Spec Generation，或在 UX 结构问题时返回 Phase 0.3 UX 设计审批
-- **rejected**：拆分范围后重新启动
+- **rejected**：拆分范围后重新启动。恢复方式：手动缩小 Spec Scope 后 `/workflow start -f` 覆盖启动，或全新启动

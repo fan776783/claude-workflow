@@ -115,6 +115,19 @@
 
 > ⚠️ 不得因状态文件缺失而跳过整个状态管理层。缺失 = 创建，不是跳过。
 
+#### 自愈失败降级（Fail-Fast）
+
+若状态文件创建本身失败（权限不足、磁盘已满、路径不可达等），**必须终止执行**，不得静默继续：
+
+```
+错误：无法创建 workflow-state.json
+路径：~/.claude/workflows/{projectId}/workflow-state.json
+原因：{具体错误信息，如 EACCES / ENOSPC}
+建议：检查目录权限和磁盘空间后重新执行 /workflow execute
+```
+
+同样，若无法从 `plan.md` 推导出首个未完成任务（文件缺失或解析失败），也必须 fail-fast 而非使用空任务列表继续。
+
 ---
 
 ### Step 2：路径安全校验

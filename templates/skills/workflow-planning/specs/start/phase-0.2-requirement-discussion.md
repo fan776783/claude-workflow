@@ -305,18 +305,44 @@ if (techDecisions.length > 0) {
   if (fileExists(configPath)) {
     const config = JSON.parse(readFile(configPath));
 
-    // 仅在 tech 字段为 unknown 时更新（不覆盖 scan 的完整检测结果）
-    if (config.tech.buildTool === 'unknown' || config._scanMode === 'auto-healed') {
+    // 仅在 tech 字段存在 unknown/missing 时补充（不覆盖 scan 的完整检测结果）
+    // 框架字段做并集补充；其他字段仅补 unknown/missing
+    const needsBackfill = config.tech.buildTool === 'unknown'
+      || config.tech.packageManager === 'unknown'
+      || config._scanMode === 'auto-healed';
+
+    if (needsBackfill) {
       for (const decision of techDecisions) {
         if (decision.type === 'framework') {
           config.tech.frameworks = [...new Set([...config.tech.frameworks, decision.value])];
         }
-        if (decision.type === 'packageManager') config.tech.packageManager = decision.value;
-        if (decision.type === 'buildTool') config.tech.buildTool = decision.value;
+        if (decision.type === 'packageManager' && config.tech.packageManager === 'unknown') {
+          config.tech.packageManager = decision.value;
+        }
+        if (decision.type === 'buildTool' && config.tech.buildTool === 'unknown') {
+          config.tech.buildTool = decision.value;
+        }
       }
       config._scanMode = 'discussion-enriched';
       writeFile(configPath, JSON.stringify(config, null, 2));
       console.log(` 技术决策已反写: ${techDecisions.map(d => d.value).join(', ')}`);
+    } else {
+      // scan/full 模式：框架做并集补充，其他字段冲突时告警不覆盖
+      let hasConflict = false;
+      for (const decision of techDecisions) {
+        if (decision.type === 'framework') {
+          config.tech.frameworks = [...new Set([...config.tech.frameworks, decision.value])];
+        } else {
+          const currentValue = config.tech[decision.type];
+          if (currentValue && currentValue !== 'unknown' && currentValue !== decision.value) {
+            console.warn(`⚠️ 技术决策冲突: 讨论选择 ${decision.type}=${decision.value}，但 scan 检测到 ${currentValue}。保留 scan 结果。`);
+            hasConflict = true;
+          }
+        }
+      }
+      if (!hasConflict) {
+        writeFile(configPath, JSON.stringify(config, null, 2));
+      }
     }
   }
 }

@@ -183,14 +183,13 @@
 **核心章节**:
 1. Context — 背景和目标
 2. Scope — 需求编号 + 范围判定（in/out/blocked）
-3. Clarification Summary — Phase 0.2 澄清结果、已选方案、未就绪依赖
-4. Constraints — 不可协商的硬约束 + UX 预设工作区/环境约束
-5. User-facing Behavior — 正常/异常/边界行为 + UX 流程图
-6. Architecture and Module Design — 模块划分 + 技术选型 + 页面分层信息架构
-7. File Structure — 新建/修改/测试文件
-8. Acceptance Criteria — 按模块的验收条件
-9. Implementation Slices — 渐进交付切片
-10. Open Questions — 待确认问题
+3. Constraints — 不可协商的硬约束 + UX 预设工作区/环境约束 + Phase 0.2 澄清结果摘要
+4. User-facing Behavior — 正常/异常/边界行为 + UX 流程图
+5. Architecture and Module Design — 模块划分 + 技术选型 + 页面分层信息架构
+6. File Structure — 新建/修改/测试文件
+7. Acceptance Criteria — 按模块的验收条件
+8. Implementation Slices — 渐进交付切片
+9. Open Questions — 待确认问题
 
 **生成后执行 Self-Review**:
 - 需求覆盖扫描
@@ -241,7 +240,10 @@
 - 逐条检查 spec 需求覆盖
 - Placeholder 扫描
 - 跨 task 类型一致性
-- 命令和路径准确性
+- 命令语法和路径存在性（语义正确性在执行阶段验证）
+- Discussion-artifact drift check（偏差则回退 Spec 修订）
+
+> **Review 边界**：planning 阶段的 Self-Review 只检查无需执行即可判断的内容（语法、格式、覆盖率）；执行阶段的 Spec 合规审查（子 Agent）验证代码实现与 spec 的语义一致性。
 
 **详细实现**: 参见 `../specs/start/phase-2-plan-generation.md`
 
@@ -268,6 +270,7 @@
 
 ~/.claude/workflows/{projectId}/
 ├── workflow-state.json             ← 运行时状态
+├── analysis-result.json            ← 代码分析结果（Phase 0 持久化）
 ├── discussion-artifact.json        ← 讨论工件（若 Phase 0.2 执行则必须存在）
 ├── ux-design-artifact.json         ← UX 设计工件（若 Phase 0.3 触发并通过则存在）
 └── changes/

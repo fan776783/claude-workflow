@@ -22,9 +22,16 @@
 ### 3. Plan 更新（Plan Checkpoint）
 
 - [ ] 在 `plan.md` 中找到当前 task 对应块（canonical 格式为 `## Tn:` 的 WorkflowTaskV2 任务块）
+- [ ] 单次写入只改变一个 task block 的状态语义，禁止多 task 批量变更
 - [ ] 更新该 task 的进度标记为已完成（如状态字段、任务标题标记或约定的完成标识）
 - [ ] **保存文件**
 - [ ] ⚠️ 必须逐 task 更新，禁止最后批量回写
+
+### 3→4. Checkpoint 原子性守卫
+
+- [ ] 若 Step 3 成功但 Step 4 失败：回滚 plan.md 中该 task 的状态标记
+- [ ] 恢复启动时检测 plan.md 与 state.json 的一致性（以 state.json 为权威）
+- [ ] 详见 `../specs/execute/post-execution-pipeline.md` → Step ③→④
 
 ### 4. 状态文件更新（State Update）
 

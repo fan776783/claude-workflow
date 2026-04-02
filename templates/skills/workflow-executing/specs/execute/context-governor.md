@@ -33,6 +33,8 @@
 
 3. 检查是否存在同阶段 2+ 可证明独立边界
    - 若存在且工件稳定，可优先选择 parallel-boundaries
+   - ⚠️ 并行冲突回退协议：详见 `../../dispatching-parallel-agents/SKILL.md` Step 8（唯一权威源）
+   - 本决策器仅负责判断是否进入 parallel-boundaries，不定义回退逻辑
 
 4. 应用预算阈值
    - warning：倾向 parallel-boundaries 或暂停
@@ -110,8 +112,56 @@ const executionMode = executionModeOverride || state.execution_mode || 'continuo
 const decision = evaluateContinuationDecision(...);
 
 if (decision.action !== 'continue-direct') {
+  // ── 决策通知协议 ──
+  // 正常暂停 → 简短通知；覆盖性暂停 → 完整 3 要素解释
+  notifyGovernorDecision(decision, executionMode, state.contextMetrics);
   applyDecision(decision);
   return;
+}
+```
+
+### Governor 决策通知协议
+
+Governor 的非 `continue-direct` 决策分为两类，通知详细程度不同：
+
+**正常暂停通知**（简短提示，不需要完整解释）：
+- `pause-quality-gate`：质量关卡触发，属于正常流程
+- `pause-before-commit`：git_commit 前确认，属于正常流程
+- `pause-governance`：治理 phase 边界暂停，属于正常流程
+- `continue-parallel-boundaries`：路由到并行执行，属于正常优化
+
+**覆盖性暂停解释**（当 Governor 覆盖了用户请求的执行模式时，必须包含 3 要素）：
+- `pause-budget`、`handoff-required`
+
+覆盖性解释的 3 要素：
+1. **覆盖原因**：具体数据（如 `projectedUsagePercent: 82%, dangerThreshold: 80%`）
+2. **原模式保留**：用户请求的模式在恢复后自动继续（`state.execution_mode` 不变）
+3. **建议动作**：用户下一步该做什么
+
+```typescript
+function notifyGovernorDecision(
+  decision: { action: ContinuationAction; reason: string },
+  requestedMode: string,
+  metrics: ContextMetrics
+): void {
+  // 正常暂停：简短通知
+  const normalPauses: ContinuationAction[] = [
+    'pause-quality-gate', 'pause-before-commit', 'pause-governance', 'continue-parallel-boundaries'
+  ];
+  if (normalPauses.includes(decision.action)) {
+    console.log(`ℹ️ ${decision.action}：${decision.reason}`);
+    return;
+  }
+
+  // 覆盖性暂停：完整 3 要素解释
+  console.log(
+    `⚠️ ContextGovernor 覆盖 ${requestedMode} 模式\n` +
+    `   原因：${decision.reason}（当前 ${metrics.projectedUsagePercent}%, 阈值 ${metrics.dangerThreshold}%）\n` +
+    `   模式保留：恢复后自动继续 ${requestedMode} 模式\n` +
+    `   建议：${decision.action === 'handoff-required'
+      ? '启动新会话执行 /workflow execute 恢复'
+      : '等待预算释放后 /workflow execute 继续'}`
+  );
 }
 ```
 

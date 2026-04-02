@@ -165,7 +165,11 @@ ${gitStatus.reason === 'not_git_repo'
     subagent_available: false,
     user_acknowledged_degradation: true
   };
-  console.log('⚠️ 用户选择无子代理模式。所有审查将在主会话中执行。');
+  // 降级影响说明：
+  // - 写隔离审查（Spec 合规、代码质量）降级为主会话内执行，损失审查独立性
+  // - 只读分析/审查型子代理不受影响，仍可正常运行
+  // - 执行期并行分派是否可用取决于平台能力和任务独立性，不完全由 git 状态决定
+  console.log('⚠️ 用户选择无子代理模式。写隔离审查将在主会话中执行，只读分析不受影响。');
 } else {
   state.git_status = {
     initialized: true,
