@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v11.0.0  
-**最后更新**：2026-03-29  
+**文档版本**：v12.0.0  
+**最后更新**：2026-04-02  
 **适用仓库**：`@justinfan/agent-workflow` v4.0.0
 
 ---
@@ -18,7 +18,7 @@
 - [6. `/workflow execute` 执行流程详解](#6-workflow-execute-执行流程详解)
 - [7. 运行中的辅助命令](#7-运行中的辅助命令)
 - [8. 工作流产物与状态文件](#8-工作流产物与状态文件)
-- [9. 其他 skills 的核心功能](#9-其他-skills-的核心功能)
+- [9. Skills 体系总览](#9-skills-体系总览)
 - [10. 推荐使用方式](#10-推荐使用方式)
 - [11. 常见问题](#11-常见问题)
 - [附录：命令速查](#附录命令速查)
@@ -112,17 +112,22 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 ## 3. workflow command 总览
 
-`/workflow` 现在是整个体系的**统一 command 入口**，负责保持 `/workflow` 命令面稳定，并把规划、执行、审查、增量变更路由到专项 workflow skills。
+`/workflow` 是整个体系的**统一 command 入口**，负责保持命令面稳定，并把规划、执行、审查、增量变更路由到专项 workflow skills。
 
-当前拆分为：
+当前 workflow 已模块化拆分为 **command 入口 + 4 个专项 workflow skills + 共享运行时**：
 
-- `templates/commands/workflow.md`：统一 command 入口
-- `workflow-planning`：`/workflow start` 的规划阶段说明
-- `workflow-executing`：`/workflow execute` 的执行阶段说明
-- `workflow-reviewing`：两阶段审查协议（由 execute 内部质量关卡触发）
-- `workflow-delta`：`/workflow delta` 的增量变更说明
+| 模块 | 路径 | 职责 |
+|------|------|------|
+| Command 入口 | `templates/commands/workflow.md` | 稳定的 `/workflow` 命令路由层 |
+| `workflow-planning` | `templates/skills/workflow-planning/` | `/workflow start` 规划阶段 |
+| `workflow-executing` | `templates/skills/workflow-executing/` | `/workflow execute` 执行阶段 |
+| `workflow-reviewing` | `templates/skills/workflow-reviewing/` | 两阶段审查协议（由 execute 内部触发） |
+| `workflow-delta` | `templates/skills/workflow-delta/` | `/workflow delta` 增量变更 |
+| 共享运行时 | `templates/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
+| 共享模板 | `templates/specs/workflow-templates/` | spec / plan 模板 |
+| 共享 CLI | `templates/utils/workflow/` | workflow_cli.py |
 
-整体仍然把“一个模糊需求”变成“可执行、可追踪、可恢复”的工作流。
+整体仍然把"一个模糊需求"变成"可执行、可追踪、可恢复"的工作流。
 
 ### 3.1 当前规划模型
 
@@ -143,7 +148,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 ### 3.2 workflow 的核心原则
 
 - **Spec-first**：所有计划与执行都以 `spec.md` 为唯一权威上游
-- **Plan must be executable**：`plan.md` 中每步都要可执行，禁止 `TODO` / `TBD` / “后续补充”
+- **Plan must be executable**：`plan.md` 中每步都要可执行，禁止 `TODO` / `TBD` / "后续补充"
 - **Verification Iron Law**：没有新鲜验证证据，不得标记任务完成
 - **Budget-first governance**：`execute` 先由 `ContextGovernor` 判断是否继续、暂停、并行边界或 handoff
 - **Review after execution**：执行产出先验证，再做自审查、Spec 合规和质量关卡两阶段审查
@@ -525,20 +530,49 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ---
 
-## 9. 其他 skills 的核心功能
+## 9. Skills 体系总览
 
-除 `workflow` 外，仓库还提供下列专项 skill：
+仓库当前提供 14 个 skill 目录，按职责分为三类：
 
-- `/scan`：扫描项目技术栈，生成项目配置与上下文
-- `/debug`：单问题结构化修复
-- `/write-tests`：补测试、修测试
-- `/diff-review`：Quick / Deep 模式代码审查
-- `/bug-batch`：批量缺陷分析与分组修复
-- `/dispatching-parallel-agents`：独立任务并行分派
-- `/figma-ui`：Figma 设计稿到代码
-- `/visual-diff`：像素级和语义级视觉对比
+### 9.1 用户直接调用的专项 Skills（10 个）
 
-原则上：主线问题走 `workflow`，单域问题走专项 skill。
+| Skill | 触发方式 | 功能 |
+|-------|---------|------|
+| `scan` | `/scan` | 扫描项目技术栈，生成项目配置与上下文 |
+| `analyze` | `/analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
+| `debug` | `/debug` | 单问题结构化修复 |
+| `diff-review` | `/diff-review` | Quick / Deep 模式代码审查 |
+| `write-tests` | `/write-tests` | 补测试、修测试 |
+| `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
+| `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
+| `visual-diff` | `/visual-diff` | 像素级和语义级视觉对比 |
+| `dispatching-parallel-agents` | 自动触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+| `collaborating-with-codex` | 主动触发 | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
+
+### 9.2 Workflow 子 Skills（4 个）
+
+这些 skill 不直接暴露为独立命令，而是由 `/workflow` command 入口路由调用：
+
+| Skill | 路由自 | 职责 |
+|-------|--------|------|
+| `workflow-planning` | `/workflow start` | 规划阶段：代码分析、需求讨论、UX 审批、Spec / Plan 生成 |
+| `workflow-executing` | `/workflow execute` | 执行阶段：治理、验证、审查、状态推进 |
+| `workflow-reviewing` | 执行内部触发 | 两阶段审查协议：Spec 合规 + 代码质量 |
+| `workflow-delta` | `/workflow delta` | 增量变更：需求 / PRD / API 变更的影响分析与同步 |
+
+### 9.3 基础设施说明
+
+- **共享运行时**（`templates/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、status/archive 等运行时资源
+- **共享模板**（`templates/specs/workflow-templates/`）：spec / plan 模板
+- **思维指南**（`templates/specs/guides/`）：代码复用检查清单、跨层检查清单、AI 审查误报指南
+- **Commands**（`templates/commands/`）：`workflow`（统一入口）、`agents`（命令索引）、`enhance`（prompt 增强）、`git-rollback`（交互式回滚）
+
+### 9.4 使用原则
+
+- 主线问题走 `workflow`
+- 单域问题走专项 skill
+- 需要 Codex 协作时，相关 skill 会自动通过 `collaborating-with-codex` 委派任务
+- 同阶段 2+ 独立任务由 `dispatching-parallel-agents` 负责并行分派
 
 ---
 
@@ -589,6 +623,14 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 当执行阶段存在同阶段 2+ 可证明独立任务，并且平台支持子 Agent 时，应优先按该 skill 的规则做并行分派，而不是在主会话里顺序硬跑。
 
+### 11.6 workflow 为什么从单一 skill 拆分为 4 个子 skill？
+
+为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用，避免重复定义。
+
+### 11.7 `collaborating-with-codex` 何时被使用？
+
+该 skill 是 Codex 协作的基础设施层，被 `analyze`、`debug`、`diff-review --deep`、`workflow-reviewing` 等多个 skill 内部引用。当你遇到复杂问题、需要深度调试或代码审查时，相关 skill 会自动通过它委派任务到 Codex。
+
 ---
 
 ## 附录：命令速查
@@ -619,6 +661,16 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 # 归档
 /workflow archive
+
+# 专项 skill
+/analyze "架构问题"
+/debug "bug 描述"
+/diff-review
+/diff-review --deep
+/write-tests
+/bug-batch
+/figma-ui <URL>
+/visual-diff <URL>
 ```
 
 ---
@@ -626,8 +678,10 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 ## 参考资料
 
 - `templates/commands/workflow.md`（统一 command 入口）
+- `templates/commands/agents.md`（全部命令索引）
 - `templates/skills/workflow-planning/SKILL.md`
 - `templates/skills/workflow-executing/SKILL.md`
 - `templates/skills/workflow-reviewing/SKILL.md`
 - `templates/skills/workflow-delta/SKILL.md`
 - `templates/specs/workflow-runtime/state-machine.md`
+- `templates/specs/guides/index.md`（思维指南索引）

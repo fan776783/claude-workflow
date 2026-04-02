@@ -1,40 +1,67 @@
 # @justinfan/agent-workflow
 
-以 `workflow` command 入口 + 专项 workflow skills 为核心的多 AI 编码工具工作流工具集。
+以 `workflow` command 入口 + 模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
 
-它提供一套可移植的 Skills 体系，用于把需求从“自然语言描述”推进到“Spec / Plan / 可执行任务”，并支持 Claude Code、Cursor、Codex、Gemini CLI、Droid 等多种 AI 编码工具。
+它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Cursor、Codex、Gemini CLI、Antigravity、Droid 等多种 AI 编码工具。
 
 ---
 
 ## 核心能力
 
-- `workflow`：主线 workflow command，覆盖代码分析、需求讨论、UX 设计审批、Spec 生成、Plan 生成、执行治理与归档
-- `scan`：扫描项目技术栈并生成项目配置
-- `debug`：结构化定位与修复单点问题
-- `diff-review`：基于 diff 的代码审查
-- `write-tests`：补齐单元测试 / 集成测试
-- `bug-batch`：批量缺陷分析、去重与修复编排
-- `figma-ui` / `visual-diff`：Figma 到代码与视觉还原验证
-- `dispatching-parallel-agents`：对同阶段 2+ 独立任务做并行子 Agent 分派
+### Workflow 主线
+
+`/workflow` 是统一 command 入口，路由到 4 个专项 workflow skills：
+
+| 命令 | 路由到 | 说明 |
+|------|--------|------|
+| `/workflow start` | `workflow-planning` | 代码分析、需求讨论、UX 设计审批、Spec / Plan 生成 |
+| `/workflow execute` | `workflow-executing` | 治理决策、任务执行、验证、审查与状态推进 |
+| `/workflow delta` | `workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
+| `/workflow status` | 共享运行时 | 查看当前进度、阻塞点与下一步建议 |
+| `/workflow archive` | 共享运行时 | 归档已完成工作流 |
+
+`workflow-reviewing`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
+
+### 专项 Skills
+
+| Skill | 功能 |
+|-------|------|
+| `scan` | 扫描项目技术栈并生成项目配置 |
+| `analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
+| `debug` | 结构化定位与修复单点问题 |
+| `diff-review` | Quick / Deep 模式代码审查 |
+| `write-tests` | 补齐单元测试 / 集成测试 |
+| `bug-batch` | 批量缺陷分析、去重与修复编排 |
+| `figma-ui` | Figma 设计稿到代码 |
+| `visual-diff` | 像素级和语义级视觉对比 |
+| `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+| `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
 ---
 
 ## workflow 的当前模型
 
-当前 `workflow` 采用“**command 入口 + 专项 workflow skills + 共享运行时**”的结构：
+当前 `workflow` 采用"**command 入口 + 4 个专项 workflow skills + 共享运行时**"的模块化结构：
 
-- `templates/commands/workflow.md`：保持 `/workflow start|execute|delta|status|archive` 的稳定公共 command 入口
-- `workflow-planning`：承接 `/workflow start` 的规划阶段说明
-- `workflow-executing`：承接 `/workflow execute` 的执行阶段说明
-- `workflow-reviewing`：承接两阶段审查协议（由 execute 内部触发，不直接暴露成 action）
-- `workflow-delta`：承接 `/workflow delta` 的增量变更说明
+```text
+templates/
+├── commands/workflow.md              # 统一 command 入口（路由层）
+├── skills/
+│   ├── workflow-planning/            # /workflow start
+│   ├── workflow-executing/           # /workflow execute
+│   ├── workflow-reviewing/           # 两阶段审查（execute 内部触发）
+│   └── workflow-delta/               # /workflow delta
+└── specs/
+    ├── workflow-runtime/             # 状态机、共享工具、外部依赖语义
+    └── workflow-templates/           # spec / plan 模板
+```
 
 在此结构下，工作流仍保持三层工件模型：
 - `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
 - `plan.md`：可直接执行的原子步骤、文件清单与验证命令
 - 执行层：按计划产出代码，并经过验证与两阶段审查
 
-相比旧版基于 `baseline / brief / tech-design / spec / plan` 的多文档链路，当前版本更强调：
+核心设计原则：
 
 - 单一 `spec.md` 作为规划阶段的权威规范
 - `plan.md` 必须可直接执行，禁止占位式描述
@@ -160,6 +187,7 @@ flowchart TD
 - 单次分析：`/analyze`
 - 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`
+- 批量缺陷：`/bug-batch`
 
 ---
 
@@ -186,6 +214,7 @@ flowchart TD
 
 - `Claude-Code-工作流体系指南.md`
 - `templates/commands/workflow.md`（统一 command 入口）
+- `templates/commands/agents.md`（全部命令索引）
 - `templates/skills/workflow-planning/SKILL.md`
 - `templates/skills/workflow-executing/SKILL.md`
 - `templates/skills/workflow-reviewing/SKILL.md`

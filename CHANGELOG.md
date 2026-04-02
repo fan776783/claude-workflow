@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.1.0] - 2026-04-02
+
+### Changed
+- **workflow 模块化拆分**：原单体 `workflow` skill 拆分为 4 个专项 workflow skills + 共享运行时
+  - `workflow-planning`：承接 `/workflow start` 的规划阶段（Phase 0 ~ Phase 2）
+  - `workflow-executing`：承接 `/workflow execute` 的执行阶段（治理、验证、审查、状态推进）
+  - `workflow-reviewing`：承接两阶段审查协议（Stage 1 Spec 合规 + Stage 2 代码质量），由 execute 内部质量关卡触发
+  - `workflow-delta`：承接 `/workflow delta` 的增量变更（需求 / PRD / API 变更影响分析与同步）
+  - 共享运行时迁移到 `templates/specs/workflow-runtime/`（状态机、共享工具、外部依赖语义）
+  - 共享模板迁移到 `templates/specs/workflow-templates/`（spec / plan 模板）
+  - 统一 CLI 保留在 `templates/utils/workflow/workflow_cli.py`
+- **workflow command 入口**：`templates/commands/workflow.md` 作为稳定路由层，将 start / execute / delta / status / archive 路由到对应的 workflow skills 或共享运行时
+- **文档全面更新**：
+  - `Claude-Code-工作流体系指南.md` 升级至 v12.0.0，反映模块化拆分架构与 14 个 skill 目录
+  - `README.md` 更新 workflow 目录结构可视化、skills 分类（专项 skills / workflow 子 skills / 基础设施 skills）
+  - Skills 列表新增 `collaborating-with-codex`（Codex App Server 运行时委派）
+
+### Added
+- **`collaborating-with-codex` skill**：通过 Codex App Server 运行时委派编码、调试与代码审查任务，支持多轮会话（`--session-id`）、后台作业（`--background`）、内置审查（`--review`）与对抗式审查（`--adversarial-review`）
+- **`agents.md` command 更新**：新增 `bug-batch`、`dispatching-parallel-agents`、`visual-diff` 到快速选择索引
+
+### Technical Details
+- Skills 目录从 10 个增长到 14 个（含 4 个 workflow-* 子 skills）
+- 每个 workflow 子 skill 采用 `SKILL.md`（入口）+ `references/`（概览）+ `specs/`（详细规格）的渐进披露结构
+- 共享运行时资源通过相对路径引用，避免重复定义
+
+---
+
 ## [4.0.0] - 2026-03-25
 
 > 基于 2026-03-25 的仓库提交整理。
