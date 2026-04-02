@@ -124,8 +124,11 @@ async function unblockApiSpec(args: {
 
 ### API 文件解析
 
+> 此处使用的是 **轻量接口摘要模型**，仅用于 external-deps / unblock 场景下记录接口来源与给任务注入可用 API。
+> 如需做 API delta diff，请转换为 `workflow-delta/specs/delta/api-sync.md` 中的 `ApiInterface`（包含 `request` / `response` 结构），避免同名异构结构。
+
 ```typescript
-interface ApiInterface {
+interface ApiInterfaceSummary {
   name: string;           // 函数名：ApiCamPermissionUserGET
   path: string;           // 路径：/web/v1/cam/permission/user
   method: string;         // 方法：GET
@@ -135,9 +138,9 @@ interface ApiInterface {
   category: string;       // 分类名
 }
 
-function parseApiFile(filePath: string): { interfaces: ApiInterface[] } {
+function parseApiFile(filePath: string): { interfaces: ApiInterfaceSummary[] } {
   const content = readFile(filePath);
-  const interfaces: ApiInterface[] = [];
+  const interfaces: ApiInterfaceSummary[] = [];
 
   // 匹配接口定义注释块
   const interfacePattern = /\/\*\*\s*\n\s*\*\s*接口\s*\[(.+?)↗\]\(([^)]+)\)\s*的\s*\*\*请求函数\*\*\s*\n[\s\S]*?@请求头\s*`(\w+)\s+([^`]+)`[\s\S]*?\*\/\s*\nexport const (\w+)/g;
@@ -170,7 +173,7 @@ function extractCategory(content: string, funcName: string): string {
 当任务解除阻塞后，注入可用 API 信息：
 
 ```typescript
-function enrichTaskWithApi(task: WorkflowTaskV2, apiInfo: { interfaces: ApiInterface[] }): WorkflowTaskV2 {
+function enrichTaskWithApi(task: WorkflowTaskV2, apiInfo: { interfaces: ApiInterfaceSummary[] }): WorkflowTaskV2 {
   // 根据任务名称与步骤描述匹配相关接口
   const relevantApis = apiInfo.interfaces.filter(api => {
     const taskKeywords = extractKeywords(

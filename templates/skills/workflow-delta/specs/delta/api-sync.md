@@ -311,6 +311,9 @@ interface ApiInterface {
   description?: string;
 }
 
+> `ApiInterface` 是 workflow-delta 的 canonical diff 模型，用于 `diffApiInterfaces`、`detectApiChanges` 和 impact 分析。
+> `external-deps.md` 中的 `ApiInterfaceSummary` 只用于 unblock / API 上下文注入；如需进入 delta 分析，先转换为此结构。
+
 interface Parameter {
   name: string;
   type: string;

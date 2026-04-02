@@ -101,7 +101,8 @@ function getNextTaskIndex(tasks: Array<{ id: string }>): number {
 function analyzeApiDelta(
   apiContent: string,
   existingTasks: WorkflowTaskV2[],
-  apiContext: ApiContext | null
+  apiContext: ApiContext | null,
+  completedTaskIds: string[] = []
 ): ImpactAnalysis {
   // 1. 解析新 API 文件
   const newApiInfo = parseApiFile(apiContent);
@@ -187,7 +188,7 @@ function analyzeApiDelta(
         deprecated: true
       };
       // P10: 已完成任务回退保护
-      if (state?.progress?.completed?.includes(task.id)) {
+      if (completedTaskIds.includes(task.id)) {
         entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，废弃可能导致回归`;
         impact.riskLevel = 'high';
       }
@@ -208,7 +209,7 @@ function analyzeApiDelta(
         rationale: `接口 ${api.name} 签名变更`
       };
       // P10: 已完成任务回退保护
-      if (state?.progress?.completed?.includes(task.id)) {
+      if (completedTaskIds.includes(task.id)) {
         entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，修改可能导致回归`;
         impact.riskLevel = 'high';
       }
@@ -216,8 +217,8 @@ function analyzeApiDelta(
     }
   }
 
-  // 8. 计算风险等级
-  impact.riskLevel = calculateRiskLevel(apiDiff);
+  // 8. 计算风险等级（completed-task protection 提升后的高风险不可被覆盖）
+  impact.riskLevel = maxRisk(impact.riskLevel, calculateRiskLevel(apiDiff));
 
   // 9. 估算工作量
   impact.estimatedEffort = estimateEffort(impact);
@@ -238,7 +239,8 @@ function analyzeApiDelta(
 function analyzePrdDelta(
   prdContent: string,
   specContent: string,
-  existingTasks: WorkflowTaskV2[]
+  existingTasks: WorkflowTaskV2[],
+  completedTaskIds: string[] = []
 ): ImpactAnalysis {
   // 1. 提取结构化需求（如果长度 > 500）
   // NOTE: RequirementAnalysis 已废弃，现使用 RequirementItem[] 场景化提取
@@ -350,12 +352,17 @@ function analyzePrdDelta(
   for (const req of reqDiff.removed) {
     const relatedTasks = findTasksByRequirement(req, existingTasks);
     for (const task of relatedTasks) {
-      impact.tasksToRemove.push({
+      const entry: TaskToRemove = {
         id: task.id,
         name: task.name,
         reason: `需求已删除：${req.description}`,
         deprecated: true
-      });
+      };
+      if (completedTaskIds.includes(task.id)) {
+        entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，废弃可能导致回归`;
+        impact.riskLevel = 'high';
+      }
+      impact.tasksToRemove.push(entry);
     }
   }
 
@@ -364,19 +371,24 @@ function analyzePrdDelta(
     const reqRef = req.before || req;
     const relatedTasks = findTasksByRequirement(reqRef, existingTasks);
     for (const task of relatedTasks) {
-      impact.tasksToModify.push({
+      const entry: TaskToModify = {
         id: task.id,
         name: task.name,
         changes: req.changes,
         before: { steps: task.steps },
         after: { steps: [{ id: 'D1', description: req.after?.description || req.changes, expected: '需求变化已实现' }] },
         rationale: `需求变更：${req.changes}`
-      });
+      };
+      if (completedTaskIds.includes(task.id)) {
+        entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，修改可能导致回归`;
+        impact.riskLevel = 'high';
+      }
+      impact.tasksToModify.push(entry);
     }
   }
 
   // 8. 计算风险等级
-  impact.riskLevel = calculateRiskLevel(reqDiff);
+  impact.riskLevel = maxRisk(impact.riskLevel, calculateRiskLevel(reqDiff));
 
   // 9. 估算工作量
   impact.estimatedEffort = estimateEffort(impact);
@@ -397,7 +409,8 @@ function analyzePrdDelta(
 async function analyzeRequirementDelta(
   requirement: string,
   specContent: string,
-  existingTasks: WorkflowTaskV2[]
+  existingTasks: WorkflowTaskV2[],
+  completedTaskIds: string[] = []
 ): Promise<ImpactAnalysis> {
   // 1. 使用 codebase-retrieval 分析需求，MCP 不可用时降级到本地启发式分析
   let analysisResult: RequirementAnalysisResult;
@@ -459,14 +472,19 @@ async function analyzeRequirementDelta(
   for (const module of modifiedModules) {
     const relatedTasks = findTasksByFile(module.file, existingTasks);
     for (const task of relatedTasks) {
-      impact.tasksToModify.push({
+      const entry: TaskToModify = {
         id: task.id,
         name: task.name,
         changes: module.changes,
         before: { steps: task.steps },
         after: { steps: [...task.steps, { id: 'D1', description: module.changes, expected: '模块变更已同步' }] },
         rationale: `需求变更影响现有模块`
-      });
+      };
+      if (completedTaskIds.includes(task.id)) {
+        entry.completedWarning = `⚠️ 任务 ${task.id} 已完成并通过验证，修改可能导致回归`;
+        impact.riskLevel = 'high';
+      }
+      impact.tasksToModify.push(entry);
     }
   }
 
@@ -476,11 +494,10 @@ async function analyzeRequirementDelta(
     modified: modifiedModules,
     removed: []
   });
-  if (analysisSource === 'heuristic' && calculatedRisk === 'low') {
-    impact.riskLevel = 'medium';
-  } else {
-    impact.riskLevel = calculatedRisk;
-  }
+  const baseRisk = analysisSource === 'heuristic' && calculatedRisk === 'low'
+    ? 'medium'
+    : calculatedRisk;
+  impact.riskLevel = maxRisk(impact.riskLevel, baseRisk);
 
   // 6. 估算工作量
   impact.estimatedEffort = estimateEffort(impact);
@@ -683,8 +700,6 @@ function calculateRiskLevel(diff: any): 'low' | 'medium' | 'high' {
   const removedCount = diff.removed?.length || 0;
   const modifiedCount = diff.modified?.length || 0;
 
-  const totalChanges = addedCount + removedCount + modifiedCount;
-
   // 删除操作风险最高
   if (removedCount > 3) return 'high';
   if (removedCount > 0) return 'medium';
@@ -697,6 +712,14 @@ function calculateRiskLevel(diff: any): 'low' | 'medium' | 'high' {
   if (addedCount > 10) return 'medium';
 
   return 'low';
+}
+
+function maxRisk(
+  current: 'low' | 'medium' | 'high',
+  next: 'low' | 'medium' | 'high'
+): 'low' | 'medium' | 'high' {
+  const riskOrder = { low: 0, medium: 1, high: 2 };
+  return riskOrder[next] > riskOrder[current] ? next : current;
 }
 ```
 
@@ -795,7 +818,8 @@ function findTasksByFile(filePath: string, tasks: WorkflowTaskV2[]): WorkflowTas
 const apiImpact = analyzeApiDelta(
   apiContent,
   existingTasks,
-  state.api_context
+  state.api_context,
+  state.progress.completed
 );
 
 console.log(`
@@ -810,13 +834,15 @@ console.log(`
 const prdImpact = analyzePrdDelta(
   prdContent,
   specContent,
-  existingTasks
+  existingTasks,
+  state.progress.completed
 );
 
 // 需求描述影响分析
 const reqImpact = analyzeRequirementDelta(
   requirement,
   specContent,
-  existingTasks
+  existingTasks,
+  state.progress.completed
 );
 ```

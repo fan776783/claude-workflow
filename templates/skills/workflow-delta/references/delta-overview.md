@@ -110,23 +110,25 @@
 
 ### Step 5：API 变更 / 同步处理
 
-**sync 模式**（详见 `../specs/delta/api-sync.md` Step 1-8）：
+**sync 模式**（详见 `../specs/delta/api-sync.md`，以下为 Step 5 内部的 sync 子步骤，避免与 overview 顶层 Step 0–8 混淆）：
 1. 检查 `ytt.config.ts` 是否存在
 2. 生成变更 ID（`CHG-XXX`）并创建变更目录
 3. 执行 `pnpm ytt` 同步全部 API（失败时记录失败态 delta 并退出）
 4. 解析生成的 API 文件
 5. 对比接口变化
 6. 更新 API 上下文
-7. 解除 `api_spec` 阻塞 + 工作流状态迁移（`blocked` → `running`）+ 持久化
-8. 写入 `delta.json`、`intent.md`、`review-status.json`（在阻塞解除后写入，确保 `unblockedTasks` 准确）
+7. 写入 `delta.json`、`intent.md`、`review-status.json`（先审计，确保即使状态持久化失败仍保留审计链）
+8. 解除 `api_spec` 阻塞 + 工作流状态迁移（`blocked` → `running`）+ 持久化（后生效）
 
-> **注意**：sync 模式自动应用，跳过 Step 6（Hard Stop 变更确认）。但同样经过变更 ID 生成和 delta 文档写入，确保审计链完整。
+> **注意**：sync 模式自动应用，跳过 overview Step 6（Hard Stop 变更确认）。但同样经过变更 ID 生成和 delta 文档写入，确保审计链完整。
 
 **api 模式**：
 1. 解析指定 API 文件
 2. 对比新旧接口变化
 3. 生成 API 变更详情
 4. 更新 `state.api_context`
+
+> api 模式完成 Step 5 内部子步骤后，继续进入 overview Step 6 → Step 7 → Step 8；只有 sync 模式自动应用并跳过 Hard Stop。
 
 **详细实现**: 参见 `../specs/delta/api-sync.md`
 
