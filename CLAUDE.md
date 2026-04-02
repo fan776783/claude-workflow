@@ -51,7 +51,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-delta/  # Delta entry for /workflow delta
     │   ├── scan/            # Project scanning
     │   ├── analyze/         # Code analysis (Codex + Claude)
-    │   ├── debug/           # Bug fixing workflow
+    │   ├── fix-bug/         # Bug fixing workflow
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
     │   ├── bug-batch/       # Batch bug fixing
@@ -113,7 +113,7 @@ The package includes the following skills (all portable across AI coding tools):
 **Development Tools:**
 - `/scan` - Project scanning (tech stack detection + context report generation)
 - `/analyze` - Codex-assisted analysis (Codex + Claude review)
-- `/debug` - Bug fixing workflow (locate → analyze → fix → review)
+- `/fix-bug` - Bug fixing workflow (locate → analyze → fix → review)
 - `/write-tests` - Test writing expert (unit + integration tests)
 
 **Code Review:**

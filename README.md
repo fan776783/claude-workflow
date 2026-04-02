@@ -28,7 +28,7 @@
 |-------|------|
 | `scan` | 扫描项目技术栈并生成项目配置 |
 | `analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
-| `debug` | 结构化定位与修复单点问题 |
+| `fix-bug` | 结构化定位与修复单点问题 |
 | `diff-review` | Quick / Deep 模式代码审查 |
 | `write-tests` | 补齐单元测试 / 集成测试 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
@@ -194,7 +194,7 @@ flowchart TD
 
 如果只是单点问题，也可以直接使用专项 skill：
 
-- 单 Bug：`/debug`
+- 单 Bug：`/fix-bug`
 - 单次审查：`/diff-review`
 - 单次分析：`/analyze`
 - 单次补测：`/write-tests`

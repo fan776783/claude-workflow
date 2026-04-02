@@ -113,7 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 更新 templates/CLAUDE.md：修正 prompts 路径为 canonical 位置
 
 ### Improved
-- **架构说明**：清晰展示 Skills 目录结构（workflow, scan, analyze, debug 等 10 个 skills）
+- **架构说明**：清晰展示 Skills 目录结构（workflow, scan, analyze, fix-bug 等 10 个 skills）
 - **多工具支持**：文档明确说明支持 Claude Code, Cursor, Codex, Gemini CLI 等 10+ AI 编码工具
 - **关键词优化**：添加 skills, multi-agent, code-review, testing, figma 等关键词
 

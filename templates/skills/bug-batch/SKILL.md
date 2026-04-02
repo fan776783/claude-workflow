@@ -91,9 +91,9 @@ Phase 1: 拉取缺陷清单
 Phase 2: 获取详情并标准化 IssueRecord
 Phase 3: 全量分析（根因初判 / 重复识别 / 耦合识别 / 依赖分析）
 Phase 4: 编排 FixUnit 并等待批量确认（Hard Stop）
-Phase 5: 按 FixUnit 顺序执行修复（复用 debug 单修复单元协议）
-Phase 6: 修复完成后流转到“处理中”并进入人工确认卡点
-Phase 7: 人工确认后流转到“待验证”
+Phase 5: 按依赖分层并行执行修复（独立 FixUnit 通过 dispatching-parallel-agents 并行）
+Phase 6: 跨单元交叉影响分析 + 批量流转到”处理中”
+Phase 7: 全量确认 + 提交 Commit + 流转到”待验证”（Hard Stop）
 Phase 8: 输出汇总报告
 ```
 
@@ -171,17 +171,38 @@ Phase 8: 输出汇总报告
 
 在收到用户确认前，立即停止，不得继续进入修复。
 
-## Phase 5: 按 FixUnit 顺序执行修复
+## Phase 5: 按依赖分层并行执行修复
 
-用户确认后，按顺序逐个执行 `FixUnit`。
+用户确认后，按依赖拓扑分层执行 `FixUnit`，同层内独立单元并行分派。
 
-执行纪律：
-- 同一时间只允许一个 `FixUnit` 进入 `fixing`
-- `blocked_by_units` 未解除时保持 `blocked`
+### 拓扑分层
+
+根据 `blocked_by_units` 构建依赖图，将 FixUnit 划分为执行层：
+
+```text
+Layer 0: 无任何 blocked_by_units 的 FixUnit（可立即并行执行）
+Layer 1: 仅依赖 Layer 0 中单元的 FixUnit（Layer 0 全部完成后并行执行）
+Layer N: 依赖 Layer 0..N-1 中单元的 FixUnit
+```
+
+### 执行纪律
+
+- 同一层内的独立 FixUnit **并行执行**
+- `blocked_by_units` 未解除时保持 `blocked`，等待所在层的前置层全部完成
 - `duplicate_issues` 只参与验证和状态流转，不触发独立编码
-- 某个单元失败后，不阻塞与其无依赖关系的后续单元
+- 某个单元失败后，只阻塞其依赖链，不阻塞无关单元
+- 若同层内仅有 1 个 FixUnit，退化为普通串行执行，不启动并行分派
 
-### 调用 debug 协议
+### 并行分派（复用 dispatching-parallel-agents）
+
+同层存在 2+ 独立 FixUnit 时，复用 `/dispatching-parallel-agents` skill：
+
+1. **独立性检查**：确认同层 FixUnit 的 `affected_scope` 无文件交集；若存在共享文件，将相关 FixUnit 降级为串行
+2. **worktree 隔离**：每个并行子 agent 使用 worktree 隔离，因为不同 FixUnit 会修改不同文件
+3. **串行 provisioning**：先串行完成所有 worktree 创建，再并行启动子 agent
+4. **冲突降级**：并行完成后若检测到冲突，回退受影响单元，按原顺序顺序重跑
+
+### 调用 fix-bug 协议
 
 为每个 `FixUnit` 启动独立 agent，上下文中必须传入：
 - `unit_id`
@@ -193,7 +214,7 @@ Phase 8: 输出汇总报告
 - `affected_scope`
 - `validation_scope`
 
-要求 `debug`：
+要求 `fix-bug`：
 1. 先复核根因与关系判断
 2. 输出诊断结论、修复方案、风险与验证范围
 3. 经确认后实施最小化修复
@@ -218,7 +239,50 @@ Phase 8: 输出汇总报告
 - 修改范围超出最小改动原则
 - 状态流转条件不满足，但需要人工推进
 
-## Phase 6: 流转到“处理中”并进入人工确认卡点
+### 结果物化到协调分支
+
+并行 FixUnit 在 worktree / 子分支中完成后，必须先将结果**显式落回协调分支**，再进入 Phase 6。
+
+执行要求：
+- 仅对 `status_transition_ready = true` 且验证通过的 FixUnit 执行结果物化
+- 物化方式必须显式记录：`cherry-pick` / `merge --no-ff` / `apply patch` 三选一，禁止只依赖“已完成”状态推断结果已回到主工作树
+- 物化后记录 `materialized_units`、`materialized_issue_numbers`、`materialization_log`
+- 若某个 FixUnit 无法安全物化（冲突、补丁失败、语义不兼容），将其标记为 `manual_intervention`，并从后续批量流转与提交集合中移除
+
+## Phase 6: 跨单元交叉影响分析 + 批量流转到”处理中”
+
+所有 FixUnit 执行完毕后（含成功、失败、人工介入），先将可纳入主线的结果物化到协调分支，再对**已物化**的就绪单元执行跨单元交叉影响分析，最后统一流转。
+
+### 跨单元交叉影响分析
+
+并行执行的多个 FixUnit 各自通过了单元级验证，但只有在结果已落回协调分支后，才能真实评估合并后的交叉影响。此分析在结果物化完成后、状态流转前执行。
+
+#### 分析维度
+
+| 维度 | 检查内容 |
+|------|----------|
+| **文件冲突** | 多个 FixUnit 是否修改了同一文件的相同区域，合并后是否存在语义冲突 |
+| **共享依赖** | 不同 FixUnit 修改的模块是否共享同一上游依赖（公共函数、类型定义、配置项），修改是否兼容 |
+| **接口契约** | 一个 FixUnit 修改了接口签名或返回值，另一个 FixUnit 的调用方是否受影响 |
+| **状态副作用** | 多个 FixUnit 涉及同一全局状态（store、缓存、会话）时，并发修改是否引入竞态或覆盖 |
+| **回归风险** | 合并所有修改后，原本各 FixUnit 独立通过的验证是否仍然成立 |
+
+#### 执行方式
+
+1. 汇总所有已物化且就绪 FixUnit 的 `files_changed`，检测文件交集
+2. 对存在交集的 FixUnit 对，检查修改是否语义兼容
+3. 在协调分支上运行项目级测试或聚合验证命令（若可用）
+4. 若无自动化测试，列出需人工验证的交叉影响点
+
+#### 结果处理
+
+- **无交叉影响**：继续批量流转
+- **发现兼容性问题**：标记受影响的 FixUnit 为 `manual_intervention`，附带交叉影响说明，其余正常流转
+- **发现严重冲突**：触发 Hard Stop，向用户报告冲突详情，等待决策后再继续
+
+### 批量流转到”处理中”
+
+对所有 `status_transition_ready = true`、已完成结果物化且通过交叉影响分析的单元统一处理。
 
 仅当以下条件同时满足时，才允许推进状态流转：
 - 代码修复完成
@@ -226,20 +290,49 @@ Phase 8: 输出汇总报告
 - 模型审查通过，或当前模型给出等价审查结论
 - `status_transition_ready = true`
 
-先将当前 `FixUnit` 覆盖的 `included_issues` 与 `duplicate_issues` 流转到 `处理中`。
+将所有就绪且已物化 FixUnit 覆盖的 `included_issues` 与 `duplicate_issues` 批量流转到 `处理中`。
 
 若 MCP 支持批量或单条状态更新，可按实际接口调用；若当前环境没有状态更新接口，必须在这里显式停下，提示人工手动流转，禁止假装更新成功。
 
-展示人工确认卡点时，读取 `references/status-and-reporting.md` 中的模板。
+## Phase 7: 全量确认 + 提交 Commit + 流转到”待验证”（Hard Stop）
 
-## Phase 7: 人工确认后流转到“待验证”
+### 全量确认
 
-仅在人工确认通过后，将当前 `FixUnit` 覆盖的缺陷从 `处理中` 流转到 `待验证`。
+展示所有 FixUnit 的修复结果汇总（读取 `references/status-and-reporting.md` 中的模板），等待用户一次性确认。
 
-若人工确认未通过：
-- 保持缺陷状态在 `处理中`
-- 将当前 `FixUnit` 标记为 `manual_intervention`，或生成返修单元
-- 在最终汇总中记录失败原因和后续动作
+在收到用户确认前，立即停止，不得继续。
+
+若用户对某个 FixUnit 不认可：
+- 保持该 FixUnit 覆盖的缺陷在 `处理中`
+- 将该 FixUnit 标记为 `manual_intervention`
+- 将该 FixUnit 从 `confirmed_units` 与 `commit_scope` 中移除
+- 若该单元的修改已临时落地到协调分支，必须先显式回滚或重建仅包含已确认单元的提交工作树
+- 其余已确认的 FixUnit 继续执行后续流转
+
+### 提交 Commit
+
+用户确认后，仅将 `confirmed_units` 中的修改提交 commit。
+
+Commit message 格式：
+
+```
+fix: <issue_number_1> <issue_number_2> ... 修复了 <问题摘要>
+```
+
+规则：
+- 固定前缀 `fix:`
+- 缺陷编号列表：仅包含实际进入本次 commit 的 `confirmed_units` 所覆盖的 `included_issues` 与 `duplicate_issues` 的 `issue_number`，空格分隔
+- 问题摘要：用一句话概括本次批量修复内容
+
+示例：
+
+```
+fix: p328_7489 p328_7488 p328_7490 修复了登录态刷新失效和会话过期问题
+```
+
+### 流转到”待验证”
+
+Commit 完成后，仅将实际进入该 commit 的已确认 FixUnit 覆盖缺陷从 `处理中` 批量流转到 `待验证`。
 
 状态流转示例读取 `references/status-and-reporting.md`。
 
@@ -260,7 +353,7 @@ Phase 8: 输出汇总报告
 3. 重复缺陷只归并，不重复编码
 4. 共享根因和强耦合问题优先合并处理
 5. 将阻塞关系显式化为执行顺序
-6. 在批量开始前和流转到待验证前各设置一次 Hard Stop
-7. 修复完成后先流转到 `处理中`，人工确认后再流转到 `待验证`
+6. 在批量开始前和全量确认+提交 Commit 前各设置一次 Hard Stop
+7. 修复完成后先批量流转到 `处理中`，全量确认并提交 Commit 后再批量流转到 `待验证`
 8. 始终遵循最小改动原则
 9. 单个修复单元失败时，只阻塞其依赖链，不阻塞无关单元

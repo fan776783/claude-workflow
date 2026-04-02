@@ -30,7 +30,7 @@
 | 1   | 验证铁律                | execute 流程      | `specs/execute/execution-modes.md`, `references/execute-overview.md`                  |
 | 2   | 设计审批硬门控          | start 流程        | `specs/start/phase-0.5-requirement-extraction.md`, `references/start-overview.md`     |
 | 3   | 任务粒度标准            | 任务生成          | `specs/start/phase-2-task-generation.md`                                              |
-| 4   | 根因追溯纪律            | debug skill       | `skills/debug/SKILL.md`, `skills/debug/references/root-cause-tracing.md`（新增）      |
+| 4   | 根因追溯纪律            | fix-bug skill     | `skills/fix-bug/SKILL.md`, `skills/fix-bug/references/root-cause-tracing.md`（新增）  |
 | 5   | 双阶段任务审查          | execute 流程      | `specs/execute/execution-modes.md`, `references/execute-overview.md`                  |
 | 6   | 合理化借口表 + 红旗清单 | Brief / 验收映射   | `specs/start/phase-0.6-brief.md`, `references/brief.md` |
 | 7   | 审查反馈技术验证        | diff-review skill | `skills/diff-review/SKILL.md`, `skills/diff-review/references/deep-mode.md`           |
@@ -199,11 +199,11 @@ const STANDARD_STEPS: TaskStep[] = [
 
 **来源**: Superpowers `systematic-debugging`
 
-**问题**: 当前 debug skill 的 Phase 1 直接进行"根本原因定位"，但没有强制要求反向追踪数据流、形成单一假设再验证。容易陷入"猜测 → 尝试修复 → 失败 → 再猜"的循环。
+**问题**: 当前 fix-bug skill 的 Phase 1 直接进行"根本原因定位"，但没有强制要求反向追踪数据流、形成单一假设再验证。容易陷入"猜测 → 尝试修复 → 失败 → 再猜"的循环。
 
 **改动方案**:
 
-修改 `skills/debug/SKILL.md` 的 Phase 1.3，替换为假设驱动的调试流程：
+修改 `skills/fix-bug/SKILL.md` 的 Phase 1.3，替换为假设驱动的调试流程：
 
 ```markdown
 **1.3 假设驱动的根因追溯**：
@@ -233,7 +233,7 @@ const STANDARD_STEPS: TaskStep[] = [
 - 此时触发 Hard Stop，等待用户决策
 ```
 
-新增参考文档 `skills/debug/references/root-cause-tracing.md`：
+新增参考文档 `skills/fix-bug/references/root-cause-tracing.md`：
 
 ```markdown
 # 根因追溯技术参考

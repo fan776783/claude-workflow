@@ -1,5 +1,5 @@
 ---
-name: debug
+name: fix-bug
 description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 → 修复 → Codex 审查。既可处理单个缺陷，也可作为 bug-batch 的单修复单元执行协议，支持关联缺陷、重复缺陷和共享根因场景。修复完成后输出是否允许进入状态流转的结论。"
 ---
 
@@ -10,8 +10,8 @@ description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 
 ## 用法
 
 ```bash
-/debug <问题描述>
-/debug "p328_600"
+/fix-bug <问题描述>
+/fix-bug "p328_600"
 ```
 
 ## 适用模式
@@ -28,7 +28,7 @@ description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 
 - 可包含 `duplicate_issues`
 - 可附带 `blocked_by_units`、`shared_root_cause`、`affected_scope`、`validation_scope`
 
-在该模式下，`debug` 的目标不是只修一个工单，而是验证并修复整个修复单元覆盖的问题集合。
+在该模式下，`fix-bug` 的目标不是只修一个工单，而是验证并修复整个修复单元覆盖的问题集合。
 
 ## 统一术语
 
