@@ -3,14 +3,13 @@
   "version": "4.0.0",
   "description": "AI 编码工具通用工作流系统 - Skills 架构支持 9 个 AI 工具 (Claude Code, Cursor, Codex, Gemini 等)",
   "bin": {
-    "agent-workflow": "./bin/agent-workflow.js"
+    "agent-workflow": "bin/agent-workflow.js"
   },
   "main": "lib/index.js",
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "node scripts/validate.js",
     "sync": "node bin/agent-workflow.js sync",
-    "release": "./scripts/release.sh",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
     "release:major": "./scripts/release.sh major"
@@ -20,6 +19,8 @@
     "lib/",
     "scripts/",
     "templates/",
+    "!templates/**/__pycache__/",
+    "!templates/**/*.py[cod]",
     "README.md",
     "CHANGELOG.md"
   ],

@@ -71,9 +71,18 @@ npm install
 npm run sync
 ```
 
+如果你已经把包发布到私有 npm 仓库，也可以直接通过 `npx` 执行：
+
+```bash
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
+```
+
 常用变体：
 
 ```bash
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -a claude-code,cursor -y
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
+
 npm run sync -- -a claude-code,cursor
 npm run sync -- --project
 npm run sync -- -y

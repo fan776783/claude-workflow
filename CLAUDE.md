@@ -27,7 +27,6 @@ agent-workflow doctor    # Diagnose configuration issues
 npm run release:patch     # Bug fixes: 1.0.0 -> 1.0.1
 npm run release:minor     # Features: 1.0.0 -> 1.1.0
 npm run release:major     # Breaking: 1.0.0 -> 2.0.0
-npm run release 2.0.0     # Explicit version
 ```
 
 ## Architecture
