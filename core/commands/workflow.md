@@ -94,7 +94,7 @@ examples:
 - `/workflow` 是 **command 入口**，不是专项 skill 本身
 - `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` 是真正的 workflow skills
 - `workflow-reviewing` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
-- 当前 shared runtime 已迁移到 `templates/specs/workflow-runtime/`、`templates/specs/workflow-templates/` 与 `templates/utils/workflow/`
+- 当前 shared runtime 已迁移到 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
 
 ---
 

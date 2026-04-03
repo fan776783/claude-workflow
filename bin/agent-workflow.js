@@ -14,7 +14,8 @@ const {
   installForAgents,
   linkRepoToAgents,
   getInstallationStatus,
-  DIRECT_LINK_DIRS,
+  MANAGED_DIRS,
+  COMMANDS_DIR,
   SKILLS_DIR,
   INSTALL_MODE_REPO_LINK,
 } = require('../lib/installer');
@@ -68,12 +69,11 @@ if (process.argv.length === 2) {
     .option('-y, --yes', '跳过确认提示')
     .action(async (options) => {
       try {
-        const homeDir = os.homedir();
-        const templatesDir = path.join(__dirname, '..', 'templates');
+        const repoRoot = path.join(__dirname, '..');
         const currentVersion = pkg.version;
 
         if (options.interactive || (process.stdin.isTTY && !options.agent && !options.yes && !options.legacy)) {
-          await runInteractiveInstall({ templatesDir });
+          await runInteractiveInstall({ templatesDir: repoRoot });
           return;
         }
 
@@ -91,14 +91,14 @@ if (process.argv.length === 2) {
           }
 
           if (!previousVersion) {
-            await installFresh({ claudeDir, metaDir, templatesDir, version: currentVersion });
+            await installFresh({ claudeDir, metaDir, templatesDir: repoRoot, version: currentVersion });
           } else {
             await upgradeFrom({
               fromVersion: previousVersion,
               toVersion: currentVersion,
               claudeDir,
               metaDir,
-              templatesDir,
+              templatesDir: repoRoot,
             });
           }
 
@@ -125,7 +125,7 @@ if (process.argv.length === 2) {
         console.log(`  作用域: ${global ? '全局' : '项目级'}`);
 
         const result = await installForAgents({
-          templatesDir,
+          templatesDir: repoRoot,
           agents: targetAgents,
           global,
           cwd: process.cwd(),
@@ -164,7 +164,7 @@ if (process.argv.length === 2) {
     .option('--project', '项目级安装（当前目录）')
     .action(async (options) => {
       try {
-        const templatesDir = path.join(__dirname, '..', 'templates');
+        const repoRoot = path.join(__dirname, '..');
         const global = !options.project;
         const targetAgents = parseAgentArg(options.agent);
 
@@ -176,10 +176,10 @@ if (process.argv.length === 2) {
         console.log(`${LOG_PREFIX} 链接到 ${targetAgents.length} 个 Agent...`);
         console.log(`  目标: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
         console.log(`  作用域: ${global ? '全局' : '项目级'}`);
-        console.log(`  源目录: ${templatesDir}`);
+        console.log(`  源目录: ${path.join(repoRoot, 'core')}`);
 
         const result = await linkRepoToAgents({
-          templatesDir,
+          templatesDir: repoRoot,
           agents: targetAgents,
           global,
           cwd: process.cwd(),
@@ -361,9 +361,11 @@ if (process.argv.length === 2) {
                 statusIcon = '!';
                 const brokenSummary = agentStatus.brokenSkills.length > 0
                   ? `skills 异常: ${agentStatus.brokenSkills.join(', ')}`
-                  : agentStatus.nonSkillDirIssues.length > 0
-                    ? `目录异常: ${agentStatus.nonSkillDirIssues.join(', ')}`
-                    : '安装异常';
+                  : agentStatus.brokenCommands.length > 0
+                    ? `commands 异常: ${agentStatus.brokenCommands.join(', ')}`
+                    : agentStatus.managedDirIssues.length > 0
+                      ? `受管目录异常: ${agentStatus.managedDirIssues.join(', ')}`
+                      : '安装异常';
                 statusText = `(${brokenSummary})`;
               }
             } else if (agentStatus.detected) {
@@ -415,64 +417,35 @@ if (process.argv.length === 2) {
         const status = await getInstallationStatus(global, process.cwd());
         const isRepoLinkMode = status.mode === INSTALL_MODE_REPO_LINK;
         const sourceRoot = status.sourceRoot;
-        const sourceDirs = [...DIRECT_LINK_DIRS, SKILLS_DIR];
+        const sourceDirs = [COMMANDS_DIR, SKILLS_DIR, ...MANAGED_DIRS];
+        const canonicalRoot = sourceRoot;
         const installedAgents = Object.entries(status.agents).filter(([_, s]) => s.installed);
 
-        if (isRepoLinkMode) {
-          if (await fs.pathExists(sourceRoot)) {
-            ok.push(`Repo link 源存在: ${sourceRoot}`);
+        if (await fs.pathExists(canonicalRoot)) {
+          ok.push(`${isRepoLinkMode ? 'Repo link 源' : 'Canonical package root'}存在: ${canonicalRoot}`);
 
-            for (const dir of sourceDirs) {
-              const dirPath = path.join(sourceRoot, dir);
-              if (await fs.pathExists(dirPath)) {
-                const files = await fs.readdir(dirPath);
-                if (files.length > 0) {
-                  ok.push(`${dir}/ 源目录正常 (${files.length} 个文件)`);
-                } else {
-                  issues.push(`${dir}/ 源目录为空`);
-                }
+          for (const dir of sourceDirs) {
+            const dirPath = path.join(canonicalRoot, dir);
+            if (await fs.pathExists(dirPath)) {
+              const files = await fs.readdir(dirPath);
+              if (files.length > 0) {
+                ok.push(`${dir}/ 目录正常 (${files.length} 个文件)`);
               } else {
-                issues.push(`${dir}/ 源目录不存在`);
+                issues.push(`${dir}/ 目录为空`);
               }
+            } else {
+              issues.push(`${dir}/ 目录不存在`);
             }
-          } else {
-            issues.push(`Repo link 源不存在: ${sourceRoot}`);
-          }
-
-          const metaFile = path.join(getCanonicalDir(global, process.cwd()), '.meta', 'meta.json');
-          if (await fs.pathExists(metaFile)) {
-            ok.push('元信息文件存在');
-          } else {
-            issues.push('元信息文件不存在');
           }
         } else {
-          const canonicalDir = getCanonicalDir(global, process.cwd());
-          if (await fs.pathExists(canonicalDir)) {
-            ok.push(`Canonical 目录存在: ${canonicalDir}`);
+          issues.push(`${isRepoLinkMode ? 'Repo link 源' : 'Canonical package root'}不存在: ${canonicalRoot}`);
+        }
 
-            for (const dir of sourceDirs) {
-              const dirPath = path.join(canonicalDir, dir);
-              if (await fs.pathExists(dirPath)) {
-                const files = await fs.readdir(dirPath);
-                if (files.length > 0) {
-                  ok.push(`${dir}/ 目录正常 (${files.length} 个文件)`);
-                } else {
-                  issues.push(`${dir}/ 目录为空`);
-                }
-              } else {
-                issues.push(`${dir}/ 目录不存在`);
-              }
-            }
-
-            const metaFile = path.join(canonicalDir, '.meta', 'meta.json');
-            if (await fs.pathExists(metaFile)) {
-              ok.push('元信息文件存在');
-            } else {
-              issues.push('元信息文件不存在');
-            }
-          } else {
-            issues.push(`Canonical 目录不存在: ${canonicalDir}`);
-          }
+        const metaFile = path.join(getCanonicalDir(global, process.cwd()), '.meta', 'meta.json');
+        if (await fs.pathExists(metaFile)) {
+          ok.push('元信息文件存在');
+        } else {
+          issues.push('元信息文件不存在');
         }
 
         if (installedAgents.length > 0) {
@@ -483,11 +456,20 @@ if (process.argv.length === 2) {
           if (agentStatus.brokenSkills.length > 0) {
             issues.push(`${agents[name]?.displayName || name}: skills 异常 (${agentStatus.brokenSkills.join(', ')})`);
           }
-          if (agentStatus.nonSkillDirIssues.length > 0) {
-            issues.push(`${agents[name]?.displayName || name}: 目录异常 (${agentStatus.nonSkillDirIssues.join(', ')})`);
+          if (agentStatus.brokenCommands.length > 0) {
+            issues.push(`${agents[name]?.displayName || name}: commands 异常 (${agentStatus.brokenCommands.join(', ')})`);
+          }
+          if (agentStatus.managedDirIssues.length > 0) {
+            issues.push(`${agents[name]?.displayName || name}: 受管目录异常 (${agentStatus.managedDirIssues.join(', ')})`);
           }
           if (!agentStatus.skillsRoot.valid) {
             issues.push(`${agents[name]?.displayName || name}: skills 根目录异常 (${agentStatus.skillsRoot.path})`);
+          }
+          if (!agentStatus.commandsRoot.valid && agentStatus.commandsRoot.mode) {
+            issues.push(`${agents[name]?.displayName || name}: commands 命名空间异常 (${agentStatus.commandsRoot.path})`);
+          }
+          if (!agentStatus.managedRoot.valid && agentStatus.managedRoot.mode) {
+            issues.push(`${agents[name]?.displayName || name}: 受管根目录异常 (${agentStatus.managedRoot.path})`);
           }
         }
 
@@ -511,7 +493,7 @@ if (process.argv.length === 2) {
         if (issues.length > 0) {
           console.log('\n  ❌ 问题:');
           issues.forEach(item => console.log(`     - ${item}`));
-          console.log(`\n  建议运行: ${CLI_NAME} sync`);
+          console.log(`\n  建议运行: ${isRepoLinkMode ? `${CLI_NAME} link` : `${CLI_NAME} sync`}`);
         } else {
           console.log('\n  所有检查通过!');
         }

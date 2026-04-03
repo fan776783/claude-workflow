@@ -14,9 +14,9 @@
 | 旧路径 | 当前入口 |
 |--------|---------|
 | `.claude/acceptance/{name}-checklist.md` | `.claude/specs/{name}.md` + `.claude/plans/{name}.md` |
-| `templates/docs/acceptance-checklist-template.md` | `templates/commands/workflow.md` |
-| `templates/skills/workflow/references/acceptance-checklist.md` | `templates/skills/workflow-planning/references/start-overview.md` |
-| `templates/skills/workflow/references/start-overview.md` | `templates/skills/workflow-planning/references/start-overview.md` |
+| `core/docs/acceptance-checklist-template.md` | `core/commands/workflow.md` |
+| `core/skills/workflow/references/acceptance-checklist.md` | `core/skills/workflow-planning/references/start-overview.md` |
+| `core/skills/workflow/references/start-overview.md` | `core/skills/workflow-planning/references/start-overview.md` |
 
 ## 现在应该怎么用
 
@@ -37,11 +37,11 @@ code .claude/plans/<task-name>.md
 
 ### 3. 查看流程说明
 
-- `templates/commands/workflow.md`
-- `templates/skills/workflow-planning/references/start-overview.md`
+- `core/commands/workflow.md`
+- `core/skills/workflow-planning/references/start-overview.md`
 
 ## 相关文档
 
-- `templates/commands/workflow.md`
-- `templates/skills/workflow-planning/SKILL.md`
-- `templates/skills/workflow-planning/references/start-overview.md`
+- `core/commands/workflow.md`
+- `core/skills/workflow-planning/SKILL.md`
+- `core/skills/workflow-planning/references/start-overview.md`

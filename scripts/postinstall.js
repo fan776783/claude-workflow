@@ -62,7 +62,7 @@ async function main() {
   }
 
   const homeDir = os.homedir();
-  const templatesDir = path.join(__dirname, '..', 'templates');
+  const repoRoot = path.join(__dirname, '..');
   const packageDir = path.join(__dirname, '..');
   const currentVersion = pkg.version;
 
@@ -147,7 +147,7 @@ async function main() {
     } else {
       try {
         const result = await installForAgents({
-          templatesDir,
+          templatesDir: repoRoot,
           agents: targetAgents,
           global: true,
         });

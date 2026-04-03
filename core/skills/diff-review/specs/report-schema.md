@@ -4,7 +4,7 @@
 
 ## 何时读取
 
-- `templates/skills/diff-review/SKILL.md` 进入报告汇总阶段时
+- `core/skills/diff-review/SKILL.md` 进入报告汇总阶段时
 - `references/quick-mode.md` 生成 Quick 审查报告时
 - `references/deep-mode.md` 合并 Codex / Claude 候选问题并输出最终报告时
 - Review Loop 为 P0/P1 生成修复建议时

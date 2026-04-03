@@ -124,7 +124,7 @@
 
 本节只定义**高层协作职责**，不重复 `collaborating-with-codex` skill 的命令参数、审查模式、会话恢复或 sandbox 细节。
 
-具体调用 contract 统一以 `templates/skills/collaborating-with-codex/SKILL.md` 与桥接脚本实现为准。
+具体调用 contract 统一以 `core/skills/collaborating-with-codex/SKILL.md` 与桥接脚本实现为准。
 
 ### Codex 角色定位
 

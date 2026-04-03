@@ -14,8 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增共享审查管线：review subject 解析、candidate finding discovery、finding verification、impact analysis、severity calibration、report synthesis、impact-aware review loop
   - Quick / Deep 模式统一接入 verification + impact analysis，不再直接从 diff 跳到最终 findings
   - Deep 模式改为“Codex / Claude 候选问题发现 → 当前模型统一裁决”，禁止将外部模型意见原样视为最终报告
-  - 新增 `templates/skills/diff-review/specs/impact-analysis.md` 与 `templates/skills/diff-review/specs/report-schema.md`，沉淀影响性分析与报告结构 contract
+  - 新增 `core/skills/diff-review/specs/impact-analysis.md` 与 `core/skills/diff-review/specs/report-schema.md`，沉淀影响性分析与报告结构 contract
   - Review Loop 强化为 impact-aware remediation：P0/P1 问题必须附带 `Fix Scope`、`Regression Verification` 与复审重点
+- **模板源码布局重构**：将模板主载荷统一迁移到 `core/`
+  - 原 `core/{commands,skills,prompts,utils,specs,hooks,docs,project,CLAUDE.md}` 调整为 package root 结构，源码布局与 Agent 落地目录解耦
+  - `scripts/validate.js`、测试路径、README、CLAUDE 与模板文档同步切换到新的 package root 路径
+- **安装投影策略重构**：停止把通用目录直接挂到外部 Agent 根目录
+  - `skills/*` 继续逐项挂载到各 Agent 原生 `skills/`
+  - commands 改为挂载到 `commands/agent-workflow/`
+  - `prompts/utils/specs/hooks/docs/project` 改为挂载到各 Agent 的 `.agent-workflow/` 命名空间
+- **repo-link / canonical 状态兼容升级**：`status`、`doctor` 与安装元数据适配新布局
+  - 新增 package-root 级 `sourceRoot` 归一化，兼容旧 repo-link 元数据自动识别到 `core/`
+  - `installForAgents()` 与 `linkRepoToAgents()` 统一基于 package root 投影
+  - `doctor` 在 repo-link 模式下改为检查 package root，并给出与当前模式一致的恢复建议
+
+### Fixed
+- **重复 link 时的已存在目录处理**：`createSymlink()` 现在会正确处理已存在的目录/符号链接，避免重链时因 `pathExists()` 跳过删除而导致挂载失败
+- **Claude Code 新布局兼容**：重新执行 `agent-workflow link -a claude-code` 后，`status` 可正确识别 `repo-link` 模式与 14/14 skills 状态
+- **历史路径引用清理**：修复模板文档、指南和部分实现说明中的旧 `core/*` 与 legacy workflow 路径，统一指向 `core/*`
+- **无效 docs 清理**：移除不再被运行时、README、模板或 CLI 引用的历史分析/方案文档，保留仍有实际安装与排障价值的 `docs/worktree-hooks.md`
 
 ## [4.1.0] - 2026-04-02
 
@@ -25,10 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `workflow-executing`：承接 `/workflow execute` 的执行阶段（治理、验证、审查、状态推进）
   - `workflow-reviewing`：承接两阶段审查协议（Stage 1 Spec 合规 + Stage 2 代码质量），由 execute 内部质量关卡触发
   - `workflow-delta`：承接 `/workflow delta` 的增量变更（需求 / PRD / API 变更影响分析与同步）
-  - 共享运行时迁移到 `templates/specs/workflow-runtime/`（状态机、共享工具、外部依赖语义）
-  - 共享模板迁移到 `templates/specs/workflow-templates/`（spec / plan 模板）
-  - 统一 CLI 保留在 `templates/utils/workflow/workflow_cli.py`
-- **workflow command 入口**：`templates/commands/workflow.md` 作为稳定路由层，将 start / execute / delta / status / archive 路由到对应的 workflow skills 或共享运行时
+  - 共享运行时迁移到 `core/specs/workflow-runtime/`（状态机、共享工具、外部依赖语义）
+  - 共享模板迁移到 `core/specs/workflow-templates/`（spec / plan 模板）
+  - 统一 CLI 保留在 `core/utils/workflow/workflow_cli.py`
+- **workflow command 入口**：`core/commands/workflow.md` 作为稳定路由层，将 start / execute / delta / status / archive 路由到对应的 workflow skills 或共享运行时
 - **文档全面更新**：
   - `Claude-Code-工作流体系指南.md` 升级至 v12.0.0，反映模块化拆分架构与 14 个 skill 目录
   - `README.md` 更新 workflow 目录结构可视化、skills 分类（专项 skills / workflow 子 skills / 基础设施 skills）
@@ -66,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **workflow 模板更新**：技术设计、Spec、Plan、Requirement Baseline、Brief、review-loop 与 state-machine 模板统一对齐新的追溯、治理关口和 execution quality gate 结构
 
 ### Removed
-- **perf-budget skill**：移除 `templates/skills/perf-budget/` 下的 skill 文档、脚本与相关资源，精简项目结构
+- **perf-budget skill**：移除 `core/skills/perf-budget/` 下的 skill 文档、脚本与相关资源，精简项目结构
 
 ---
 
@@ -120,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 更新 CLAUDE.md：详细说明 canonical + managed-links 架构和 10 个可用 Skills
   - 更新 package.json：描述改为"AI 编码工具通用工作流系统"
   - 更新 CLI 帮助文本：移除旧的 commands/agents 引用
-  - 更新 templates/CLAUDE.md：修正 prompts 路径为 canonical 位置
+  - 更新 core/CLAUDE.md：修正 prompts 路径为 canonical 位置
 
 ### Improved
 - **架构说明**：清晰展示 Skills 目录结构（workflow, scan, analyze, fix-bug 等 10 个 skills）
@@ -179,12 +196,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 任务关联映射：根据 phase/file/requirement 自动匹配验收项
   - 验收标准定义：Must Pass（必须满足）和 Should Pass（建议满足）
   - 生成位置：`.claude/acceptance/{name}-checklist.md`
-- **验证清单模板**：`templates/docs/acceptance-checklist-template.md`
+- **验证清单模板**：`core/docs/acceptance-checklist-template.md`
 - **验证清单文档**：
-  - `templates/skills/workflow/references/acceptance-checklist.md` - 系统说明文档
-  - `templates/docs/acceptance-checklist-guide.md` - 使用指南（7 种常见场景 + 验收测试模板）
-  - `docs/workflow-v3.3.2-acceptance-checklist.md` - 版本说明文档
-  - `docs/acceptance-checklist-quick-reference.md` - 快速参考文档
+  - `core/skills/workflow/references/acceptance-checklist.md` - 系统说明文档
+  - `core/docs/acceptance-checklist-guide.md` - 使用指南（7 种常见场景 + 验收测试模板）
 
 ### Changed
 - **任务清单增强**：新增 `验收项` 字段，列出关联的验收项 ID（如 `AC-F1.1, AC-P1.2`）
@@ -238,7 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 流程从 5 Phase 简化为 4 Phase（检索分析 → 确认方案 → 修复验证 → 模型审查）
   - 移除 Phase 2 双模型并行诊断，改为当前模型直接分析
   - 审查阶段按问题类型路由到 Codex（后端）或 Gemini（前端）单模型审查
-- **skill-creator 目录迁移**：从 `templates/skills/` 迁移到 `.claude/skills/`（项目级 skill，不再作为模板分发）
+- **skill-creator 目录迁移**：从 `core/skills/` 迁移到 `.claude/skills/`（项目级 skill，不再作为模板分发）
 - **工作流体系指南更新至 v7.0.0**：新增 visual-diff、bug-batch 章节，Skills 数量从 7 更新为 10
 
 ---
@@ -406,7 +421,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **figma-ui skill v2**：7 阶段 → 5 阶段，双 Subagent 并行，Token-First 策略，Gemini 多模态 QA
 
 ### Removed
-- **templates/prompts/claude/**：移除 6 个未使用的角色提示词文件
+- **core/prompts/claude/**：移除 6 个未使用的角色提示词文件
 
 ---
 
@@ -423,7 +438,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **质量阈值**：单模型评分 < 6 拒绝采用，契约不一致以 Codex API 为准
 
 ### Removed
-- **templates/prompts/claude/**：移除未使用的 6 个角色提示词文件（analyzer/architect/debugger/optimizer/reviewer/tester）
+- **core/prompts/claude/**：移除未使用的 6 个角色提示词文件（analyzer/architect/debugger/optimizer/reviewer/tester）
 
 ---
 
@@ -475,7 +490,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **交互式菜单**：无参数运行 `agent-workflow` 时显示交互式菜单（TTY 环境）
 - **模块索引与扫描统计**：`/scan` 命令新增 `modules` 和 `scanStats` 字段
-- **specs 模板目录**：新增 `templates/specs/shared/` 和 `templates/specs/workflow/`
+- **specs 模板目录**：新增 `core/specs/shared/` 和 `core/specs/workflow/`
 - **Linux ARM64 支持**：新增 `codeagent-wrapper-linux-arm64` 二进制
 
 ### Changed

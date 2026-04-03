@@ -19,9 +19,9 @@
     "bin/",
     "lib/",
     "scripts/",
-    "templates/",
-    "!templates/**/__pycache__/",
-    "!templates/**/*.py[cod]",
+    "core/",
+    "!core/**/__pycache__/",
+    "!core/**/*.py[cod]",
     "README.md",
     "CHANGELOG.md"
   ],

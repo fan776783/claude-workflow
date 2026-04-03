@@ -44,16 +44,20 @@
 当前 `workflow` 采用"**command 入口 + 4 个专项 workflow skills + 共享运行时**"的模块化结构：
 
 ```text
-templates/
-├── commands/workflow.md              # 统一 command 入口（路由层）
-├── skills/
-│   ├── workflow-planning/            # /workflow start
-│   ├── workflow-executing/           # /workflow execute
-│   ├── workflow-reviewing/           # 两阶段审查（execute 内部触发）
-│   └── workflow-delta/               # /workflow delta
-└── specs/
-    ├── workflow-runtime/             # 状态机、共享工具、外部依赖语义
-    └── workflow-templates/           # spec / plan 模板
+core/
+└── core/
+    ├── commands/workflow.md          # 统一 command 入口（路由层）
+    ├── skills/
+    │   ├── workflow-planning/        # /workflow start
+    │   ├── workflow-executing/       # /workflow execute
+    │   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
+    │   └── workflow-delta/           # /workflow delta
+    ├── specs/
+    │   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
+    │   └── workflow-templates/       # spec / plan 模板
+    └── .agent-workflow style managed projection
+        ├── commands/agent-workflow/*
+        └── .agent-workflow/{prompts,utils,specs,hooks,docs,project}
 ```
 
 在此结构下，工作流仍保持三层工件模型：
@@ -105,7 +109,7 @@ npm run sync -- -a claude-code,cursor
 npm run sync -- --project
 npm run sync -- -y
 
-# 本地开发调试：直接把受管目录链接到当前仓库 templates/
+# 本地开发调试：直接把受管目录链接到当前仓库 core/
 npm run link -- -a claude-code
 
 # 结束调试后恢复标准 canonical 模式
@@ -230,12 +234,12 @@ flowchart TD
 如需查看更完整说明，可参考：
 
 - `Claude-Code-工作流体系指南.md`
-- `templates/commands/workflow.md`（统一 command 入口）
-- `templates/skills/workflow-planning/SKILL.md`
-- `templates/skills/workflow-executing/SKILL.md`
-- `templates/skills/workflow-reviewing/SKILL.md`
-- `templates/skills/workflow-delta/SKILL.md`
-- `templates/specs/workflow-runtime/state-machine.md`
+- `core/commands/workflow.md`（统一 command 入口）
+- `core/skills/workflow-planning/SKILL.md`
+- `core/skills/workflow-executing/SKILL.md`
+- `core/skills/workflow-reviewing/SKILL.md`
+- `core/skills/workflow-delta/SKILL.md`
+- `core/specs/workflow-runtime/state-machine.md`
 
 ---
 

@@ -24,4 +24,4 @@
 - `/workflow unblock <dep>` - 解除任务阻塞
 - `/workflow archive` - 归档已完成工作流
 
-详见：`~/.claude/skills/workflow/SKILL.md`
+详见：`/workflow` 命令入口及已安装的 workflow skills

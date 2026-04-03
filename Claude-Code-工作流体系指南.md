@@ -127,14 +127,14 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| Command 入口 | `templates/commands/workflow.md` | 稳定的 `/workflow` 命令路由层 |
-| `workflow-planning` | `templates/skills/workflow-planning/` | `/workflow start` 规划阶段 |
-| `workflow-executing` | `templates/skills/workflow-executing/` | `/workflow execute` 执行阶段 |
-| `workflow-reviewing` | `templates/skills/workflow-reviewing/` | 两阶段审查协议（由 execute 内部触发） |
-| `workflow-delta` | `templates/skills/workflow-delta/` | `/workflow delta` 增量变更 |
-| 共享运行时 | `templates/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
-| 共享模板 | `templates/specs/workflow-templates/` | spec / plan 模板 |
-| 共享 CLI | `templates/utils/workflow/` | workflow_cli.py |
+| Command 入口 | `core/commands/workflow.md` | 稳定的 `/workflow` 命令路由层 |
+| `workflow-planning` | `core/skills/workflow-planning/` | `/workflow start` 规划阶段 |
+| `workflow-executing` | `core/skills/workflow-executing/` | `/workflow execute` 执行阶段 |
+| `workflow-reviewing` | `core/skills/workflow-reviewing/` | 两阶段审查协议（由 execute 内部触发） |
+| `workflow-delta` | `core/skills/workflow-delta/` | `/workflow delta` 增量变更 |
+| 共享运行时 | `core/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
+| 共享模板 | `core/specs/workflow-templates/` | spec / plan 模板 |
+| 共享 CLI | `core/utils/workflow/` | workflow_cli.py |
 
 整体仍然把"一个模糊需求"变成"可执行、可追踪、可恢复"的工作流。
 
@@ -571,10 +571,10 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ### 9.3 基础设施说明
 
-- **共享运行时**（`templates/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、status/archive 等运行时资源
-- **共享模板**（`templates/specs/workflow-templates/`）：spec / plan 模板
-- **思维指南**（`templates/specs/guides/`）：代码复用检查清单、跨层检查清单、AI 审查误报指南
-- **Commands**（`templates/commands/`）：`workflow`（统一入口）、`agents`（命令索引）、`enhance`（prompt 增强）、`git-rollback`（交互式回滚）
+- **共享运行时**（`core/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、status/archive 等运行时资源
+- **共享模板**（`core/specs/workflow-templates/`）：spec / plan 模板
+- **思维指南**（`core/specs/guides/`）：代码复用检查清单、跨层检查清单、AI 审查误报指南
+- **Commands**（`core/commands/`）：`workflow`（统一入口）、`enhance`（prompt 增强）、`git-rollback`（交互式回滚）
 
 ### 9.4 使用原则
 
@@ -686,11 +686,10 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ## 参考资料
 
-- `templates/commands/workflow.md`（统一 command 入口）
-- `templates/commands/agents.md`（全部命令索引）
-- `templates/skills/workflow-planning/SKILL.md`
-- `templates/skills/workflow-executing/SKILL.md`
-- `templates/skills/workflow-reviewing/SKILL.md`
-- `templates/skills/workflow-delta/SKILL.md`
-- `templates/specs/workflow-runtime/state-machine.md`
-- `templates/specs/guides/index.md`（思维指南索引）
+- `core/commands/workflow.md`（统一 command 入口）
+- `core/skills/workflow-planning/SKILL.md`
+- `core/skills/workflow-executing/SKILL.md`
+- `core/skills/workflow-reviewing/SKILL.md`
+- `core/skills/workflow-delta/SKILL.md`
+- `core/specs/workflow-runtime/state-machine.md`
+- `core/specs/guides/index.md`（思维指南索引）

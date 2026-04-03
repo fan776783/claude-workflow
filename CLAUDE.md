@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`@justinfan/agent-workflow` is an npm package that installs workflow templates (skills, commands, prompts, utils) to multiple AI coding tools. It provides a CLI tool (`agent-workflow`) and automatic postinstall setup using a canonical + managed-links architecture.
+`@justinfan/agent-workflow` is an npm package that installs workflow templates to multiple AI coding tools. It provides a CLI tool (`agent-workflow`) and automatic postinstall setup using a canonical + managed-links architecture with a package root at `core/`.
 
 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。
 
-**Key Architecture**: Skills-based system supporting multiple AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, while `commands`, `prompts`, `utils`, and `specs` remain directory-level links.
+**Key Architecture**: Skills-based system supporting multiple AI coding tools through a single source of truth at `~/.agents/agent-workflow/`. Managed skills are mounted one-by-one under each tool's `skills` directory, command entry files are mounted under `commands/agent-workflow/`, and internal resources are mounted under each tool's `.agent-workflow/` namespace.
 
 ## Commands
 
@@ -43,7 +43,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 │   ├── postinstall.js       # Auto-runs on npm install
 │   ├── validate.js          # Pre-publish validation
 │   └── release.sh           # Release automation
-└── templates/               # Files synced to agents
+└── core/                    # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
     │   ├── workflow-planning/ # Planning entry for /workflow start
     │   ├── workflow-executing/ # Execution entry for /workflow execute
@@ -59,12 +59,12 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── figma-ui/        # Figma to code
     │   ├── visual-diff/     # Visual diff comparison
     │   └── perf-budget/     # Performance budget validation
-    ├── commands/            # Command definitions (Claude Code specific)
+    ├── commands/            # Command entry definitions
     ├── prompts/             # Multi-model collaboration prompts
-    │   ├── codex/           # Codex role prompts
-    │   └── gemini/          # Gemini role prompts
-    ├── utils/               # Utility templates
+    ├── utils/               # Internal runtime utilities
     ├── project/             # Project-level templates and config scaffolding
+    ├── docs/                # Supporting docs and templates
+    ├── hooks/               # Hook scripts (installed under .agent-workflow/)
     └── specs/               # Specification documents
 ```
 
@@ -72,15 +72,17 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 
 **Canonical + Managed Links Architecture:**
 1. Single source of truth at `~/.agents/agent-workflow/`
-2. Each AI tool keeps its own `skills` root directory, while managed skills are mounted individually from the canonical location
-3. `commands`, `prompts`, `utils`, and `specs` are linked at the directory level
-4. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation
+2. Canonical package payload lives under `~/.agents/agent-workflow/core/`
+3. Each AI tool keeps its own `skills` root directory, while managed skills are mounted individually from the canonical package
+4. Commands are mounted into `commands/agent-workflow/` instead of taking over the entire commands root
+5. Internal resources (`prompts`, `utils`, `specs`, `hooks`, `docs`, `project`) are mounted under the tool-local `.agent-workflow/` namespace
+6. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation
 
 **Installation Flow:**
 1. `postinstall.js` triggers on npm install
 2. Detects installed AI coding tools (Claude Code, Cursor, Codex, etc.)
-3. Copies templates to canonical location
-4. Creates managed links for each tool (`skills` per-skill, other directories as direct links)
+3. Copies `core/` into canonical storage
+4. Creates managed links for each tool (`skills` per-skill, `commands/agent-workflow/*` for command entries, `.agent-workflow/*` for internal resources)
 5. Tracks version in `.meta/meta.json`
 
 **Upgrade Flow:**
@@ -92,14 +94,14 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 **Supported Agents:**
 - Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
 
-**Template Directories:** `DIRECT_LINK_DIRS = ['commands', 'prompts', 'utils', 'specs']`, `SKILLS_DIR = 'skills'`
+**Template Directories:** `core/{skills,commands,prompts,utils,specs,hooks,docs,project}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
 
 ## Available Skills
 
 The package includes the following skills (all portable across AI coding tools):
 
 **Core Workflow:**
-- `/workflow` - Public workflow command entrypoint for command-capable agents (stable `/workflow start|execute|delta|status|archive` surface exposed from `templates/commands/workflow.md` and backed by specialized workflow skills plus shared runtime docs)
+- `/workflow` - Public workflow command entrypoint for command-capable agents (stable `/workflow start|execute|delta|status|archive` surface exposed from `core/commands/workflow.md` and backed by specialized workflow skills plus shared runtime docs)
   - `start` - Routed to `workflow-planning`
   - `execute` - Routed to `workflow-executing`
   - `delta` - Routed to `workflow-delta`

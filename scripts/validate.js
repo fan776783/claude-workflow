@@ -64,11 +64,11 @@ async function collectMarkdownFiles(rootDir) {
   return files;
 }
 
-async function validateWorkflowContracts(repoRoot, errors) {
-  const workflowCommandFile = path.join(repoRoot, 'templates', 'commands', 'workflow.md');
-  const runtimeRefsDir = path.join(repoRoot, 'templates', 'specs', 'workflow-runtime');
-  const runtimeTemplatesDir = path.join(repoRoot, 'templates', 'specs', 'workflow-templates');
-  const runtimeScriptsDir = path.join(repoRoot, 'templates', 'utils', 'workflow');
+async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
+  const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
+  const runtimeRefsDir = path.join(packageRoot, 'specs', 'workflow-runtime');
+  const runtimeTemplatesDir = path.join(packageRoot, 'specs', 'workflow-templates');
+  const runtimeScriptsDir = path.join(packageRoot, 'utils', 'workflow');
   const guardPaths = [
     [workflowCommandFile, 'workflow command 入口'],
     [runtimeRefsDir, 'workflow-runtime references'],
@@ -111,7 +111,7 @@ async function validateWorkflowContracts(repoRoot, errors) {
   const splitSkillDocs = [];
 
   for (const skillName of workflowDocSkills) {
-    const skillRoot = path.join(repoRoot, 'templates', 'skills', skillName);
+    const skillRoot = path.join(packageRoot, 'skills', skillName);
     if (!(await fs.pathExists(skillRoot))) {
       errors.push(`workflow doc surface 缺少 ${skillName}/`);
       continue;
@@ -193,26 +193,44 @@ async function validateWorkflowContracts(repoRoot, errors) {
 async function validate() {
   const repoRoot = path.join(__dirname, '..');
   const templatesDir = path.join(repoRoot, 'templates');
-  const required = ['commands'];
+  const packageRoot = path.join(repoRoot, 'core');
+  const required = ['commands', 'skills', 'specs', 'utils'];
   const errors = [];
 
   console.log('[validate] 检查发布前置条件...\n');
 
   for (const dir of required) {
-    const dirPath = path.join(templatesDir, dir);
+    const dirPath = path.join(packageRoot, dir);
     if (!(await fs.pathExists(dirPath))) {
-      errors.push(`templates/${dir} 目录不存在`);
+      errors.push(`core/${dir} 目录不存在`);
     } else {
       const files = await fs.readdir(dirPath);
       if (files.length === 0) {
-        errors.push(`templates/${dir} 目录为空`);
+        errors.push(`core/${dir} 目录为空`);
       } else {
-        console.log(`  ✅ templates/${dir}: ${files.length} 个文件`);
+        console.log(`  ✅ core/${dir}: ${files.length} 个文件`);
       }
     }
   }
 
-  await validateWorkflowContracts(repoRoot, errors);
+  const projectionRoots = [
+    path.join(packageRoot, 'commands'),
+    path.join(packageRoot, 'skills'),
+    path.join(packageRoot, 'prompts'),
+    path.join(packageRoot, 'utils'),
+    path.join(packageRoot, 'specs'),
+    path.join(packageRoot, 'hooks'),
+    path.join(packageRoot, 'docs'),
+    path.join(packageRoot, 'project'),
+  ];
+
+  for (const projectionRoot of projectionRoots) {
+    if (!(await fs.pathExists(projectionRoot))) {
+      errors.push(`package root 缺少目录: ${path.relative(repoRoot, projectionRoot)}`);
+    }
+  }
+
+  await validateWorkflowContracts(repoRoot, packageRoot, errors);
 
   if (errors.length > 0) {
     console.log('\n❌ 验证失败:\n');

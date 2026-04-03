@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT_DIR = Path(__file__).resolve().parents[1] / "templates" / "utils" / "workflow"
-DISPATCH_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "templates" / "skills" / "dispatching-parallel-agents" / "scripts"
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "core" / "utils" / "workflow"
+DISPATCH_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "core" / "skills" / "dispatching-parallel-agents" / "scripts"
 CLI_SCRIPT = SCRIPT_DIR / "workflow_cli.py"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
