@@ -137,11 +137,15 @@ class ContinuationDecision:
     severity: str = "info"
     nextTaskIds: List[str] = field(default_factory=list)
     suggestedExecutionPath: str = "direct"
+    primarySignals: Dict[str, Any] = field(default_factory=dict)
+    budgetBackstopTriggered: bool = False
+    budgetLevel: str = "safe"
+    decisionNotes: List[str] = field(default_factory=list)
 
 
 @dataclass
 class ContinuationRecord:
-    strategy: str = "budget-first"
+    strategy: str = "context-first"
     last_decision: Optional[ContinuationDecision] = None
     handoff_required: bool = False
     artifact_path: Optional[str] = None

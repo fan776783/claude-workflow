@@ -10,10 +10,10 @@ workflow execute 支持两种执行模式：**连续模式**（默认）和**单
 
 > 执行链路直接消费 `WorkflowTaskV2`：任务提取使用 `extractCurrentTaskV2()`，动作判断使用 `actions[]`，实现语义读取 `steps[]`。
 >
-> 自 vNext 起，执行阶段采用 **budget-first** continuation governance：
+> 自 vNext 起，执行阶段采用 **governance-first** continuation governance：
 > - `execution_mode` 只定义语义上的暂停偏好
-> - `ContextGovernor` 负责 continue / pause / parallel-boundaries / handoff-required 的真实决策
-> - 所有模式都必须先通过预算、安全、独立性与验证条件检查，才能继续执行
+> - `ContextGovernor` 优先基于任务独立性与上下文污染风险决定 continue / pause / parallel-boundaries / handoff-required
+> - budget 仅作为 danger / hard_handoff 的兜底覆盖信号，所有模式仍需通过验证与安全条件检查
 
 ## 模式类型
 

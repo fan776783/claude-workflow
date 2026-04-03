@@ -10,7 +10,7 @@ description: "workflow 执行引擎入口 - 对应 /workflow execute。承接执
 ## 范围
 
 - 执行模式与恢复解析
-- ContextGovernor 与 budget-first continuation governance
+- ContextGovernor 与 governance-first continuation governance（任务独立性 + 上下文污染风险优先，budget 兜底）
 - Post-Execution Pipeline
 - TDD enforcement
 - 与两阶段审查、并行子 Agent 分派的衔接

@@ -69,7 +69,7 @@ core/
 
 - 单一 `spec.md` 作为规划阶段的权威规范
 - `plan.md` 必须可直接执行，禁止占位式描述
-- `execute` 采用 budget-first governance，由 `ContextGovernor` 决定继续、暂停、并行边界或 handoff
+- `execute` 采用 governance-first continuation governance，由 `ContextGovernor` 优先基于任务独立性与上下文污染风险决定继续、暂停、并行边界或 handoff，并由 budget 作为兜底信号
 - 质量关卡任务执行两阶段审查：先做 Spec 合规，再做代码质量
 
 ---

@@ -814,7 +814,7 @@ function hasTransitiveDependency(
 
 从当前治理 phase 的 pending 任务中找出可并行执行的任务组。
 
-> 若执行系统已启用 budget-first continuation governance，则这里返回的是 `ContextGovernor` 的候选边界组，而不是立即执行的充分条件；仍需结合 projected budget、工件稳定性与验证隔离性共同判断。
+> 若执行系统已启用 context-first continuation governance，则这里返回的是 `ContextGovernor` 的候选边界组，而不是立即执行的充分条件；仍需结合主治理信号、工件稳定性与验证隔离性共同判断。
 
 ```typescript
 function findParallelGroup(

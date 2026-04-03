@@ -24,27 +24,26 @@
    - 缺少验证证据
    - quality_review 预算耗尽
 
-2. 计算下一执行单元的 projected budget
-   - 当前主会话 token
-   - 下一执行单元的执行成本
-   - 验证成本
-   - 审查成本
-   - 安全缓冲
+2. 评估下一执行单元的主治理信号
+   - 任务独立性（是否存在可证明独立边界）
+   - 上下文污染风险（是否会向主会话注入低价值上下文）
 
-3. 检查是否存在同阶段 2+ 可证明独立边界
-   - 若存在且工件稳定，可优先选择 parallel-boundaries
-   - ⚠️ 并行冲突回退协议：详见 `../../dispatching-parallel-agents/SKILL.md` Step 8（唯一权威源）
-   - 本决策器仅负责判断是否进入 parallel-boundaries，不定义回退逻辑
+3. 先产出建议执行路径
+   - 高独立 + 高污染 → 优先 parallel-boundaries / 隔离执行
+   - 低独立 + 高污染 → 优先 pause-governance 或单任务隔离
+   - 低污染任务 → 可继续 direct
 
-4. 应用预算阈值
-   - warning：倾向 parallel-boundaries 或暂停
-   - danger：预算暂停
+4. 应用治理语义
+   - quality gate
+   - before commit
+   - phase boundary
+
+5. 最后应用 budget backstop
+   - warning：仅作为提示/偏置信号
+   - danger：当建议路径仍会扩张主会话时触发 pause-budget
    - hard handoff：生成 continuation artifact 并要求新会话恢复
-
-5. 仅当以上均允许时，才应用 execution_mode 语义
-   - phase
-   - quality_gate
 ```
+
 
 ## 决策输出
 
@@ -72,8 +71,13 @@ type ContinuationAction =
 if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.hardHandoffThreshold) {
   writeContinuationArtifact(state);
   state.continuation = {
-    strategy: 'budget-first',
-    last_decision: { action: 'handoff-required', reason: 'hard-handoff-threshold' },
+    strategy: 'context-first',
+    last_decision: {
+      action: 'handoff-required',
+      reason: 'hard-handoff-threshold',
+      budgetBackstopTriggered: true,
+      budgetLevel: 'hard_handoff'
+    },
     handoff_required: true,
     artifact_path: continuationArtifactPath
   };
@@ -83,8 +87,13 @@ if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.hardHando
 
 if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.dangerThreshold) {
   state.continuation = {
-    strategy: 'budget-first',
-    last_decision: { action: 'pause-budget', reason: 'context-danger' },
+    strategy: 'context-first',
+    last_decision: {
+      action: 'pause-budget',
+      reason: 'context-danger',
+      budgetBackstopTriggered: true,
+      budgetLevel: 'danger'
+    },
     handoff_required: false,
     artifact_path: null
   };
@@ -101,11 +110,12 @@ if (state.contextMetrics.projectedUsagePercent >= state.contextMetrics.dangerThr
 
 **执行治理优先级（从高到低）**：
 1. **硬停止 / 验证阻断 / review budget 耗尽**
-2. **ContextGovernor 预算判断**
-3. **parallel-boundaries 调度机会**
-4. **命令行参数**：`/workflow execute --phase`
-5. **state 配置**：`state.execution_mode`
-6. **默认值**：`continuous`
+2. **任务独立性与上下文污染风险判断**
+3. **治理语义边界（quality gate / before commit / phase）**
+4. **budget backstop 覆盖**
+5. **命令行参数**：`/workflow execute --phase`
+6. **state 配置**：`state.execution_mode`
+7. **默认值**：`continuous`
 
 ```typescript
 const executionMode = executionModeOverride || state.execution_mode || 'continuous';

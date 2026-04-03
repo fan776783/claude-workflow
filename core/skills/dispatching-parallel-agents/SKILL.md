@@ -200,7 +200,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 不要传入与当前任务无关的历史讨论、无关 diff、或整个任务清单全文。
 
-> 若主会话启用 `budget-first` continuation governance，则此处应优先传递“边界级摘要 + 必要原文片段”，而不是转发整个 planning 链路全文。
+> 若主会话启用 `context-first` continuation governance，则此处应优先传递“边界级摘要 + 必要原文片段”，而不是转发整个 planning 链路全文。
 
 ### Step 7：结果回收与清理
 

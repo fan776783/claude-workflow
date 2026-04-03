@@ -98,7 +98,7 @@ if (executionMode === 'continuous') {
         if (reportChoice === '需要修复问题') {
           state.status = 'paused';
           state.continuation = {
-            strategy: 'budget-first',
+            strategy: 'context-first',
             last_decision: { action: 'pause-quality-gate', reason: 'user-review-fix-required' },
             handoff_required: false
           };

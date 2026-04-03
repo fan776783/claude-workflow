@@ -410,6 +410,20 @@ class SelfReviewAndVerificationTests(unittest.TestCase):
 
 
 class ExecutionSequencerTests(unittest.TestCase):
+    def test_summarize_task_independence_uses_dependency_and_shared_state_signals(self):
+        task = {
+            "id": "T9",
+            "depends": ["T1"],
+            "blocked_by": [],
+            "files": {"create": [], "modify": ["src/store/session.py"], "test": []},
+            "steps": [{"id": "A1", "description": "更新 src/store/session.py", "expected": "完成"}],
+        }
+        summary = execution_sequencer.summarize_task_independence(task, has_parallel_boundary=True)
+        self.assertEqual(summary["level"], "low")
+        self.assertFalse(summary["parallelizable"])
+        self.assertTrue(summary["signals"]["hasDepends"])
+        self.assertTrue(summary["signals"]["touchesSharedState"])
+
     def test_build_execute_entry_continue_resume(self):
         fake_state = {
             "status": "paused",
@@ -429,7 +443,31 @@ class ExecutionSequencerTests(unittest.TestCase):
         self.assertTrue(result["can_resume"])
         self.assertEqual(result["continuation_action"], "pause-governance")
 
-    def test_decide_governance_action_budget_and_quality_gate(self):
+    def test_decide_governance_action_prefers_parallel_for_independent_high_pollution(self):
+        state = minimum_state()
+        state["contextMetrics"] = {
+            "projectedUsagePercent": 55,
+            "warningThreshold": 60,
+            "dangerThreshold": 80,
+            "hardHandoffThreshold": 90,
+        }
+        next_task = {
+            "id": "T2",
+            "actions": ["run_tests"],
+            "files": {"create": [], "modify": ["src/foo.py"], "test": ["tests/test_foo.py"]},
+            "steps": [{"id": "A1"}, {"id": "A2"}, {"id": "A3"}],
+        }
+        decision = execution_sequencer.decide_governance_action(
+            state,
+            next_task=next_task,
+            has_parallel_boundary=True,
+        )
+        self.assertEqual(decision["action"], "continue-parallel-boundaries")
+        self.assertEqual(decision["suggestedExecutionPath"], "parallel-boundaries")
+        self.assertEqual(decision["primarySignals"]["taskIndependence"]["level"], "high")
+        self.assertEqual(decision["primarySignals"]["contextPollutionRisk"]["level"], "high")
+
+    def test_decide_governance_action_uses_budget_as_backstop(self):
         state = minimum_state()
         state["contextMetrics"] = {
             "projectedUsagePercent": 85,
@@ -437,8 +475,15 @@ class ExecutionSequencerTests(unittest.TestCase):
             "dangerThreshold": 80,
             "hardHandoffThreshold": 90,
         }
-        pause_result = execution_sequencer.decide_governance_action(state)
+        next_task = {
+            "id": "T2",
+            "actions": ["edit_file"],
+            "files": {"create": [], "modify": ["src/foo.py"], "test": []},
+            "steps": [{"id": "A1"}],
+        }
+        pause_result = execution_sequencer.decide_governance_action(state, next_task=next_task)
         self.assertEqual(pause_result["action"], "pause-budget")
+        self.assertTrue(pause_result["budgetBackstopTriggered"])
 
         state["contextMetrics"]["projectedUsagePercent"] = 20
         quality_gate_result = execution_sequencer.decide_governance_action(
@@ -455,15 +500,29 @@ class ExecutionSequencerTests(unittest.TestCase):
 
                 updated = execution_sequencer.apply_governance_decision(
                     state,
-                    {"action": "pause-budget", "reason": "context-danger", "severity": "warning"},
+                    {
+                        "action": "pause-budget",
+                        "reason": "context-danger",
+                        "severity": "warning",
+                        "suggestedExecutionPath": "direct",
+                        "primarySignals": {
+                            "taskIndependence": {"level": "low"},
+                            "contextPollutionRisk": {"level": "high"},
+                        },
+                        "budgetBackstopTriggered": True,
+                        "budgetLevel": "danger",
+                        "decisionNotes": ["预算危险区且建议路径仍会扩张主会话"],
+                    },
                     str(state_path),
                     ["T2"],
                 )
 
                 self.assertEqual(updated["status"], "paused")
                 persisted = json.loads(state_path.read_text(encoding="utf-8"))
+                self.assertEqual(persisted["continuation"]["strategy"], "context-first")
                 self.assertEqual(persisted["continuation"]["last_decision"]["action"], "pause-budget")
                 self.assertEqual(persisted["continuation"]["last_decision"]["nextTaskIds"], ["T2"])
+                self.assertTrue(persisted["continuation"]["last_decision"]["budgetBackstopTriggered"])
 
     def test_mark_task_skipped_advances_to_next_task(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -188,6 +188,74 @@ def can_run_parallel(
     return {"parallel": True, "reason": "通过所有独立性检查"}
 
 
+def summarize_task_independence(
+    task: Optional[Dict[str, Any]],
+    has_parallel_boundary: bool = False,
+) -> Dict[str, Any]:
+    """生成供 ContextGovernor 使用的任务独立性摘要。"""
+    if not task:
+        return {
+            "level": "low",
+            "parallelizable": False,
+            "reasons": ["缺少下一任务上下文，无法证明独立性"],
+            "boundaryTaskIds": [],
+        }
+
+    files = task.get("files") or {}
+    all_files = (files.get("create", []) or []) + (files.get("modify", []) or []) + (files.get("test", []) or [])
+    depends = task.get("depends") or []
+    blocked_by = task.get("blocked_by") or []
+    intent = " ".join(
+        f"{step.get('id', '')} {step.get('description', '')} {step.get('expected', '')}"
+        for step in (task.get("steps") or [])
+        if isinstance(step, dict)
+    )
+    reasons: List[str] = []
+    boundary_task_ids = [task.get("id")] if has_parallel_boundary and task.get("id") else []
+    shared_state_paths = [path for path in all_files if any(f"/{p}/" in path for p in _SHARED_PATHS)]
+    self_reference_hits = [path for path in all_files if path and path in intent]
+
+    if has_parallel_boundary:
+        reasons.append("存在可证明独立的同阶段边界")
+    if depends:
+        reasons.append("任务存在显式 depends 依赖")
+    if blocked_by:
+        reasons.append("任务存在 blocked_by 阻塞依赖")
+    if shared_state_paths:
+        reasons.append("任务涉及共享状态目录")
+    if self_reference_hits:
+        reasons.append("任务步骤显式引用了目标文件")
+
+    if has_parallel_boundary and not (depends or blocked_by or shared_state_paths):
+        level = "high"
+        parallelizable = True
+    elif depends or blocked_by or shared_state_paths:
+        level = "low"
+        parallelizable = False
+    elif len(all_files) <= 1 and not self_reference_hits:
+        level = "medium"
+        parallelizable = False
+        reasons.append("任务文件边界较小且未发现共享状态冲突")
+    else:
+        level = "low"
+        parallelizable = False
+        reasons.append("未发现可证明独立边界")
+
+    return {
+        "level": level,
+        "parallelizable": parallelizable,
+        "reasons": reasons,
+        "boundaryTaskIds": boundary_task_ids,
+        "signals": {
+            "hasDepends": bool(depends),
+            "hasBlockedBy": bool(blocked_by),
+            "touchesSharedState": bool(shared_state_paths),
+            "referencesOwnFilesInSteps": bool(self_reference_hits),
+            "fileCount": len(all_files),
+        },
+    }
+
+
 def _has_transitive_dep(
     task_id: str,
     target_id: str,

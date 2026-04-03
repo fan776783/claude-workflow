@@ -327,16 +327,25 @@ def update_continuation(
     next_task_ids: Optional[List[str]] = None,
     handoff_required: bool = False,
     artifact_path: Optional[str] = None,
+    suggested_execution_path: str = "direct",
+    primary_signals: Optional[Dict[str, Any]] = None,
+    budget_backstop_triggered: bool = False,
+    budget_level: str = "safe",
+    decision_notes: Optional[List[str]] = None,
 ) -> None:
     """更新 continuation governance 状态。"""
     state["continuation"] = {
-        "strategy": "budget-first",
+        "strategy": "context-first",
         "last_decision": {
             "action": action,
             "reason": reason,
             "severity": severity,
             "nextTaskIds": next_task_ids or [],
-            "suggestedExecutionPath": "direct",
+            "suggestedExecutionPath": suggested_execution_path,
+            "primarySignals": primary_signals or {},
+            "budgetBackstopTriggered": budget_backstop_triggered,
+            "budgetLevel": budget_level,
+            "decisionNotes": decision_notes or [],
         },
         "handoff_required": handoff_required,
         "artifact_path": artifact_path,

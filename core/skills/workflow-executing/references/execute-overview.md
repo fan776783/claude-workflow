@@ -68,10 +68,10 @@
 
 ## 🔍 执行流程概览
 
-> 自 vNext 起，`workflow execute` 采用 **budget-first** continuation governance：
-> - 先判断“下一执行单元是否还能安全继续”
-> - 再判断“是否应切换为 parallel-boundaries 降低主会话压力”
-> - 最后才应用 `step / phase / quality_gate` 的语义暂停点
+> 自 vNext 起，`workflow execute` 采用 **governance-first** continuation governance：
+> - 先判断下一执行单元是否具备独立边界，以及是否会向主会话注入低价值上下文
+> - 再判断是否应切换为 parallel-boundaries 或其他隔离路径降低主会话压力
+> - 最后才由 budget 作为 danger / handoff 的兜底信号，并应用 `step / phase / quality_gate` 的语义暂停点
 
 ### Step 0：解析执行模式
 
@@ -141,20 +141,24 @@
 
 ---
 
-### Step 3：上下文预算评估与执行路径候选
+### Step 3：治理信号评估与执行路径候选
 
-**上下文预算评估**：
+**主治理信号评估**：
+- 评估下一执行单元是否具备可证明独立边界
+- 评估该单元是否会向主会话注入低价值或高噪声上下文
+- 结合任务动作、验证方式、测试/审查输出特征，产出 `ContextGovernor` 所需的主治理信号
+
+**budget backstop 评估**：
 - 估算当前主会话 token 使用量
 - 估算下一执行单元的 projected token 成本（执行 + 验证 + 审查 + 安全缓冲）
-- 生成当前使用率与 projected 使用率
-- 产出 `ContextGovernor` 所需的 `contextMetrics`
+- 生成当前使用率与 projected 使用率，作为 danger / hard handoff 的兜底覆盖依据
 
 **执行路径候选**：
 - 平台检测（Claude Code / Cursor / Codex）
 - 检测是否存在同阶段 2+ 可证明独立任务
-- 若存在独立边界，评估 `parallel-boundaries` 是否能降低主会话压力
-- 若无法证明独立，则降级为顺序执行或单子 agent 隔离执行
-- 若 projected 使用率达到危险水位，则优先暂停或 handoff，而不是继续吞下后续任务
+- 若存在独立边界且任务对主会话污染高，优先评估 `parallel-boundaries` 或隔离路径
+- 若无法证明独立且任务会显著污染主会话，则优先暂停或隔离，而不是继续吞下后续任务
+- 仅当 budget 达到危险水位时，才用 `pause-budget` / `handoff-required` 覆盖主决策
 
 **详细实现**: 参见 `../specs/execute/context-governor.md`、`../../workflow-reviewing/specs/execute/subagent-routing.md`、`../../dispatching-parallel-agents/SKILL.md` 与 `../../../specs/workflow-runtime/shared-utils.md`
 
@@ -264,10 +268,11 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 
 **决策顺序**：
 1. 检查是否存在硬停止条件（failed / blocked / retry hard stop / 缺少验证证据）
-2. 计算下一执行单元的 projected 成本
-3. 检查是否存在同阶段 2+ 独立边界，且是否适合 `parallel-boundaries`
-4. 判断是否达到 `warning / danger / hard handoff` 水位
-5. 仅当以上都允许继续时，才应用 `phase / quality_gate` 的语义暂停规则
+2. 评估下一执行单元的任务独立性
+3. 评估该单元是否会向主会话注入低价值上下文
+4. 先产出建议执行路径（direct / parallel-boundaries / 隔离 / pause-governance）
+5. 再应用 `phase / quality_gate` 的语义暂停规则
+6. 最后仅在 budget 达到 `danger / hard handoff` 时进行兜底覆盖
 
 **Continuation actions**：
 - `continue-direct`：直接继续顺序执行

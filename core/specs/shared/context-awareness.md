@@ -2,18 +2,19 @@
 
 上下文感知系统用于监控和治理执行期上下文压力，避免在长链路执行中因为主会话膨胀而导致推理退化、无意义暂停或错误继续执行。
 
-> 自 vNext 起，`workflow execute` 采用 **budget-first** continuation governance：
+> 自 vNext 起，`workflow execute` 采用 **governance-first** continuation governance：
 > - `execution_mode` 仅定义用户偏好的**语义暂停点**
-> - `ContextGovernor` 定义系统层面的**继续执行准入规则**
-> - 当存在可证明独立的同阶段任务边界时，`ContextGovernor` 可优先建议 `parallel-boundaries` 以降低主会话上下文压力
+> - `ContextGovernor` 优先基于任务独立性与上下文污染风险决定继续执行准入规则
+> - budget 仅作为 `danger / hard_handoff` 的兜底覆盖信号
 
 ## 核心原则
 
-1. **预算优先**：先判断“下一步是否还能安全执行”，再判断“按什么模式继续”
-2. **治理优先于模式**：`step / phase / quality_gate` 是软语义边界，不覆盖硬预算约束
-3. **并行是治理策略**：在规划工件稳定、独立性可证明时，边界并行属于上下文减压手段，不只是性能优化
-4. **无法证明安全，就暂停**：无法证明剩余预算足够、无法证明并行独立、无法证明验证可隔离时，一律暂停或降级为顺序执行
-5. **没有新鲜验证证据，不得标记完成**：预算治理不会绕过执行后的验证铁律
+1. **治理优先**：先判断任务是否适合继续留在主会话，再判断按什么模式继续
+2. **独立性优先于模式**：`step / phase / quality_gate` 是语义边界，不覆盖主治理信号
+3. **并行是降噪手段**：在规划工件稳定、独立性可证明时，边界并行属于主会话减压手段，而不只是性能优化
+4. **高污染且不独立就暂停/隔离**：若任务会向主会话注入大量低价值上下文且无法证明独立，应暂停或隔离
+5. **budget 是保险丝**：warning 只做提示，danger / hard handoff 才覆盖主决策
+6. **没有新鲜验证证据，不得标记完成**：治理不会绕过执行后的验证铁律
 
 ## 数据结构
 
@@ -226,7 +227,45 @@ ${generateContextBar(metrics.projectedUsagePercent, metrics.warningThreshold, me
 }
 ```
 
-## 状态管理
+## Python Runtime 落地说明
+
+当前仓库里真正参与 execute 决策的 Python runtime 以 `core/utils/workflow/` 为准，shared spec 在这里承担“共享契约 + 设计目标”角色。
+
+### 已落地的关键实现
+
+- `execution_sequencer.py:decide_governance_action()`
+  - 先看硬停止
+  - 再看任务独立性与上下文污染风险
+  - 再应用治理语义边界
+  - 最后用 budget 做 `danger / hard_handoff` 兜底覆盖
+- `execution_sequencer.py:assess_context_pollution_risk()`
+  - 基于 actions / verification / test files / steps 等规则化信号评估主会话污染风险
+- `dependency_checker.py:summarize_task_independence()`
+  - 基于 depends / blocked_by / 共享状态路径 / 步骤引用 / 文件边界生成独立性摘要
+- `state_manager.py:update_continuation()`
+  - 写入 `context-first` continuation 记录与 `primarySignals` / `budgetBackstopTriggered` / `decisionNotes`
+- `workflow_types.py:ContinuationDecision`
+  - 定义 continuation 决策扩展字段，作为 Python runtime 的稳定结构
+
+### 与 shared spec 的关系
+
+本文件里的 TypeScript 接口与伪代码用于表达共享语义，不代表所有字段和算法都已逐字逐句在 Python 中一比一实现。若 shared spec 与 Python runtime 存在抽象层差异：
+
+1. **行为判断以 Python runtime 为准**
+2. **共享字段语义以 shared spec 为准**
+3. 后续若继续演进实现，应优先保持这两者的字段语义一致，而不是追求字面完全同构
+
+### 当前阶段的设计边界
+
+这次治理改造已经把主决策轴切到：
+- `task independence`
+- `context pollution risk`
+
+但第一版仍采用**规则化、可解释**的近似模型，而不是黑盒评分器。也就是说：
+- Governor 已不再是 budget-first
+- 但独立性/污染风险判断仍是工程化启发式，不是完美预测器
+- budget 仍保留为最后保险丝，而不是方向盘
+
 
 ### 初始化
 

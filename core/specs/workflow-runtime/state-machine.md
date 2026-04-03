@@ -140,12 +140,20 @@
     "hardHandoffThreshold": 90
   },
   "continuation": {
-    "strategy": "budget-first",
+    "strategy": "context-first",
     "last_decision": {
       "action": "continue-direct",
       "reason": "mode-phase-boundary",
       "severity": "info",
-      "nextTaskIds": ["T2"]
+      "nextTaskIds": ["T2"],
+      "suggestedExecutionPath": "direct",
+      "primarySignals": {
+        "taskIndependence": {"level": "medium"},
+        "contextPollutionRisk": {"level": "low"}
+      },
+      "budgetBackstopTriggered": false,
+      "budgetLevel": "safe",
+      "decisionNotes": []
     },
     "handoff_required": false
   },

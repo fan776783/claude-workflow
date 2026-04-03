@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from context_budget import calculate_max_tasks, detect_complexity, evaluate_budget_thresholds
+from dependency_checker import summarize_task_independence
 from path_utils import assert_canonical_workflow_state_path, detect_project_id_from_root, get_workflow_state_path, validate_project_id
 from state_manager import read_state, update_continuation, write_state
 from task_manager import detect_project_id, resolve_state_and_tasks
@@ -199,6 +200,79 @@ def detect_next_task(
     )
 
 
+def assess_context_pollution_risk(
+    task: Optional[Dict[str, Any]],
+    budget: Dict[str, Any],
+) -> Dict[str, Any]:
+    """评估下一执行单元对主会话的上下文污染风险。"""
+    if not task:
+        return {
+            "level": "medium",
+            "reasons": ["缺少下一任务上下文，按中等污染风险处理"],
+            "preferredExecutionPath": "direct",
+        }
+
+    actions = task.get("actions") or []
+    verification = task.get("verification") or {}
+    files = task.get("files") or {}
+    steps = task.get("steps") or []
+    reasons: List[str] = []
+
+    if any(action in {"run_tests", "quality_review"} for action in actions):
+        reasons.append("任务会产出测试或审查输出")
+    if verification.get("commands"):
+        reasons.append("任务包含显式验证命令")
+    if len((files.get("test", []) or [])) > 0:
+        reasons.append("任务直接涉及测试文件")
+    if len(steps) >= 3:
+        reasons.append("任务步骤较多，可能伴随更多中间过程")
+    if budget.get("at_warning"):
+        reasons.append("预算进入 warning 区，应避免继续污染主会话")
+
+    if any(action == "quality_review" for action in actions):
+        level = "high"
+        preferred = "single-subagent"
+    elif any(action == "run_tests" for action in actions) or len(reasons) >= 3:
+        level = "high"
+        preferred = "parallel-boundaries"
+    elif reasons:
+        level = "medium"
+        preferred = "direct"
+    else:
+        level = "low"
+        preferred = "direct"
+        reasons.append("任务输出预期较聚焦")
+
+    return {
+        "level": level,
+        "reasons": reasons,
+        "preferredExecutionPath": preferred,
+    }
+
+
+def _build_decision(
+    action: str,
+    reason: str,
+    severity: str,
+    budget: Dict[str, Any],
+    suggested_execution_path: str = "direct",
+    primary_signals: Optional[Dict[str, Any]] = None,
+    budget_backstop_triggered: bool = False,
+    decision_notes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    return {
+        "action": action,
+        "reason": reason,
+        "severity": severity,
+        "budget": budget,
+        "suggestedExecutionPath": suggested_execution_path,
+        "primarySignals": primary_signals or {},
+        "budgetBackstopTriggered": budget_backstop_triggered,
+        "budgetLevel": budget.get("level", "safe"),
+        "decisionNotes": decision_notes or [],
+    }
+
+
 def decide_governance_action(
     state: Dict[str, Any],
     next_task: Optional[Dict[str, Any]] = None,
@@ -213,26 +287,55 @@ def decide_governance_action(
     danger = float(metrics.get("dangerThreshold", 80))
     hard_handoff = float(metrics.get("hardHandoffThreshold", 90))
     budget = evaluate_budget_thresholds(projected_usage, warning, danger, hard_handoff)
+    independence = summarize_task_independence(next_task, has_parallel_boundary=has_parallel_boundary)
+    pollution = assess_context_pollution_risk(next_task, budget)
+    primary_signals = {
+        "taskIndependence": independence,
+        "contextPollutionRisk": pollution,
+    }
 
     if normalized_state.get("status") in {"failed", "blocked"}:
         action = "pause-governance"
-        return {"action": action, "reason": f"status-{normalized_state.get('status')}", "severity": "warning", "budget": budget}
+        return _build_decision(
+            action,
+            f"status-{normalized_state.get('status')}",
+            "warning",
+            budget,
+            primary_signals=primary_signals,
+            decision_notes=["工作流已处于 failed/blocked 状态，优先暂停治理"],
+        )
 
     if budget["at_hard_handoff"]:
-        return {"action": "handoff-required", "reason": "hard-handoff-threshold", "severity": "critical", "budget": budget}
-
-    if budget["at_danger"]:
-        return {"action": "pause-budget", "reason": "context-danger", "severity": "warning", "budget": budget}
-
-    if has_parallel_boundary and budget["at_warning"]:
-        return {"action": "continue-parallel-boundaries", "reason": "warning-with-independent-boundaries", "severity": "info", "budget": budget}
+        return _build_decision(
+            "handoff-required",
+            "hard-handoff-threshold",
+            "critical",
+            budget,
+            primary_signals=primary_signals,
+            budget_backstop_triggered=True,
+            decision_notes=["预算达到硬停止阈值，必须交接"],
+        )
 
     if next_task:
         actions = next_task.get("actions") or []
         if next_task.get("quality_gate") or "quality_review" in actions:
-            return {"action": "pause-quality-gate", "reason": "quality-gate-boundary", "severity": "info", "budget": budget}
+            return _build_decision(
+                "pause-quality-gate",
+                "quality-gate-boundary",
+                "info",
+                budget,
+                primary_signals=primary_signals,
+                decision_notes=["质量关卡优先按既有治理边界暂停"],
+            )
         if pause_before_commit and "git_commit" in actions:
-            return {"action": "pause-before-commit", "reason": "pause-before-commit", "severity": "info", "budget": budget}
+            return _build_decision(
+                "pause-before-commit",
+                "pause-before-commit",
+                "info",
+                budget,
+                primary_signals=primary_signals,
+                decision_notes=["提交前仍需人工确认"],
+            )
 
     if execution_mode == "phase" and next_task:
         current_tasks = normalized_state.get("current_tasks") or []
@@ -243,9 +346,60 @@ def decide_governance_action(
         current_phase = current_task.phase if current_task else None
         next_phase = next_task.get("phase")
         if current_phase and next_phase and current_phase != next_phase:
-            return {"action": "pause-governance", "reason": "phase-boundary", "severity": "info", "budget": budget}
+            return _build_decision(
+                "pause-governance",
+                "phase-boundary",
+                "info",
+                budget,
+                primary_signals=primary_signals,
+                decision_notes=["phase 模式下跨阶段仍暂停"],
+            )
 
-    return {"action": "continue-direct", "reason": "governor-allows", "severity": "info", "budget": budget}
+    if independence.get("parallelizable") and pollution.get("level") == "high":
+        return _build_decision(
+            "continue-parallel-boundaries",
+            "independent-high-pollution",
+            "info",
+            budget,
+            suggested_execution_path="parallel-boundaries",
+            primary_signals=primary_signals,
+            decision_notes=independence.get("reasons", []) + pollution.get("reasons", []),
+        )
+
+    if pollution.get("level") == "high" and independence.get("level") == "low":
+        action = "pause-budget" if budget["at_danger"] else "pause-governance"
+        reason = "context-danger" if budget["at_danger"] else "high-pollution-without-independent-boundary"
+        return _build_decision(
+            action,
+            reason,
+            "warning",
+            budget,
+            suggested_execution_path=pollution.get("preferredExecutionPath", "direct"),
+            primary_signals=primary_signals,
+            budget_backstop_triggered=budget["at_danger"],
+            decision_notes=["高污染任务且缺少独立边界，不应继续扩张主会话"],
+        )
+
+    if budget["at_danger"] and pollution.get("preferredExecutionPath") == "direct":
+        return _build_decision(
+            "pause-budget",
+            "context-danger",
+            "warning",
+            budget,
+            primary_signals=primary_signals,
+            budget_backstop_triggered=True,
+            decision_notes=["预算危险区且建议路径仍会扩张主会话"],
+        )
+
+    return _build_decision(
+        "continue-direct",
+        "governor-allows",
+        "info",
+        budget,
+        suggested_execution_path=pollution.get("preferredExecutionPath", "direct"),
+        primary_signals=primary_signals,
+        decision_notes=independence.get("reasons", []) + pollution.get("reasons", []),
+    )
 
 
 def apply_governance_decision(
@@ -271,6 +425,11 @@ def apply_governance_decision(
             next_task_ids=next_task_ids or [],
             handoff_required=handoff_required,
             artifact_path=artifact_path,
+            suggested_execution_path=decision.get("suggestedExecutionPath", "direct"),
+            primary_signals=decision.get("primarySignals") or {},
+            budget_backstop_triggered=bool(decision.get("budgetBackstopTriggered", False)),
+            budget_level=decision.get("budgetLevel", "safe"),
+            decision_notes=decision.get("decisionNotes") or [],
         )
         if state_path:
             write_state(state_path, normalized_state)

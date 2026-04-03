@@ -217,13 +217,20 @@
     ]
   },
   "continuation": {
-    "strategy": "budget-first",
+    "strategy": "context-first",
     "last_decision": {
       "action": "continue-direct",
       "reason": "mode-phase-boundary",
       "severity": "info",
       "nextTaskIds": ["T3"],
-      "suggestedExecutionPath": "direct"
+      "suggestedExecutionPath": "direct",
+      "primarySignals": {
+        "taskIndependence": {"level": "medium"},
+        "contextPollutionRisk": {"level": "low"}
+      },
+      "budgetBackstopTriggered": false,
+      "budgetLevel": "safe",
+      "decisionNotes": []
     },
     "handoff_required": false,
     "artifact_path": null
@@ -286,7 +293,7 @@
 | `sessions` | 平台与会话槽位信息 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |
 | `contextMetrics` | 上下文预算指标，供 ContextGovernor 评估 continue / pause / handoff |
-| `continuation` | continuation governance 状态，记录 budget-first 决策与 handoff 信息 |
+| `continuation` | continuation governance 状态，记录 context-first 决策信号、budget backstop 与 handoff 信息 |
 | `collaboration` | 多模型协作配置 |
 | `constraints` | 约束系统 |
 | `zeroDecisionAudit` | 零决策审计结果 |
