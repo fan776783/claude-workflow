@@ -29,7 +29,7 @@
 | `scan` | 扫描项目技术栈并生成项目配置 |
 | `analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
 | `fix-bug` | 结构化定位与修复单点问题 |
-| `diff-review` | Quick / Deep 模式代码审查 |
+| `diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `write-tests` | 补齐单元测试 / 集成测试 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
@@ -104,6 +104,12 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 npm run sync -- -a claude-code,cursor
 npm run sync -- --project
 npm run sync -- -y
+
+# 本地开发调试：直接把受管目录链接到当前仓库 templates/
+npm run link -- -a claude-code
+
+# 结束调试后恢复标准 canonical 模式
+npm run sync -- -a claude-code
 ```
 
 同步完成后，建议先执行：
@@ -195,7 +201,7 @@ flowchart TD
 如果只是单点问题，也可以直接使用专项 skill：
 
 - 单 Bug：`/fix-bug`
-- 单次审查：`/diff-review`
+- 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
 - 单次分析：`/analyze`
 - 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`

@@ -12,9 +12,11 @@ const {
   installFresh,
   upgradeFrom,
   installForAgents,
+  linkRepoToAgents,
   getInstallationStatus,
   DIRECT_LINK_DIRS,
   SKILLS_DIR,
+  INSTALL_MODE_REPO_LINK,
 } = require('../lib/installer');
 const {
   agents,
@@ -156,6 +158,58 @@ if (process.argv.length === 2) {
     });
 
   program
+    .command('link')
+    .description('将受管目录直接链接到当前仓库，便于本地调试 skills')
+    .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
+    .option('--project', '项目级安装（当前目录）')
+    .action(async (options) => {
+      try {
+        const templatesDir = path.join(__dirname, '..', 'templates');
+        const global = !options.project;
+        const targetAgents = parseAgentArg(options.agent);
+
+        if (targetAgents.length === 0) {
+          console.log(`${LOG_PREFIX} 未检测到已安装的 Agent，将安装到 Claude Code`);
+          targetAgents.push('claude-code');
+        }
+
+        console.log(`${LOG_PREFIX} 链接到 ${targetAgents.length} 个 Agent...`);
+        console.log(`  目标: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
+        console.log(`  作用域: ${global ? '全局' : '项目级'}`);
+        console.log(`  源目录: ${templatesDir}`);
+
+        const result = await linkRepoToAgents({
+          templatesDir,
+          agents: targetAgents,
+          global,
+          cwd: process.cwd(),
+        });
+
+        console.log(`\n${LOG_PREFIX} Canonical 位置: ${result.canonicalDir}`);
+        console.log(`  模式: ${result.mode}`);
+        console.log(`  Source: ${result.sourceRoot}`);
+
+        console.log('\n  Agent 状态:');
+        for (const [name, agentResult] of Object.entries(result.agents)) {
+          const displayName = agents[name]?.displayName || name;
+          const status = agentResult.success ? '✓' : '✗';
+          const mode = agentResult.skills?.rootMode || 'unknown';
+          console.log(`    ${status} ${displayName} (${mode})`);
+        }
+
+        if (result.errors.length > 0) {
+          console.log('\n  错误:');
+          result.errors.forEach(err => console.log(`    - ${err}`));
+        }
+
+        console.log(`\n${LOG_PREFIX} link 完成`);
+      } catch (err) {
+        console.error(`${LOG_PREFIX} link 失败: ${err.message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  program
     .command('init')
     .description('在当前项目中初始化 Agent Workflow 配置')
     .option('-f, --force', '覆盖已存在的配置')
@@ -281,6 +335,8 @@ if (process.argv.length === 2) {
 
         if (status.installed) {
           console.log(`  Canonical: ${status.canonicalDir}`);
+          console.log(`  模式: ${status.mode}`);
+          console.log(`  Source: ${status.sourceRoot}`);
           console.log(`  版本: v${status.version || '未知'}`);
           if (status.installedAt) {
             console.log(`  安装时间: ${status.installedAt}`);
@@ -356,36 +412,68 @@ if (process.argv.length === 2) {
 
         console.log(`\n${LOG_PREFIX} 诊断中...\n`);
 
-        const canonicalDir = getCanonicalDir(global, process.cwd());
-        if (await fs.pathExists(canonicalDir)) {
-          ok.push(`Canonical 目录存在: ${canonicalDir}`);
+        const status = await getInstallationStatus(global, process.cwd());
+        const isRepoLinkMode = status.mode === INSTALL_MODE_REPO_LINK;
+        const sourceRoot = status.sourceRoot;
+        const sourceDirs = [...DIRECT_LINK_DIRS, SKILLS_DIR];
+        const installedAgents = Object.entries(status.agents).filter(([_, s]) => s.installed);
 
-          for (const dir of [...DIRECT_LINK_DIRS, SKILLS_DIR]) {
-            const dirPath = path.join(canonicalDir, dir);
-            if (await fs.pathExists(dirPath)) {
-              const files = await fs.readdir(dirPath);
-              if (files.length > 0) {
-                ok.push(`${dir}/ 目录正常 (${files.length} 个文件)`);
+        if (isRepoLinkMode) {
+          if (await fs.pathExists(sourceRoot)) {
+            ok.push(`Repo link 源存在: ${sourceRoot}`);
+
+            for (const dir of sourceDirs) {
+              const dirPath = path.join(sourceRoot, dir);
+              if (await fs.pathExists(dirPath)) {
+                const files = await fs.readdir(dirPath);
+                if (files.length > 0) {
+                  ok.push(`${dir}/ 源目录正常 (${files.length} 个文件)`);
+                } else {
+                  issues.push(`${dir}/ 源目录为空`);
+                }
               } else {
-                issues.push(`${dir}/ 目录为空`);
+                issues.push(`${dir}/ 源目录不存在`);
               }
-            } else {
-              issues.push(`${dir}/ 目录不存在`);
             }
+          } else {
+            issues.push(`Repo link 源不存在: ${sourceRoot}`);
           }
 
-          const metaFile = path.join(canonicalDir, '.meta', 'meta.json');
+          const metaFile = path.join(getCanonicalDir(global, process.cwd()), '.meta', 'meta.json');
           if (await fs.pathExists(metaFile)) {
             ok.push('元信息文件存在');
           } else {
             issues.push('元信息文件不存在');
           }
         } else {
-          issues.push(`Canonical 目录不存在: ${canonicalDir}`);
-        }
+          const canonicalDir = getCanonicalDir(global, process.cwd());
+          if (await fs.pathExists(canonicalDir)) {
+            ok.push(`Canonical 目录存在: ${canonicalDir}`);
 
-        const status = await getInstallationStatus(global, process.cwd());
-        const installedAgents = Object.entries(status.agents).filter(([_, s]) => s.installed);
+            for (const dir of sourceDirs) {
+              const dirPath = path.join(canonicalDir, dir);
+              if (await fs.pathExists(dirPath)) {
+                const files = await fs.readdir(dirPath);
+                if (files.length > 0) {
+                  ok.push(`${dir}/ 目录正常 (${files.length} 个文件)`);
+                } else {
+                  issues.push(`${dir}/ 目录为空`);
+                }
+              } else {
+                issues.push(`${dir}/ 目录不存在`);
+              }
+            }
+
+            const metaFile = path.join(canonicalDir, '.meta', 'meta.json');
+            if (await fs.pathExists(metaFile)) {
+              ok.push('元信息文件存在');
+            } else {
+              issues.push('元信息文件不存在');
+            }
+          } else {
+            issues.push(`Canonical 目录不存在: ${canonicalDir}`);
+          }
+        }
 
         if (installedAgents.length > 0) {
           ok.push(`已安装到 ${installedAgents.length} 个 Agent`);

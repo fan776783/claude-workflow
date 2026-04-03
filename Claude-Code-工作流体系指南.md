@@ -550,7 +550,7 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 | `scan` | `/scan` | 扫描项目技术栈，生成项目配置与上下文 |
 | `analyze` | `/analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
 | `fix-bug` | `/fix-bug` | 单问题结构化修复 |
-| `diff-review` | `/diff-review` | Quick / Deep 模式代码审查 |
+| `diff-review` | `/diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `write-tests` | `/write-tests` | 补测试、修测试 |
 | `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
@@ -674,8 +674,8 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 # 专项 skill
 /analyze "架构问题"
 /fix-bug "bug 描述"
-/diff-review
-/diff-review --deep
+/diff-review                 # Quick：单模型 + finding verification + impact analysis
+/diff-review --deep          # Deep：Codex 候选问题 + 统一裁决 + impact-aware report
 /write-tests
 /bug-batch
 /figma-ui <URL>

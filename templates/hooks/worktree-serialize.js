@@ -174,7 +174,7 @@ async function main() {
   const gitCommonDir = getGitCommonDir();
   if (!gitCommonDir) {
     // 非 git 仓库，直接放行
-    process.stdout.write(JSON.stringify({ decision: 'allow' }));
+    process.stdout.write(JSON.stringify({ continue: true }));
     process.exit(0);
   }
 
@@ -254,13 +254,13 @@ async function main() {
   // 其他 hook 仍能感知到锁的存在，从而实现串行化。
 
   // 6. 输出结果
-  process.stdout.write(JSON.stringify({ decision: 'allow' }));
+  process.stdout.write(JSON.stringify({ continue: true }));
   process.exit(0);
 }
 
 main().catch(err => {
   process.stderr.write(`[worktree-serialize] 致命错误: ${err.message}\n`);
   // 出错时放行，避免阻塞 worktree 创建
-  process.stdout.write(JSON.stringify({ decision: 'allow' }));
+  process.stdout.write(JSON.stringify({ continue: true }));
   process.exit(0);
 });

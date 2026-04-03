@@ -10,6 +10,7 @@
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "node scripts/validate.js",
     "sync": "node bin/agent-workflow.js sync",
+    "link": "node bin/agent-workflow.js link",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
     "release:major": "./scripts/release.sh major"

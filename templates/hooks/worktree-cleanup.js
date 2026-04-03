@@ -172,7 +172,7 @@ function main() {
   cleanupSerializeLock(gitCommonDir);
 
   // 5. 输出结果
-  process.stdout.write(JSON.stringify({ decision: 'allow' }));
+  process.stdout.write(JSON.stringify({ continue: true }));
   process.exit(0);
 }
 
@@ -181,6 +181,6 @@ try {
 } catch (err) {
   process.stderr.write(`[worktree-cleanup] 错误: ${err.message}\n`);
   // 出错时放行
-  process.stdout.write(JSON.stringify({ decision: 'allow' }));
+  process.stdout.write(JSON.stringify({ continue: true }));
   process.exit(0);
 }

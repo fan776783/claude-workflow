@@ -60,7 +60,7 @@ error: unable to write upstream branch configuration
       {
         "hooks": [{
           "type": "command",
-          "command": "node \"~/.agents/agent-workflow/hooks/worktree-serialize.js\""
+          "command": "node \"$HOME/.agents/agent-workflow/hooks/worktree-serialize.js\""
         }]
       }
     ],
@@ -68,13 +68,16 @@ error: unable to write upstream branch configuration
       {
         "hooks": [{
           "type": "command",
-          "command": "node \"~/.agents/agent-workflow/hooks/worktree-cleanup.js\""
+          "command": "node \"$HOME/.agents/agent-workflow/hooks/worktree-cleanup.js\""
         }]
       }
     ]
   }
 }
 ```
+
+> **注意**：路径必须使用 `$HOME` 或绝对路径（如 `/Users/你的用户名/...`），不能使用 `~`。
+> 因为 `node "~/.../file.js"` 中 `~` 在双引号内不会被 Shell 展开，会导致路径解析失败。
 
 ### 孤立目录回收
 

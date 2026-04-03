@@ -20,7 +20,7 @@ Pre-Execute Inject Hook — 子 Agent 执行任务前自动注入上下文。
     }
 
 输入：从 stdin 读取 JSON（Claude Code hook 协议）
-输出：JSON 到 stdout。除了 `decision/message` 外，会尽力返回
+输出：JSON 到 stdout。除了 `continue/reason` 外，会尽力返回
 修改后的 `tool_input`，供支持输入重写的平台直接消费。
 """
 
@@ -158,10 +158,10 @@ def build_allow_result(
 ) -> dict:
     """Build a best-effort allow response for hook consumers.
 
-    Some hook runners only read `decision/message`, while others can consume
+    Some hook runners only read `continue/reason`, while others can consume
     a patched `tool_input`. We return both to maximize compatibility.
     """
-    result = {"decision": "allow"}
+    result = {"continue": True}
     if message:
         result["message"] = message
     if patched_tool_input is not None:

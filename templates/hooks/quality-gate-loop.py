@@ -21,8 +21,8 @@ Quality Gate Loop Hook — 质量关卡验证循环。
 行为：
   - 读取当前任务的 verification.commands
   - 逐个运行验证命令
-  - 全部通过 → 允许停止 ({"decision": "allow"})
-  - 有失败 → 阻止停止 ({"decision": "block", "message": "..."})
+  - 全部通过 → 允许停止 ({"continue": true})
+  - 有失败 → 阻止停止 ({"continue": false, "reason": "..."})
   - 最大重试 5 次后放行
   - 超时 30 分钟后放行
 
@@ -195,14 +195,14 @@ def main() -> int:
 
     # No active workflow or not running → allow stop
     if not state or state.get("status") not in ("running",):
-        print(json.dumps({"decision": "allow"}))
+        print(json.dumps({"continue": True}))
         return 0
 
     # Get verification commands
     commands = get_current_task_verification(state, state_dir)
     if not commands:
         # No verification commands defined → allow stop
-        print(json.dumps({"decision": "allow"}))
+        print(json.dumps({"continue": True}))
         return 0
 
     # Read loop state
@@ -217,8 +217,8 @@ def main() -> int:
             loop_state = {"iteration": 0, "started_at": None, "last_results": []}
             write_loop_state(state_dir, loop_state)
             print(json.dumps({
-                "decision": "allow",
-                "message": f"[quality-loop] 验证超时 ({STATE_TIMEOUT_MINUTES}min)，自动放行。",
+                "continue": True,
+                "reason": f"[quality-loop] 验证超时 ({STATE_TIMEOUT_MINUTES}min)，自动放行。",
             }))
             return 0
 
@@ -227,8 +227,8 @@ def main() -> int:
         loop_state = {"iteration": 0, "started_at": None, "last_results": []}
         write_loop_state(state_dir, loop_state)
         print(json.dumps({
-            "decision": "allow",
-            "message": f"[quality-loop] 已达最大重试次数 ({MAX_ITERATIONS})，自动放行。",
+            "continue": True,
+            "reason": f"[quality-loop] 已达最大重试次数 ({MAX_ITERATIONS})，自动放行。",
         }))
         return 0
 
@@ -249,8 +249,8 @@ def main() -> int:
         loop_state = {"iteration": 0, "started_at": None, "last_results": []}
         write_loop_state(state_dir, loop_state)
         print(json.dumps({
-            "decision": "allow",
-            "message": "[quality-loop] 所有验证命令通过 ✅",
+            "continue": True,
+            "reason": "[quality-loop] 所有验证命令通过 ✅",
         }))
     else:
         # Block with failure details
@@ -261,8 +261,8 @@ def main() -> int:
         )
         task_id = state.get("current_tasks", ["?"])[0]
         print(json.dumps({
-            "decision": "block",
-            "message": (
+            "continue": False,
+            "reason": (
                 f"[quality-loop] 验证失败 (迭代 {loop_state['iteration']}/{MAX_ITERATIONS})\n"
                 f"任务: {task_id}\n"
                 f"失败的验证:\n{failure_msg}\n"

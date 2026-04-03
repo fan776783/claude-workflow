@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **diff-review impact-aware 审查升级**：将 `diff-review` 从基础 Quick / Deep 审查重构为 impact-aware review workflow
+  - 新增共享审查管线：review subject 解析、candidate finding discovery、finding verification、impact analysis、severity calibration、report synthesis、impact-aware review loop
+  - Quick / Deep 模式统一接入 verification + impact analysis，不再直接从 diff 跳到最终 findings
+  - Deep 模式改为“Codex / Claude 候选问题发现 → 当前模型统一裁决”，禁止将外部模型意见原样视为最终报告
+  - 新增 `templates/skills/diff-review/specs/impact-analysis.md` 与 `templates/skills/diff-review/specs/report-schema.md`，沉淀影响性分析与报告结构 contract
+  - Review Loop 强化为 impact-aware remediation：P0/P1 问题必须附带 `Fix Scope`、`Regression Verification` 与复审重点
+
 ## [4.1.0] - 2026-04-02
 
 ### Changed
