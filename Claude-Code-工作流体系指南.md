@@ -548,7 +548,7 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
 | `scan` | `/scan` | 扫描项目技术栈，生成项目配置与上下文 |
-| `analyze` | `/analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
+| `analyze` | `/analyze` | Codex 候选技术分析 + Claude 独立分析与最终综合裁决 |
 | `fix-bug` | `/fix-bug` | 单问题结构化修复 |
 | `diff-review` | `/diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `write-tests` | `/write-tests` | 补测试、修测试 |
@@ -638,7 +638,7 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ### 11.7 `collaborating-with-codex` 何时被使用？
 
-该 skill 是 Codex 协作的基础设施层，被 `analyze`、`fix-bug`、`diff-review --deep`、`workflow-reviewing` 等多个 skill 内部引用。当你遇到复杂问题、需要深度调试或代码审查时，相关 skill 会自动通过它委派任务到 Codex。
+该 skill 是 Codex 协作的基础设施层，被 `analyze`、`fix-bug`、`diff-review --deep`、`workflow-reviewing` 等多个 skill 内部引用。`analyze` 会将其用于引入 Codex 候选技术分析，再由当前模型完成独立分析与最终综合裁决。
 
 ---
 

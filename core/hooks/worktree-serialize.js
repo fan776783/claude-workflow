@@ -20,7 +20,7 @@
  *         {
  *           "hooks": [{
  *             "type": "command",
- *             "command": "node .agents/agent-workflow/hooks/worktree-serialize.js"
+ *             "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\""
  *           }]
  *         }
  *       ]

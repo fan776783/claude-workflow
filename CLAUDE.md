@@ -50,7 +50,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-reviewing/ # Review protocol entry for workflow quality gates
     │   ├── workflow-delta/  # Delta entry for /workflow delta
     │   ├── scan/            # Project scanning
-    │   ├── analyze/         # Code analysis (Codex + Claude)
+    │   ├── analyze/         # Analysis orchestration (Codex candidates + Claude synthesis)
     │   ├── fix-bug/         # Bug fixing workflow
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
@@ -60,9 +60,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── visual-diff/     # Visual diff comparison
     │   └── perf-budget/     # Performance budget validation
     ├── commands/            # Command entry definitions
-    ├── prompts/             # Multi-model collaboration prompts
     ├── utils/               # Internal runtime utilities
-    ├── project/             # Project-level templates and config scaffolding
     ├── docs/                # Supporting docs and templates
     ├── hooks/               # Hook scripts (installed under .agent-workflow/)
     └── specs/               # Specification documents
@@ -75,7 +73,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 2. Canonical package payload lives under `~/.agents/agent-workflow/core/`
 3. Each AI tool keeps its own `skills` root directory, while managed skills are mounted individually from the canonical package
 4. Commands are mounted into `commands/agent-workflow/` instead of taking over the entire commands root
-5. Internal resources (`prompts`, `utils`, `specs`, `hooks`, `docs`, `project`) are mounted under the tool-local `.agent-workflow/` namespace
+5. Internal resources (`utils`, `specs`, `hooks`, `docs`) are mounted under the tool-local `.agent-workflow/` namespace
 6. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation
 
 **Installation Flow:**
@@ -94,7 +92,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 **Supported Agents:**
 - Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
 
-**Template Directories:** `core/{skills,commands,prompts,utils,specs,hooks,docs,project}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
+**Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
 
 ## Available Skills
 
@@ -114,7 +112,7 @@ The package includes the following skills (all portable across AI coding tools):
 
 **Development Tools:**
 - `/scan` - Project scanning (tech stack detection + context report generation)
-- `/analyze` - Codex-assisted analysis (Codex + Claude review)
+- `/analyze` - Codex-assisted analysis with Claude adjudication and synthesis
 - `/fix-bug` - Bug fixing workflow (locate → analyze → fix → review)
 - `/write-tests` - Test writing expert (unit + integration tests)
 

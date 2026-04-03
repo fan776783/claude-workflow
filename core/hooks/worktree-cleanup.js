@@ -14,7 +14,7 @@
  *         {
  *           "hooks": [{
  *             "type": "command",
- *             "command": "node .agents/agent-workflow/hooks/worktree-cleanup.js"
+ *             "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\""
  *           }]
  *         }
  *       ]

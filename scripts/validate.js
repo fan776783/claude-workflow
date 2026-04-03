@@ -216,12 +216,10 @@ async function validate() {
   const projectionRoots = [
     path.join(packageRoot, 'commands'),
     path.join(packageRoot, 'skills'),
-    path.join(packageRoot, 'prompts'),
     path.join(packageRoot, 'utils'),
     path.join(packageRoot, 'specs'),
     path.join(packageRoot, 'hooks'),
     path.join(packageRoot, 'docs'),
-    path.join(packageRoot, 'project'),
   ];
 
   for (const projectionRoot of projectionRoots) {

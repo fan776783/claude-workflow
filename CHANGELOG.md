@@ -27,12 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增 package-root 级 `sourceRoot` 归一化，兼容旧 repo-link 元数据自动识别到 `core/`
   - `installForAgents()` 与 `linkRepoToAgents()` 统一基于 package root 投影
   - `doctor` 在 repo-link 模式下改为检查 package root，并给出与当前模式一致的恢复建议
+- **analyze 合同内聚**：将 `core/prompts/codex/analyzer.md` 迁移到 `core/skills/analyze/references/codex-analyzer.md`，并按当前 `/analyze` 的 `analysis_depth` / `codex_involvement` 契约重写为本地 skill 级分析合同
+- **受管内部资源精简**：安装器、校验脚本、交互式安装摘要与文档同步移除 `project` / `prompts` 目录，`.agent-workflow/` 托管资源收敛为 `utils/specs/hooks/docs`
 
 ### Fixed
 - **重复 link 时的已存在目录处理**：`createSymlink()` 现在会正确处理已存在的目录/符号链接，避免重链时因 `pathExists()` 跳过删除而导致挂载失败
 - **Claude Code 新布局兼容**：重新执行 `agent-workflow link -a claude-code` 后，`status` 可正确识别 `repo-link` 模式与 14/14 skills 状态
 - **历史路径引用清理**：修复模板文档、指南和部分实现说明中的旧 `core/*` 与 legacy workflow 路径，统一指向 `core/*`
 - **无效 docs 清理**：移除不再被运行时、README、模板或 CLI 引用的历史分析/方案文档，保留仍有实际安装与排障价值的 `docs/worktree-hooks.md`
+
+### Removed
+- **历史遗留目录清理**：删除运行时无活跃消费者的 `core/project/` 与 `core/prompts/` 目录，避免继续分发无效托管资源
 
 ## [4.1.0] - 2026-04-02
 

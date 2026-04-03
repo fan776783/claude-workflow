@@ -27,7 +27,7 @@
 | Skill | 功能 |
 |-------|------|
 | `scan` | 扫描项目技术栈并生成项目配置 |
-| `analyze` | Codex 技术分析 + Claude 前端分析，交叉验证 |
+| `analyze` | Codex 候选技术分析 + Claude 独立分析与最终综合裁决（Codex 分析合同内聚在 skill 自身的 `references/` 下） |
 | `fix-bug` | 结构化定位与修复单点问题 |
 | `diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `write-tests` | 补齐单元测试 / 集成测试 |
@@ -57,10 +57,10 @@ core/
     │   └── workflow-templates/       # spec / plan 模板
     └── .agent-workflow style managed projection
         ├── commands/agent-workflow/*
-        └── .agent-workflow/{prompts,utils,specs,hooks,docs,project}
+        └── .agent-workflow/{utils,specs,hooks,docs}
 ```
 
-在此结构下，工作流仍保持三层工件模型：
+在此结构下，工作流仍保持三层工件模型，并且受管内部资源已收敛为 `utils/specs/hooks/docs`；`analyze` 的 Codex 分析合同也已内聚到 `core/skills/analyze/references/codex-analyzer.md`。
 - `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
 - `plan.md`：可直接执行的原子步骤、文件清单与验证命令
 - 执行层：按计划产出代码，并经过验证与两阶段审查
@@ -206,7 +206,7 @@ flowchart TD
 
 - 单 Bug：`/fix-bug`
 - 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
-- 单次分析：`/analyze`
+- 单次分析：`/analyze`（Codex 候选分析 + Claude 综合裁决）
 - 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`

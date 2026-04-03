@@ -38,8 +38,9 @@ error: unable to write upstream branch configuration
 ### 自动安装（推荐）
 
 运行全局安装（如 `agent-workflow sync` 默认全局模式）时会自动：
-1. 将 hook 脚本部署到 `~/.agents/agent-workflow/hooks/`
+1. 将 hook 脚本同步到 Claude Code 托管目录下的 `.agent-workflow/hooks/`
 2. 注入配置到 `~/.claude/settings.json`
+3. 若检测到历史遗留的旧 hook 路径（如 `~/.claude/hooks/...`），会自动修正为当前托管路径
 
 ### 项目级安装
 
@@ -60,7 +61,7 @@ error: unable to write upstream branch configuration
       {
         "hooks": [{
           "type": "command",
-          "command": "node \"$HOME/.agents/agent-workflow/hooks/worktree-serialize.js\""
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\""
         }]
       }
     ],
@@ -68,7 +69,7 @@ error: unable to write upstream branch configuration
       {
         "hooks": [{
           "type": "command",
-          "command": "node \"$HOME/.agents/agent-workflow/hooks/worktree-cleanup.js\""
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\""
         }]
       }
     ]
