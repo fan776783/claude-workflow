@@ -12,7 +12,7 @@ Session Start Hook — 会话启动时自动注入工作流上下文。
         "SessionStart": [
           {
             "type": "command",
-            "command": "python3 .agents/agent-workflow/hooks/session-start.py"
+            "command": "python3 .claude/.agent-workflow/hooks/session-start.py"
           }
         ]
       }
@@ -209,13 +209,13 @@ def main() -> int:
         output_parts.append(f"</project-specs>")
 
     # Thinking guides reference
-    guides_dir = project_root / ".claude" / "specs" / "guides"
+    guides_dir = project_root / ".claude" / ".agent-workflow" / "specs" / "guides"
     if guides_dir.is_dir():
         output_parts.append(f"<thinking-guides>")
         output_parts.append("项目包含思维指南，修改代码前请参考:")
         for guide in sorted(guides_dir.glob("*.md")):
             if guide.name != "index.md":
-                output_parts.append(f"  - .claude/specs/guides/{guide.name}")
+                output_parts.append(f"  - .claude/.agent-workflow/specs/guides/{guide.name}")
         output_parts.append(f"</thinking-guides>")
 
     output_parts.append(f"</workflow-context>")

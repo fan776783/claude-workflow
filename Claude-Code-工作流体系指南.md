@@ -541,9 +541,9 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ## 9. Skills 体系总览
 
-仓库当前提供 14 个 skill 目录，按职责分为三类：
+仓库当前提供 13 个 skill 目录，按职责分为三类：
 
-### 9.1 用户直接调用的专项 Skills（10 个）
+### 9.1 用户直接调用的专项 Skills（9 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
@@ -554,7 +554,6 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 | `write-tests` | `/write-tests` | 补测试、修测试 |
 | `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
-| `visual-diff` | `/visual-diff` | 像素级和语义级视觉对比 |
 | `dispatching-parallel-agents` | 自动触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 | `collaborating-with-codex` | 主动触发 | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
@@ -602,7 +601,7 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ### 10.3 UI / 前端需求
 
-如果需求涉及页面、导航、交互或首次体验，建议走 `workflow start`，因为它会触发 UX 设计审批；落地后可再结合 `/figma-ui` 或 `/visual-diff`。
+如果需求涉及页面、导航、交互或首次体验，建议走 `workflow start`，因为它会触发 UX 设计审批；落地后可结合 `/figma-ui` 完成设计稿还原。
 
 ### 10.4 变更驱动迭代
 
@@ -679,7 +678,6 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 /write-tests
 /bug-batch
 /figma-ui <URL>
-/visual-diff <URL>
 ```
 
 ---

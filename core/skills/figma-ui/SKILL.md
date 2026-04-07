@@ -8,9 +8,9 @@ description: |
 
 # Figma UI 实现工作流
 
-轻量 3 阶段：设计获取 → 自由编码 → 验证修复
+轻量 3 阶段：设计获取 + 资源分诊 → 自由编码 → 验证修复
 
-**核心理念**：Skill 是**质量守门人**，不是过程控制者。编码阶段给予最大自由度，验证阶段严格把关。
+**核心理念**：Skill 是**质量守门人**，不是过程控制者。编码阶段给予最大自由度，但资源决策必须前置，验证阶段严格把关。
 
 ---
 
@@ -19,9 +19,11 @@ description: |
 | 约束 | 要求 |
 |------|------|
 | **assetsDir 必传** | 调用 `get_design_context` 前必须先获取 |
+| **Asset Triage 前置** | `get_design_context` 之后先分诊资源，再开始编码 |
 | **视觉优先** | 像素级还原设计稿，不做"优化" |
+| **截图按需** | `figma-ui` 不主动把 `get_screenshot` 作为常规主流程 |
 | **Visual Review** | 验证阶段必须执行视觉审查，不可跳过 |
-| **还原度门控** | visualFidelity ≥ 90 才能交付 |
+| **还原度门控** | `visualFidelity ≥ 90` 才能交付 |
 
 **参考文档**：
 - [figma-tools.md](references/figma-tools.md) - MCP 工具速查
@@ -30,7 +32,7 @@ description: |
 
 ---
 
-## Phase A: 设计获取
+## Phase A: 设计获取 + 资源分诊
 
 ### A.1 解析 URL
 
@@ -56,20 +58,24 @@ return 'public/images';
 const taskAssetsDir = `${assetsDir}/.figma-ui/tmp/${taskId}`;
 await Bash({ command: `mkdir -p "${taskAssetsDir}"` });
 
+const beforeFiles = await listFiles(taskAssetsDir);
 const designContext = await mcp__figma-mcp__get_design_context({
   nodeId,
   dirForAssetWrites: taskAssetsDir,  // ⚠️ 必传
 });
+const afterFiles = await listFiles(taskAssetsDir);
+const newlyDownloadedFiles = diffFiles(beforeFiles, afterFiles);
 
 // ⚠️ 不主动调用 get_screenshot
-// 图片会大量消耗上下文（20-50k tokens），容易导致上下文溢出
-// get_design_context 返回的结构化代码已包含足够的布局/样式信息
-// 仅在用户明确要求截图时才调用
+// 如需截图，仅作为人工排查或本地比对的辅助手段
 ```
+
+**目录职责**：
+- `assetsDir/.figma-ui/tmp/${taskId}`：当前任务的原始下载与分诊工作区
 
 ### A.4 提取 ElementManifest
 
-遍历 designContext，按类型分类：
+遍历 `designContext`，按类型分类：
 
 | 类型 | 优先级 | 说明 |
 |------|--------|------|
@@ -78,11 +84,92 @@ const designContext = await mcp__figma-mcp__get_design_context({
 | 图片/图标 | P1 | 视觉元素 |
 | 装饰图形/分隔线 | P2 | 可选元素 |
 
-**输出**：ElementManifest 作为验证 checklist。
+**输出**：`ElementManifest` 作为覆盖率 checklist。
+
+### A.5 执行 Asset Triage
+
+在编码前完成资源判断，避免把“是否需要资源”“如何命名”“哪些文件应清理”拖到流程末尾。
+
+```typescript
+const assetMapping = newlyDownloadedFiles.map(file => ({
+  originalFile: file,
+  decision: 'pending',
+  sourceNode: nodeId,
+  sourceLayer: inferLayerName(file),
+}));
+```
+
+**分诊目标**：
+1. 明确本次 `get_design_context` 实际下载了哪些文件
+2. 判断哪些资源真的需要保留
+3. 先完成分组和命名，再开始编码
+4. 明确哪些文件属于当前任务、哪些可在收口时删除
+
+### A.6 产出 AssetPlan
+
+`AssetPlan` 用来替代模糊的 `usedAssets` 语义，至少包含：
+
+| 字段 | 说明 |
+|------|------|
+| `sourceNode` | 来源节点 ID |
+| `sourceLayer` | 来源图层 / 语义元素 |
+| `originalFile` | 本次下载的原始文件名 |
+| `decision` | `inline` / `promote` / `discard` / `refetch-parent` |
+| `group` | 资源分组，如 `hero` / `empty-state` / `icon` |
+| `targetName` | 进入正式目录前的语义化文件名 |
+| `targetDir` | 目标目录（位于 `assetsDir` 下） |
+
+**决策矩阵**：
+
+| 场景 | 决策 | 说明 |
+|------|------|------|
+| 纯布局 / 文本 / 简单边框 / 简单渐变 | `inline` | 直接代码实现，不保留资源 |
+| 复杂插画 / 位图 / 照片 | `promote` | 纳入正式资源计划 |
+| 明显无用或重复下载 | `discard` | 仅视为本次任务临时文件 |
+| 疑似错误粒度的子图层导出 | `refetch-parent` | 停止编码，先导出父节点 |
+
+**命名原则**：
+- 先语义化，再编码引用
+- 避免把 hash 文件名直接带入正式目录
+- 推荐模式：`{feature}-{role}.{ext}`
+
+### A.7 复合图形识别（前置强制检查）
+
+当导出资源包含多个叠加图层时，说明**误提取了子节点**，应在进入编码前获取父节点作为完整图片。
+
+**识别特征**：
+- 多个 SVG 在同一位置叠加（背景 + 图标 + 装饰）
+- 典型场景：空状态图、品牌图标、徽章、插画
+
+**处理方式**：
+1. 将当前子资源标记为 `refetch-parent`
+2. 获取父 Frame 的 `nodeId`
+3. 重新导出为单张图片
+4. 更新 `AssetPlan`
+5. 再进入编码
+
+```text
+设计稿结构：
+├── EmptyState (Frame)     ← 应获取此节点
+│   ├── blur-bg.svg        ✗ 误提取
+│   ├── search-icon.svg    ✗ 误提取
+│   └── stars.svg          ✗ 误提取
+
+✅ 正确：导出 EmptyState 父节点为单张图片
+❌ 错误：分别引用 3 个 SVG 并用 CSS 定位叠加
+```
+
+**Phase A 输出**：
+- `ElementManifest`
+- `AssetPlan`
+- `newlyDownloadedFiles`
+- `assetMapping`
 
 ---
 
 ## Phase B: 编码
+
+**⚠️ 不调用外部模型，当前模型直接编码**
 
 ### 编码规范
 
@@ -107,48 +194,42 @@ background: var(--fills-light-8);  /* 映射可能有偏差 */
 
 ### 组件复用判断
 
-```
+```text
 现有组件完全匹配设计 → 复用
 需要大量覆盖样式 → 新建（避免样式冲突）
 ```
 
-### 资源处理
+### 资源消费约束
+
+编码阶段只允许消费两类结果：
+1. `AssetPlan.decision = inline`：直接用代码表达
+2. `AssetPlan.decision = promote`：引用已分组、已命名的计划资源
+
+**不要在编码阶段再做这些事**：
+- 临时决定是否保留某个下载文件
+- 直接引用 hash 文件名作为正式资源名
+- 从 `.figma-ui/tmp/${taskId}` 之外的目录“借用”资源
+- 带着 `refetch-parent` 状态的资源继续编码
+
+### 编码收口
+
+编码完成后，只提升 `AssetPlan.decision = promote` 的资源到正式目录。
 
 ```typescript
-// 1. 编码完成后，移动已使用资源到正式目录
-for (const asset of usedAssets) {
+for (const asset of assetPlan.filter(a => a.decision === 'promote')) {
+  const targetDir = resolveUnder(assetsDir, asset.targetDir);
+  await ensureDir(targetDir);
   await moveFile(
-    `${figmaTmpDir}/${asset}`,
-    `${assetsDir}/${componentName}/${asset}`
+    `${taskAssetsDir}/${asset.originalFile}`,
+    `${targetDir}/${asset.targetName}`
   );
 }
-
-// 2. 清理 Figma 临时目录
-await Bash({ command: `rm -rf "${figmaTmpDir}"` });
 ```
 
-### 复合图形识别
-
-当导出资源包含多个叠加图层时，说明**误提取了子节点**，应获取父节点作为完整图片。
-
-**识别特征**：
-- 多个 SVG 在同一位置叠加（背景 + 图标 + 装饰）
-- 典型场景：空状态图、品牌图标、徽章、插画
-
-**处理方式**：获取父 Frame 的 nodeId，重新导出为单张图片。
-
-```
-设计稿结构：
-├── EmptyState (Frame)     ← 应获取此节点
-│   ├── blur-bg.svg        ✗ 误提取
-│   ├── search-icon.svg    ✗ 误提取
-│   └── stars.svg          ✗ 误提取
-
-✅ 正确：导出 EmptyState 父节点为单张图片
-❌ 错误：分别引用 3 个 SVG 并用 CSS 定位叠加
-```
-
-**⚠️ 不调用外部模型，当前模型直接编码**
+**收口规则**：
+- 最终目录只接收 `AssetPlan` 中明确登记的资源
+- `discard` 与未纳入计划的本次下载文件，仍视为当前任务临时文件
+- 清理应围绕“本次下载文件 + AssetPlan”执行，不再依赖后置 `usedAssets` 猜测
 
 ---
 
@@ -156,7 +237,7 @@ await Bash({ command: `rm -rf "${figmaTmpDir}"` });
 
 ### C.1 覆盖率检查
 
-对照 ElementManifest，确保 P0/P1 元素 100% 实现。
+对照 `ElementManifest`，确保 P0/P1 元素 100% 实现。
 
 ```typescript
 const missing = elementManifest.elements.filter(
@@ -172,8 +253,8 @@ if (missing.length > 0) {
 当前模型按以下 JSON 格式自行审查 UI 实现与设计稿的视觉一致性。
 
 审查内容：
-- 设计参考：[get_design_context 返回的结构化设计信息]
-- 实现代码：[组件代码]
+- 设计参考：`get_design_context` 返回的结构化设计信息
+- 实现代码：组件代码
 
 返回 JSON：
 ```json
@@ -210,7 +291,7 @@ if (missing.length > 0) {
 
 ### C.3 修复循环
 
-```
+```text
 visualFidelity < 90 → 修复视觉问题（优先）
 accessibility < 70 → 修复可访问性
 最多 3 轮，超过请求用户指导
@@ -226,55 +307,43 @@ accessibility < 70 → 修复可访问性
 
 | 条件 | 决策 |
 |------|------|
-| visualFidelity ≥ 90 | ✅ 通过 |
-| visualFidelity ≥ 80 | ⚠️ 需人工审查 |
-| visualFidelity < 80 | ❌ 请求指导 |
+| `visualFidelity ≥ 90` | ✅ 通过 |
+| `visualFidelity ≥ 80` | ⚠️ 需人工审查 |
+| `visualFidelity < 80` | ❌ 请求指导 |
 
 ### C.5 交付摘要
 
-```
-┌──────────────┬─────────────────────────────────────┐
-│     项目     │                内容                 │
-├──────────────┼─────────────────────────────────────┤
-│ 新建文件     │ components/xxx/ComponentName.vue    │
-│ 修改文件     │ pages/test/index.vue（添加入口）    │
-│ 资源目录     │ public/images/xxx/                  │
-├──────────────┼─────────────────────────────────────┤
-│ Visual Review│ visualFidelity: XX/100              │
-│ Accessibility│ XX/100                              │
-│ Overall      │ XX/100                              │
-├──────────────┼─────────────────────────────────────┤
-│ 清理状态     │ ✅ Figma 临时资源已清理             │
-└──────────────┴─────────────────────────────────────┘
-```
-
-### C.6 可选：像素级对比验证
-
-交付摘要输出后，**询问用户**是否需要进行像素级对比验证：
-
-```
-是否需要运行 visual-diff 进行像素级对比验证？
-- 需要启动开发服务器并提供测试页面 URL
-- 将截图实现页面与设计稿进行叠加对比
-- 输出差异图片 + 验证报告
-
-选项：
-1. 运行 visual-diff（需提供页面 URL）
-2. 跳过，直接完成
+```text
+┌──────────────┬────────────────────────────────────────────┐
+│     项目     │                    内容                    │
+├──────────────┼────────────────────────────────────────────┤
+│ 新建文件     │ components/xxx/ComponentName.vue           │
+│ 修改文件     │ pages/test/index.vue（添加入口）           │
+│ 资源目录     │ public/images/xxx/                         │
+│ AssetPlan    │ promote: N / inline: N / discard: N       │
+├──────────────┼────────────────────────────────────────────┤
+│ Visual Review│ visualFidelity: XX/100                     │
+│ Accessibility│ XX/100                                     │
+│ Overall      │ XX/100                                     │
+├──────────────┼────────────────────────────────────────────┤
+│ 临时目录     │ ✅ 当前任务临时资源已收口                  │
+└──────────────┴────────────────────────────────────────────┘
 ```
 
-**用户选择运行时**：
-```typescript
-// 调用 visual-diff skill
-// 设计稿截图已缓存在 .claude/cache/figma-ui/{nodeId}/design.png
-await visualDiff({
-  url: userProvidedUrl,  // 用户提供的测试页面 URL
-  design: designScreenshotPath,
-  selector: componentSelector  // 可选
-});
+### C.6 可选：人工截图排查
+
+当 Visual Review 仍无法解释问题时，可选地手工获取截图做人工比对，但这不是独立 skill，也不属于常规交付路径。
+
+```text
+可选场景：
+- 需要人工核对复杂阴影、渐变、模糊效果
+- 需要在本地对比实现页面与设计稿截图
+- 需要进一步确认某个元素是否应该保留为资源
 ```
 
-**输出**：差异图片 + 综合报告（像素差异 + 视觉验证）
+**说明**：
+- `figma-ui` 默认交付路径到 Visual Review / 修复循环即结束
+- 如需截图，`get_screenshot` 仅作为排查辅助手段
 
 ---
 
@@ -283,7 +352,7 @@ await visualDiff({
 ### 审查不可用时
 
 当前模型按相同 JSON 格式自行审查，交付摘要注明：
-```
+```text
 Visual Review: visualFidelity: XX/100
 ```
 
@@ -292,7 +361,8 @@ Visual Review: visualFidelity: XX/100
 对于复杂页面（多个独立区块），可分块实现：
 1. `get_metadata` 获取结构概览
 2. 按区块分别 `get_design_context`
-3. 分块编码 + 分块验证
+3. 各区块独立执行 Asset Triage
+4. 分块编码 + 分块验证
 
 ---
 
@@ -303,24 +373,28 @@ Visual Review: visualFidelity: XX/100
 | 工具 | 必传参数 |
 |------|----------|
 | `get_design_context` | `nodeId`, `dirForAssetWrites` |
-| `get_screenshot` | `nodeId`（本 skill 不主动调用，由 visual-diff 按需调用） |
+| `get_screenshot` | `nodeId`（不属于常规主流程，仅在人工排查时按需使用） |
 | `get_metadata` | `nodeId` |
 
 ### 流程图
 
-```
-Phase A: 设计获取
+```text
+Phase A: 设计获取 + 资源分诊
     │
     ├─ 解析 URL → nodeId
     ├─ 获取 assetsDir
-    ├─ get_design_context（不调用 get_screenshot，截图逻辑在 visual-diff 中）
-    └─ 提取 ElementManifest
+    ├─ get_design_context（不主动 get_screenshot）
+    ├─ 提取 ElementManifest
+    ├─ file-list-diff → newlyDownloadedFiles
+    ├─ Asset Triage → AssetPlan / assetMapping
+    └─ 必要时 refetch parent
     │
 Phase B: 编码（自由发挥）
     │
     ├─ 遵循编码规范
     ├─ 保留 Figma 原始值
-    └─ 清理临时资源
+    ├─ 只消费 inline / promote 资源
+    └─ 按 AssetPlan 收口正式资源
     │
 Phase C: 验证 + 修复
     │
@@ -328,11 +402,7 @@ Phase C: 验证 + 修复
     ├─ Visual Review ← 核心价值
     ├─ 修复循环（最多 3 轮）
     ├─ 交付决策 + 摘要
-    │
-    └─ [可选] 询问用户 → 运行 visual-diff？
-                            │
-                            ├─ 是 → 像素级对比 + 双模型验证
-                            └─ 否 → 完成
+    └─ [可选] 人工截图排查
 ```
 
 ### 故障排查

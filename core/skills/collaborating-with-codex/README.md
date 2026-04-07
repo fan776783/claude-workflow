@@ -18,9 +18,9 @@ This Skill enables Claude to delegate coding tasks to Codex CLI, combining the s
 ## Installation
 
 1. Ensure [Node.js](https://nodejs.org/) (≥ 18) and [Codex CLI](https://github.com/openai/codex) are installed. 
-2. Copy this Skill to your Claude Code skills directory:
-   - User-level: `~/.claude/skills/collaborating-with-codex/`
-   - Project-level: `.claude/skills/collaborating-with-codex/`
+2. Install this skill through the `agent-workflow` managed-links flow so it is mounted under your tool's `skills/` directory.
+   - Claude Code example install root: `~/.claude/skills/`
+   - Other supported tools use their own `skills/` root as configured by the installer.
 
 ## Usage
 

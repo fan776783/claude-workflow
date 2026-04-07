@@ -33,7 +33,6 @@
 | `write-tests` | 补齐单元测试 / 集成测试 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
-| `visual-diff` | 像素级和语义级视觉对比 |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 

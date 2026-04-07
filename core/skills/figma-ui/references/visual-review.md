@@ -89,6 +89,13 @@ font-size: 1.25rem;  /* 可能不是 20px */
 | 有无阴影 | 缺失/多余 | - |
 | 阴影参数 | 明显偏差 | 轻微偏差 |
 
+### 资源粒度 (Asset Granularity)
+
+| 检查点 | P0 问题 | P1 问题 |
+|--------|---------|---------|
+| 复合图形 | 错把父图形拆成多个子资源 | 可通过父节点重导出改善 |
+| 资源引用 | 使用错误图层或残留 hash 文件名 | 命名不语义化 |
+
 ---
 
 ## 可访问性 (25%)
@@ -200,6 +207,11 @@ background: #1a1a1a;  /* 设计稿是 #1d1d25 */
 <button type="submit">提交</button>
 ```
 
+```text
+复合插画被拆成多个子 SVG，导致实现靠 CSS 叠加定位。
+→ 应回退到父节点重导出单张资源。
+```
+
 ### P1 级（应该修复）
 
 ```css
@@ -216,6 +228,11 @@ font-weight: 600;  /* 设计稿是 700 */
 <button><icon name="close" /></button>
 <!-- 应该是 -->
 <button aria-label="关闭"><icon name="close" /></button>
+```
+
+```text
+资源名称仍是 hash 或语义不明，导致后续维护困难。
+→ 应在 Asset Triage 阶段先完成语义化命名。
 ```
 
 ### P2 级（建议修复）
@@ -241,7 +258,7 @@ margin: 0;
 
 ## 评分计算
 
-```
+```text
 overall = visualFidelity * 0.6 + accessibility * 0.25 + codeQuality * 0.15
 
 示例：
@@ -254,4 +271,4 @@ overall = 90 * 0.6 + 80 * 0.25 + 85 * 0.15
         = 86.75 ≈ 87
 ```
 
-**交付门控**：visualFidelity ≥ 85（核心指标）
+**交付门控**：`visualFidelity ≥ 90`（核心指标）

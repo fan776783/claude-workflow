@@ -247,7 +247,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ```
 
 **记录内容**：已完成的任务 ID、关键决策、遇到的问题、下一步计划。
-**恢复使用**：新 Session 启动时可通过 `python3 scripts/workflow_cli.py journal list` 查看最近进展，或 `python3 scripts/workflow_cli.py journal search "关键词"` 检索特定上下文。
+**恢复使用**：新 Session 启动时可通过 `python3 core/utils/workflow/workflow_cli.py journal list` 查看最近进展，或 `python3 core/utils/workflow/workflow_cli.py journal search "关键词"` 检索特定上下文。
 
 **详细实现**: 参见 `../specs/execute/post-execution-pipeline.md`
 

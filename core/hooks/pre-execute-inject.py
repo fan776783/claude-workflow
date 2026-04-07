@@ -12,7 +12,7 @@ Pre-Execute Inject Hook — 子 Agent 执行任务前自动注入上下文。
         "PreToolUse": [
           {
             "type": "command",
-            "command": "python3 .agents/agent-workflow/hooks/pre-execute-inject.py",
+            "command": "python3 .claude/.agent-workflow/hooks/pre-execute-inject.py",
             "matcher": "Task"
           }
         ]
@@ -146,7 +146,7 @@ def build_task_context(state: dict) -> str:
     guides_dir = project_root / ".claude" / "specs" / "guides"
     if guides_dir.is_dir():
         parts.append(
-            "<reminder>修改代码前请参考 .claude/specs/guides/ 中的思维指南。</reminder>"
+            "<reminder>修改代码前请参考 .agent-workflow/specs/guides/ 中的思维指南。</reminder>"
         )
 
     return "\n\n".join(parts)

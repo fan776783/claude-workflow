@@ -29,7 +29,7 @@ workflow execute 支持两种执行模式：**连续模式**（默认）和**单
 | 机制 | 文件 | 说明 |
 |------|------|------|
 | ContextGovernor | [context-governor.md](context-governor.md) | 所有模式共享的 continuation 治理决策器 |
-| Subagent 路由 | [subagent-routing.md](subagent-routing.md) | 平台感知的子 Agent 路由与并行执行 |
+| Subagent 路由 | [../../../workflow-reviewing/specs/execute/subagent-routing.md](../../../workflow-reviewing/specs/execute/subagent-routing.md) | 平台感知的子 Agent 路由与并行执行 |
 | Post-Execution Pipeline | [post-execution-pipeline.md](post-execution-pipeline.md) | 6 步后置管线（验证→自审查→更新 Plan→更新 State→审查→Journal） |
 | TDD 执行纪律 | [tdd-enforcement.md](tdd-enforcement.md) | Red-Green-Refactor 循环 |
 

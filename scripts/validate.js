@@ -44,7 +44,7 @@ function runPythonValidation(args, options = {}) {
   }
 }
 
-async function collectMarkdownFiles(rootDir) {
+async function collectFiles(rootDir, predicate) {
   const files = [];
   if (!(await fs.pathExists(rootDir))) {
     return files;
@@ -54,14 +54,83 @@ async function collectMarkdownFiles(rootDir) {
   for (const entry of entries) {
     const fullPath = path.join(rootDir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await collectMarkdownFiles(fullPath));
+      files.push(...await collectFiles(fullPath, predicate));
       continue;
     }
-    if (entry.isFile() && entry.name.endsWith('.md')) {
+    if (entry.isFile() && predicate(fullPath, entry.name)) {
       files.push(fullPath);
     }
   }
   return files;
+}
+
+async function collectMarkdownFiles(rootDir) {
+  return collectFiles(rootDir, (_, name) => name.endsWith('.md'));
+}
+
+async function validatePathReferences(repoRoot, packageRoot, errors) {
+  const pathContractChecks = [
+    {
+      root: path.join(packageRoot, 'hooks'),
+      predicate: (_, name) => name.endsWith('.py') || name.endsWith('.js'),
+      forbidden: '.agents/agent-workflow/hooks/',
+      message: 'hooks 文档仍引用旧的 .agents/agent-workflow/hooks/ 路径',
+    },
+    {
+      root: path.join(packageRoot, 'hooks'),
+      predicate: (_, name) => name.endsWith('.py') || name.endsWith('.md'),
+      forbidden: '.claude/specs/guides/',
+      message: 'hooks/runtime 文档仍引用旧的 .claude/specs/guides/ 路径',
+    },
+    {
+      root: path.join(packageRoot, 'skills', 'workflow-reviewing'),
+      predicate: (_, name) => name.endsWith('.md'),
+      forbidden: '.claude/specs/guides/',
+      message: 'workflow-reviewing 文档仍引用旧的 .claude/specs/guides/ 路径',
+    },
+    {
+      root: path.join(packageRoot, 'skills'),
+      predicate: (_, name) => name.endsWith('.md'),
+      forbidden: 'scripts/workflow_cli.py',
+      message: 'workflow 文档仍引用过期的 scripts/workflow_cli.py 路径',
+    },
+  ];
+
+  for (const check of pathContractChecks) {
+    const files = await collectFiles(check.root, check.predicate);
+    for (const file of files) {
+      const content = await fs.readFile(file, 'utf8');
+      if (content.includes(check.forbidden)) {
+        errors.push(`${check.message}: ${path.relative(repoRoot, file)}`);
+      }
+    }
+  }
+
+  const markdownRoots = [
+    path.join(packageRoot, 'skills'),
+    path.join(packageRoot, 'commands'),
+    path.join(packageRoot, 'docs'),
+    path.join(packageRoot, 'specs'),
+  ];
+  const markdownFiles = [];
+  for (const root of markdownRoots) {
+    markdownFiles.push(...await collectMarkdownFiles(root));
+  }
+
+  const linkRegex = /\[[^\]]+\]\(([^)]+\.md)\)/g;
+  for (const file of markdownFiles) {
+    const content = await fs.readFile(file, 'utf8');
+    for (const match of content.matchAll(linkRegex)) {
+      const target = match[1];
+      if (!target || target.startsWith('http://') || target.startsWith('https://') || target.startsWith('#')) {
+        continue;
+      }
+      const resolved = path.resolve(path.dirname(file), target);
+      if (!(await fs.pathExists(resolved))) {
+        errors.push(`markdown 相对链接失效: ${path.relative(repoRoot, file)} -> ${target}`);
+      }
+    }
+  }
 }
 
 async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
@@ -229,6 +298,7 @@ async function validate() {
   }
 
   await validateWorkflowContracts(repoRoot, packageRoot, errors);
+  await validatePathReferences(repoRoot, packageRoot, errors);
 
   if (errors.length > 0) {
     console.log('\n❌ 验证失败:\n');

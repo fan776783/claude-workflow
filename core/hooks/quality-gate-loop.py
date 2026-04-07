@@ -12,7 +12,7 @@ Quality Gate Loop Hook — 质量关卡验证循环。
         "SubagentStop": [
           {
             "type": "command",
-            "command": "python3 .agents/agent-workflow/hooks/quality-gate-loop.py"
+            "command": "python3 .claude/.agent-workflow/hooks/quality-gate-loop.py"
           }
         ]
       }

@@ -57,7 +57,6 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── bug-batch/       # Batch bug fixing
     │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
     │   ├── figma-ui/        # Figma to code
-    │   ├── visual-diff/     # Visual diff comparison
     │   └── perf-budget/     # Performance budget validation
     ├── commands/            # Command entry definitions
     ├── utils/               # Internal runtime utilities
@@ -123,7 +122,6 @@ The package includes the following skills (all portable across AI coding tools):
 
 **UI Development:**
 - `/figma-ui` - Figma design to code (visual fidelity validation)
-- `/visual-diff` - UI visual diff comparison (pixel-level + semantic)
 
 **Performance:**
 - `/perf-budget` - Performance budget validation (page load, bundle size, API response)

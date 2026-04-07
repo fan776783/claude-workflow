@@ -190,7 +190,7 @@ if (fileExists(discussionPath)) {
 
 Plan 生成后立即执行自审查。Self-Review 只检查**无需执行即可判断**的内容（语法、格式、覆盖率），语义正确性验证推迟到执行阶段的 Verification Iron Law 和质量关卡。
 
-> 参见执行阶段验证链：`workflow-executing/specs/execute/post-execution-pipeline.md` Step 6.5 Verification Iron Law
+> 参见执行阶段验证链：`../../../workflow-executing/specs/execute/post-execution-pipeline.md` Step 6.5 Verification Iron Law
 
 ```typescript
 function selfReviewPlan(planContent: string, specContent: string): void {

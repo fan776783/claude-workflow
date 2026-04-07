@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **figma-ui 资源分诊前移**：将 figma-ui 的资源处理从“编码后按 `usedAssets` 收口”重构为“编码前 Asset Triage + AssetPlan”
+  - `get_design_context` 后新增 `file-list-diff` / `newlyDownloadedFiles` / `assetMapping` 语义，显式限定当前任务下载资源范围
+  - 编码阶段只消费 `inline` / `promote` 结果，不再把后置 `usedAssets` 作为唯一资源锚点
+  - 复合图形识别前移为编码前强制检查，发现错误粒度子图层时先回退到父节点重导出
+  - 明确 `assetsDir/.figma-ui/tmp/<taskId>` 与 `.claude/cache/figma-ui/{nodeId}/design.png` 的职责边界
+- **figma-ui / visual-diff 文档契约收敛**：统一截图缓存与视觉门槛的描述
+  - `figma-tools.md` 不再把 `get_screenshot` 写成 figma-ui 常规主流程
+  - `visual-review.md` 的交付门槛统一为 `visualFidelity ≥ 90`
+  - `visual-diff` 明确仅复用设计截图缓存，不继承 figma-ui 任务级临时资源语义
 - **diff-review impact-aware 审查升级**：将 `diff-review` 从基础 Quick / Deep 审查重构为 impact-aware review workflow
   - 新增共享审查管线：review subject 解析、candidate finding discovery、finding verification、impact analysis、severity calibration、report synthesis、impact-aware review loop
   - Quick / Deep 模式统一接入 verification + impact analysis，不再直接从 diff 跳到最终 findings
@@ -31,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **受管内部资源精简**：安装器、校验脚本、交互式安装摘要与文档同步移除 `project` / `prompts` 目录，`.agent-workflow/` 托管资源收敛为 `utils/specs/hooks/docs`
 
 ### Fixed
+- **figma-ui 相关文档漂移**：修正主 skill、reference 与 shared spec 之间对资源目录、截图缓存和验证门槛的表述不一致
 - **重复 link 时的已存在目录处理**：`createSymlink()` 现在会正确处理已存在的目录/符号链接，避免重链时因 `pathExists()` 跳过删除而导致挂载失败
 - **Claude Code 新布局兼容**：重新执行 `agent-workflow link -a claude-code` 后，`status` 可正确识别 `repo-link` 模式与 14/14 skills 状态
 - **历史路径引用清理**：修复模板文档、指南和部分实现说明中的旧 `core/*` 与 legacy workflow 路径，统一指向 `core/*`

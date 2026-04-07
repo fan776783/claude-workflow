@@ -18,7 +18,8 @@ description: Proactively use when Claude Code is stuck, wants a second implement
 ## Quick Start
 
 ```bash
-node .claude/skills/collaborating-with-codex/scripts/codex-bridge.mjs task --cd "/path/to/project" --prompt "Your task"
+# Run from inside the installed skill directory
+node scripts/codex-bridge.mjs task --cd "/path/to/project" --prompt "Your task"
 ```
 
 **Output:** Structured JSON with `success`, `command`, `sessionId`, `turnId`, `agentMessages`, and optional `error`/`stderr`. During execution, the bridge will stream human-readable progress logs to `stderr`.
