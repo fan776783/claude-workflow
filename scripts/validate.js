@@ -45,6 +45,22 @@ function runPythonValidation(args, options = {}) {
   }
 }
 
+function runNodeSyntaxValidation(files) {
+  for (const file of files) {
+    const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+    if (result.error) {
+      return { ok: false, error: result.error.message };
+    }
+    if (result.status !== 0) {
+      return {
+        ok: false,
+        error: (result.stderr || result.stdout || '').trim() || `syntax check failed: ${file}`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 async function collectFiles(rootDir, predicate) {
   const files = [];
   if (!(await fs.pathExists(rootDir))) {
@@ -359,10 +375,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     }
   }
 
-  const jsSyntaxCheck = runPythonValidation(
-    ['-c', `import json, pathlib, subprocess\ncode = ${JSON.stringify(scriptFiles.map(file => path.join(teamUtilsDir, file)))}\nfor file in code:\n    result = subprocess.run(["node", "--check", file], capture_output=True, text=True)\n    if result.returncode != 0:\n        raise SystemExit((result.stderr or result.stdout or f"syntax check failed: {file}").strip())`],
-    { parseJson: false }
-  );
+  const jsSyntaxCheck = runNodeSyntaxValidation(scriptFiles.map(file => path.join(teamUtilsDir, file)));
   if (!jsSyntaxCheck.ok) {
     errors.push(`team Node.js 脚本语法校验失败: ${jsSyntaxCheck.error}`);
   }
