@@ -24,22 +24,22 @@
 
 ## 参数
 
-| 参数 | 说明 |
-|------|------|
+| 参数      | 说明                                    |
+| --------- | --------------------------------------- |
 | `--phase` | 阶段模式：按治理 phase 执行并在边界暂停 |
-| `--retry` | 重试模式：重试失败的任务 |
-| `--skip` | 跳过模式：跳过当前任务（慎用） |
+| `--retry` | 重试模式：重试失败的任务                |
+| `--skip`  | 跳过模式：跳过当前任务（慎用）          |
 
 ## 自然语言控制
 
 在命令参数或对话中描述意图：
 
-| 用户说 | 系统理解 |
-|--------|----------|
-| "继续" / "连续" | 连续模式（默认） |
-| "下一阶段" / "单阶段" | 阶段模式 |
-| "重试" | 等同 `--retry` |
-| "跳过" | 等同 `--skip` |
+| 用户说                | 系统理解         |
+| --------------------- | ---------------- |
+| "继续" / "连续"       | 连续模式（默认） |
+| "下一阶段" / "单阶段" | 阶段模式         |
+| "重试"                | 等同 `--retry`   |
+| "跳过"                | 等同 `--skip`    |
 
 ### 恢复解析规则
 
@@ -50,9 +50,9 @@
 
 ## 执行模式
 
-| 模式 | 说明 | 语义暂停点 |
-|------|------|------------|
-| 阶段 | 按治理 phase 连续执行 | 治理边界变化时 |
+| 模式 | 说明                   | 语义暂停点            |
+| ---- | ---------------------- | --------------------- |
+| 阶段 | 按治理 phase 连续执行  | 治理边界变化时        |
 | 连续 | 执行到质量关卡（默认） | 质量关卡 / git_commit |
 
 > 注意：以上仅是语义暂停点；真正是否继续由 `ContextGovernor` 先决定。
@@ -60,6 +60,7 @@
 > **Subagent / 并行路由**：仅在平台支持且能证明同阶段任务彼此独立时启用；是否使用 `parallel-boundaries` 由 `ContextGovernor` 与独立性检查共同决定，不能仅按任务数量自动开启。
 >
 > **平台映射**：
+>
 > - Claude Code / Cursor：使用 `Task` 子 agent
 > - Codex：使用 `spawn_agent` / `wait` / `close_agent`
 > - 其他无子 agent 平台：降级为直接模式
@@ -69,6 +70,7 @@
 ## 🔍 执行流程概览
 
 > 自 vNext 起，`workflow execute` 采用 **governance-first** continuation governance：
+>
 > - 先判断下一执行单元是否具备独立边界，以及是否会向主会话注入低价值上下文
 > - 再判断是否应切换为 parallel-boundaries 或其他隔离路径降低主会话压力
 > - 最后才由 budget 作为 danger / handoff 的兜底信号，并应用 `step / phase / quality_gate` 的语义暂停点
@@ -76,6 +78,7 @@
 ### Step 0：解析执行模式
 
 解析命令行参数和自然语言意图：
+
 - 检测 `--retry` / `--skip` / `--phase` 标志
 - 识别自然语言模式描述（连续/阶段）
 - 确定执行模式优先级：显式模式 > 自然语言意图 > `state.execution_mode` > 默认
@@ -87,6 +90,7 @@
 ### Step 1：读取工作流状态
 
 读取 `workflow-state.json`，执行状态预检查：
+
 - 检查项目配置（`.claude/config/project-config.json`）
 - 验证项目 ID 安全性
 - 检查工作流状态文件是否存在
@@ -130,9 +134,23 @@
 
 ---
 
+### Step 1.5：Git 分支检测（建议性）
+
+执行前检测当前分支状态，建议创建 feature branch：
+
+1. 检测当前分支名（`git branch --show-current`）
+2. 若在 `main`/`master`/`develop` 上：
+   - 建议创建 feature branch：`feature/{task-name}`
+   - 用户可选择：创建分支 / 继续在当前分支 / 跳过
+3. 若已在 feature branch 上，跳过检测
+4. 记录分支信息到 `workflow-state.json` 的 `branch` 字段
+
+> ⚠️ 此步骤为建议性（advisory），不阻塞执行。用户选择继续即可；分支未创建不影响后续任务。
+
 ### Step 2：路径安全校验
 
 使用 `resolveUnder` 函数校验所有路径：
+
 - 实施计划路径（`plan_file`）
 - Spec 路径（`spec_file`）
 - 确保路径在允许的目录范围内
@@ -144,16 +162,19 @@
 ### Step 3：治理信号评估与执行路径候选
 
 **主治理信号评估**：
+
 - 评估下一执行单元是否具备可证明独立边界
 - 评估该单元是否会向主会话注入低价值或高噪声上下文
 - 结合任务动作、验证方式、测试/审查输出特征，产出 `ContextGovernor` 所需的主治理信号
 
 **budget backstop 评估**：
+
 - 估算当前主会话 token 使用量
 - 估算下一执行单元的 projected token 成本（执行 + 验证 + 审查 + 安全缓冲）
 - 生成当前使用率与 projected 使用率，作为 danger / hard handoff 的兜底覆盖依据
 
 **执行路径候选**：
+
 - 平台检测（Claude Code / Cursor / Codex）
 - 检测是否存在同阶段 2+ 可证明独立任务
 - 若存在独立边界且任务对主会话污染高，优先评估 `parallel-boundaries` 或隔离路径
@@ -167,6 +188,7 @@
 ### Step 4：提取当前任务
 
 从 `plan.md` 中提取当前任务信息：
+
 - 任务 ID 格式校验（防止正则注入）
 - 解析任务标题（支持状态 emoji）
 - 提取任务字段（阶段、文件、依赖、验收项等）
@@ -179,6 +201,7 @@
 ### Step 5：显示任务上下文
 
 显示当前任务的详细信息：
+
 - 任务 ID 和名称
 - 阶段和文件
 - 需求描述
@@ -187,6 +210,8 @@
 - 依赖任务（如有）
 - 验收项（如有）
 - 全局约束（从 `plan.md` 提取）
+- **Patterns to Mirror**（如有）：从 `plan.md` 的 `## Patterns to Mirror` 区块提取本任务相关的代码模式，展示模式名称和源文件路径。执行时应先读取源文件中的模式实现，再编写当前任务代码，确保风格一致
+- **Mandatory Reading**（如有）：从 `plan.md` 的 `## Mandatory Reading` 区块提取本任务优先级为 P0 的必读文件列表，在执行前必须先读取这些文件
 
 ---
 
@@ -195,6 +220,7 @@
 根据任务的 `actions` 字段执行相应动作：
 
 **支持的动作**：
+
 - `create_file`: 创建新文件
 - `edit_file`: 编辑现有文件
 - `run_tests`: 运行测试
@@ -202,6 +228,7 @@
 - `git_commit`: Git 提交
 
 **执行方式**：
+
 - **Subagent 模式**：单任务可直接按平台路由到 `Task` 或 `spawn_agent`；仅在需要并行分派同阶段独立任务时，先读取并应用 `../../dispatching-parallel-agents/SKILL.md`
 - **直接模式**：在当前上下文中执行
 
@@ -219,16 +246,17 @@
 Task 完成 → ①验证 → ②自审查/合规检查 → ③更新 plan.md → ④更新 state.json → ⑤审查（条件） → ⑥Journal 记录（条件） → 下一 Task
 ```
 
-| 步骤 | 名称 | 关键规则 |
-|------|------|----------|
-| ① | 验证（Verification） | 失败 → 标记 `failed`，后续步骤全部跳过 |
-| ② | 自审查 + 规格合规检查 | 建议性，永不阻塞 |
-| ③ | 更新 plan.md | 逐 task 立即更新，禁止批量回写 |
-| ④ | 更新 workflow-state.json | 更新 progress + current_tasks + updated_at |
-| ⑤ | 审查触发检查 | quality_review → 完整两阶段审查；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
-| ⑥ | Journal 记录 | 在质量关卡/暂停/完成时调用 `workflow_cli.py journal add` 记录会话进展 |
+| 步骤 | 名称                     | 关键规则                                                                           |
+| ---- | ------------------------ | ---------------------------------------------------------------------------------- |
+| ①    | 验证（Verification）     | 失败 → 标记 `failed`，后续步骤全部跳过                                             |
+| ②    | 自审查 + 规格合规检查    | 建议性，永不阻塞                                                                   |
+| ③    | 更新 plan.md             | 逐 task 立即更新，禁止批量回写                                                     |
+| ④    | 更新 workflow-state.json | 更新 progress + current_tasks + updated_at                                         |
+| ⑤    | 审查触发检查             | quality_review → 完整两阶段审查；每 3 个常规 task → 轻量合规；最后 task → 全量审查 |
+| ⑥    | Journal 记录             | 在质量关卡/暂停/完成时调用 `workflow_cli.py journal add` 记录会话进展              |
 
 > ⚠️ 跳过 ① ~ ⑤ 中任何一步即为执行违规。⑥ 为建议性步骤，在以下时机自动触发：
+>
 > - 质量关卡审查完成后
 > - `ContextGovernor` 决定暂停时（`pause-budget` / `pause-governance` / `handoff-required`）
 > - 工作流完成时（`status: completed`）
@@ -256,6 +284,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ### Step 7：更新任务状态
 
 完成 Post-Execution Pipeline 后确认最终状态：
+
 - 确认任务已标记为 `completed`（Pipeline 操作 ④⑤ 已完成）
 - 记录上下文使用历史与 projected 预算信息
 - 更新连续执行计数（仅作为节奏控制，不再单独决定 continuation）
@@ -267,6 +296,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 完成 Post-Execution Pipeline 与 Step 7 后，不再直接按 `execution_mode` 决定是否继续，而是先调用 `ContextGovernor`：
 
 **决策顺序**：
+
 1. 检查是否存在硬停止条件（failed / blocked / retry hard stop / 缺少验证证据）
 2. 评估下一执行单元的任务独立性
 3. 评估该单元是否会向主会话注入低价值上下文
@@ -275,6 +305,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 6. 最后仅在 budget 达到 `danger / hard handoff` 时进行兜底覆盖
 
 **Continuation actions**：
+
 - `continue-direct`：直接继续顺序执行
 - `continue-parallel-boundaries`：按边界并行分派
 - `pause-budget`：因预算压力暂停
@@ -290,6 +321,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ### Retry 模式（`--retry`）
 
 重试失败的任务：
+
 1. 检查工作流状态是否为 `failed`
 2. 启动结构化调试协议（四阶段：根因调查 → 模式分析 → 假设验证 → 实施修复）
 3. 修复后重新执行当前任务
@@ -300,6 +332,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ### Skip 模式（`--skip`）
 
 跳过当前任务（慎用）：
+
 1. 标记当前任务为 `skipped`
 2. 更新 `plan.md` 与 `workflow-state.json`
 3. 移动到下一个任务
@@ -331,6 +364,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ## 渐进式工作流
 
 当工作流处于渐进式模式（`mode: progressive`）时：
+
 - 自动跳过被阻塞的任务（`blocked_by` 依赖未解除）
 - 只执行可执行的任务
 - 当所有任务都被阻塞时，转为 `blocked` 状态
@@ -343,11 +377,13 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 ## 上下文感知机制
 
 **Token 估算**：
+
 - 实施计划内容：按字符数 / 4 估算
 - Spec 内容：按字符数 / 4 估算
 - 最近 diff：最多 50000 字符，按字符数 / 4 估算
 
 **动态限制**：
+
 - 简单任务：最多连续执行 8 个
 - 中等任务：最多连续执行 5 个
 - 复杂任务：最多连续执行 3 个
@@ -355,6 +391,7 @@ python3 ../../../utils/workflow/workflow_cli.py journal add \
 - 上下文使用率 > 50%：减少 1 个
 
 **可视化进度条**：
+
 ```
 [🟩🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨░░░░░░░░] 60%
 ```

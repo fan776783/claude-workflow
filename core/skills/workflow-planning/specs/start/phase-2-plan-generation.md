@@ -69,7 +69,7 @@ Phase 1 Spec 生成已消费 discussion-artifact 并将决策写入 spec。Phase
 
 ```typescript
 const planPath = `.claude/plans/${sanitizedName}.md`;
-ensureDir('.claude/plans');
+ensureDir(".claude/plans");
 
 const specContent = readFile(specPath);
 ```
@@ -92,11 +92,11 @@ for (const slice of slices) {
     tasks.push({
       id: `T${index++}`,
       name: `实现 ${file.description}`,
-      phase: slice.phase || 'implement',
+      phase: slice.phase || "implement",
       files: {
         create: file.isNew ? [file.path] : [],
         modify: file.isNew ? [] : [file.path],
-        test: file.testPath ? [file.testPath] : []
+        test: file.testPath ? [file.testPath] : [],
       },
       spec_ref: slice.specRef,
       plan_ref: `P-${slice.name}`,
@@ -104,27 +104,27 @@ for (const slice of slices) {
       actions: deriveTaskActions(file),
       verification: {
         commands: deriveVerificationCommands(file),
-        expected_output: deriveExpectedOutputs(file)
+        expected_output: deriveExpectedOutputs(file),
       },
       steps: [
         {
-          id: 'S1',
+          id: "S1",
           description: `编写 ${file.description} 的失败测试`,
-          expected: '测试稳定失败并暴露目标行为缺口',
-          verification: file.testCommand
+          expected: "测试稳定失败并暴露目标行为缺口",
+          verification: file.testCommand,
         },
         {
-          id: 'S2',
+          id: "S2",
           description: `实现 ${file.description} 的最小代码变更`,
-          expected: '目标能力可用且符合 Spec 约束'
+          expected: "目标能力可用且符合 Spec 约束",
         },
         {
-          id: 'S3',
-          description: '运行验证命令并确认全部通过',
-          expected: '测试、类型检查或 lint 全部通过',
-          verification: file.testCommand
-        }
-      ]
+          id: "S3",
+          description: "运行验证命令并确认全部通过",
+          expected: "测试、类型检查或 lint 全部通过",
+          verification: file.testCommand,
+        },
+      ],
     });
   }
 }
@@ -133,7 +133,7 @@ for (const slice of slices) {
 ### Step 4: 渲染 Plan 文档
 
 ```typescript
-const planTemplate = loadTemplate('plan-template.md');
+const planTemplate = loadTemplate("plan-template.md");
 const planContent = replaceVars(planTemplate, {
   task_name: taskName,
   requirement_source: requirementSource,
@@ -142,10 +142,13 @@ const planContent = replaceVars(planTemplate, {
   goal: extractGoal(specContent),
   architecture_summary: extractArchitectureSummary(specContent),
   tech_stack: extractTechStack(specContent),
+  confidence_score: confidenceScore,
+  patterns_to_mirror: renderPatternsToMirror(patternsToMirror),
+  mandatory_reading: renderMandatoryReading(mandatoryReading),
   files_create: renderFileList(filePlan.create),
   files_modify: renderFileList(filePlan.modify),
   files_test: renderFileList(filePlan.test),
-  tasks: renderWorkflowTasksV2(tasks)
+  tasks: renderWorkflowTasksV2(tasks),
 });
 
 writeFile(planPath, planContent);
@@ -155,30 +158,40 @@ writeFile(planPath, planContent);
 
 ```typescript
 // 仅做一致性校验，不作为规范数据源
-const discussionPath = path.join(workflowDir, 'discussion-artifact.json');
+const discussionPath = path.join(workflowDir, "discussion-artifact.json");
 if (fileExists(discussionPath)) {
   const discussion = JSON.parse(readFile(discussionPath));
 
   // 检查 selectedApproach 是否反映在 spec Architecture 章节
   if (discussion.selectedApproach) {
-    const archSection = extractSection(specContent, '## 5. Architecture and Module Design');
+    const archSection = extractSection(
+      specContent,
+      "## 5. Architecture and Module Design",
+    );
     if (!archSection?.includes(discussion.selectedApproach.name)) {
-      console.error(`❌ Drift: discussion 选定方案 "${discussion.selectedApproach.name}" 未在 Spec Architecture 章节体现`);
-      console.log('⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan');
+      console.error(
+        `❌ Drift: discussion 选定方案 "${discussion.selectedApproach.name}" 未在 Spec Architecture 章节体现`,
+      );
+      console.log("⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan");
       return;
     }
   }
 
   // 检查 unresolvedDependencies 是否标记为 blocked
   for (const dep of discussion.unresolvedDependencies || []) {
-    if (dep.status === 'not_started') {
-      const scopeSection = extractSection(specContent, '## 2. Scope');
+    if (dep.status === "not_started") {
+      const scopeSection = extractSection(specContent, "## 2. Scope");
       // 检查该依赖的描述关键词是否出现在 blocked 条目中
-      const depKeyword = dep.description.split(/\s+/).slice(0, 3).join(' ');
-      const blockedPattern = new RegExp(`blocked[\\s\\S]{0,200}${escapeRegExp(depKeyword)}`, 'i');
+      const depKeyword = dep.description.split(/\s+/).slice(0, 3).join(" ");
+      const blockedPattern = new RegExp(
+        `blocked[\\s\\S]{0,200}${escapeRegExp(depKeyword)}`,
+        "i",
+      );
       if (!scopeSection || !blockedPattern.test(scopeSection)) {
-        console.error(`❌ Drift: discussion 未就绪依赖 "${dep.description}" 未在 Spec Scope 中标记为 blocked`);
-        console.log('⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan');
+        console.error(
+          `❌ Drift: discussion 未就绪依赖 "${dep.description}" 未在 Spec Scope 中标记为 blocked`,
+        );
+        console.log("⏸️ 请回退到 Phase 1 修订 Spec 后重新生成 Plan");
         return;
       }
     }
@@ -186,7 +199,73 @@ if (fileExists(discussionPath)) {
 }
 ```
 
-### Step 5: Self-Review
+### Step 4.8: Pattern Discovery
+
+从代码分析结果中提取可复用的代码模式，生成 `Patterns to Mirror` 和 `Mandatory Reading` 区块，写入 plan 文档。
+
+```typescript
+// 从 analysisResult 提取代码模式
+interface PatternToMirror {
+  name: string; // 模式名称（如 "Repository Pattern"、"Error Boundary"）
+  sourceFile: string; // 来源文件路径
+  keySnippet?: string; // 关键代码片段引用（函数名/类名，非完整代码）
+  relevance: string; // 与当前任务的关联说明
+}
+
+interface MandatoryReadingFile {
+  path: string;
+  priority: "P0" | "P1" | "P2"; // P0: 必读 / P1: 重要 / P2: 参考
+  reason: string;
+}
+
+// 从 analysisResult.patterns 和 analysisResult.relatedFiles 生成
+const patternsToMirror: PatternToMirror[] = analysisResult.patterns.map(
+  (p) => ({
+    name: p.name,
+    sourceFile: findBestExampleFile(p, analysisResult.relatedFiles),
+    keySnippet: extractKeySymbol(p),
+    relevance: p.description,
+  }),
+);
+
+const mandatoryReading: MandatoryReadingFile[] =
+  analysisResult.relatedFiles.map((f) => ({
+    path: f.path,
+    priority:
+      f.reuseType === "extend" ? "P0" : f.reuseType === "modify" ? "P1" : "P2",
+    reason: f.purpose,
+  }));
+```
+
+### Step 4.9: Confidence Score
+
+基于多维度信号综合评估 plan 的可靠性，写入 plan Metadata。
+
+```typescript
+// 计算综合信心分
+function calculateConfidenceScore(
+  specCoverage: number, // spec 需求覆盖率 (0-1)
+  patternCount: number, // 识别到的可复用模式数量
+  constraintCount: number, // 已识别的约束数量
+  hasTestStrategy: boolean, // 是否有清晰的测试策略
+): number {
+  let score = 5; // 基线分
+  score += specCoverage >= 0.95 ? 2 : specCoverage >= 0.8 ? 1 : 0;
+  score += patternCount >= 3 ? 1 : 0;
+  score += constraintCount >= 2 ? 1 : 0;
+  score += hasTestStrategy ? 1 : 0;
+  return Math.min(10, Math.max(1, score));
+}
+
+const confidenceScore = calculateConfidenceScore(
+  specCoverageRatio,
+  patternsToMirror.length,
+  analysisResult.constraints.length,
+  tasks.some((t) => t.steps.some((s) => s.verification)),
+);
+
+console.log(`🎯 Confidence Score: ${confidenceScore}/10`);
+```
 
 Plan 生成后立即执行自审查。Self-Review 只检查**无需执行即可判断**的内容（语法、格式、覆盖率），语义正确性验证推迟到执行阶段的 Verification Iron Law 和质量关卡。
 
@@ -199,8 +278,9 @@ function selfReviewPlan(planContent: string, specContent: string): void {
   const planTasks = extractTasks(planContent);
 
   for (const req of specRequirements) {
-    const covered = planTasks.some(task =>
-      task.spec_ref === req.sectionRef || task.code.includes(req.keyword)
+    const covered = planTasks.some(
+      (task) =>
+        task.spec_ref === req.sectionRef || task.code.includes(req.keyword),
     );
     if (!covered) {
       console.warn(`⚠️ Spec 需求 [${req.id}] 未在 plan 中找到对应 task`);
@@ -208,9 +288,8 @@ function selfReviewPlan(planContent: string, specContent: string): void {
     }
   }
 
-  // 2. Placeholder scan: 搜索禁止内容
-  const placeholders = ['TBD', 'TODO', 'implement later', 'fill in details',
-    'add appropriate', 'similar to Task', 'write tests for'];
+  // 2. Placeholder scan: 搜索禁止占位符（no placeholders 规则）
+  const placeholders = ["TBD", "TODO", "implement later", "fill in details", "add appropriate", "similar to Task", "write tests for"]; // no placeholders 检查列表
   for (const ph of placeholders) {
     if (planContent.toLowerCase().includes(ph.toLowerCase())) {
       console.error(`❌ Plan 包含禁止的占位符: "${ph}"`);
@@ -239,8 +318,48 @@ function selfReviewPlan(planContent: string, specContent: string): void {
   }
 
   // 5. Discussion-artifact drift check（若 Step 4.5 未阻塞到这里，记录通过）
-  console.log('✅ Self-Review 通过（语法/覆盖率/格式检查）');
-  console.log('ℹ️ 语义正确性验证将在执行阶段的质量关卡中完成');
+
+  // 6. Pattern Faithfulness: 验证 Patterns to Mirror 中的每个引用都指向真实存在的代码文件/函数
+  for (const pattern of patternsToMirror) {
+    if (!fileExists(pattern.sourceFile)) {
+      console.warn(
+        `⚠️ Pattern 引用的源文件不存在: ${pattern.sourceFile} (模式: ${pattern.name})`,
+      );
+      // 自动修正：标记为 unverified 或尝试重新定位
+    }
+    if (pattern.keySnippet) {
+      // 检查 keySnippet 指向的符号是否在源文件中存在
+      const sourceContent = readFile(pattern.sourceFile);
+      if (!sourceContent.includes(pattern.keySnippet)) {
+        console.warn(
+          `⚠️ Pattern 引用的符号 "${pattern.keySnippet}" 未在 ${pattern.sourceFile} 中找到`,
+        );
+      }
+    }
+  }
+
+  // 7. No Prior Knowledge Test: 检查 plan 是否能被零上下文工程师直接执行
+  for (const task of planTasks) {
+    // 检查每个 task 是否有完整的文件路径（而非相对描述）
+    if (!task.files?.create?.length && !task.files?.modify?.length) {
+      console.warn(
+        `⚠️ Task ${task.id} 缺少明确的文件路径，零上下文工程师无法确定编辑哪个文件`,
+      );
+    }
+    // 检查 steps 是否包含可执行的具体指令（而非模糊描述）
+    for (const step of task.steps || []) {
+      if (step.description.length < 10) {
+        console.warn(
+          `⚠️ Task ${task.id} Step ${step.id} 描述过短，可能不够具体`,
+        );
+      }
+    }
+  }
+
+  console.log(
+    "✅ Self-Review 通过（语法/覆盖率/格式/模式保真度/可执行性检查）",
+  );
+  console.log("ℹ️ 语义正确性验证将在执行阶段的质量关卡中完成");
 }
 
 selfReviewPlan(planContent, specContent);
@@ -253,21 +372,43 @@ selfReviewPlan(planContent, specContent);
 
 > **Spec**: `.claude/specs/{name}.md`
 
+## Metadata
+
 **Goal:** [一句话描述]
 **Architecture:** [2-3 句架构方案]
 **Tech Stack:** [关键技术]
+**Confidence:** [N/10]
+
+---
+
+## Patterns to Mirror
+
+| 模式               | 源文件                  | 关键符号              | 关联说明             |
+| ------------------ | ----------------------- | --------------------- | -------------------- |
+| Repository Pattern | `src/repos/UserRepo.ts` | `UserRepo.findById()` | 新 Repo 应复用此模式 |
+
+## Mandatory Reading
+
+| 优先级 | 文件                      | 原因                |
+| ------ | ------------------------- | ------------------- |
+| P0     | `src/core/BaseService.ts` | 新 Service 必须继承 |
+| P1     | `src/utils/validators.ts` | 可复用的校验函数    |
+| P2     | `docs/architecture.md`    | 架构背景参考        |
 
 ---
 
 ## File Structure
 
 ### Files to Create
+
 - `exact/path/to/file.ts` — 职责描述
 
 ### Files to Modify
+
 - `exact/path/to/existing.ts` — 修改说明
 
 ### Files to Test
+
 - `tests/exact/path/to/test.ts`
 
 ---

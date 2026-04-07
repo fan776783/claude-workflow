@@ -1,0 +1,17 @@
+{
+  "project": {
+    "id": "8c5fd4f4930b",
+    "name": "claude-workflow",
+    "type": "single",
+    "bkProjectId": null
+  },
+  "tech": {
+    "packageManager": "unknown",
+    "buildTool": "unknown",
+    "frameworks": []
+  },
+  "workflow": {
+    "enableBKMCP": false
+  },
+  "_scanMode": "auto-healed"
+}

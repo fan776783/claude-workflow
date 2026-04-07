@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 from traceability import find_placeholders
 
 
-CLI_COMMAND_REGEX = re.compile(r"sub\.add_parser\(\s*\"([a-z0-9_-]+)\"", re.IGNORECASE)
+CLI_COMMAND_REGEX = re.compile(r"(?:sub\.add_parser\(\s*\"([a-z0-9_-]+)\"|command === '([a-z0-9_-]+)')", re.IGNORECASE)
 WORKFLOW_COMMAND_DOC_REGEX = re.compile(r"/workflow\s+([a-z0-9_-]+)", re.IGNORECASE)
 PYTHON_SCRIPT_REGEX = re.compile(r"`scripts/([a-zA-Z0-9_./-]+\.py)`")
 
@@ -65,7 +65,12 @@ def unique(items: Iterable[str]) -> List[str]:
 
 
 def extract_cli_commands(cli_content: str) -> List[str]:
-    return unique(match.group(1) for match in CLI_COMMAND_REGEX.finditer(cli_content or ""))
+    commands: List[str] = []
+    for match in CLI_COMMAND_REGEX.finditer(cli_content or ""):
+        command = match.group(1) or match.group(2)
+        if command:
+            commands.append(command)
+    return unique(commands)
 
 
 def extract_documented_workflow_commands(doc_content: str) -> List[str]:

@@ -21,6 +21,8 @@
 /workflow archive --summary    # 归档并生成变更摘要报告
 ```
 
+> `/workflow archive` 只归档 workflow runtime，不归档 `/team` 运行态；team 相关归档应使用 `/team archive`。
+
 ---
 
 ## 🎯 执行流程

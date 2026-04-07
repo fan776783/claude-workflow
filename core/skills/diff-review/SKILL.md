@@ -9,19 +9,21 @@ description: "代码审查 - 基于 git diff 的 impact-aware 结构化审查，
 
 `/diff-review [OPTIONS]`
 
-| 参数 | 说明 |
-|------|------|
-| (无) | 审查 `git diff HEAD`，Claude 单模型 |
-| `--staged` | 仅审查已暂存变更 |
-| `--branch <base>` | 审查相对 base 分支的变更 |
-| `--deep` | 多模型深度审查（Codex 协作） |
+| 参数                 | 说明                                |
+| -------------------- | ----------------------------------- |
+| (无)                 | 审查 `git diff HEAD`，Claude 单模型 |
+| `--staged`           | 仅审查已暂存变更                    |
+| `--branch <base>`    | 审查相对 base 分支的变更            |
+| `--deep`             | 多模型深度审查（Codex 协作）        |
+| `--pr <number\|url>` | 审查 GitHub PR（兼容 Quick/Deep）   |
 
 ## 模式路由（强制执行）
 
-检查 `$ARGUMENTS` 是否包含 `--deep`：
+检查 `$ARGUMENTS` 确定审查模式：
 
-- **不包含 `--deep`（默认 Quick 模式）**：读取 [references/quick-mode.md](references/quick-mode.md) 并严格执行其流程
-- **包含 `--deep`**：**必须**读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其流程。Deep 模式**必须**通过 `collaborating-with-codex` skill 调用 Codex 进行候选问题发现，当前模型负责统一裁决与最终报告
+- **包含 `--pr`**：读取 [references/pr-mode.md](references/pr-mode.md) 并执行 PR 审查流程。PR 模式兼容 `--deep`（`--pr 42 --deep` = Deep PR 审查）
+- **包含 `--deep`（无 `--pr`）**：**必须**读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其流程。Deep 模式**必须**通过 `collaborating-with-codex` skill 调用 Codex 进行候选问题发现，当前模型负责统一裁决与最终报告
+- **其他（默认 Quick 模式）**：读取 [references/quick-mode.md](references/quick-mode.md) 并严格执行其流程
 
 **⚠️ 关键约束**：Deep 模式下，如果没有按 `collaborating-with-codex` skill 执行 Codex 调用，则审查流程不合规。不得以任何理由省略外部模型调用步骤。
 
@@ -68,25 +70,26 @@ git status --short
 
 ## 优先级定义
 
-| 级别 | 含义 |
-|------|------|
-| P0 | 阻塞发布 |
-| P1 | 应尽快处理 |
-| P2 | 最终需修复 |
-| P3 | 有则更好 |
+| 级别 | 含义       |
+| ---- | ---------- |
+| P0   | 阻塞发布   |
+| P1   | 应尽快处理 |
+| P2   | 最终需修复 |
+| P3   | 有则更好   |
 
 ## Verdict 规则
 
-| 场景 | Verdict |
-|------|---------|
-| 无 P0/P1 | CORRECT |
-| 任一 P0 | INCORRECT |
-| 阻塞阈值的 P1 组合 | INCORRECT |
-| 模型失败，无 P0 | CORRECT (degraded) |
+| 场景               | Verdict            |
+| ------------------ | ------------------ |
+| 无 P0/P1           | CORRECT            |
+| 任一 P0            | INCORRECT          |
+| 阻塞阈值的 P1 组合 | INCORRECT          |
+| 模型失败，无 P0    | CORRECT (degraded) |
 
 ## 审查标准
 
 按以下标准识别问题：
+
 1. 影响准确性、性能、安全性或可维护性
 2. 问题具体且可操作
 3. 是本次变更引入的（非预先存在）
@@ -108,13 +111,13 @@ git status --short
 
 ### 处理规则
 
-| 验证结果 | 处理 |
-|----------|------|
-| 问题真实存在，且适用 | 保留，进入 impact analysis |
+| 验证结果                       | 处理                                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 问题真实存在，且适用           | 保留，进入 impact analysis                                                                           |
 | 问题存在，但影响有限或前提不足 | 降级或标记为 `partially_verified`；仅允许作为 P2/P3 或不确定性说明进入最终报告，不能单独阻断 Verdict |
-| 问题不存在 | 移除，不进入最终 findings |
-| YAGNI 不通过（非安全类） | 降级为 P3，说明当前无实际使用场景 |
-| 建议自身有明显副作用风险 | 可保留，但必须补充风险说明与更小修复范围 |
+| 问题不存在                     | 移除，不进入最终 findings                                                                            |
+| YAGNI 不通过（非安全类）       | 降级为 P3，说明当前无实际使用场景                                                                    |
+| 建议自身有明显副作用风险       | 可保留，但必须补充风险说明与更小修复范围                                                             |
 
 ### 禁止行为
 

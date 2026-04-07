@@ -49,6 +49,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-executing/ # Execution entry for /workflow execute
     │   ├── workflow-reviewing/ # Review protocol entry for workflow quality gates
     │   ├── workflow-delta/  # Delta entry for /workflow delta
+    │   ├── team/            # Explicit team orchestration for /team start|execute
     │   ├── scan/            # Project scanning
     │   ├── analyze/         # Analysis orchestration (Codex candidates + Claude synthesis)
     │   ├── fix-bug/         # Bug fixing workflow
@@ -68,6 +69,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 ## Key Concepts
 
 **Canonical + Managed Links Architecture:**
+
 1. Single source of truth at `~/.agents/agent-workflow/`
 2. Canonical package payload lives under `~/.agents/agent-workflow/core/`
 3. Each AI tool keeps its own `skills` root directory, while managed skills are mounted individually from the canonical package
@@ -76,6 +78,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 6. Supports both global (`~/.agents/`) and project-level (`.agents/`) installation
 
 **Installation Flow:**
+
 1. `postinstall.js` triggers on npm install
 2. Detects installed AI coding tools (Claude Code, Cursor, Codex, etc.)
 3. Copies `core/` into canonical storage
@@ -83,12 +86,14 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 5. Tracks version in `.meta/meta.json`
 
 **Upgrade Flow:**
+
 1. Compares installed version with package version
 2. Updates canonical location
 3. All managed links automatically reflect changes
 4. Backups saved to `.meta/backups/`
 
 **Supported Agents:**
+
 - Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
 
 **Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
@@ -98,32 +103,54 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 The package includes the following skills (all portable across AI coding tools):
 
 **Core Workflow:**
+
 - `/workflow` - Public workflow command entrypoint for command-capable agents (stable `/workflow start|execute|delta|status|archive` surface exposed from `core/commands/workflow.md` and backed by specialized workflow skills plus shared runtime docs)
   - `start` - Routed to `workflow-planning`
   - `execute` - Routed to `workflow-executing`
   - `delta` - Routed to `workflow-delta`
   - `status` - Still served from shared workflow runtime docs
   - `archive` - Still served from shared workflow runtime docs
+- `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md` and backed by `team` skill plus `core/specs/team-runtime/` docs)
+  - `start` - Reuses workflow planning and creates team runtime artifacts
+  - `execute` - Runs team-exec → team-verify / team-fix loop
+  - `status` - Served from shared team runtime docs
+  - `archive` - Served from shared team runtime docs
 - `workflow-planning` - Planning skill for `/workflow start` (analysis → discussion → UX gate → Spec → Plan)
-- `workflow-executing` - Execution skill for `/workflow execute` (continuation governance + validation + quality gates)
+- `workflow-executing` - Execution skill for `/workflow execute` (continuation governance + validation + quality gates + implementation report)
 - `workflow-reviewing` - Review skill used by workflow quality gates (spec compliance + code quality)
 - `workflow-delta` - Delta skill for `/workflow delta` (PRD/API/requirement changes)
+- `team` - Team orchestration skill for explicit `/team` entry only; never auto-triggered by `/workflow`, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
+
+**Planning:**
+
+- `/quick-plan` - Lightweight quick planning (4-step: understand → analyze → plan → confirm, no state machine)
 
 **Development Tools:**
+
 - `/scan` - Project scanning (tech stack detection + context report generation)
-- `/analyze` - Codex-assisted analysis with Claude adjudication and synthesis
+- `/analyze` - Codex-assisted analysis with Claude adjudication and synthesis (streamlined, analysis discipline focused)
 - `/fix-bug` - Bug fixing workflow (locate → analyze → fix → review)
 - `/write-tests` - Test writing expert (unit + integration tests)
 
 **Code Review:**
-- `/diff-review` - Code review (Quick by default, `--deep` for Codex-assisted review)
+
+- `/diff-review` - Code review (Quick by default, `--deep` for Codex-assisted, `--pr` for GitHub PR review)
 - `/bug-batch` - Batch bug fixing (pull from Blueking project management)
 - `/dispatching-parallel-agents` - Parallel dispatch for independent domains (independence check + boundary grouping + conflict fallback)
 
+**Research:**
+
+- `/search-first` - Search before implementing (codebase + npm/PyPI + GitHub → Adopt/Extend/Build decision)
+- `/deep-research` - Multi-source cited research (firecrawl/exa MCP + read_url_content fallback)
+
 **UI Development:**
+
 - `/figma-ui` - Figma design to code (visual fidelity validation)
 
 **Performance:**
+
 - `/perf-budget` - Performance budget validation (page load, bundle size, API response)
 
 Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)
+
+Team state stored at `~/.claude/workflows/{project-hash}/teams/{team-id}/team-state.json` and is only created by explicit `/team ...` commands.

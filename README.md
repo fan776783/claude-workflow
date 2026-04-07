@@ -22,6 +22,33 @@
 
 `workflow-reviewing`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
 
+### Public Commands
+
+除了 `/workflow` 主线外，仓库还会安装手动命令入口：
+
+| 命令 | 类型 | 说明 |
+|------|------|------|
+| `/quick-plan` | command entry | 轻量快速规划，适用于简单到中等任务 |
+| `/team` | command entry | 团队协作入口；仅在用户显式输入时使用，不自动触发 |
+
+### Team 模式
+
+`/team` 是独立的团队编排入口，覆盖 `team-plan -> team-exec -> team-verify -> team-fix` 的完整循环，并尽量复用现有 workflow 的 planning / executing / reviewing / runtime helpers。
+
+```bash
+/team start "需求描述"
+/team execute
+/team status
+/team archive
+```
+
+关键边界：
+- `/team` 只会在用户**显式输入** `/team ...` 时启用
+- `/workflow`、`/quick-plan`、自然语言模糊请求、Broad Request Detection 与 `dispatching-parallel-agents` 都**不会自动切换**到 team mode
+- `dispatching-parallel-agents` 只作为 `team-exec` 内部可复用的规则来源（独立性检查 / 边界分组 / 冲突降级），不负责 team 生命周期
+- team runtime 脚本独立位于 `core/utils/team/*.js`，便于单独迭代，不依赖 workflow Python helpers
+- team runtime 使用独立状态文件：`~/.claude/workflows/{projectId}/teams/{teamId}/team-state.json`
+
 ### 专项 Skills
 
 | Skill | 功能 |
@@ -34,6 +61,7 @@
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+| `team` | `/team` 的团队编排 skill；只在用户显式输入 `/team ...` 时使用，不自动触发 |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
 ---
@@ -46,14 +74,17 @@
 core/
 └── core/
     ├── commands/workflow.md          # 统一 command 入口（路由层）
+    ├── commands/team.md              # 独立 /team command 入口
     ├── skills/
     │   ├── workflow-planning/        # /workflow start
     │   ├── workflow-executing/       # /workflow execute
     │   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
-    │   └── workflow-delta/           # /workflow delta
+    │   ├── workflow-delta/           # /workflow delta
+    │   └── team/                     # /team start|execute
     ├── specs/
     │   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
-    │   └── workflow-templates/       # spec / plan 模板
+    │   ├── workflow-templates/       # spec / plan 模板
+    │   └── team-runtime/             # team 状态机与共享运行时文档
     └── .agent-workflow style managed projection
         ├── commands/agent-workflow/*
         └── .agent-workflow/{utils,specs,hooks,docs}
@@ -121,6 +152,13 @@ npm run sync -- -a claude-code
 /scan
 /workflow start "需求描述"
 /workflow execute
+```
+
+如果你要从一开始就以团队编排方式推进多边界任务，可显式改用：
+
+```bash
+/team start "需求描述"
+/team execute
 ```
 
 ---
@@ -210,6 +248,13 @@ flowchart TD
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`
 
+优先使用 `/team` 的场景：
+
+- 同一需求需要拆成 2+ 上下文边界
+- 需要团队级状态汇总与边界领取
+- 需要 verify / fix loop 只回流失败边界
+- 需要显式区分 team lifecycle 与普通 workflow execute
+
 ---
 
 ## 支持的 AI 编码工具
@@ -234,11 +279,14 @@ flowchart TD
 
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/workflow.md`（统一 command 入口）
+- `core/commands/team.md`（独立 team command 入口）
 - `core/skills/workflow-planning/SKILL.md`
 - `core/skills/workflow-executing/SKILL.md`
 - `core/skills/workflow-reviewing/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
+- `core/skills/team/SKILL.md`
 - `core/specs/workflow-runtime/state-machine.md`
+- `core/specs/team-runtime/overview.md`
 
 ---
 

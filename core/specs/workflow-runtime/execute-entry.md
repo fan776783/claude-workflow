@@ -57,3 +57,4 @@
 - “继续”不是无条件继续跑下一个 task，而是“尝试恢复执行器”。
 - 真正是否继续，始终以 `ContextGovernor`、验证证据、质量关卡和阻塞状态为准。
 - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证治理。
+- `continue-parallel-boundaries` 只表示 workflow 内部的并行执行建议；即使识别到 2+ 独立任务，也不得自动切入 `/team`。

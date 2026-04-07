@@ -4,6 +4,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { spawnSync } = require('child_process');
+const { validateTeamContracts: validateTeamDocContracts } = require('../core/utils/team/doc-contracts.js');
 
 function hasCommand(command) {
   const result = spawnSync(command, ['--version'], {
@@ -259,6 +260,134 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   }
 }
 
+async function validateTeamContracts(repoRoot, packageRoot, errors) {
+  const teamCommandFile = path.join(packageRoot, 'commands', 'team.md');
+  const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
+  const teamSkillFile = path.join(packageRoot, 'skills', 'team', 'SKILL.md');
+  const teamSpecsDir = path.join(packageRoot, 'specs', 'team-runtime');
+  const teamUtilsDir = path.join(packageRoot, 'utils', 'team');
+  const requiredRuntimeDocs = ['overview.md', 'state-machine.md', 'execute-entry.md', 'status.md', 'archive.md'];
+  const requiredTeamScripts = ['team-cli.js', 'lifecycle.js', 'state-manager.js', 'task-board.js', 'task-board-helpers.js', 'phase-controller.js', 'governance.js', 'status-renderer.js', 'planning-support.js', 'planning-artifacts.js', 'templates.js', 'doc-contracts.js'];
+  const guardPaths = [
+    [teamCommandFile, 'team command 入口'],
+    [workflowCommandFile, 'workflow command 入口'],
+    [teamSkillFile, 'team skill 入口'],
+    [teamSpecsDir, 'team-runtime references'],
+    [teamUtilsDir, 'team utils/scripts'],
+  ];
+
+  for (const [p, label] of guardPaths) {
+    if (!(await fs.pathExists(p))) {
+      errors.push(`team 缺少 ${label}: ${path.relative(repoRoot, p)}`);
+    }
+  }
+  if (errors.length > 0) return;
+
+  for (const file of requiredRuntimeDocs) {
+    const docPath = path.join(teamSpecsDir, file);
+    if (!(await fs.pathExists(docPath))) {
+      errors.push(`team runtime 文档缺少 ${file}`);
+    }
+  }
+
+  const scriptFiles = (await fs.readdir(teamUtilsDir)).filter(file => file.endsWith('.js'));
+  for (const file of requiredTeamScripts) {
+    if (!scriptFiles.includes(file)) {
+      errors.push(`team scripts 缺少 ${file}`);
+    }
+  }
+
+  const teamSkillDocs = await collectMarkdownFiles(path.join(packageRoot, 'skills', 'team'));
+  const teamDocFiles = [
+    ...await collectMarkdownFiles(teamSpecsDir),
+    ...teamSkillDocs,
+  ];
+
+  const [teamCommandContent, workflowCommandContent, teamSkillContent, readmeContent, claudeContent, coreClaudeContent] = await Promise.all([
+    fs.readFile(teamCommandFile, 'utf8'),
+    fs.readFile(workflowCommandFile, 'utf8'),
+    fs.readFile(teamSkillFile, 'utf8'),
+    fs.readFile(path.join(repoRoot, 'README.md'), 'utf8'),
+    fs.readFile(path.join(repoRoot, 'CLAUDE.md'), 'utf8'),
+    fs.readFile(path.join(packageRoot, 'CLAUDE.md'), 'utf8'),
+  ]);
+
+  const commandMarkers = ['/workflow', '/quick-plan', 'dispatching-parallel-agents', '自动触发'];
+  for (const marker of commandMarkers) {
+    if (!teamCommandContent.includes(marker)) {
+      errors.push(`team command 缺少边界声明: ${marker}`);
+    }
+  }
+
+  const workflowMarkers = ['/team', '/workflow', '不会自动升级为 team mode'];
+  for (const marker of workflowMarkers) {
+    if (!workflowCommandContent.includes(marker)) {
+      errors.push(`workflow command 缺少 /team 边界声明: ${marker}`);
+    }
+  }
+
+  const skillMarkers = ['/workflow', '/quick-plan', 'dispatching-parallel-agents', 'team-state.json', '自动触发'];
+  for (const marker of skillMarkers) {
+    if (!teamSkillContent.includes(marker)) {
+      errors.push(`team skill 缺少模式契约: ${marker}`);
+    }
+  }
+
+  const indexedDocs = [
+    {
+      label: 'README.md',
+      content: readmeContent,
+      markers: ['/team', '不自动触发', 'team-state.json'],
+    },
+    {
+      label: 'CLAUDE.md',
+      content: claudeContent,
+      markers: ['/team', 'never auto-triggered', 'team-state.json'],
+    },
+    {
+      label: 'core/CLAUDE.md',
+      content: coreClaudeContent,
+      markers: ['/team mode guardrail'],
+    },
+  ];
+
+  for (const doc of indexedDocs) {
+    for (const marker of doc.markers) {
+      if (!doc.content.includes(marker)) {
+        errors.push(`${doc.label} 缺少 /team 索引或边界文案: ${marker}`);
+      }
+    }
+  }
+
+  const jsSyntaxCheck = runPythonValidation(
+    ['-c', `import json, pathlib, subprocess\ncode = ${JSON.stringify(scriptFiles.map(file => path.join(teamUtilsDir, file)))}\nfor file in code:\n    result = subprocess.run(["node", "--check", file], capture_output=True, text=True)\n    if result.returncode != 0:\n        raise SystemExit((result.stderr or result.stdout or f"syntax check failed: {file}").strip())`],
+    { parseJson: false }
+  );
+  if (!jsSyntaxCheck.ok) {
+    errors.push(`team Node.js 脚本语法校验失败: ${jsSyntaxCheck.error}`);
+  }
+
+  const contractCheck = validateTeamDocContracts({
+    cliFile: path.join(teamUtilsDir, 'team-cli.js'),
+    overviewFile: teamCommandFile,
+    docFiles: teamDocFiles,
+    scriptFiles,
+  });
+  if (!contractCheck.ok) {
+    if (!contractCheck.command_contract?.ok) {
+      const missing = contractCheck.command_contract?.missing_commands || [];
+      errors.push(`team CLI 缺少文档声明的命令: ${missing.join(', ')}`);
+    }
+    if (!contractCheck.script_reference_contract?.ok) {
+      const missing = contractCheck.script_reference_contract?.missing_scripts || [];
+      errors.push(`team 文档引用了缺失脚本: ${missing.join(', ')}`);
+    }
+    if (contractCheck.doc_placeholders?.length) {
+      errors.push(`team 文档存在 placeholder: ${contractCheck.doc_placeholders.join(', ')}`);
+    }
+  }
+}
+
 async function validate() {
   const repoRoot = path.join(__dirname, '..');
   const templatesDir = path.join(repoRoot, 'templates');
@@ -298,6 +427,7 @@ async function validate() {
   }
 
   await validateWorkflowContracts(repoRoot, packageRoot, errors);
+  await validateTeamContracts(repoRoot, packageRoot, errors);
   await validatePathReferences(repoRoot, packageRoot, errors);
 
   if (errors.length > 0) {

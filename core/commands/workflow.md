@@ -95,6 +95,7 @@ examples:
 - `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` 是真正的 workflow skills
 - `workflow-reviewing` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
 - 当前 shared runtime 已迁移到 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
+- `/team` 是独立 command 入口；即使 workflow 检测到 2+ 独立任务或 `parallel-boundaries` 机会，也不会自动升级为 team mode
 
 ---
 

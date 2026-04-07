@@ -27,12 +27,12 @@
 
 ## 规格引用
 
-| 模块 | 路径 | 说明 |
-|------|------|------|
-| 状态机 | `../../../specs/workflow-runtime/state-machine.md` | 状态文件结构 |
-| 追溯模型 | `../../../specs/workflow-runtime/traceability.md` | 需求追溯与验收 |
-| 子 Agent 审查 | `../../workflow-reviewing/SKILL.md` | 两阶段代码审查入口 |
-| 共享工具 | `../../../specs/workflow-runtime/shared-utils.md` | 任务解析函数 |
+| 模块          | 路径                                               | 说明               |
+| ------------- | -------------------------------------------------- | ------------------ |
+| 状态机        | `../../../specs/workflow-runtime/state-machine.md` | 状态文件结构       |
+| 追溯模型      | `../../../specs/workflow-runtime/traceability.md`  | 需求追溯与验收     |
+| 子 Agent 审查 | `../../workflow-reviewing/SKILL.md`                | 两阶段代码审查入口 |
+| 共享工具      | `../../../specs/workflow-runtime/shared-utils.md`  | 任务解析函数       |
 
 ---
 
@@ -41,6 +41,7 @@
 ### Step 0：解析参数
 
 解析命令行参数，支持：
+
 - 内联需求：`/workflow start "实现用户认证功能"`
 - 文件需求：`/workflow start docs/prd.md`（自动检测 `.md` 文件）
 - 强制覆盖：`/workflow start -f "强制覆盖已有文件"`
@@ -50,31 +51,19 @@
 
 ---
 
-### Step 0.5：Git 状态检查（强制）
+### Step 0.5：基础设施预检（强制）
 
-参数解析后立即执行 Git 状态检查，确保恢复路径（Step 2 检测到已有工作流）也必须经过此检查：
+参数解析后立即执行基础设施预检，确保恢复路径（Step 2 检测到已有工作流）也必须经过此检查：
 
-- Git 仓库存在且有初始提交 → 继续
-- 不在 Git 仓库 / 无提交 → HARD-GATE，用户选择初始化或降级
+1. **Git 状态检查** — 确认 git 仓库已初始化且有初始提交（HARD-GATE）
+2. **项目配置自愈** — 确保 `project-config.json` 存在，缺失时自动生成最小配置
+3. **工作流状态检测** — 检查是否存在未归档的工作流（见 Step 2 决策树）
 
-**详细实现**: 参见 `../specs/start/phase-0-code-analysis.md` Step 1.1
-
----
-
-### Step 1：项目配置检查与自愈（强制）
-
-检查 `.claude/config/project-config.json` 是否存在。
-
-- **已有配置**：读取并验证 `project.id`
-- **配置缺失**：自动基于目录路径生成最小配置（含 `project.id`），确保状态机可初始化
-
-**前置条件**: 推荐先执行 `/scan` 生成完整项目配置，但非必须。workflow start 会在配置缺失时自动生成最小配置（`_scanMode: auto-healed`）。
-
-**详细实现**: 参见 `../specs/start/phase-0-code-analysis.md` Step 1.3
+**详细实现**: 参见 `../../specs/workflow-runtime/preflight.md`
 
 ---
 
-### Step 2：检测现有工作流
+### Step 1：检测现有工作流
 
 检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未归档的工作流。
 
@@ -124,6 +113,7 @@
 **目的**: 在设计前充分理解代码库
 
 使用代码检索能力分析相关代码，提取：
+
 1. 相关现有实现文件（可复用或需修改）
 2. 可继承的基类、可复用的工具类
 3. 相似功能的实现参考（作为模式参考）
@@ -143,6 +133,7 @@
 **执行条件**: 非内联短需求（内联 ≤ 100 字符跳过），可通过 `--no-discuss` 跳过
 
 **讨论流程**:
+
 1. **需求预分析** — 基于代码分析结果，自动识别待澄清事项
 2. **逐个澄清** — 每次只问一个问题，优先选择题
 3. **方案探索** — 存在互斥实现路径时提出 2-3 种方案
@@ -159,6 +150,7 @@
 **执行条件**: 检测到前端/GUI 相关需求时触发（纯后端/CLI 项目自动跳过）
 
 **设计流程**:
+
 1. **生成用户操作流程图** — Mermaid 格式，覆盖首次使用、核心操作、异常处理、返回取消
 2. **生成页面分层设计** — L0 首页（≤ 4 模块）/ L1 功能页 / L2 辅助面板
 3. **自动工作目录探测** — 检测 Claude Code / Cursor / Codex 的本地路径
@@ -173,6 +165,7 @@
 **目的**: 在单一文档中完成需求范围判定、架构设计、验收标准和关键约束
 
 **输入**:
+
 - 需求内容（PRD 或内联）
 - 代码分析结果
 - 讨论工件（如有）
@@ -181,6 +174,7 @@
 **输出**: `.claude/specs/{task-name}.md`
 
 **核心章节**:
+
 1. Context — 背景和目标
 2. Scope — 需求编号 + 范围判定（in/out/blocked）
 3. Constraints — 不可协商的硬约束 + UX 预设工作区/环境约束 + Phase 0.2 澄清结果摘要
@@ -192,6 +186,7 @@
 9. Open Questions — 待确认问题
 
 **生成后执行 Self-Review**:
+
 - 需求覆盖扫描
 - Placeholder 扫描（禁止 TBD/TODO）
 - 内部一致性检查
@@ -208,6 +203,7 @@
 **治理模式**: `human_gate`。用户主权确认，不参与机器自动修文。
 
 **用户选择**:
+
 1. **Spec 正确，继续** → 进入 Phase 2 Plan Generation
 2. **需要修改 Spec** → 回到 Phase 1
 3. **页面分层需要调整** → 回到 Phase 0.3，调整页面分层后重新生成 Spec
@@ -229,19 +225,25 @@
 **输出**: `.claude/plans/{task-name}.md`
 
 **计划约束**:
+
 - **File Structure First** — 先列文件，再排步骤
 - **Bite-Sized Tasks** — 每步 2-5 分钟
 - **Complete Code** — 每步包含完整代码块
 - **No Placeholders** — 禁止 TBD/TODO/模糊描述
 - **WorkflowTaskV2 Compatible** — 任务块必须使用 `## Tn:` 标题和可解析字段
 - **Spec Section Ref** — 每步标注对应 spec 章节
+- **Pattern Discovery** — 从代码分析结果提取 `Patterns to Mirror` 和 `Mandatory Reading`
+- **Confidence Score** — 基于覆盖率/模式/约束/测试策略综合评分 (1-10)
 
 **生成后执行 Self-Review**:
+
 - 逐条检查 spec 需求覆盖
 - Placeholder 扫描
 - 跨 task 类型一致性
 - 命令语法和路径存在性（语义正确性在执行阶段验证）
 - Discussion-artifact drift check（偏差则回退 Spec 修订）
+- Pattern Faithfulness（模式引用指向真实代码文件/函数）
+- No Prior Knowledge Test（零上下文工程师可直接执行）
 
 > **Review 边界**：planning 阶段的 Self-Review 只检查无需执行即可判断的内容（语法、格式、覆盖率）；执行阶段的 Spec 合规审查（子 Agent）验证代码实现与 spec 的语义一致性。
 
@@ -252,17 +254,20 @@
 ### 🛑 Hard Stop 2：规划完成（强制停止）
 
 **状态结果**:
+
 - Phase 1.1 审批通过后，状态进入 `planning`
 - Phase 2 完成后，状态写入 `planned`
 - `/workflow execute` 启动时再由 `planned → running`
 
 **输出摘要**:
+
 - Spec 路径
 - Plan 路径
 - 需求总数 / in-scope 数
 - 任务数量
 
 **文件结构**:
+
 ```
 .claude/
 ├── specs/{task-name}.md            ← 统一规范
@@ -283,6 +288,7 @@
 ### Step 3：创建工作流状态
 
 状态文件记录：
+
 - project_root
 - spec 路径
 - plan 路径
