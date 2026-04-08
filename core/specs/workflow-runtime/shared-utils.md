@@ -1,6 +1,6 @@
 # 共享工具函数 (v4.0)
 
-工作流系统中多处使用的共享函数。**所有逻辑已实现为 Python 脚本**，执行时直接调用脚本，不依赖伪代码。
+工作流系统中多处使用的共享函数。**所有逻辑已实现为 Node.js 脚本**，执行时直接调用脚本，不依赖伪代码。
 
 ## 快速导航
 
@@ -11,17 +11,17 @@
 
 ## 何时读取
 
-- 需要确定 workflow Python 工具该如何调用时
+- 需要确定 workflow Node.js 工具该如何调用时
 - 需要确认统一 CLI、底层脚本与数据模型引用关系时
 
-## Python 工具库
+## Node.js 工具库
 
 > ⚠️ 以下为**唯一权威实现**。MD 中不再保留伪代码副本。
 
 ### 统一入口
 
 ```bash
-python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐）
+node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 ```
 
 | 命令 | 功能 | 等效旧伪代码 |
@@ -40,15 +40,15 @@ python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐
 
 | 脚本 | 功能 | CLI 用法 |
 |------|------|---------|
-| `path_utils.py` | 路径安全校验 | `python3 utils/workflow/path_utils.py resolve <base> <path>` |
-| `task_parser.py` | Markdown 任务解析 | `python3 utils/workflow/task_parser.py parse <file>` |
-| `task_manager.py` | 任务状态管理 | `python3 utils/workflow/task_manager.py complete T3` |
-| `state_manager.py` | 状态文件读写 | `python3 utils/workflow/state_manager.py --project-id <id> read` |
-| `status_utils.py` | Emoji / 状态工具 | `python3 utils/workflow/status_utils.py emoji completed` |
-| `context_budget.py` | 上下文预算计算 | `python3 utils/workflow/context_budget.py budget --projected-usage 65` |
-| `dependency_checker.py` | 依赖检查 | `python3 utils/workflow/dependency_checker.py classify --name <n> --files <f>` |
-| `journal.py` | 会话日志管理 | `python3 utils/workflow/workflow_cli.py journal add --title "..." --summary "..."` |
-| `verification.py` | 验证辅助 | `python3 utils/workflow/verification.py check <file>` |
+| `path_utils.js` | 路径安全校验 | `node utils/workflow/path_utils.js resolve <base> <path>` |
+| `task_parser.js` | Markdown 任务解析 | `node utils/workflow/task_parser.js parse <file>` |
+| `task_manager.js` | 任务状态管理 | `node utils/workflow/task_manager.js complete T3` |
+| `state_manager.js` | 状态文件读写 | `node utils/workflow/state_manager.js --project-id <id> read` |
+| `status_utils.js` | Emoji / 状态工具 | `node utils/workflow/status_utils.js emoji completed` |
+| `context_budget.js` | 上下文预算计算 | `node utils/workflow/context_budget.js budget --projected-usage 65` |
+| `dependency_checker.js` | 依赖检查 | `node utils/workflow/dependency_checker.js classify --name <n> --files <f>` |
+| `journal.js` | 会话日志管理 | `node utils/workflow/workflow_cli.js journal add --title "..." --summary "..."` |
+| `verification.js` | 验证辅助 | `node utils/workflow/verification.js info edit_file` |
 
 ---
 
@@ -56,7 +56,7 @@ python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐
 
 ### WorkflowTaskV2
 
-任务模型定义在 `utils/workflow/task_parser.py:WorkflowTaskV2` dataclass：
+任务模型定义在 `utils/workflow/task_parser.js` 的 `createWorkflowTaskV2()` 输出结构：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -78,12 +78,12 @@ python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐
 
 ### 状态 Emoji 映射
 
-| 状态 | Emoji | Python 函数 |
+| 状态 | Emoji | Node.js 函数 |
 |------|-------|------------|
-| completed | ✅ | `status_utils.get_status_emoji("completed")` |
-| in_progress | ⏳ | `status_utils.get_status_emoji("in_progress")` |
-| failed | ❌ | `status_utils.get_status_emoji("failed")` |
-| skipped | ⏭️ | `status_utils.get_status_emoji("skipped")` |
+| completed | ✅ | `status_utils.getStatusEmoji("completed")` |
+| in_progress | ⏳ | `status_utils.getStatusEmoji("in_progress")` |
+| failed | ❌ | `status_utils.getStatusEmoji("failed")` |
+| skipped | ⏭️ | `status_utils.getStatusEmoji("skipped")` |
 
 ### 上下文预算阈值
 
@@ -119,7 +119,7 @@ python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐
 | `history[].tokenDelta` | number | token 增量 |
 | `history[].executionPath` | `direct / single-subagent / parallel-boundaries` | 执行路径 |
 
-> 动态任务上限由 `context_budget.py:calculate_dynamic_max_tasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
+> 动态任务上限由 `context_budget.js:calculateMaxTasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
 
 ---
 
@@ -127,8 +127,8 @@ python3 utils/workflow/workflow_cli.py <command>    # 统一 CLI 入口（推荐
 
 - `workflow-state.json` 只能位于 `~/.claude/workflows/{projectId}/workflow-state.json`
 - 项目目录 `.claude/` 仅承载项目配置与 spec/plan 等工件，禁止作为 runtime state 存储位置
-- 统一状态操作优先使用 `workflow_cli.py`，底层 `state_manager.py` 不接受项目本地 state path
-- "继续"与 `/workflow execute` 的共享入口解析已收敛到 `utils/workflow/workflow_cli.py`
+- 统一状态操作优先使用 `workflow_cli.js`，底层 `state_manager.js` 不接受项目本地 state path
+- "继续"与 `/workflow execute` 的共享入口解析已收敛到 `utils/workflow/workflow_cli.js`
 - 任务解析只使用 V2 模型，不再维护旧格式映射
 - 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
 - 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent

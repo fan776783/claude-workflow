@@ -4,7 +4,7 @@
 
 workflow execute 支持两种执行模式：**连续模式**（默认）和**单 phase 模式**（可选），以及 **retry** / **skip** 特殊模式。
 
-> 审查结果读取：新实现只写入并优先读取 `state.quality_gates[taskId]`。旧字段 `execution_reviews` 的兼容规则和归一化读取 helper 参见 `../../../../specs/workflow-runtime/state-machine.md` → `execution_reviews` 迁移策略。已实现于 `../../../../utils/workflow/state_manager.py` → `get_review_result()`。
+> 审查结果读取：新实现只写入并优先读取 `state.quality_gates[taskId]`。旧字段 `execution_reviews` 的兼容规则和归一化读取 helper 参见 `../../../../specs/workflow-runtime/state-machine.md` → `execution_reviews` 迁移策略。已实现于 `../../../../utils/workflow/state_manager.js` → `getReviewResult()`。
 
 > 核心设计：连续模式执行到质量关卡完成后自动暂停，提示用户审查质量结果。这确保代码质量始终受人工监督，同时最大化自动化执行效率。
 

@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `workflow-delta`：承接 `/workflow delta` 的增量变更（需求 / PRD / API 变更影响分析与同步）
   - 共享运行时迁移到 `core/specs/workflow-runtime/`（状态机、共享工具、外部依赖语义）
   - 共享模板迁移到 `core/specs/workflow-templates/`（spec / plan 模板）
-  - 统一 CLI 保留在 `core/utils/workflow/workflow_cli.py`
+  - 统一 CLI 保留在 `core/utils/workflow/workflow_cli.js`
 - **workflow command 入口**：`core/commands/workflow.md` 作为稳定路由层，将 start / execute / delta / status / archive 路由到对应的 workflow skills 或共享运行时
 - **文档全面更新**：
   - `Claude-Code-工作流体系指南.md` 升级至 v12.0.0，反映模块化拆分架构与 14 个 skill 目录

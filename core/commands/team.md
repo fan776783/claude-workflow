@@ -1,6 +1,6 @@
 ---
-description: 独立 team 命令入口，显式启动团队化规划、执行、状态查看与归档
-argument-hint: <start|execute|status|archive> [args]
+description: 独立 team 命令入口，支持 `/team "需求"` 简写启动以及显式团队化规划、执行、状态查看与归档
+argument-hint: [start <requirement> | execute | status | archive] | <natural-language requirement>
 allowed-tools: Read(*), Grep(*), Glob(*)
 examples:
   - /team start "实现用户认证功能"
@@ -24,6 +24,7 @@ examples:
 ## Usage
 
 ```bash
+/team "需求描述"
 /team start "需求描述"
 /team start docs/prd.md
 
@@ -38,7 +39,7 @@ examples:
 
 ### `start`
 
-进入 team-plan，复用 workflow planning 能力，并额外生成 team runtime 工件。
+进入 team-plan，复用 workflow planning 能力，并额外生成 team runtime 工件。`/team "需求描述"` 视为这里的简写写法，等价于 `/team start "需求描述"`。
 
 阅读：
 - `../skills/team/SKILL.md`
@@ -72,6 +73,7 @@ examples:
 ## Command Contract
 
 - `/team` 是 **独立 command 入口**，不是 `/workflow execute` 的自动分支
+- `/team <自然语言需求>` 只在用户已经显式输入 `/team` 时，按 `/team start <需求>` 解释
 - `team` skill 负责 `/team start` 与 `/team execute` 的团队编排语义
 - team runtime 推荐使用独立 Node.js 脚本：`core/utils/team/*.js`
 - `status` / `archive` 继续由 team runtime 文档定义共享约束

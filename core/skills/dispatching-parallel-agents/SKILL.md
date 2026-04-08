@@ -259,29 +259,29 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 - 并行后冲突 → 回退顺序执行
 - 任意子 agent 输出缺少验证证据 → 不得标记对应任务完成
 
-## Python 工具脚本
+## Node.js 工具脚本
 
 > 以下脚本位于 `scripts/` 目录，将上述策略层的伪代码转化为可执行的工程实现：
 
 | 脚本 | 对应步骤 | CLI 用法 |
 |------|---------|---------|
-| `worktree_manager.py` | Step 6a 隔离 provisioning | `create --branch <b> --task-id <t>` / `list` / `remove` / `cleanup` |
-| `agent_registry.py` | Step 7 生命周期管理 | `register --task-id <t>` / `update --agent-id <id> --status <s>` / `list` |
-| `dispatch_runner.py` | Step 4-6b 分组+上下文构建+分派 | `dispatch --tasks-json <f> --task-ids T3,T4` |
-| `result_collector.py` | Step 7-8 回收+冲突检测 | `collect --group-id <g>` / `check-conflicts --group-id <g>` |
+| `worktree_manager.js` | Step 6a 隔离 provisioning | `create --branch <b> --task-id <t>` / `list` / `remove` / `cleanup` |
+| `agent_registry.js` | Step 7 生命周期管理 | `register --task-id <t>` / `update --agent-id <id> --status <s>` / `list` |
+| `dispatch_runner.js` | Step 4-6b 分组+上下文构建+分派 | `dispatch --tasks-json <f> --task-ids T3,T4` |
+| `result_collector.js` | Step 7-8 回收+冲突检测 | `collect --group-id <g>` / `check-conflicts --group-id <g>` |
 
 ### 典型工作流
 
 ```bash
 # 1. 解析并行组（使用 workflow 的 dependency_checker）
-py -3 ../../utils/workflow/dependency_checker.py parallel --tasks-file tasks.json --completed T1,T2
+node ../../utils/workflow/dependency_checker.js parallel --tasks-file tasks.json --completed T1,T2
 
 # 2. 分派
-py -3 scripts/dispatch_runner.py dispatch --tasks-json tasks.json --task-ids T3,T4 --group-id batch1
+node scripts/dispatch_runner.js dispatch --tasks-json tasks.json --task-ids T3,T4 --group-id batch1
 
 # 3. （AI 使用 Task/spawn_agent 启动子 agent）
 
 # 4. 回收结果
-py -3 scripts/result_collector.py collect --group-id batch1 --verify "npm test"
+node scripts/result_collector.js collect --group-id batch1 --verify "npm test"
 ```
 

@@ -224,12 +224,12 @@
 | **新写入目标** | 所有新审查结果只写入 `quality_gates[taskId]`（stage1 / stage2） |
 | **禁止回写** | 新代码不得创建、更新或回写 `execution_reviews` 字段 |
 | **只读兼容** | 读取审查结果时，若 `quality_gates[taskId]` 不存在，允许降级读取 `execution_reviews[taskId]` |
-| **归一化读取** | 已实现于 `utils/workflow/state_manager.py` → `get_review_result()`，封装 fallback 逻辑。CLI: `python3 utils/workflow/state_manager.py review-result --task-id <id>` |
+| **归一化读取** | 已实现于 `utils/workflow/state_manager.js` → `getReviewResult()`，封装 fallback 逻辑。CLI: `node utils/workflow/state_manager.js review-result --task-id <id>` |
 | **迁移终点** | 当所有活跃工作流的状态文件均已使用 `quality_gates` 后，可安全移除 `execution_reviews` 兼容逻辑 |
 
 ## 审查状态接口
 
-> **实现参考**：`utils/workflow/state_manager.py` 负责审查状态的读写。以下为 JSON 字段规范。
+> **实现参考**：`utils/workflow/state_manager.js` 负责审查状态的读写。以下为 JSON 字段规范。
 
 ### `review_status.user_spec_review`（Phase 1.1 用户审查）
 

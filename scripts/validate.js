@@ -5,26 +5,11 @@ const path = require('path');
 const fs = require('fs-extra');
 const { spawnSync } = require('child_process');
 const { validateTeamContracts: validateTeamDocContracts } = require('../core/utils/team/doc-contracts.js');
+const { validateWorkflowDocContracts } = require('../core/utils/workflow/doc_contracts.js');
 
-function hasCommand(command) {
-  const result = spawnSync(command, ['--version'], {
-    stdio: 'ignore',
-    shell: false,
-  });
-  return !result.error && result.status === 0;
-}
-
-function detectPythonCommand() {
-  return ['python3', 'python', 'py'].find(hasCommand) || null;
-}
-
-function runPythonValidation(args, options = {}) {
+function runNodeValidation(args, options = {}) {
   const { parseJson = true } = options;
-  const pythonCommand = detectPythonCommand();
-  if (!pythonCommand) {
-    return { ok: false, error: 'python3/python/py not found' };
-  }
-  const result = spawnSync(pythonCommand, args, { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
   if (result.error) {
     return { ok: false, error: result.error.message };
   }
@@ -106,11 +91,34 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
       message: 'workflow-reviewing 文档仍引用旧的 .claude/specs/guides/ 路径',
     },
     {
-      root: path.join(packageRoot, 'skills'),
+      root: repoRoot,
       predicate: (_, name) => name.endsWith('.md'),
       forbidden: 'scripts/workflow_cli.py',
-      message: 'workflow 文档仍引用过期的 scripts/workflow_cli.py 路径',
+      message: '文档仍引用过期的 scripts/workflow_cli.py 路径',
     },
+  ];
+
+  const forbiddenWorkflowPatterns = [
+    /(?:^|[^a-z])workflow_cli\.py\b/g,
+    /(?:^|[^a-z])state_manager\.py\b/g,
+    /(?:^|[^a-z])dependency_checker\.py\b/g,
+    /(?:^|[^a-z])task_parser\.py\b/g,
+    /(?:^|[^a-z])verification\.py\b/g,
+    /(?:^|[^a-z])status_utils\.py\b/g,
+    /(?:^|[^a-z])path_utils\.py\b/g,
+    /(?:^|[^a-z])execution_sequencer\.py\b/g,
+    /(?:^|[^a-z])workflow_types\.py\b/g,
+    /(?:^|[^a-z])quality_review\.py\b/g,
+    /(?:^|[^a-z])plan_delta\.py\b/g,
+    /(?:^|[^a-z])planning_gates\.py\b/g,
+    /(?:^|[^a-z])journal\.py\b/g,
+    /(?:^|[^a-z])task_manager\.py\b/g,
+    /(?:^|[^a-z])lifecycle_cmds\.py\b/g,
+    /(?:^|[^a-z])doc_contracts\.py\b/g,
+    /(?:^|[^a-z])context_budget\.py\b/g,
+    /(?:^|[^a-z])self_review\.py\b/g,
+    /python3\s+.*utils\/workflow\//g,
+    /py\s+-3\s+.*utils\/workflow\//g,
   ];
 
   for (const check of pathContractChecks) {
@@ -119,6 +127,21 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
       const content = await fs.readFile(file, 'utf8');
       if (content.includes(check.forbidden)) {
         errors.push(`${check.message}: ${path.relative(repoRoot, file)}`);
+      }
+    }
+  }
+  const repoMarkdownFiles = await collectFiles(repoRoot, (fullPath, name) => {
+    if (!name.endsWith('.md')) return false;
+    const relative = path.relative(repoRoot, fullPath);
+    return !relative.startsWith('.claude/') && !relative.endsWith('.txt');
+  });
+
+  for (const file of repoMarkdownFiles) {
+    const content = await fs.readFile(file, 'utf8');
+    for (const pattern of forbiddenWorkflowPatterns) {
+      if (pattern.test(content)) {
+        errors.push(`文档仍引用 workflow Python 运行时: ${path.relative(repoRoot, file)}`);
+        break;
       }
     }
   }
@@ -169,8 +192,8 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   if (errors.length > 0) return;
 
   const scriptsDir = runtimeScriptsDir;
-  const scriptFiles = (await fs.readdir(scriptsDir)).filter(file => file.endsWith('.py'));
-  const requiredWorkflowScripts = ['workflow_cli.py', 'task_parser.py', 'workflow_types.py', 'traceability.py', 'doc_contracts.py', 'lifecycle_cmds.py', 'quality_review.py', 'execution_sequencer.py'];
+  const scriptFiles = (await fs.readdir(scriptsDir)).filter(file => file.endsWith('.js'));
+  const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
   const workflowDocSkills = ['workflow-planning', 'workflow-executing', 'workflow-reviewing', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {
@@ -179,13 +202,13 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     }
   }
 
-  const docContractsScript = path.join(scriptsDir, 'doc_contracts.py');
+  const docContractsScript = path.join(scriptsDir, 'doc_contracts.js');
   if (!(await fs.pathExists(docContractsScript))) {
-    errors.push('workflow doc_contracts.py 不存在');
+    errors.push('workflow doc_contracts.js 不存在');
     return;
   }
 
-  const cliFile = path.join(scriptsDir, 'workflow_cli.py');
+  const cliFile = path.join(scriptsDir, 'workflow_cli.js');
   const overviewFile = workflowCommandFile;
   const planTemplateFile = path.join(runtimeTemplatesDir, 'plan-template.md');
   const referencesDir = runtimeRefsDir;
@@ -205,15 +228,12 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     splitSkillDocs.push(...await collectMarkdownFiles(skillRoot));
   }
 
-  const pyCompile = runPythonValidation(
-    ['-m', 'py_compile', ...scriptFiles.map(file => path.join(scriptsDir, file))],
-    { parseJson: false }
-  );
-  if (!pyCompile.ok) {
-    errors.push(`workflow Python 脚本语法校验失败: ${pyCompile.error}`);
+  const jsSyntaxCheck = runNodeSyntaxValidation(scriptFiles.map(file => path.join(scriptsDir, file)));
+  if (!jsSyntaxCheck.ok) {
+    errors.push(`workflow Node.js 脚本语法校验失败: ${jsSyntaxCheck.error}`);
   }
 
-  const planCheck = runPythonValidation([docContractsScript, 'plan-template', planTemplateFile]);
+  const planCheck = runNodeValidation([docContractsScript, 'plan-template', planTemplateFile]);
   if (!planCheck.ok) {
     errors.push(`workflow plan template 校验失败: ${planCheck.error}`);
   } else {
@@ -246,7 +266,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     contractArgs.push('--script', file);
   }
 
-  const contractCheck = runPythonValidation(contractArgs);
+  const contractCheck = runNodeValidation(contractArgs);
   if (!contractCheck.ok) {
     errors.push(`workflow 文档契约校验失败: ${contractCheck.error}`);
     return;

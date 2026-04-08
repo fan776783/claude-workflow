@@ -175,8 +175,8 @@ function notifyGovernorDecision(
 }
 ```
 
-## Python 脚本实现
+## Node.js 脚本实现
 
-> 以上决策逻辑的确定性部分已实现于 `../../../../utils/workflow/execution_sequencer.py`：
+> 以上决策逻辑的确定性部分已实现于 `../../../../utils/workflow/execution_sequencer.js`：
 > - `decide_governance_action()` — 纯阈值比较 + 决策输出
 > - `apply_governance_decision()` — 写入 continuation 状态

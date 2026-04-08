@@ -28,5 +28,5 @@ description: "workflow 增量变更入口 - 对应 /workflow delta。承接 requ
 
 ## 共享运行时资源
 
-- CLI：`../../utils/workflow/workflow_cli.py`
+- CLI：`../../utils/workflow/workflow_cli.js`
 - Command 入口：[`../../commands/workflow.md`](../../commands/workflow.md)

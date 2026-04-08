@@ -4,7 +4,7 @@
 
 > `workflow-state.json` 只允许位于 `~/.claude/workflows/{projectId}/workflow-state.json`；项目目录 `.claude/` 不得承载运行时状态文件。
 
-> **实现方式**：所有状态读取和报告生成逻辑由 Python 脚本处理，AI 调用脚本获取结构化数据后格式化输出。
+- > **实现方式**：所有状态读取和报告生成逻辑由 Node.js 脚本处理，AI 调用脚本获取结构化数据后格式化输出。
 
 ## 快速导航
 
@@ -34,7 +34,7 @@
 
 ```bash
 # 获取结构化状态数据
-python3 utils/workflow/workflow_cli.py status
+node utils/workflow/workflow_cli.js status
 
 # 输出示例：
 # {
@@ -49,7 +49,7 @@ python3 utils/workflow/workflow_cli.py status
 # }
 ```
 
-**JSON 模式**：`python3 utils/workflow/workflow_cli.py status` 的输出直接满足 `--json` 需求。
+**JSON 模式**：`node utils/workflow/workflow_cli.js status` 的输出直接满足 `--json` 需求。
 
 **错误情况**：
 - 无项目配置 → 提示执行 `/scan`
@@ -60,19 +60,19 @@ python3 utils/workflow/workflow_cli.py status
 
 ```bash
 # 详细进度（含约束信息）
-python3 utils/workflow/workflow_cli.py progress
+node utils/workflow/workflow_cli.js progress
 
 # 下一个待执行任务
-python3 utils/workflow/workflow_cli.py next
+node utils/workflow/workflow_cli.js next
 
 # 上下文预算
-python3 utils/workflow/workflow_cli.py budget
+node utils/workflow/workflow_cli.js budget
 
 # 最近会话记录
-python3 utils/workflow/workflow_cli.py journal list
+node utils/workflow/workflow_cli.js journal list
 
 # 聚合上下文（一条命令获取全部信息）
-python3 utils/workflow/workflow_cli.py context
+node utils/workflow/workflow_cli.js context
 ```
 
 ---
@@ -146,7 +146,7 @@ AI 获取脚本数据后，按以下格式向用户展示状态报告：
 
 ```bash
 # 获取 journal 数据
-python3 utils/workflow/workflow_cli.py journal list
+node utils/workflow/workflow_cli.js journal list
 ```
 
 在详细模式的 `📓 最近会话记录` 区块中展示：

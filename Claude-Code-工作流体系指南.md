@@ -134,7 +134,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 | `workflow-delta` | `core/skills/workflow-delta/` | `/workflow delta` 增量变更 |
 | 共享运行时 | `core/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
 | 共享模板 | `core/specs/workflow-templates/` | spec / plan 模板 |
-| 共享 CLI | `core/utils/workflow/` | workflow_cli.py |
+| 共享 CLI | `core/utils/workflow/` | workflow_cli.js |
 
 整体仍然把"一个模糊需求"变成"可执行、可追踪、可恢复"的工作流。
 

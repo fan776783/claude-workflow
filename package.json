@@ -21,7 +21,6 @@
     "scripts/",
     "core/",
     "!core/**/__pycache__/",
-    "!core/**/*.py[cod]",
     "README.md",
     "CHANGELOG.md"
   ],

@@ -19,13 +19,13 @@ execute 流程中使用的辅助函数，用于任务查找、状态更新、完
 > **Python 工具库**：以下函数的确定性逻辑已提取到 `../../../../utils/workflow/` 目录的 Python 脚本中。
 > 执行任务时优先使用脚本调用，避免每次重新实现正则和状态逻辑：
 >
-> | 函数类别 | Python 脚本 | 代表命令 |
+> | 函数类别 | Node.js 脚本 | 代表命令 |
 > |---------|------------|---------|
-> | 任务查找/解析 | `../../../../utils/workflow/task_parser.py` | `find-next`, `parse`, `count`, `update-status` |
-> | 状态管理 | `../../../../utils/workflow/state_manager.py` | `read`, `complete`, `error`, `progress` |
-> | 依赖检查 | `../../../../utils/workflow/dependency_checker.py` | `check-deps`, `check-blocked`, `parallel` |
-> | 验证门控 | `../../../../utils/workflow/verification.py` | `create`, `info` |
-> | Emoji/工具 | `../../../../utils/workflow/status_utils.py` | `emoji`, `extract`, `validate` |
+> | 任务查找/解析 | `../../../../utils/workflow/task_parser.js` | `find-next`, `parse`, `count`, `update-status` |
+> | 状态管理 | `../../../../utils/workflow/state_manager.js` | `read`, `complete`, `error`, `progress` |
+> | 依赖检查 | `../../../../utils/workflow/dependency_checker.js` | `check-deps`, `check-blocked`, `parallel` |
+> | 验证门控 | `../../../../utils/workflow/verification.js` | `create`, `info` |
+> | Emoji/工具 | `../../../../utils/workflow/status_utils.js` | `emoji`, `extract`, `validate` |
 
 ## 任务查找函数
 
@@ -162,9 +162,9 @@ function getTaskIntentText(task: WorkflowTaskV2): string {
 
 统一读取任务的审查结果，兼容 `quality_gates`（新）和 `execution_reviews`（旧）两种字段。
 
-> **@implemented-in**: `../../../../utils/workflow/state_manager.py` → `get_review_result(state, task_id)`
+> **@implemented-in**: `../../../../utils/workflow/state_manager.js` → `getReviewResult(state, taskId)`
 >
-> CLI 调用：`python3 ../../../../utils/workflow/state_manager.py review-result --task-id T1`
+> CLI 调用：`node ../../../../utils/workflow/state_manager.js review-result --task-id T1`
 >
 > 兼容逻辑来源：`../../../../specs/workflow-runtime/state-machine.md` → `execution_reviews` 迁移策略
 

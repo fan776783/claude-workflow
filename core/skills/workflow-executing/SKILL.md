@@ -39,5 +39,5 @@ description: "workflow 执行引擎入口 - 对应 /workflow execute。承接执
 
 - 审查协议：[`../workflow-reviewing/SKILL.md`](../workflow-reviewing/SKILL.md)
 - 并行分派：[`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md)
-- 统一 CLI：`../../utils/workflow/workflow_cli.py`
+- 统一 CLI：`../../utils/workflow/workflow_cli.js`
 - Command 入口：[`../../commands/workflow.md`](../../commands/workflow.md)

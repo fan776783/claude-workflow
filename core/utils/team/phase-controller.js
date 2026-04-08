@@ -1,32 +1,130 @@
-function inferTeamPhase(board, currentPhase = 'team-plan') {
-  if (currentPhase === 'team-plan') return 'team-plan'
-  if (!board.length) return currentPhase
-  const failed = board.filter((item) => item.status === 'failed')
-  const inProgress = board.filter((item) => item.status === 'in_progress')
-  const pending = board.filter((item) => item.status === 'pending')
-  const completed = board.filter((item) => item.status === 'completed')
+const TERMINAL_PHASES = new Set(['completed', 'failed', 'archived'])
+const VALID_PHASES = new Set(['team-plan', 'team-exec', 'team-verify', 'team-fix', 'completed', 'failed', 'archived'])
+const VALID_BOARD_STATUSES = new Set(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped'])
 
-  if (failed.length) return 'team-fix'
-  if (inProgress.length || pending.length) return 'team-exec'
-  if (completed.length === board.length) return 'team-verify'
-  return currentPhase
+function validateBoard(board) {
+  if (!Array.isArray(board) || board.length === 0) {
+    return { ok: false, error: 'team task board is empty' }
+  }
+
+  const ids = new Set()
+  for (const item of board) {
+    if (!item || typeof item !== 'object') {
+      return { ok: false, error: 'team task board contains invalid item' }
+    }
+    if (!item.id || typeof item.id !== 'string') {
+      return { ok: false, error: 'team task board item missing id' }
+    }
+    if (ids.has(item.id)) {
+      return { ok: false, error: `team task board contains duplicate id: ${item.id}` }
+    }
+    ids.add(item.id)
+    const status = item.status || 'pending'
+    if (!VALID_BOARD_STATUSES.has(status)) {
+      return { ok: false, error: `team task board item has invalid status: ${item.id}:${status}` }
+    }
+  }
+
+  return { ok: true }
+}
+
+function hasWritableWorker(workerRoster = []) {
+  return Array.isArray(workerRoster) && workerRoster.some((worker) => {
+    const role = String(worker?.role || '').toLowerCase()
+    return role && !['analyst', 'explorer', 'reviewer', 'planner', 'orchestrator', 'leader'].includes(role)
+  })
+}
+
+function inferTeamPhase(board, currentPhase = 'team-plan', options = {}) {
+  if (TERMINAL_PHASES.has(currentPhase)) return currentPhase
+  if (!VALID_PHASES.has(currentPhase)) return 'failed'
+
+  const boardValidation = validateBoard(board)
+  if (!boardValidation.ok) return 'failed'
+
+  const state = options.state || {}
+  const items = Array.isArray(board) ? board : []
+  const byPhase = (phase) => items.filter((item) => item.phase === phase)
+  const activeStatuses = new Set(['pending', 'in_progress', 'blocked'])
+  const hasActive = (phase) => byPhase(phase).some((item) => activeStatuses.has(item.status || 'pending'))
+  const hasFailed = (phase) => byPhase(phase).some((item) => item.status === 'failed')
+  const hasCompleted = (phase) => byPhase(phase).some((item) => item.status === 'completed')
+  const review = state.team_review || {}
+
+  if (currentPhase === 'team-plan') return hasActive('planning') ? 'team-plan' : 'team-exec'
+  if (hasActive('planning')) return 'team-plan'
+  if (hasFailed('implement') || hasFailed('review') || hasFailed('fix')) return 'team-fix'
+  if (hasActive('implement')) return 'team-exec'
+  if (currentPhase === 'team-fix') {
+    if (hasActive('fix')) return 'team-fix'
+    if (hasCompleted('fix')) return 'team-verify'
+  }
+  if (hasActive('review')) return 'team-verify'
+  if (review.overall_passed === true && review.reviewed_at) return 'completed'
+  if (hasActive('fix') || hasCompleted('fix')) return 'team-fix'
+  return 'team-verify'
+}
+
+function validateReviewState(state = {}, board = []) {
+  const review = state.team_review || {}
+  const failedBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'failed').map((item) => item.id) : []
+  const completedBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'completed').map((item) => item.id) : []
+
+  if (!review || typeof review !== 'object') {
+    return { ok: false, reason: 'team_review_missing', failed_boundaries: failedBoundaries }
+  }
+
+  if (review.overall_passed === true) {
+    if (!review.reviewed_at) {
+      return { ok: false, reason: 'team_review.reviewed_at_missing', failed_boundaries: failedBoundaries }
+    }
+    return { ok: true, decision: 'completed', failed_boundaries: [] }
+  }
+
+  if (failedBoundaries.length > 0) {
+    return { ok: true, decision: 'team-fix', failed_boundaries: failedBoundaries }
+  }
+
+  if (completedBoundaries.length === board.length) {
+    return { ok: false, reason: 'team_review_not_passed', failed_boundaries: [] }
+  }
+
+  return { ok: true, decision: 'team-exec', failed_boundaries: [] }
 }
 
 function buildExecuteSummary(state, board) {
-  const teamPhase = inferTeamPhase(board, state.team_phase || 'team-plan')
-  const pendingBoundaries = board.filter((item) => item.status === 'pending').map((item) => item.id)
-  const failedBoundaries = board.filter((item) => item.status === 'failed').map((item) => item.id)
+  const boardValidation = validateBoard(board)
+  const teamPhase = inferTeamPhase(board, state.team_phase || 'team-plan', { state })
+  const pendingBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'pending').map((item) => item.id) : []
+  const failedBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'failed').map((item) => item.id) : []
 
   let nextAction = 'complete-team-run'
-  if (teamPhase === 'team-plan') nextAction = 'review-team-plan'
+  if (teamPhase === 'team-plan') nextAction = 'complete-planning-boundary'
   else if (teamPhase === 'team-exec' && pendingBoundaries.length) nextAction = 'execute-next-boundary'
   else if (teamPhase === 'team-verify') nextAction = 'run-team-verification'
   else if (teamPhase === 'team-fix') nextAction = 'repair-failed-boundaries'
+  else if (teamPhase === 'completed') nextAction = 'archive-or-start-new-team-run'
+  else if (teamPhase === 'failed') nextAction = 'repair-runtime-or-rerun-team-start'
+  else if (teamPhase === 'archived') nextAction = 'start-new-team-run'
 
-  return { team_phase: teamPhase, next_action: nextAction, pending_boundaries: pendingBoundaries, failed_boundaries: failedBoundaries }
+  return {
+    team_phase: teamPhase,
+    next_action: nextAction,
+    pending_boundaries: pendingBoundaries,
+    failed_boundaries: failedBoundaries,
+    board_valid: boardValidation.ok,
+    board_error: boardValidation.ok ? null : boardValidation.error,
+    has_writable_worker: hasWritableWorker(state.worker_roster),
+  }
 }
 
 module.exports = {
+  VALID_PHASES,
+  VALID_BOARD_STATUSES,
+  TERMINAL_PHASES,
+  validateBoard,
+  hasWritableWorker,
+  validateReviewState,
   inferTeamPhase,
   buildExecuteSummary,
 }

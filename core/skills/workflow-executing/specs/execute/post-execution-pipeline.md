@@ -276,4 +276,4 @@ async function checkpointTaskCompletion(taskId: string, planPath: string, stateP
 2. 将不一致记录写入 `~/.claude/workflows/{projectId}/inconsistency.log`（追加模式）
 3. 终止当前执行，要求用户手动检查并修复后重启
 
-> 注意：`checkpointTaskCompletion()` 描述的是执行器应遵循的行为协议。当前权威 helper（`task_manager.py`）尚未实现回滚能力，执行器需在调用 helper 之上自行实现回滚逻辑（重新读取 plan.md 并撤销标记变更）。
+> 注意：`checkpointTaskCompletion()` 描述的是执行器应遵循的行为协议。当前权威 helper（`task_manager.js`）尚未实现回滚能力，执行器需在调用 helper 之上自行实现回滚逻辑（重新读取 plan.md 并撤销标记变更）。

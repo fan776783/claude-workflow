@@ -227,25 +227,25 @@ ${generateContextBar(metrics.projectedUsagePercent, metrics.warningThreshold, me
 }
 ```
 
-## Python Runtime 落地说明
+## Node.js Runtime 落地说明
 
-当前仓库里真正参与 execute 决策的 Python runtime 以 `core/utils/workflow/` 为准，shared spec 在这里承担“共享契约 + 设计目标”角色。
+当前仓库里真正参与 execute 决策的 Node.js runtime 以 `core/utils/workflow/` 为准，shared spec 在这里承担“共享契约 + 设计目标”角色。
 
 ### 已落地的关键实现
 
-- `execution_sequencer.py:decide_governance_action()`
+- `execution_sequencer.js:decideGovernanceAction()`
   - 先看硬停止
   - 再看任务独立性与上下文污染风险
   - 再应用治理语义边界
   - 最后用 budget 做 `danger / hard_handoff` 兜底覆盖
-- `execution_sequencer.py:assess_context_pollution_risk()`
+- `execution_sequencer.js:assessContextPollutionRisk()`
   - 基于 actions / verification / test files / steps 等规则化信号评估主会话污染风险
-- `dependency_checker.py:summarize_task_independence()`
+- `dependency_checker.js:summarizeTaskIndependence()`
   - 基于 depends / blocked_by / 共享状态路径 / 步骤引用 / 文件边界生成独立性摘要
-- `state_manager.py:update_continuation()`
+- `state_manager.js:updateContinuation()`
   - 写入 `context-first` continuation 记录与 `primarySignals` / `budgetBackstopTriggered` / `decisionNotes`
-- `workflow_types.py:ContinuationDecision`
-  - 定义 continuation 决策扩展字段，作为 Python runtime 的稳定结构
+- `workflow_types.js:ContinuationDecision`
+  - 定义 continuation 决策扩展字段，作为 Node.js runtime 的稳定结构
 
 ### 与 shared spec 的关系
 

@@ -5,20 +5,32 @@ const { cmdTeamArchive, cmdTeamExecute, cmdTeamStart, cmdTeamStatus } = require(
 function parseArgs(argv) {
   const args = [...argv]
   const options = { projectId: undefined, projectRoot: undefined, teamId: undefined, force: false, noDiscuss: false, summary: false, teamName: undefined }
-  while (args.length && args[0].startsWith('--')) {
-    const flag = args.shift()
-    if (flag === '--project-id') options.projectId = args.shift()
-    else if (flag === '--project-root') options.projectRoot = args.shift()
-    else if (flag === '--team-id') options.teamId = args.shift()
-    else if (flag === '--team-name') options.teamName = args.shift()
-    else if (flag === '--force') options.force = true
-    else if (flag === '--no-discuss') options.noDiscuss = true
-    else if (flag === '--summary') options.summary = true
-    else throw new Error(`Unknown flag: ${flag}`)
+  const positionals = []
+
+  while (args.length) {
+    const token = args.shift()
+    if (!token.startsWith('--')) {
+      positionals.push(token)
+      continue
+    }
+
+    if (token === '--project-id') options.projectId = args.shift()
+    else if (token === '--project-root') options.projectRoot = args.shift()
+    else if (token === '--team-id') options.teamId = args.shift()
+    else if (token === '--team-name') options.teamName = args.shift()
+    else if (token === '--force') options.force = true
+    else if (token === '--no-discuss') options.noDiscuss = true
+    else if (token === '--summary') options.summary = true
+    else throw new Error(`Unknown flag: ${token}`)
   }
-  const command = args.shift()
-  const requirement = args.shift()
-  return { options, command, requirement }
+
+  const candidate = positionals.shift()
+  if (!candidate) return { options, command: undefined, requirement: undefined }
+  if (['start', 'execute', 'status', 'archive'].includes(candidate)) {
+    const requirement = positionals.join(' ').trim()
+    return { options, command: candidate, requirement: requirement || undefined }
+  }
+  return { options, command: 'start', requirement: [candidate, ...positionals].join(' ').trim() }
 }
 
 function printHelp() {

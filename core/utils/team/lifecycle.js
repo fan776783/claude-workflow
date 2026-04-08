@@ -2,8 +2,8 @@ const fs = require('fs')
 const path = require('path')
 
 const { buildGovernanceRecord } = require('./governance')
-const { buildExecuteSummary, inferTeamPhase } = require('./phase-controller')
-const { buildPlanTasksMarkdown, buildTeamTasks } = require('./planning-artifacts')
+const { VALID_PHASES, TERMINAL_PHASES, buildExecuteSummary, hasWritableWorker, inferTeamPhase, validateBoard, validateReviewState } = require('./phase-controller')
+const { buildDispatchMetadata, buildPlanTasksMarkdown, buildStaticTeamTasks, buildTeamTasks, buildWorkerOwnershipMetadata } = require('./planning-artifacts')
 const {
   buildDiscussionArtifact,
   buildTechStackSummary,
@@ -32,6 +32,27 @@ function detectProjectRoot(projectRoot) {
 
 function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'team-run'
+}
+
+function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state }) {
+  const missingArtifacts = []
+  const invalidFields = []
+
+  for (const [targetPath, label] of [[specPath, 'spec_file'], [planPath, 'plan_file'], [teamTasksPath, 'team_tasks_markdown'], [statePath, 'team_state'], [taskBoardPath, 'team_tasks_file']]) {
+    if (!targetPath || !fs.existsSync(targetPath)) missingArtifacts.push(label)
+  }
+
+  const boardValidation = validateBoard(board)
+  if (!boardValidation.ok) invalidFields.push(boardValidation.error)
+  if (!Array.isArray(ownershipMetadata) || ownershipMetadata.length === 0) invalidFields.push('worker_ownership_metadata')
+  if (!dispatchMetadata || !Array.isArray(dispatchMetadata.boundaries) || dispatchMetadata.boundaries.length === 0) invalidFields.push('dispatch_metadata')
+  if (!Array.isArray(state?.worker_roster) || state.worker_roster.length === 0) invalidFields.push('worker_roster')
+
+  return {
+    ok: missingArtifacts.length === 0 && invalidFields.length === 0,
+    missing_artifacts: missingArtifacts,
+    invalid_fields: invalidFields,
+  }
 }
 
 function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDiscuss = false, teamName } = {}) {
@@ -86,6 +107,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     implementation_slices: '- Slice 1：生成 team 规划工件\n- Slice 2：拆分 team work packages\n- Slice 3：进入 execute / verify / fix 生命周期',
   })
 
+  const seedTasks = buildStaticTeamTasks()
   const planContent = renderTemplate(planTemplate, {
     requirement_source: requirementSource,
     created_at: now,
@@ -97,11 +119,20 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     files_create: `- ${specRelative}\n- ${planRelative}\n- ${teamTasksRelative}`,
     files_modify: '- 无',
     files_test: '- 无',
-    tasks: buildPlanTasksMarkdown(),
+    tasks: buildPlanTasksMarkdown(seedTasks),
   })
 
-  const tasks = buildTeamTasks()
-  const board = buildTeamTaskBoard(tasks)
+  const tasks = buildTeamTasks(planContent)
+  const ownershipMetadata = buildWorkerOwnershipMetadata(tasks)
+  const dispatchMetadata = buildDispatchMetadata(tasks)
+  const board = buildTeamTaskBoard(tasks).map((item) => {
+    const ownerMeta = ownershipMetadata.find((meta) => meta.boundary_id === item.id)
+    return {
+      ...item,
+      owner: ownerMeta?.owner || item.owner,
+      ownership: ownerMeta || null,
+    }
+  })
   fs.mkdirSync(path.dirname(specPath), { recursive: true })
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.writeFileSync(specPath, specContent)
@@ -128,10 +159,28 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   state.discussion_artifact = discussionArtifact
   state.ux_gate_required = uxRequired
   state.governance = buildGovernanceRecord()
-  state.worker_roster = [{ name: 'leader', role: 'orchestrator', status: 'active' }]
+  state.worker_roster = [
+    { name: 'leader', role: 'orchestrator', status: 'active', writable: false },
+    { name: 'executor', role: 'worker', status: 'idle', writable: true },
+  ]
+  state.dispatch_batches = []
+  state.worker_ownership = ownershipMetadata
+  state.dispatch_metadata = dispatchMetadata
   const statePath = getTeamStatePath(resolvedProjectId, teamId)
   if (!statePath) return { error: '无法解析 team state 路径' }
   writeTeamState(statePath, state, resolvedProjectId, teamId)
+
+  const startGate = validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state })
+  if (!startGate.ok) {
+    return {
+      error: 'team start gate failed',
+      project_id: resolvedProjectId,
+      team_id: teamId,
+      missing_artifacts: startGate.missing_artifacts,
+      invalid_fields: startGate.invalid_fields,
+      next_action: 'repair-runtime-or-rerun-team-start',
+    }
+  }
 
   return {
     started: true,
@@ -149,6 +198,75 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   }
 }
 
+function validateExecutePreconditions(state, board) {
+  const missingArtifacts = []
+  const invalidFields = []
+
+  const currentPhase = state?.team_phase
+  if (!VALID_PHASES.has(currentPhase)) {
+    invalidFields.push(`team_phase:${String(currentPhase || '')}`)
+  }
+
+  const requiredFields = ['project_id', 'team_id', 'team_name', 'status', 'team_phase', 'spec_file', 'plan_file', 'team_tasks_file', 'worker_roster', 'team_review', 'fix_loop']
+  for (const field of requiredFields) {
+    if (state?.[field] == null) invalidFields.push(field)
+  }
+
+  for (const [field, label] of [[state?.spec_file, 'spec_file'], [state?.plan_file, 'plan_file'], [state?.team_tasks_file, 'team_tasks_file']]) {
+    if (!field || typeof field !== 'string') {
+      missingArtifacts.push(label)
+      continue
+    }
+    const targetPath = path.isAbsolute(field) ? field : path.join(detectProjectRoot(state.project_root), field)
+    if (!fs.existsSync(targetPath)) missingArtifacts.push(label)
+  }
+
+  const boardValidation = validateBoard(board)
+  if (!boardValidation.ok) {
+    invalidFields.push(boardValidation.error)
+  }
+
+  if (currentPhase === 'team-exec' && !hasWritableWorker(state.worker_roster)) {
+    invalidFields.push('worker_roster:missing_writable_worker')
+  }
+
+  if (currentPhase === 'team-fix') {
+    const failedBoundaries = state?.fix_loop?.current_failed_boundaries
+    if (!Array.isArray(failedBoundaries) || failedBoundaries.length === 0) {
+      invalidFields.push('fix_loop.current_failed_boundaries')
+    }
+  }
+
+  return {
+    ok: missingArtifacts.length === 0 && invalidFields.length === 0,
+    missing_artifacts: missingArtifacts,
+    invalid_fields: invalidFields,
+  }
+}
+
+function validateArchivePreconditions(state, board) {
+  const phase = inferTeamPhase(board, state.team_phase || 'team-plan', { state })
+  const reviewCheck = validateReviewState(state, board)
+
+  if (phase === 'archived') {
+    return { ok: false, error: 'team run already archived', team_phase: phase, status: state.status }
+  }
+
+  if (phase === 'team-exec' || phase === 'team-fix') {
+    return { ok: false, error: 'cannot archive active team run', team_phase: phase, status: state.status }
+  }
+
+  if (phase === 'team-verify' && !reviewCheck.ok) {
+    return { ok: false, error: 'cannot archive before valid team review', team_phase: phase, status: state.status, invalid_fields: [reviewCheck.reason] }
+  }
+
+  if (!['team-verify', 'completed', 'failed'].includes(phase) && state.status !== 'completed') {
+    return { ok: false, error: 'team run not ready for archive', team_phase: phase, status: state.status }
+  }
+
+  return { ok: true, team_phase: phase }
+}
+
 function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
@@ -158,22 +276,78 @@ function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
   const state = readTeamState(statePath, resolvedProjectId, teamId)
   const board = readTaskBoard(state.team_tasks_file)
   const currentPhase = state.team_phase || 'team-plan'
+  const gate = validateExecutePreconditions(state, board)
+
+  if (!gate.ok) {
+    return {
+      error: 'team execute gate failed',
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      team_phase: currentPhase,
+      missing_artifacts: gate.missing_artifacts,
+      invalid_fields: gate.invalid_fields,
+      next_action: 'repair-runtime-or-rerun-team-start',
+    }
+  }
+
+  if (TERMINAL_PHASES.has(currentPhase)) {
+    return {
+      error: 'team execute gate failed',
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      team_phase: currentPhase,
+      missing_artifacts: [],
+      invalid_fields: [`terminal_phase:${currentPhase}`],
+      next_action: currentPhase === 'archived' ? 'start-new-team-run' : 'archive-or-start-new-team-run',
+    }
+  }
 
   if (currentPhase === 'team-plan') {
-    state.team_phase = 'team-exec'
-    state.status = 'running'
-    state.current_tasks = board.filter((item) => item.status === 'pending').slice(0, 1).map((item) => item.id)
+    const planningPending = board.filter((item) => item.phase === 'planning' && item.status === 'pending').map((item) => item.id)
+    if (planningPending.length > 0) {
+      state.team_phase = 'team-plan'
+      state.status = 'planning'
+      state.current_tasks = planningPending.slice(0, 1)
+    } else {
+      state.team_phase = 'team-exec'
+      state.status = 'running'
+      state.current_tasks = board.filter((item) => item.phase === 'implement' && item.status === 'pending').slice(0, 1).map((item) => item.id)
+    }
   } else {
-    state.team_phase = inferTeamPhase(board, currentPhase)
-    if (state.team_phase === 'team-verify') {
-      state.status = 'paused'
-      state.current_tasks = []
-    } else if (state.team_phase === 'team-fix') {
+    const inferredPhase = inferTeamPhase(board, currentPhase, { state })
+    if (inferredPhase === 'team-verify') {
+      const reviewCheck = validateReviewState(state, board)
+      if (reviewCheck.ok && reviewCheck.decision === 'completed') {
+        state.team_phase = 'completed'
+        state.status = 'completed'
+        state.current_tasks = []
+      } else if (reviewCheck.ok && reviewCheck.decision === 'team-fix') {
+        state.team_phase = 'team-fix'
+        state.status = 'failed'
+        state.fix_loop = state.fix_loop || { attempt: 0, current_failed_boundaries: [] }
+        state.fix_loop.attempt += 1
+        state.fix_loop.current_failed_boundaries = reviewCheck.failed_boundaries
+      } else {
+        state.team_phase = 'team-verify'
+        state.status = 'paused'
+        state.current_tasks = []
+      }
+    } else if (inferredPhase === 'team-fix') {
+      state.team_phase = 'team-fix'
       state.status = 'failed'
       state.fix_loop = state.fix_loop || { attempt: 0, current_failed_boundaries: [] }
       state.fix_loop.attempt += 1
       state.fix_loop.current_failed_boundaries = board.filter((item) => item.status === 'failed').map((item) => item.id)
+    } else if (inferredPhase === 'completed') {
+      state.team_phase = 'completed'
+      state.status = 'completed'
+      state.current_tasks = []
+    } else if (inferredPhase === 'failed') {
+      state.team_phase = 'failed'
+      state.status = 'failed'
+      state.current_tasks = []
     } else {
+      state.team_phase = inferredPhase
       state.status = 'running'
     }
   }
@@ -200,20 +374,28 @@ function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false } = {}
   if (!statePath) return { error: '没有可归档的 team run' }
   const state = readTeamState(statePath, resolvedProjectId, teamId)
   const board = readTaskBoard(state.team_tasks_file)
-  const phase = inferTeamPhase(board, state.team_phase || 'team-plan')
-  if (!['team-verify', 'completed'].includes(phase) && state.status !== 'completed') {
-    return { error: '只有 team-verify 或 completed 状态的 team run 可以归档', team_phase: phase, status: state.status }
+  const gate = validateArchivePreconditions(state, board)
+  if (!gate.ok) {
+    return {
+      error: gate.error,
+      team_phase: gate.team_phase,
+      status: gate.status,
+      invalid_fields: gate.invalid_fields || [],
+    }
   }
   state.status = 'archived'
   state.team_phase = 'archived'
   if (summary) {
-    state.archive_summary = { archived_at: new Date().toISOString(), task_summary: summarizeTaskBoard(board) }
+    state.archive_summary = { archived_at: new Date().toISOString(), task_summary: summarizeTaskBoard(board), review: state.team_review || null }
   }
   writeTeamState(statePath, state, resolvedProjectId, state.team_id)
   return { archived: true, project_id: resolvedProjectId, team_id: state.team_id, state_path: statePath, team_phase: state.team_phase }
 }
 
 module.exports = {
+  validateStartArtifacts,
+  validateExecutePreconditions,
+  validateArchivePreconditions,
   cmdTeamStart,
   cmdTeamExecute,
   cmdTeamStatus,
