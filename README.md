@@ -42,11 +42,14 @@
 /team execute
 /team status
 /team archive
+/team cleanup --team-id auth-rollout
 ```
 
 关键边界：
 - `/team` 只会在用户**显式输入** `/team ...` 时启用
 - `/workflow`、`/quick-plan`、自然语言模糊请求、Broad Request Detection 与 `dispatching-parallel-agents` 都**不会自动切换**到 team mode
+- 普通 workflow/session hook 只读取 workflow runtime，不继承 `team-state.json`、`team_id`、`team_name`、`worker_roster`、`dispatch_batches` 或 `team_review` 等 team context
+- `/team archive` 负责逻辑归档；`/team cleanup` 负责物理清理已归档的 team runtime 目录，并保留 repo 内 spec/plan 工件
 - `dispatching-parallel-agents` 只作为 `team-exec` 内部可复用的规则来源（独立性检查 / 边界分组 / 冲突降级），不负责 team 生命周期
 - team runtime 脚本独立位于 `core/utils/team/*.js`，便于单独迭代，不依赖 workflow Python helpers
 - team runtime 使用独立状态文件：`~/.claude/workflows/{projectId}/teams/{teamId}/team-state.json`
@@ -140,13 +143,18 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 # 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/settings.json
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
 
+# 可选：为 Claude Code 注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --workflow-hooks -y
+
 # 从源码仓库同步
 npm run sync -- -a claude-code,cursor
 npm run sync -- --project
+npm run sync -- --workflow-hooks -y
 npm run sync -- -y
 
 # 本地开发调试：直接把受管目录链接到当前仓库 core/
 npm run link -- -a claude-code
+npm run link -- --workflow-hooks -a claude-code
 
 # 结束调试后恢复标准 canonical 模式
 npm run sync -- -a claude-code
@@ -166,6 +174,18 @@ npm run sync -- -a claude-code
 /team start "需求描述"
 /team execute
 ```
+
+### Hook Guardrails
+
+Claude Code 下当前有两类 hooks：
+
+- **worktree hooks**：默认随全局 `sync` 自动注入，用于 `WorktreeCreate` / `WorktreeRemove` 的串行化和清理
+- **workflow hooks**：默认**不自动注册**，需显式使用 `sync --workflow-hooks` 或 `link --workflow-hooks` 启用；用于 `SessionStart`、`PreToolUse(Task)`、`PostToolUse` 的运行时 guardrails
+
+workflow hooks 的职责边界：
+- 注入 active workflow、next action、当前 task、验证命令与质量关卡上下文
+- 在状态非法、上下文缺失或质量关卡未通过时阻断继续
+- 不替代 `/workflow execute` 的 shared resolver，不决定 planning / execute / delta / archive 的阶段流转
 
 ---
 
@@ -283,6 +303,8 @@ flowchart TD
 
 如需查看更完整说明，可参考：
 
+- `docs/worktree-hooks.md`（WorktreeCreate / WorktreeRemove 串行化与清理）
+- `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) / PostToolUse guardrails）
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/workflow.md`（统一 command 入口）
 - `core/commands/team.md`（独立 team command 入口）

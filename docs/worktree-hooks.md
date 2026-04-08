@@ -42,6 +42,9 @@ error: unable to write upstream branch configuration
 2. 注入配置到 `~/.claude/settings.json`
 3. 若检测到历史遗留的旧 hook 路径（如 `~/.claude/hooks/...`），会自动修正为当前托管路径
 
+> `WorktreeCreate` / `WorktreeRemove` hooks 属于默认自动注入能力。
+> workflow hooks 请参考单独文档：[`workflow-hooks.md`](workflow-hooks.md)
+
 ### 项目级安装
 
 项目级安装会同步 hook 脚本目录，但**默认跳过** `settings.json` 注入。
@@ -79,6 +82,8 @@ error: unable to write upstream branch configuration
 
 > **注意**：路径必须使用 `$HOME` 或绝对路径（如 `/Users/你的用户名/...`），不能使用 `~`。
 > 因为 `node "~/.../file.js"` 中 `~` 在双引号内不会被 Shell 展开，会导致路径解析失败。
+
+如需启用 workflow hooks，请参考单独文档：[`workflow-hooks.md`](workflow-hooks.md)
 
 ### 孤立目录回收
 

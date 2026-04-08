@@ -95,6 +95,7 @@ examples:
 - `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` 是真正的 workflow skills
 - `workflow-reviewing` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
 - 当前 shared runtime 已迁移到 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
+- 普通 `/workflow` session 只允许读取 workflow runtime；不得继承 team runtime 的 `team_id`、`team_name`、`worker_roster`、`dispatch_batches`、`team_review` 或 `team-state.json` 上下文
 - `/team` 是独立 command 入口；即使 workflow 检测到 2+ 独立任务或 `parallel-boundaries` 机会，也不会自动升级为 team mode
 - `/workflow start` 结束于规划产物与 `planned` 状态；不会自动进入 execute，如需开始执行必须显式使用 `/workflow execute`
 

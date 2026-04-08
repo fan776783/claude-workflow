@@ -56,6 +56,14 @@ planning side 使用 `review_status.*`；execution side 使用 `quality_gates.*`
 
 两者共享 contract 语义，但不强制使用完全一致的数据结构，以避免破坏现有执行逻辑。
 
+### 5. Hook 只做 execution adapter
+
+若 execution side 启用了质量关卡 hook：
+
+- hook 只能读取 `quality_gates.*` / 验证命令 / review artifact 来决定放行或阻断
+- hook 不得成为 reviewer，不得在 hook 内重新发明审查判定逻辑
+- hook 不得直接推动状态从 `failed/blocked/paused` 进入下一个 task；状态推进仍由 execute sequencer 与 shared resolver 负责
+
 ## 核心接口
 
 ```typescript

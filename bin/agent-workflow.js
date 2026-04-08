@@ -67,6 +67,7 @@ if (process.argv.length === 2) {
     .option('--legacy', '使用旧版安装模式（仅 Claude Code）')
     .option('-i, --interactive', '交互式安装模式')
     .option('-y, --yes', '跳过确认提示')
+    .option('--workflow-hooks', '为 Claude Code 额外注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）')
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
@@ -129,6 +130,7 @@ if (process.argv.length === 2) {
           agents: targetAgents,
           global,
           cwd: process.cwd(),
+          enableWorkflowHooks: Boolean(options.workflowHooks),
         });
 
         console.log(`\n${LOG_PREFIX} Canonical 位置: ${result.canonicalDir}`);
@@ -143,6 +145,18 @@ if (process.argv.length === 2) {
           const status = agentResult.success ? '✓' : '✗';
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
+          if (agentResult.worktreeHooks) {
+            const hookSummary = agentResult.worktreeHooks.injected
+              ? `已注册: ${(agentResult.worktreeHooks.events || []).join(', ')}`
+              : `未注册: ${((agentResult.worktreeHooks.skipped || [agentResult.worktreeHooks.error || '无']).join('; '))}`;
+            console.log(`      worktree hooks -> ${hookSummary}`);
+          }
+          if (agentResult.workflowHooks) {
+            const hookSummary = agentResult.workflowHooks.injected
+              ? `已注册: ${(agentResult.workflowHooks.events || []).join(', ')}`
+              : `未注册: ${((agentResult.workflowHooks.skipped || [agentResult.workflowHooks.error || '无']).join('; '))}`;
+            console.log(`      workflow hooks -> ${hookSummary}`);
+          }
         }
 
         if (result.errors.length > 0) {
@@ -162,6 +176,7 @@ if (process.argv.length === 2) {
     .description('将受管目录直接链接到当前仓库，便于本地调试 skills')
     .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
     .option('--project', '项目级安装（当前目录）')
+    .option('--workflow-hooks', '为 Claude Code 额外注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）')
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
@@ -183,6 +198,7 @@ if (process.argv.length === 2) {
           agents: targetAgents,
           global,
           cwd: process.cwd(),
+          enableWorkflowHooks: Boolean(options.workflowHooks),
         });
 
         console.log(`\n${LOG_PREFIX} Canonical 位置: ${result.canonicalDir}`);
@@ -195,6 +211,18 @@ if (process.argv.length === 2) {
           const status = agentResult.success ? '✓' : '✗';
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
+          if (agentResult.worktreeHooks) {
+            const hookSummary = agentResult.worktreeHooks.injected
+              ? `已注册: ${(agentResult.worktreeHooks.events || []).join(', ')}`
+              : `未注册: ${((agentResult.worktreeHooks.skipped || [agentResult.worktreeHooks.error || '无']).join('; '))}`;
+            console.log(`      worktree hooks -> ${hookSummary}`);
+          }
+          if (agentResult.workflowHooks) {
+            const hookSummary = agentResult.workflowHooks.injected
+              ? `已注册: ${(agentResult.workflowHooks.events || []).join(', ')}`
+              : `未注册: ${((agentResult.workflowHooks.skipped || [agentResult.workflowHooks.error || '无']).join('; '))}`;
+            console.log(`      workflow hooks -> ${hookSummary}`);
+          }
         }
 
         if (result.errors.length > 0) {
@@ -377,6 +405,11 @@ if (process.argv.length === 2) {
             }
 
             console.log(`    ${statusIcon} ${displayName.padEnd(16)} ${statusText}`);
+            if (name === 'claude-code') {
+              const worktreeInstalled = agentStatus.managedDirs?.hooks?.installed === true;
+              console.log(`      hooks managed dir -> ${worktreeInstalled ? '已同步' : '未同步'}`);
+              console.log('      workflow hooks -> 默认 opt-in，使用 sync/link --workflow-hooks 注册到 settings.json');
+            }
           }
         } else {
           console.log('  状态: 未安装');

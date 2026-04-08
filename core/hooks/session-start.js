@@ -64,15 +64,32 @@ function determineNextAction(state) {
   const completed = progress.completed || []
 
   if (status === 'idle') return '使用 `/workflow start` 开始新的工作流。'
-  if (status === 'planned') return '规划已完成。使用 `/workflow execute` 开始执行。'
-  if (status === 'spec_review') return 'Spec 等待确认。请审查 Spec 文档后确认继续。'
+  if (status === 'planned') return '规划已完成。使用 `/workflow execute` 开始执行；不要重新进入规划。'
+  if (status === 'spec_review') return 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。'
   if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow execute 继续。`
-  if (status === 'paused') return '工作流已暂停。使用 `/workflow execute` 恢复执行。'
-  if (status === 'failed') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow execute --retry 重试。`
-  if (status === 'blocked') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖。'
-  if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow archive 归档。`
+  if (status === 'paused') return '工作流已暂停。请处理暂停原因后使用 `/workflow execute` 恢复执行。'
+  if (status === 'failed') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow execute --retry 重试，或显式选择 skip。`
+  if (status === 'blocked') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
+  if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow archive 归档，不要继续执行。`
   if (status === 'archived') return '工作流已归档。使用 `/workflow start` 开始新任务。'
-  return `当前状态: ${status}。使用 \/workflow status 查看详情。`
+  return `当前状态: ${status}。使用 /workflow status 查看详情。`
+}
+
+function determineGuardrail(state) {
+  if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行；普通会话不得继承或恢复任何 team context。'
+  const status = state.status || 'idle'
+  if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow execute` 进入执行器；禁止自动继续或重新规划，也不得混入 team context。'
+  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现，也不得切换到 team 语义。'
+  if (status === 'running' || status === 'paused') return 'Guardrail：恢复执行必须经过 `/workflow execute` 的 shared resolver，不得绕过治理与质量关卡；普通 workflow 会话忽略 team runtime。'
+  if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务，也不得继承 team context。'
+  if (status === 'blocked') return 'Guardrail：阻塞态需先 unblock，不能把“继续”解释为直接执行或 team 恢复。'
+  if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行，也不读取 team runtime。'
+  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow start`；team runtime 不会自动继承到普通会话。'
+  return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门；非 `/team` 路径必须忽略 team runtime。'
+}
+
+function determineTeamGuardrail() {
+  return 'Guardrail：普通 session / workflow 只读取 workflow runtime，不继承 team runtime 的 team_id、team_name、worker_roster、dispatch_batches 或 review 状态；只有显式 `/team start|execute|status|archive|cleanup` 才允许读取 team-state.json。`/team cleanup` 还必须显式提供 teamId。'
 }
 
 function main() {
@@ -116,6 +133,14 @@ function main() {
   parts.push('<next-action>')
   parts.push(determineNextAction(state))
   parts.push('</next-action>')
+
+  parts.push('<workflow-guardrail>')
+  parts.push(determineGuardrail(state))
+  parts.push('</workflow-guardrail>')
+
+  parts.push('<team-guardrail>')
+  parts.push(determineTeamGuardrail())
+  parts.push('</team-guardrail>')
 
   if (specs) {
     parts.push('<project-specs>')

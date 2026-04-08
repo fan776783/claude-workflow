@@ -1,14 +1,14 @@
 ---
-description: 独立 team 命令入口，支持 `/team "需求"` 简写启动以及显式团队化规划、执行、状态查看与归档
-argument-hint: [start <requirement> | execute | status | archive] | <natural-language requirement>
+description: 独立 team 命令入口，支持 `/team "需求"` 简写启动以及显式团队化规划、执行、状态查看、归档与清理
+argument-hint: [start <requirement> | execute | status | archive | cleanup] | <natural-language requirement>
 allowed-tools: Read(*), Grep(*), Glob(*)
 examples:
   - /team start "实现用户认证功能"
     显式进入 team 模式，委派 team-workflow 生成 team spec/plan/runtime
   - /team execute
     推进 team-workflow 的 team-exec → team-verify / team-fix 循环
-  - /team status
-    查看当前 team phase、边界任务与下一步建议
+  - /team cleanup --team-id auth-rollout
+    清理已归档的 team runtime 目录，保留 repo 内 spec/plan 工件
 ---
 
 # team
@@ -31,6 +31,7 @@ examples:
 /team execute
 /team status
 /team archive
+/team cleanup --team-id auth-rollout
 ```
 
 ---
@@ -70,14 +71,23 @@ examples:
 - `../skills/team-workflow/SKILL.md`
 - `../specs/team-runtime/archive.md`
 
+### `cleanup`
+
+清理已归档的 team runtime 目录，保留 repo 内 spec/plan 等规划工件。
+
+阅读：
+- `../skills/team-workflow/SKILL.md`
+- `../specs/team-runtime/archive.md`
+
 ---
 
 ## Command Contract
 
 - `/team` 是 **command 入口**，不是重型 runtime contract 本身
 - `/team <自然语言需求>` 只在用户已经显式输入 `/team` 时，按 `/team start <需求>` 解释
+- 只有显式 `/team` command surface 才允许解析、恢复或透传 team context；普通会话不得继承 `team_name` / `team_id`
 - `team` skill 负责显式入口契约、适用边界与路由关系
-- `team-workflow` 负责 `start|execute|status|archive` 的 runtime 语义与 phase/state contract
+- `team-workflow` 负责 `start|execute|status|archive|cleanup` 的 runtime 语义与 phase/state contract
 - team runtime 继续使用 `core/utils/team/*.js` 与 `core/specs/team-runtime/*`
 - `dispatching-parallel-agents` 只能作为 `team-exec` 内部的**规则来源**（独立性检查 / 边界分组 / 冲突降级），不能替代 team runtime
 - `/workflow`、`/quick-plan`、Broad Request Detection 与自然语言请求都**不会**自动切换到 `/team`

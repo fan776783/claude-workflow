@@ -66,13 +66,28 @@ function ensureTeamStateDefaults(state) {
     progress: { completed: [], blocked: [], failed: [], skipped: [] },
     continuation: { strategy: 'explicit-team', last_decision: null, handoff_required: false, artifact_path: null },
     governance: { explicit_invocation_only: true, auto_trigger_allowed: false, parallel_dispatch_mode: 'internal-team-only' },
+    activation: { mode: 'explicit-team-command', entry: 'team', auto_trigger_allowed: false },
     created_at: state?.updated_at || isoNow(),
     updated_at: isoNow(),
     ...state,
   }
 }
 
-function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specFile, planFile, teamTasksFile }) {
+function validateActivationSource(activation) {
+  if (!activation || typeof activation !== 'object') return false
+  const mode = activation.mode || ''
+  const entry = activation.entry || ''
+  return ['explicit-team-command', 'explicit-team-workflow'].includes(mode)
+    && ['team', 'team-workflow'].includes(entry)
+    && activation.auto_trigger_allowed === false
+}
+
+function isReservedTeamIdentifier(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'none' || normalized === 'null' || normalized === 'undefined'
+}
+
+function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specFile, planFile, teamTasksFile, activation } = {}) {
   const now = isoNow()
   return ensureTeamStateDefaults({
     project_id: projectId,
@@ -85,6 +100,7 @@ function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specF
     spec_file: specFile,
     plan_file: planFile,
     team_tasks_file: teamTasksFile,
+    activation: activation || { mode: 'explicit-team-command', entry: 'team', auto_trigger_allowed: false },
     created_at: now,
     updated_at: now,
   })
@@ -119,6 +135,34 @@ function detectActiveTeamState(projectId) {
   return null
 }
 
+function detectLatestTeamState(projectId, { includeArchived = true } = {}) {
+  const root = getTeamsProjectDir(projectId)
+  if (!root || !fs.existsSync(root)) return null
+
+  const candidates = []
+  for (const entry of fs.readdirSync(root).sort()) {
+    const statePath = path.join(root, entry, TEAM_STATE_FILENAME)
+    if (!fs.existsSync(statePath)) continue
+    try {
+      const state = readTeamState(statePath, projectId, entry)
+      if (!includeArchived && state.status === 'archived') continue
+      candidates.push({
+        statePath,
+        updatedAt: Date.parse(state.updated_at || state.created_at || ''),
+      })
+    } catch {}
+  }
+
+  if (candidates.length === 0) return null
+  candidates.sort((left, right) => {
+    const leftTime = Number.isFinite(left.updatedAt) ? left.updatedAt : -Infinity
+    const rightTime = Number.isFinite(right.updatedAt) ? right.updatedAt : -Infinity
+    if (rightTime !== leftTime) return rightTime - leftTime
+    return right.statePath.localeCompare(left.statePath)
+  })
+  return candidates[0].statePath
+}
+
 module.exports = {
   TEAM_STATE_FILENAME,
   isoNow,
@@ -132,4 +176,7 @@ module.exports = {
   readTeamState,
   writeTeamState,
   detectActiveTeamState,
+  detectLatestTeamState,
+  validateActivationSource,
+  isReservedTeamIdentifier,
 }

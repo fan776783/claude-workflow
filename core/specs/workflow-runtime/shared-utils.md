@@ -132,3 +132,6 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 - 任务解析只使用 V2 模型，不再维护旧格式映射
 - 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
 - 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent
+- workflow hooks 只承担 runtime guardrails：上下文注入、前置条件校验、验证证据、质量关卡阻断与 worktree/并发安全
+- workflow hooks 不得私自决定 planning / execute / delta / archive 的阶段流转；主流程唯一入口仍是 command + skill + state machine
+- 若启用 `SessionStart` / `PreToolUse(Task)` / 质量关卡 hooks，它们只能提示或阻断，不得绕过 `/workflow execute` shared resolver 或另造第二套状态机

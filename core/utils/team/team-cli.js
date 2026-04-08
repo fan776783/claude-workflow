@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { cmdTeamArchive, cmdTeamExecute, cmdTeamStart, cmdTeamStatus } = require('./lifecycle')
+const { cmdTeamArchive, cmdTeamCleanup, cmdTeamExecute, cmdTeamStart, cmdTeamStatus } = require('./lifecycle')
 
 function parseArgs(argv) {
   const args = [...argv]
@@ -26,7 +26,7 @@ function parseArgs(argv) {
 
   const candidate = positionals.shift()
   if (!candidate) return { options, command: undefined, requirement: undefined }
-  if (['start', 'execute', 'status', 'archive'].includes(candidate)) {
+  if (['start', 'execute', 'status', 'archive', 'cleanup'].includes(candidate)) {
     const requirement = positionals.join(' ').trim()
     return { options, command: candidate, requirement: requirement || undefined }
   }
@@ -41,10 +41,11 @@ Usage:
   node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] execute
   node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] status
   node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] archive [--summary]
+  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] cleanup
 
 Notes:
   start bootstraps a dedicated team runtime and writes team-specific planning artifacts.
-  execute/status/archive operate on that team runtime only.
+  execute/status/archive/cleanup operate on that team runtime only.
 `)
 }
 
@@ -54,13 +55,15 @@ function main() {
     let result
     if (command === 'start') {
       if (!requirement) throw new Error('start requires a requirement or requirement file')
-      result = cmdTeamStart(requirement, options)
+      result = cmdTeamStart(requirement, { ...options, invocationSource: 'team-command' })
     } else if (command === 'execute') {
-      result = cmdTeamExecute(options)
+      result = cmdTeamExecute({ ...options, invocationSource: 'team-command', allowActiveFallback: true })
     } else if (command === 'status') {
-      result = cmdTeamStatus(options)
+      result = cmdTeamStatus({ ...options, invocationSource: 'team-command', allowActiveFallback: true })
     } else if (command === 'archive') {
-      result = cmdTeamArchive(options)
+      result = cmdTeamArchive({ ...options, invocationSource: 'team-command', allowActiveFallback: true })
+    } else if (command === 'cleanup') {
+      result = cmdTeamCleanup({ ...options, invocationSource: 'team-command' })
     } else {
       printHelp()
       process.exitCode = command ? 1 : 0

@@ -64,6 +64,8 @@
 
 缺少上述任一字段时，不应视为可执行的 team runtime。
 
+此外，`activation` / `governance` 必须共同证明该 runtime 来源于显式 `/team` 或 `team-workflow` 入口；若缺失显式来源信息，不得被普通 session 或误路由入口继续消费。
+
 ## 可选扩展字段
 
 以下字段可作为扩展状态写入，但不替代最小必填字段：
@@ -72,6 +74,7 @@
 - `quality_gates`
 - `continuation`
 - `governance`
+- `activation`
 - `archive_summary`
 - `project_root`
 - `created_at`
@@ -113,6 +116,11 @@
     "last_decision": null,
     "handoff_required": false,
     "artifact_path": null
+  },
+  "activation": {
+    "mode": "explicit-team-command",
+    "entry": "team",
+    "auto_trigger_allowed": false
   },
   "updated_at": "2026-04-07T10:00:00Z"
 }

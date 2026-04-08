@@ -140,7 +140,7 @@ AI 获取脚本数据后，按以下格式向用户展示状态报告：
 | `continuation.handoff_required` 为 true | 显示 `🔄 需要 handoff：{continuation.last_decision.reason}` |
 | 存在 journal 记录 | 最近 5 条摘要 + 最新一条的 `next_steps` 和 `decisions` |
 
-> `/workflow status` 只读取 workflow runtime；若用户使用的是 `/team`，应转而查看 `/team status`，不得自动把 team runtime 混入 workflow status。
+> `/workflow status` 只读取 workflow runtime；若用户使用的是 `/team`，应转而查看 `/team status`，不得自动把 team runtime 混入 workflow status，也不得继承 active team runtime 的 `team_id` / `team_name`。
 
 ### Journal 数据展示格式
 

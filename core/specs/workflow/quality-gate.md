@@ -50,6 +50,15 @@ function parseQualityGate(body: string): boolean {
 
 `quality_review` 的 Stage 2 虽然会使用单 reviewer 子 agent，但它不属于 `dispatching-parallel-agents` 的并行分派场景；后者仅用于 2+ 独立问题域 / 任务域的并行执行。
 
+## Hook Guardrails
+
+当启用 execution-side quality hook（如 `quality-gate-loop.js`）时：
+
+- hook 只负责读取当前 task 的验证命令与 `quality_gates[taskId]`，在证据不足或关卡未通过时阻断继续
+- hook 不负责改写主流程状态，不得把失败直接解释为 retry / skip / archive
+- `run_tests` 类 gate 以命令退出码为准；`quality_review` 类 gate 以 `state.quality_gates[taskId].overall_passed === true` 为准
+- 若下一步是 `git_commit` 且 `pause_before_commit=true`，hook 可以作为提交前暂停的 runtime adapter，但是否继续提交仍由 execute governance 决定
+
 ## 常见质量关卡
 
 | 类型 | actions | 阈值建议 |

@@ -7,7 +7,9 @@
 ## 显式入口约束
 
 - 只有用户明确输入 `/team ...` 时，才允许进入 team runtime
+- active team runtime 不是 session-global context；普通 session、workflow hooks 与 ordinary agent launch 都不会自动继承 `team_id` / `team_name`
 - `/workflow`、`/quick-plan`、Broad Request Detection、自然语言模糊请求都不会自动切换到 `/team`
+- 普通 workflow / session hook 只读取 `workflow-state.json` 与 workflow 规划工件，不得读取、继承或注入 `team-state.json`、`team_id`、`team_name`、`worker_roster`、`dispatch_batches`、`team_review` 等 team context
 - `dispatching-parallel-agents` 只用于 team 内部复用其独立性检查 / 边界分组 / 冲突降级规则，不直接作为 team 编排器
 
 ## Runtime 路径
@@ -28,6 +30,7 @@
 - **Node.js runtime**：team 脚本独立收敛在 `core/utils/team/*.js`，便于单独演进
 - **schema 继承**：尽量复用 workflow 现有字段与 deterministic helpers 的思想，而不是脚本级强依赖
 - **phase 明确**：支持 `team-plan`、`team-exec`、`team-verify`、`team-fix`
+- **双阶段收尾**：先 `archive` 退出 active runtime，再按需 `cleanup` 物理删除 runtime 目录
 - **修复回流**：verify 失败时只重投失败边界，不重跑整个团队
 
 ## 关联文档

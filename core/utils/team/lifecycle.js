@@ -19,7 +19,9 @@ const {
   detectActiveTeamState,
   getTeamDir,
   getTeamStatePath,
+  isReservedTeamIdentifier,
   readTeamState,
+  validateActivationSource,
   writeTeamState,
 } = require('./state-manager')
 const { buildTaskBoardMarkdown, buildTeamTaskBoard, readTaskBoard, summarizeTaskBoard, writeTaskBoard } = require('./task-board-helpers')
@@ -32,6 +34,96 @@ function detectProjectRoot(projectRoot) {
 
 function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'team-run'
+}
+
+function assertExplicitTeamInvocation({ invocationSource, allowActiveFallback = false, teamId } = {}) {
+  const explicitSources = new Set(['team-command', 'team-workflow'])
+  if (!explicitSources.has(invocationSource || '')) {
+    return {
+      ok: false,
+      error: 'team runtime 仅允许通过显式 /team 或 team-workflow 入口访问',
+      invalid_fields: ['invocation_source'],
+      next_action: 'use-explicit-team-entry',
+    }
+  }
+
+  if (!teamId && !allowActiveFallback) {
+    return {
+      ok: false,
+      error: '缺少 teamId；只有显式 /team command surface 才允许自动定位 active team runtime',
+      invalid_fields: ['team_id'],
+      next_action: 'pass-team-id-or-use-team-command',
+    }
+  }
+
+  return { ok: true }
+}
+
+function resolveTeamStatePath({ projectId, teamId, invocationSource, allowActiveFallback = false } = {}) {
+  const explicitGate = assertExplicitTeamInvocation({ invocationSource, allowActiveFallback, teamId })
+  if (!explicitGate.ok) return explicitGate
+  if (teamId) {
+    if (isReservedTeamIdentifier(teamId)) {
+      return {
+        ok: false,
+        error: 'team_id 包含保留哨兵值，疑似上层传入了脏 team 上下文',
+        invalid_fields: ['team_id:reserved'],
+        next_action: 'clear-inherited-team-context',
+      }
+    }
+    return { ok: true, statePath: getTeamStatePath(projectId, teamId) }
+  }
+  return { ok: true, statePath: detectActiveTeamState(projectId) }
+}
+
+function resolveCleanupStatePath({ projectId, teamId, invocationSource } = {}) {
+  if (!teamId) {
+    return {
+      ok: false,
+      error: '缺少 teamId；/team cleanup 只允许显式指定已归档的目标 runtime',
+      invalid_fields: ['team_id'],
+      next_action: 'pass-team-id-to-cleanup',
+    }
+  }
+  const explicitGate = assertExplicitTeamInvocation({ invocationSource, allowActiveFallback: false, teamId })
+  if (!explicitGate.ok) return explicitGate
+  if (!teamId) {
+    return {
+      ok: false,
+      error: '缺少 teamId；/team cleanup 只允许显式指定已归档的目标 runtime',
+      invalid_fields: ['team_id'],
+      next_action: 'pass-team-id-to-cleanup',
+    }
+  }
+  if (isReservedTeamIdentifier(teamId)) {
+    return {
+      ok: false,
+      error: 'team_id 包含保留哨兵值，疑似上层传入了脏 team 上下文',
+      invalid_fields: ['team_id:reserved'],
+      next_action: 'clear-inherited-team-context',
+    }
+  }
+  return { ok: true, statePath: getTeamStatePath(projectId, teamId) }
+}
+
+function validateResolvedTeamState(state) {
+  if (isReservedTeamIdentifier(state?.team_id) || isReservedTeamIdentifier(state?.team_name)) {
+    return {
+      ok: false,
+      error: 'team runtime 包含保留哨兵值，疑似继承了脏 team 上下文',
+      invalid_fields: ['team_identity:reserved'],
+      next_action: 'repair-team-runtime-or-clear-stale-context',
+    }
+  }
+  if (!validateActivationSource(state?.activation)) {
+    return {
+      ok: false,
+      error: 'team runtime 缺少合法的显式入口来源，禁止继续消费',
+      invalid_fields: ['activation'],
+      next_action: 'rerun-team-start-via-explicit-entry',
+    }
+  }
+  return { ok: true }
 }
 
 function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state }) {
@@ -55,10 +147,20 @@ function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, 
   }
 }
 
-function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDiscuss = false, teamName } = {}) {
+function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDiscuss = false, teamName, invocationSource = 'team-command' } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
   const { config, configHealed } = ensureProjectConfig(root, resolvedProjectId)
+
+  const explicitStartGate = assertExplicitTeamInvocation({ invocationSource, allowActiveFallback: true, teamId: 'bootstrap' })
+  if (!explicitStartGate.ok) {
+    return {
+      error: explicitStartGate.error,
+      project_id: resolvedProjectId,
+      invalid_fields: explicitStartGate.invalid_fields,
+      next_action: explicitStartGate.next_action,
+    }
+  }
 
   const activeState = detectActiveTeamState(resolvedProjectId)
   if (activeState && !force) {
@@ -68,6 +170,14 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
 
   const { requirementSource, requirementText, sourcePath } = resolveRequirementInput(requirement, root)
   const taskName = deriveTaskName(requirementText, sourcePath)
+  if (isReservedTeamIdentifier(teamName) || isReservedTeamIdentifier(taskName)) {
+    return {
+      error: 'team 名称包含保留哨兵值，疑似上层传入了脏 team 上下文',
+      project_id: resolvedProjectId,
+      invalid_fields: ['team_name:reserved'],
+      next_action: 'clear-inherited-team-context',
+    }
+  }
   const teamId = slugify(teamName || taskName)
   const resolvedTeamName = teamName || taskName
   const { specTemplate, planTemplate } = loadTeamTemplates(__dirname)
@@ -153,6 +263,11 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     specFile: specRelative,
     planFile: planRelative,
     teamTasksFile: taskBoardPath,
+    activation: {
+      mode: invocationSource === 'team-workflow' ? 'explicit-team-workflow' : 'explicit-team-command',
+      entry: invocationSource === 'team-workflow' ? 'team-workflow' : 'team',
+      auto_trigger_allowed: false,
+    },
   })
   state.requirement_source = requirementSource
   state.discussion_required = discussionRequired
@@ -271,13 +386,33 @@ function validateArchivePreconditions(state, board) {
   return { ok: true, team_phase: phase }
 }
 
-function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
+function cmdTeamExecute({ projectId, projectRoot, teamId, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
-  const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
+  const resolvedState = resolveTeamStatePath({ projectId: resolvedProjectId, teamId, invocationSource, allowActiveFallback })
+  if (!resolvedState.ok) {
+    return {
+      error: resolvedState.error,
+      project_id: resolvedProjectId,
+      invalid_fields: resolvedState.invalid_fields || [],
+      next_action: resolvedState.next_action,
+    }
+  }
+
+  const statePath = resolvedState.statePath
   if (!statePath) return { error: '没有活动 team runtime，请先执行 /team start 完成 bootstrap' }
 
   const state = readTeamState(statePath, resolvedProjectId, teamId)
+  const stateValidation = validateResolvedTeamState(state)
+  if (!stateValidation.ok) {
+    return {
+      error: stateValidation.error,
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      invalid_fields: stateValidation.invalid_fields,
+      next_action: stateValidation.next_action,
+    }
+  }
   const board = readTaskBoard(state.team_tasks_file)
   const currentPhase = state.team_phase || 'team-plan'
   const gate = validateExecutePreconditions(state, board)
@@ -370,22 +505,60 @@ function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
   }
 }
 
-function cmdTeamStatus({ projectId, projectRoot, teamId } = {}) {
+function cmdTeamStatus({ projectId, projectRoot, teamId, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
-  const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
+  const resolvedState = resolveTeamStatePath({ projectId: resolvedProjectId, teamId, invocationSource, allowActiveFallback })
+  if (!resolvedState.ok) {
+    return {
+      error: resolvedState.error,
+      project_id: resolvedProjectId,
+      invalid_fields: resolvedState.invalid_fields || [],
+      next_action: resolvedState.next_action,
+    }
+  }
+  const statePath = resolvedState.statePath
   if (!statePath) return { error: '没有活动 team runtime，请先执行 /team start 完成 bootstrap' }
   const state = readTeamState(statePath, resolvedProjectId, teamId)
+  const stateValidation = validateResolvedTeamState(state)
+  if (!stateValidation.ok) {
+    return {
+      error: stateValidation.error,
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      invalid_fields: stateValidation.invalid_fields,
+      next_action: stateValidation.next_action,
+    }
+  }
   const board = readTaskBoard(state.team_tasks_file)
   return buildTeamStatus(state, board)
 }
 
-function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false } = {}) {
+function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
-  const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
+  const resolvedState = resolveTeamStatePath({ projectId: resolvedProjectId, teamId, invocationSource, allowActiveFallback })
+  if (!resolvedState.ok) {
+    return {
+      error: resolvedState.error,
+      project_id: resolvedProjectId,
+      invalid_fields: resolvedState.invalid_fields || [],
+      next_action: resolvedState.next_action,
+    }
+  }
+  const statePath = resolvedState.statePath
   if (!statePath) return { error: '没有可归档的 team runtime' }
   const state = readTeamState(statePath, resolvedProjectId, teamId)
+  const stateValidation = validateResolvedTeamState(state)
+  if (!stateValidation.ok) {
+    return {
+      error: stateValidation.error,
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      invalid_fields: stateValidation.invalid_fields,
+      next_action: stateValidation.next_action,
+    }
+  }
   const board = readTaskBoard(state.team_tasks_file)
   const gate = validateArchivePreconditions(state, board)
   if (!gate.ok) {
@@ -405,6 +578,70 @@ function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false } = {}
   return { archived: true, project_id: resolvedProjectId, team_id: state.team_id, state_path: statePath, team_phase: state.team_phase }
 }
 
+function cmdTeamCleanup({ projectId, projectRoot, teamId, invocationSource } = {}) {
+  const root = detectProjectRoot(projectRoot)
+  const resolvedProjectId = projectId || stableProjectId(root)
+  const resolvedState = resolveCleanupStatePath({ projectId: resolvedProjectId, teamId, invocationSource })
+  if (!resolvedState.ok) {
+    return {
+      error: resolvedState.error,
+      project_id: resolvedProjectId,
+      invalid_fields: resolvedState.invalid_fields || [],
+      next_action: resolvedState.next_action,
+    }
+  }
+
+  const statePath = resolvedState.statePath
+  if (!statePath || !fs.existsSync(statePath)) {
+    return { error: '没有可清理的 team runtime', project_id: resolvedProjectId, next_action: 'pass-team-id-or-check-team-status' }
+  }
+
+  const state = readTeamState(statePath, resolvedProjectId, teamId)
+  const stateValidation = validateResolvedTeamState(state)
+  if (!stateValidation.ok) {
+    return {
+      error: stateValidation.error,
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      invalid_fields: stateValidation.invalid_fields,
+      next_action: stateValidation.next_action,
+    }
+  }
+
+  if (state.status !== 'archived' && state.team_phase !== 'archived') {
+    return {
+      error: 'cannot cleanup non-archived team runtime',
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      team_phase: state.team_phase,
+      status: state.status,
+      next_action: 'archive-team-runtime-first',
+    }
+  }
+
+  const teamDir = getTeamDir(resolvedProjectId, state.team_id)
+  if (!teamDir || !fs.existsSync(teamDir)) {
+    return {
+      error: '没有可清理的 team runtime',
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      next_action: 'check-team-runtime-path',
+    }
+  }
+
+  fs.rmSync(teamDir, { recursive: true, force: false })
+  return {
+    cleaned: true,
+    project_id: resolvedProjectId,
+    team_id: state.team_id,
+    removed_runtime_dir: teamDir,
+    preserved_artifacts: {
+      spec_file: state.spec_file,
+      plan_file: state.plan_file,
+    },
+  }
+}
+
 module.exports = {
   validateStartArtifacts,
   validateExecutePreconditions,
@@ -413,4 +650,5 @@ module.exports = {
   cmdTeamExecute,
   cmdTeamStatus,
   cmdTeamArchive,
+  cmdTeamCleanup,
 }

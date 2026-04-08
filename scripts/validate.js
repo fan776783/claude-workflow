@@ -389,7 +389,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     }
   }
 
-  const workflowMarkers = ['/team', '/workflow', '不会自动升级为 team mode'];
+  const workflowMarkers = ['/team', '/workflow', '不会自动升级为 team mode', '不得继承 team runtime'];
   for (const marker of workflowMarkers) {
     if (!workflowCommandContent.includes(marker)) {
       errors.push(`workflow command 缺少 /team 边界声明: ${marker}`);
@@ -397,8 +397,8 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
   }
 
   const teamEntrySkillMarkers = usesSplitRuntimeSkill
-    ? ['/workflow', '/quick-plan', 'team-workflow', '自动触发']
-    : ['/workflow', '/quick-plan', 'dispatching-parallel-agents', 'team-state.json', '自动触发'];
+    ? ['/workflow', '/quick-plan', 'team-workflow', '自动触发', 'cleanup']
+    : ['/workflow', '/quick-plan', 'dispatching-parallel-agents', 'team-state.json', '自动触发', 'cleanup'];
   for (const marker of teamEntrySkillMarkers) {
     if (!teamEntrySkillContent.includes(marker)) {
       errors.push(`team entry skill 缺少模式契约: ${marker}`);
@@ -406,7 +406,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
   }
 
   if (usesSplitRuntimeSkill) {
-    const teamRuntimeSkillMarkers = ['dispatching-parallel-agents', 'team-state.json', 'phase/state contract'];
+    const teamRuntimeSkillMarkers = ['dispatching-parallel-agents', 'team-state.json', 'phase/state contract', 'cleanup'];
     for (const marker of teamRuntimeSkillMarkers) {
       if (!teamRuntimeSkillContent.includes(marker)) {
         errors.push(`team runtime skill 缺少运行时契约: ${marker}`);
@@ -418,7 +418,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     {
       label: 'README.md',
       content: readmeContent,
-      markers: ['/team', 'core/skills/team/SKILL.md', 'team-state.json'],
+      markers: ['/team', 'core/skills/team/SKILL.md', 'team-state.json', '不继承 `team-state.json`'],
     },
     {
       label: 'CLAUDE.md',
@@ -428,7 +428,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     {
       label: 'core/CLAUDE.md',
       content: coreClaudeContent,
-      markers: ['/team mode guardrail'],
+      markers: ['/team mode guardrail', 'team_name', 'team_id'],
     },
   ];
 

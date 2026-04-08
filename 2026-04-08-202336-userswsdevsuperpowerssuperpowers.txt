@@ -1,0 +1,2951 @@
+ ▐▛███▜▌   Claude Code v2.1.91
+▝▜█████▛▘  gpt-5.4(high)[1m] · API Usage Billing
+  ▘▘ ▝▝    ~/dev/claude-workflow
+
+❯ /Users/ws/dev/superpowers分析superpowers的整个工作流程编排，重点关注如何拆分s 
+kills，如果利用hook触发流程                                                     
+
+⏺ 2 Explore agents finished (ctrl+o to expand)
+   ├─ superpowers-structure: Map workflow structure · 0 tool uses
+   │  ⎿  Done
+   └─ superpowers-hooks: Trace hook triggers · 0 tool uses
+      ⎿  Done
+  ⎿  Error: Already leading team "superpowers-analysis". A leader can only 
+     manage one team at a time. Use TeamDelete to end the current team before 
+     creating a new one.
+
+  Searched for 6 patterns, read 4 files (ctrl+o to expand)
+
+  Searched for 3 patterns, read 22 files (ctrl+o to expand)
+
+⏺ 我看完了
+  /Users/ws/dev/superpowers，它的核心不是“靠一个大总控脚本跑完整流程”，而是：
+
+  用一次 SessionStart 注入，把 agent 强制带入“先选 skill，再按 skill 
+  推进”的工作模式；后续流程主要由 skill 之间的显式衔接完成。
+
+  ---
+  1. 整个工作流编排长什么样
+
+  主流程在 README.md:108 已经写得很清楚，实际仓库实现也基本按这个拆：
+
+  SessionStart 注入 using-superpowers
+    -> agent 学会先判断/调用 skill
+    -> brainstorming
+    -> using-git-worktrees
+    -> writing-plans
+    -> subagent-driven-development 或 executing-plans
+    -> requesting-code-review / TDD / verification 等质量技能穿插
+    -> finishing-a-development-branch
+
+  对应证据：
+
+  - 总体流程说明：README.md:108
+  - 启动后先学会“怎么用 skills”：skills/using-superpowers/SKILL.md:1
+  - brainstorm 完成后只能进入写计划：skills/brainstorming/SKILL.md:66
+  - 写完计划后，进入两种执行模式之一：skills/writing-plans/SKILL.md:134
+  - 执行完成后进入收尾：skills/executing-plans/SKILL.md:32、skills/subagent-driv
+  en-development/SKILL.md:61
+
+  这套编排的关键点
+
+  它不是把“需求分析、设计、计划、执行、审查、收尾”塞进一个 skill。
+
+  而是拆成阶段技能，每个 skill 只负责一个阶段，并且在 skill 文本里写明：
+  - 什么时候用
+  - 进入条件
+  - 退出条件
+  - 必须调用的下一个 sub-skill
+
+  这相当于把“流程状态机”写进 skill contract 里，而不是写进代码里。
+
+  ---
+  2. superpowers 是怎么拆 skills 的
+
+  我认为它的拆分原则很清晰：按职责边界拆，而不是按工具或平台拆。
+
+  A. 引导/总入口类
+
+  这类 skill 不直接干业务，而是建立流程纪律。
+
+  using-superpowers
+
+  skills/using-superpowers/SKILL.md:1
+
+  作用：
+  - 会话一开始加载
+  - 强制 agent 在任何回应/行动前先判断是否该调用 skill
+  - 明确说了：只要有 1% 可能适用，就必须 invoke skill
+
+  这是整个系统真正的“总入口”。
+
+  ---
+  B. 前置设计类
+
+  brainstorming
+
+  skills/brainstorming/SKILL.md:1
+
+  职责：
+  - 先澄清需求
+  - 提方案对比
+  - 分段展示设计给用户确认
+  - 产出 spec 文档
+  - 审核 spec
+  - 然后只允许进入 writing-plans
+
+  这一步本质是把“想做什么”固定下来，禁止直接开写。
+
+  writing-plans
+
+  skills/writing-plans/SKILL.md:1
+
+  职责：
+  - 把 spec 拆成可执行计划
+  - 每个 task 要求到文件路径、代码、测试命令级别
+  - 强调 TDD / DRY / YAGNI / frequent commits
+  - 最后把执行权交给：
+    - subagent-driven-development
+    - 或 executing-plans
+
+  这一步解决的是“怎么做”。
+
+  ---
+  C. 执行编排类
+
+  这是 superpowers 最核心的一层。
+
+  subagent-driven-development
+
+  skills/subagent-driven-development/SKILL.md:1
+
+  职责：
+  - 读计划
+  - 按 task 派发新 subagent
+  - 每个 task 后走双重审查：
+    a. spec compliance review
+    b. code quality review
+  - 所有任务完成后再进收尾 skill
+
+  这是它的高自动化主力执行器。
+
+  executing-plans
+
+  skills/executing-plans/SKILL.md:1
+
+  职责：
+  - 不走多 subagent 的情况下，按 plan 在当前/独立 session 顺序执行
+  - 更偏“串行执行器”
+
+  这两个 skill 是同一执行阶段的两种 runtime：
+  - 一个偏 subagent orchestration
+  - 一个偏 inline / session execution
+
+  这个拆法很好，因为它把“计划”与“执行策略”分开了。
+
+  ---
+  D. 横切约束类
+
+  这些不是主流程阶段，但会在多个阶段中复用。
+
+  test-driven-development
+
+  skills/test-driven-development/SKILL.md:1
+
+  作用：
+  - 约束任何实现都必须遵守 RED → GREEN → REFACTOR
+  - 属于“实现纪律 skill”
+
+  requesting-code-review
+
+  skills/requesting-code-review/SKILL.md:1
+
+  作用：
+  - 完成 task / major feature / merge 前做审查
+  - 是质量门，不是主流程
+
+  verification-before-completion
+
+  虽然这次没展开读内容，但从命名和 README 可看出它是“别太早宣告完成”的验证门。
+
+  systematic-debugging
+
+  调试也被独立成 skill，而不是塞进实现 skill 里。
+
+  ---
+  E. 生命周期/工作区类
+
+  using-git-worktrees
+
+  skills/using-git-worktrees/SKILL.md:1
+
+  职责：
+  - 建隔离工作区
+  - 检查 worktree 目录是否被 gitignore
+  - 跑 setup
+  - 验证基线测试
+
+  finishing-a-development-branch
+
+  skills/finishing-a-development-branch/SKILL.md:1
+
+  职责：
+  - 跑最终测试
+  - 给用户四个收尾选项：merge / PR / keep / discard
+  - 负责清理 worktree
+
+  这两个 skill 负责“开发环境生命周期”，不掺杂需求或实现逻辑。
+
+  ---
+  F. 元技能/扩展技能
+
+  writing-skills
+
+  用来继续生产 skill
+  dispatching-parallel-agents
+
+  更偏并行分派策略
+  receiving-code-review
+
+  处理审查反馈
+
+  这类 skill 是为了扩展 superpowers 自己，而不是业务主链路。
+
+  ---
+  3. 这套 skills 拆分思路为什么有效
+
+  我总结成 4 条：
+
+  1) 一阶段一个 skill
+
+  不是“万能工作流 skill”，而是：
+  - 设计一个
+  - 计划一个
+  - 执行一个
+  - 审查一个
+  - 收尾一个
+
+  好处是每个 skill 的进入/退出条件很清楚。
+
+  ---
+  2) 横切关注点独立成 skill
+
+  例如：
+  - TDD
+  - code review
+  - debugging
+  - verification
+
+  这些不是某个阶段独有，所以不应该写死在某个大 skill 里。
+
+  ---
+  3) 执行策略与计划内容分离
+
+  writing-plans 负责产出 plan，
+  subagent-driven-development / executing-plans 负责消费 plan。
+
+  所以以后要换执行器，不需要重写 planning skill。
+
+  ---
+  4) 平台适配不塞进业务 skill
+
+  平台差异放在：
+  - plugin manifest
+  - hook 配置
+  - OpenCode plugin transform
+  - 安装文档 / symlink
+
+  业务流程 skill 本身尽量平台无关。
+
+  这点很重要。
+
+  ---
+  4. hook 是怎么触发整个流程的
+
+  这里要注意：hook 不是直接执行 brainstorming / writing-plans / 
+  subagent-driven-development。
+
+  它做的事情更前置、更关键：
+
+  ▎ 在会话开始时，把 using-superpowers 注入上下文，让 agent 从第一轮开始就按 
+  skills 纪律工作。
+
+  Claude Code 的 hook 配置
+
+  hooks/hooks.json:1
+
+  {
+    "hooks": {
+      "SessionStart": [
+        {
+          "matcher": "startup|clear|compact",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" 
+  session-start",
+              "async": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+
+  意思是：
+  - 触发事件：SessionStart
+  - 匹配时机：startup | clear | compact
+  - 执行命令：运行 run-hook.cmd session-start
+
+  Cursor 的 hook 配置
+
+  hooks/hooks-cursor.json:1
+
+  Cursor 版本更简单：
+  - sessionStart 时执行 ./hooks/session-start
+
+  ---
+  5. hook 运行后到底干了什么
+
+  第一步：跨平台 wrapper
+
+  hooks/run-hook.cmd:1
+
+  这是个 polyglot wrapper：
+  - Windows 下负责找到 bash
+  - Unix 下直接 exec bash ...
+
+  它的目的不是业务逻辑，而是保证 hook 脚本跨平台可执行。
+
+  文档在：
+  docs/windows/polyglot-hooks.md:1
+
+  ---
+  第二步：真正执行 hooks/session-start
+
+  hooks/session-start:1
+
+  这个脚本做了几件事：
+
+  1）定位插件根目录
+
+  hooks/session-start:7
+
+  2）检测旧版 skills 目录并构造警告
+
+  hooks/session-start:10
+
+  如果用户还有旧的 ~/.config/superpowers/skills，就提醒迁移到新技能系统。
+
+  3）读取 using-superpowers 的全文
+
+  hooks/session-start:17
+
+  这里是核心：
+  - 它不是只写一句“你有 superpowers”
+  - 而是把 skills/using-superpowers/SKILL.md 整份读出来注入
+
+  4）组装 session context
+
+  hooks/session-start:35
+
+  注入内容大意：
+  - “You have superpowers.”
+  - “下面是 using-superpowers 的完整内容”
+  - “其他 skill 用 Skill tool 调用”
+
+  5）按平台输出不同 JSON 结构
+
+  hooks/session-start:46
+
+  - Cursor：additional_context
+  - Claude Code：hookSpecificOutput.additionalContext
+  - Copilot/其他：additionalContext
+
+  也就是说，它把同一份 bootstrap 适配成不同平台期望的 hook 输出格式。
+
+  ---
+  6. 所以 hook 如何“触发流程”
+
+  严格说，它不是直接触发业务流程，而是触发流程治理。
+
+  实际链路是：
+
+  SessionStart
+    -> hook 运行 session-start
+    -> 注入 using-superpowers 全文
+    -> agent 被要求先判断并调用合适 skill
+    -> 用户提出任务后，agent 自动进入 brainstorming / debugging / TDD 等
+    -> 后续 skill 再显式要求调用下一个 skill
+
+  所以它是：
+
+  hook 负责激活“流程规则”
+  skill 负责推进“流程阶段”
+
+  这两个职责分得非常干净。
+
+  ---
+  7. commands 在这套架构里是什么角色
+
+  commands/brainstorm.md:1
+  commands/write-plan.md:1
+  commands/execute-plan.md:1
+
+  这三个命令现在基本都只是废弃壳层，只负责告诉用户：
+
+  - /brainstorm 已废弃，请用 superpowers:brainstorming
+  - /write-plan 已废弃，请用 superpowers:writing-plans
+  - /execute-plan 已废弃，请用 superpowers:executing-plans
+
+  RELEASE-NOTES.md:483 也明确说了：
+  - slash commands 变成 user-only
+  - 真正让模型自主调用的是底层 skills
+
+  也就是说，superpowers 现在更偏向：
+
+  commands 给人类入口，skills 给模型入口。
+
+  ---
+  8. 不同平台怎么接入这套流程
+
+  Claude / Cursor
+
+  靠 plugin manifest + hooks
+
+  - Claude plugin 元信息：.claude-plugin/plugin.json:1
+  - Cursor plugin 元信息：.cursor-plugin/plugin.json:1
+
+  Cursor manifest 里直接声明了：
+  - skills
+  - agents
+  - commands
+  - hooks
+
+  ---
+  Codex
+
+  靠原生 skill discovery + symlink
+
+  /.codex/INSTALL.md:1
+
+  不是 hook 驱动，而是：
+  - clone repo
+  - 把 skills/ 链接到 ~/.agents/skills/superpowers
+
+  ---
+  OpenCode
+
+  更有意思，它不用 hook，而是用插件 transform。
+
+  /.opencode/plugins/superpowers.js:49
+
+  做两件事：
+
+  1. 动态把 skills 路径塞进 OpenCode config
+  2. 在每个 session 的第一条 user message前插入 bootstrap 内容
+
+  这和 Claude 的 SessionStart hook 本质上干的是同一件事：
+  把 using-superpowers 提前注入上下文
+
+  ---
+  9. 我觉得 superpowers 最值得借鉴的编排设计
+
+  1）hook 只做 bootstrap，不做业务决策
+
+  这点很强。
+
+  很多系统会想把 hook 写成“自动判断任务类型然后直接跑流程”，很快就会失控。
+  superpowers 没这么做，它只负责把“流程纪律”注入进去。
+
+  ---
+  2）真正的状态流转靠 skill contract
+
+  例如：
+  - brainstorming 明确说下一步只能是 writing-plans
+  - writing-plans 明确交给 subagent-driven-development 或 executing-plans
+  - executing-plans / subagent-driven-development 明确结束时必须调用
+  finishing-a-development-branch
+
+  这是一种文本化状态机。
+
+  ---
+  3）把“流程控制”和“实现内容”分离
+
+  - skill 决定怎么推进
+  - plan/spec 决定做什么
+  - hook 决定怎么激活
+
+  三层分工非常清楚。
+
+  ---
+  4）测试在验证整个编排，而不是只测代码片段
+
+  例如：
+  - tests/skill-triggering/run-all.sh:1
+  - tests/claude-code/test-subagent-driven-development-integration.sh:13
+
+  它会验证：
+  - skill 是否真的被调用
+  - 是否真的派了 subagent
+  - 是否先做 spec review 再做 code quality review
+  - 是否真的创建了产物并跑通测试
+
+  说明这套 workflow 不是只有文档，是真在测“编排行为”。
+
+  ---
+  10. 用一句话总结 superpowers 的架构
+
+  superpowers = SessionStart bootstrap + 强约束 skill system + 文本化阶段状态机 
+  + 平台适配层。
+
+  如果你重点想复用它的思路，最值得抄的是这三个点：
+
+  1. 用 hook 注入最小但关键的总规则
+  2. 把 workflow 拆成阶段 skill，而不是一个大 skill
+  3. 让每个 skill 显式声明“下一步必须调用谁”
+
+  这样编排会很稳，而且容易跨平台迁移。
+
+❯ 本项目是否可以借鉴superpowers的思路，用hook来控制workflow的工作流程和卡点     
+
+⏺ Skill(analyze)
+  ⎿  Successfully loaded skill
+
+  Searched for 2 patterns, read 10 files (ctrl+o to expand)
+  ⎿  Loaded core/CLAUDE.md
+⏺ 可以借鉴，但不应该像 superpowers 那样把 workflow 主流程控制主要压在 hook 上。
+  你这个项目更适合的方向是：
+
+  保留“skill / command / state-machine 主导”，让 hook 
+  只做“上下文注入、前置拦截、质量卡点、并发保护”这类 runtime 守门。
+
+  直接结论
+
+  适合借鉴的部分
+
+  可以借鉴 superpowers 的这三点：
+
+  1. SessionStart 注入工作流上下文
+  2. 在关键工具调用前做 hook 拦截
+  3. 把卡点做成 hook + 状态文件驱动的 guardrail
+
+  不建议照搬的部分
+
+  不建议把：
+  - 阶段流转
+  - 下一步该进 planning / execute / review
+  - 是否继续 / 重试 / 跳过
+
+  主要交给 hook 决定。
+
+  这些在你项目里已经有更成熟的宿主：
+  - /workflow command 路由：core/commands/workflow.md:17
+  - workflow state machine：core/specs/workflow-runtime/state-machine.md:12
+  - execute resolver：core/specs/workflow-runtime/execute-entry.md:1
+  - quality gate 规范：core/specs/workflow/quality-gate.md:1
+
+  也就是说，你项目已经不是 superpowers 那种“靠 bootstrap
+  让模型自觉走流程”的阶段了，而是已经有显式状态机 + 显式命令入口。这比
+  superpowers 更强，不该退回去。
+
+  ---
+  为什么你们项目比 superpowers 更适合“hook 做守门，不做主控”
+
+  superpowers 的 hook 主要做的是：
+
+  - SessionStart 注入 using-superpowers
+  - 让模型从一开始就知道“先用 skill”
+
+  它的 hook 更像行为纪律启动器。
+
+  而你项目已经有这些更重的基础设施：
+
+  1. 明确的状态机
+
+  core/specs/workflow-runtime/state-machine.md:14
+
+  已经定义了：
+  - spec_review
+  - planning
+  - planned
+  - running
+  - paused
+  - blocked
+  - failed
+  - completed
+  - archived
+
+  这说明“流程在哪一阶段”已经有正式建模，不需要 hook 再发明一套。
+
+  ---
+  2. 明确的 execute 恢复与继续语义
+
+  core/specs/workflow-runtime/execute-entry.md:24
+
+  已经明确：
+  - 裸“继续”只有在满足条件时才允许解释成恢复 workflow
+  - 恢复后必须走统一 execute resolver
+  - 真正是否继续由 ContextGovernor / 验证 / 质量关卡 / 阻塞状态决定
+
+  这已经是完整的 runtime governance。
+  如果再让 hook 主导流转，很容易双重治理。
+
+  ---
+  3. 你们已经在用 hook 做“辅助治理”
+
+  而且已经做得挺对了。
+
+  session-start.js
+
+  core/hooks/session-start.js:78
+
+  它做的是：
+  - 注入项目信息
+  - 注入 active workflow 状态
+  - 注入 next action
+  - 注入 spec index / thinking guides
+
+  这和 superpowers 的 SessionStart bootstrap
+  思路是一致的，而且更强，因为它注入的是项目当前 workflow 状态，不是泛化规则。
+
+  pre-execute-inject.js
+
+  core/hooks/pre-execute-inject.js:95
+
+  它会在 Task 工具调用前：
+  - 读取当前 workflow state
+  - 找当前任务
+  - 把 task / spec / baseline constraints 注入到工具输入
+
+  这其实已经是一个非常像 superpowers 的“执行前上下文灌注 hook”了，而且比
+  superpowers 更工程化。
+
+  quality-gate-loop.js
+
+  core/hooks/quality-gate-loop.js:81
+
+  它会：
+  - 根据当前 task 的“验证命令”运行检查
+  - 失败时阻断继续
+  - 控制最大重试次数
+  - 超时自动放行
+
+  这已经不是“是否能借鉴”的问题了，你们已经在实现 hook 卡点机制。
+
+  worktree hooks
+
+  docs/worktree-hooks.md:18
+
+  也已经用 hook 处理：
+  - WorktreeCreate
+  - WorktreeRemove
+  - 并发锁
+  - 清理
+
+  这说明 hook 在你们项目里的最佳位置已经非常清楚：
+  runtime side-effects / 并发控制 / 守门拦截。
+
+  ---
+  最适合借鉴 superpowers 的地方：把 hook 变成“卡点操作系统”
+
+  如果你问的是“能不能用 hook 控 workflow 工作流程和卡点”，我的答案是：
+
+  能，但控制的是“边界条件和放行条件”，不是“主流程状态转移”。
+
+  建议按这三层来分：
+
+  ---
+  一层：主流程仍由 command + skill + state machine 控制
+
+  这层保持现状，不要交给 hook。
+
+  负责：
+  - /workflow start
+  - /workflow execute
+  - /workflow delta
+  - /workflow archive
+  - planning / execute / review 的状态流转
+  - continue / retry / skip 解析
+
+  对应你们现有体系：
+  - core/commands/workflow.md:17
+  - core/skills/workflow-planning/SKILL.md
+  - core/skills/workflow-executing/SKILL.md:6
+  - core/specs/workflow-runtime/state-machine.md:1
+
+  ---
+  二层：hook 控“进入某动作前是否允许”
+
+  这是最值得强化的。
+
+  比如：
+
+  1. 执行前注入任务上下文
+
+  你们已经有：
+  - core/hooks/pre-execute-inject.js:106
+
+  可以继续加强成：
+  - 若当前没有 active task，不允许 Task 派发
+  - 若 state.status 不是 running/paused，直接拒绝
+  - 若 task 缺少 baseline / spec / verification，不允许进入执行
+
+  这类非常适合 hook。
+
+  ---
+  2. 质量关卡卡点
+
+  你们已经有：
+  - core/hooks/quality-gate-loop.js:124
+
+  可以进一步借鉴 superpowers 的“阶段式卡点”思路，扩成：
+
+  - task-level gate
+    - 当前 task 的验证命令必须通过
+  - phase-level gate
+    - 当前 phase 所有 gate task 都通过，才允许进入下一 phase
+  - pre-commit gate
+    - 如果下一个动作是 commit，且 pause_before_commit=true，先卡住
+  - review-required gate
+    - 如果 task 标记 quality_review，没审完不允许继续
+
+  你们规范里其实已经有这个方向了：
+  core/specs/workflow/quality-gate.md:30
+
+  ---
+  3. 并发与 worktree 安全卡点
+
+  这块你们已经做得很好：
+  - docs/worktree-hooks.md:18
+
+  这正是 hook 最该做的事，因为它是运行时 side-effect 防护，而不是业务流程决策。
+
+  ---
+  三层：SessionStart hook 负责“恢复工作流意识”
+
+  这也是最值得借鉴 superpowers 的地方。
+
+  你们现在的 session-start.js 已经做了项目和状态注入，下一步我建议补强的是：
+
+  可以增加的内容
+
+  在会话开头明确注入：
+  - 当前项目是否存在活动 workflow
+  - 当前状态是什么
+  - 下一步推荐动作是什么
+  - 当前禁止的动作是什么
+
+  例如：
+  - planned 时，不应重新做 planning，推荐 /workflow execute
+  - spec_review 时，不应直接进入 execute
+  - running 时，裸“继续”只能走 execute resolver
+  - completed 时，不应继续执行，而应 archive
+
+  你们现在已有 determineNextAction(state)：
+  core/hooks/session-start.js:59
+
+  这已经很接近了，只差把“推荐动作”升级成更强的行为 guardrail 提示。
+
+  ---
+  一个关键原则：hook 不要拥有“业务判断最终权”
+
+  这点是我最想强调的。
+
+  hook 适合做
+
+  - 注入上下文
+  - 校验前置条件
+  - 阻断明显违规动作
+  - 自动执行机械验证
+  - 保护运行时资源
+
+  hook 不适合做
+
+  - 决定需求是否完成
+  - 决定 spec 是否合理
+  - 决定 plan 怎么拆
+  - 决定该走哪个 skill
+  - 决定是否进入 team mode / execute mode
+
+  因为这些属于：
+  - workflow policy
+  - state machine
+  - skills contract
+  - command semantics
+
+  如果 hook 也管这些，会出现两套真相源。
+
+  ---
+  我给你的建议架构
+
+  推荐方案：workflow orchestrator + hook guardrails
+
+  也就是：
+
+  主控层
+
+  - command
+  - skill
+  - workflow-state.json
+  - shared runtime spec
+
+  hook 层
+
+  - SessionStart：注入 workflow 上下文和下一步动作
+  - PreToolUse(Task)：注入 active task / spec / constraints
+  - PreToolUse(Bash/Edit/Write)：校验当前阶段是否允许此类操作
+  - PostToolUse / quality hook：跑验证并卡住失败结果
+  - WorktreeCreate/Remove：并发保护和清理
+
+  这比 superpowers 更适合你们当前项目阶段。
+
+  ---
+  如果进一步落地，我建议优先补这 4 个 hook 卡点
+
+  1. SessionStart 强化成“工作流恢复引导器”
+
+  基于 workflow-state.json 输出明确提示：
+  - 当前状态
+  - 允许的下一动作
+  - 不允许的动作
+
+  ---
+  2. PreToolUse(Edit/Write/Bash) 增加阶段校验
+
+  例如：
+  - planned 状态下，禁止直接改代码，提示先 /workflow execute
+  - spec_review 状态下，禁止进入实现
+  - blocked / failed 时，只允许 retry / unblock 路径相关动作
+
+  这类很适合 hook 做硬卡点。
+
+  ---
+  3. PreToolUse(Task) 增强执行上下文注入
+
+  你们已有 pre-execute-inject.js，可以继续补：
+  - current task 完整块
+  - verification commands
+  - must-preserve constraints
+  - uncovered requirement ids
+  - active quality gate state
+
+  让 subagent 输入更闭环。
+
+  ---
+  4. quality-gate-loop 升级成 phase-aware gate
+
+  现在更像 task-level verification loop。
+  可以进一步接 state.quality_gates，做成：
+  - task pass/fail
+  - phase barrier
+  - review loop state
+  - pause-before-commit
+
+  和 core/specs/workflow/quality-gate.md:46 对齐。
+
+  ---
+  最后一句判断
+
+  可以借鉴 superpowers，但不是“让 hook 接管 workflow”，而是“让 hook 成为 
+  workflow 的硬边界与卡点执行层”。
+
+  你们当前项目最优解是：
+
+  状态机管流程，skill 管协议，hook 管注入、拦截、验证和放行。
+
+  这比 superpowers 更适合你们现在的架构成熟度。
+
+❯ 制定一个优化方案                                                              
+
+⏺ Explore(Explore hook workflow architecture)
+  ⎿  Initializing…
+  ⎿  Error: Team "superpowers-analysis" does not exist. Call spawnTeam first to 
+     create the team.
+
+⏺ 2 Explore agents finished (ctrl+o to expand)
+   ├─ hook-runtime-explorer: Explore workflow hooks · 0 tool uses
+   │  ⎿  Done
+   └─ hook-install-explorer: Explore install wiring · 0 tool uses
+      ⎿  Done
+
+⏺ Explore(Explore workflow hooks)
+  ⎿  Initializing…
+  ⎿  Error: Team "superpowers-analysis" does not exist. Call spawnTeam first to 
+     create the team.
+
+⏺ Explore(Explore workflow hooks)
+  ⎿  Initializing…
+  ⎿  Error: Team "none" does not exist. Call spawnTeam first to create the team.
+
+  Read 4 files (ctrl+o to expand)
+
+⏺ Plan(Design hook optimization plan)
+  ⎿  Initializing…
+  ⎿  Error: Team "none" does not exist. Call spawnTeam first to create the team.
+
+  Searched for 1 pattern, read 7 files (ctrl+o to expand)
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ User approved Claude's plan
+  ⎿  Plan saved to: ~/.claude/plans/quirky-swimming-fiddle.md · /plan to edit
+     Hook 驱动 Workflow Guardrails 优化方案
+
+     Context
+
+     当前项目已经具备成熟的 workflow 主体：/workflow command 负责入口路由，专项
+     skills 负责阶段协议，workflow-state.json 负责运行时状态机。现有 hooks
+     也已覆盖部分运行时守门能力，例如会话启动上下文注入、Task
+     派发前上下文补全、质量验证循环、worktree 串行化。
+
+     这次优化的目标不是把主流程改成 hook 驱动，而是在不替换 command / skill / 
+     state-machine 架构的前提下，强化 hook 作为 runtime guardrail
+     的作用：统一上下文注入、前置拦截、质量卡点与安装注册方式，让 workflow
+     的“卡点”更稳定、更可配置、更可测试。
+
+     Recommended Approach
+
+     1. 先补齐 hook guardrails 的共享契约，明确边界
+
+     目标：把“hook 做什么 / 不做什么”固化为共享规范，避免 hook 与 state machine
+     双重决策。
+
+     关键文件
+     - core/specs/workflow-runtime/state-machine.md
+     - core/specs/workflow-runtime/execute-entry.md
+     - core/specs/workflow/quality-gate.md
+     - core/specs/workflow/review-loop.md
+     - core/specs/workflow-runtime/shared-utils.md
+
+     要做的事
+     - 明确 hook 只负责：上下文注入、前置条件校验、验证证据、质量关卡阻断、workt
+     ree/并发安全。
+     - 明确主流程仍由 /workflow + skills + workflow-state.json 控制，不允许 hook
+      私自决定 planning / execute / delta / archive 的阶段流转。
+     - 为后续 workflow hooks
+     补一份统一事件语义：SessionStart、PreToolUse(Task)、潜在的
+     PreToolUse(Edit|Write|Bash)、quality gate hook。
+
+     复用现有机制
+     - 继续以 workflow-state.json
+     为唯一运行时真相源：core/specs/workflow-runtime/state-machine.md
+     - 继续以 execute resolver
+     为恢复入口：core/specs/workflow-runtime/execute-entry.md
+     - 继续以 quality_gates.* / review_status.* 作为审查结果 sink：core/specs/wo
+     rkflow/quality-gate.md、core/specs/workflow/review-loop.md
+
+     ---
+     2. 强化 SessionStart：从“状态展示”升级为“工作流恢复引导”
+
+     目标：让会话开始时立即知道当前 workflow
+     状态、下一步推荐动作、禁止的动作，但不直接替代 /workflow execute。
+
+     关键文件
+     - core/hooks/session-start.js
+     - core/specs/workflow-runtime/status.md
+     - core/commands/workflow.md
+
+     要做的事
+     - 在现有 <workflow-context> 注入基础上，增加更强的 guardrail 提示：
+       - planned：提示只能进入 /workflow execute，不要重新规划
+       - spec_review：提示先完成人工审查，不能直接执行
+       - running/paused/failed/blocked：提示恢复动作与限制路径
+       - completed：提示归档而不是继续执行
+     - 让 next-action 与 command contract 用词一致，避免 session-start 注入和
+     /workflow 文档各说各话。
+     - 保持只读提示，不在 hook 中自动触发命令或改变状态。
+
+     复用现有函数/逻辑
+     - 复用 determineNextAction() 与
+     collectSpecIndices()：core/hooks/session-start.js
+     - 复用 /workflow 的 action 路由定义：core/commands/workflow.md
+
+     ---
+     3. 把 Task 前注入扩成“执行前守门层”
+
+     目标：在真正派发执行前，把当前任务、约束、验证与阶段边界一起注入，并在状态
+     不允许时直接阻断。
+
+     关键文件
+     - core/hooks/pre-execute-inject.js
+     - core/utils/workflow/path_utils.js
+     - core/utils/workflow/task_parser.js
+     - core/utils/workflow/state_manager.js
+     - core/specs/workflow-runtime/preflight.md
+
+     要做的事
+     - 保留当前 Task 工具注入逻辑，并补充更多执行期上下文：
+       - 当前 task 的 verification commands
+       - requirement baseline 中 must-preserve / critical constraints
+       - 当前 quality gate 状态 / 上一轮失败摘要
+     - 增加阶段校验：
+       - 非 running/paused 时禁止执行型 Task 派发
+       - 无 active task、无 spec/plan、或 workflow 已 completed/archived
+     时拒绝放行
+     - 第二阶段再考虑扩到 Edit / Write / Bash
+     的前置守门，但应仅做轻量硬卡点，避免误伤正常阅读/调查动作。
+
+     复用现有函数/逻辑
+     - 复用 findWorkflowState() /
+     buildTaskContext()：core/hooks/pre-execute-inject.js
+     - 复用 canonical state/path
+     约束：core/specs/workflow-runtime/shared-utils.md
+     - 复用 preflight 中的 Git / project-config / workflow-state
+     约束语义：core/specs/workflow-runtime/preflight.md
+
+     ---
+     4. 升级质量卡点：从 task 验证循环扩成 phase-aware gate adapter
+
+     目标：让质量 hook 更紧密地对齐现有 quality_gates.* 与 review loop
+     contract，而不是只做命令重试。
+
+     关键文件
+     - core/hooks/quality-gate-loop.js
+     - core/specs/workflow/quality-gate.md
+     - core/specs/workflow/review-loop.md
+     - core/utils/workflow/verification.js
+     - core/utils/workflow/quality_review.js
+     - core/utils/workflow/execution_sequencer.js
+
+     要做的事
+     - 保留当前基于“验证命令”的阻断逻辑，但把结果回写和提示语进一步统一到
+     quality_gates 语义。
+     - 对不同 action 区分 gate 行为：
+       - run_tests：命令通过才放行
+       - quality_review：读取 state.quality_gates[task.id].overall_passed
+       - git_commit：支持与 pause_before_commit / pre-commit gate 对齐
+     - 把 task-level retry loop 与 phase boundary 结合：阶段未过 gate
+     时不允许继续推进到下一 phase。
+     - 保持预算/超时/最大迭代上限，避免 hook 无限循环。
+
+     复用现有函数/逻辑
+     - 复用 ACTION_VERIFICATION_MAP、getVerificationCommands()、validateVerifica
+     tionOrder()：core/utils/workflow/verification.js
+     - 复用质量关卡状态落盘语义：core/specs/workflow/quality-gate.md
+     - 复用 execution governance 决策，不在 hook 中重新发明
+     sequencer：core/utils/workflow/execution_sequencer.js
+
+     ---
+     5. 把 workflow hooks 的安装/注册做成与 worktree hooks 同级的正式能力
+
+     目标：避免 workflow hooks 只存在于仓库内部、没有清晰安装路径；同时保留保守
+     合并策略，不覆盖用户自定义配置。
+
+     关键文件
+     - lib/installer.js
+     - docs/worktree-hooks.md
+     - bin/agent-workflow.js
+     - README.md
+
+     要做的事
+     - 参考现有 ensureWorktreeHooks() 模式，为 workflow 相关 hooks
+     设计独立注册入口。
+     - 采用“默认保守、可显式启用”的策略：
+       - worktree hooks 继续自动注入（已有）
+       - workflow hooks 先做文档化 + 可选注入，不直接强推到所有全局用户配置
+     - 在安装结果中展示哪些 workflow hooks 已注册、哪些跳过、为什么跳过。
+     - 补充一份面向用户的文档，解释 workflow hooks 与 worktree hooks 的分工。
+
+     复用现有函数/逻辑
+     - 直接复用 ensureWorktreeHooks() 的保守合并思路：lib/installer.js
+     - 复用当前 managed hooks 发布结构：core/hooks/*
+
+     ---
+     6. 用测试把 hook guardrails 固化下来
+
+     目标：验证“卡点行为”而不是只验证文档存在。
+
+     关键文件
+     - tests/test_workflow_helpers.js
+     - 可新增：tests/hooks/*.js 或并入现有 helper tests
+     - core/hooks/session-start.js
+     - core/hooks/pre-execute-inject.js
+     - core/hooks/quality-gate-loop.js
+
+     要做的事
+     - 为 hook 脚本补最小可执行测试，重点覆盖：
+       - SessionStart 在不同 workflow 状态下的 next-action 注入
+       - PreToolUse(Task) 在无 active task / 非 running 状态下的阻断与注入
+       - quality-gate-loop 在 pass / fail / retry exhaust / timeout 场景下的行为
+     - 沿用现有 Node.js 测试风格，不引入新测试框架。
+
+     复用现有函数/逻辑
+     - 复用当前 helper test 模式：tests/test_workflow_helpers.js
+     - 复用 canonical state fixture / fake HOME
+     的测试套路：tests/test_workflow_helpers.js
+
+     Critical Files to Modify
+
+     - core/hooks/session-start.js
+     - core/hooks/pre-execute-inject.js
+     - core/hooks/quality-gate-loop.js
+     - core/specs/workflow-runtime/state-machine.md
+     - core/specs/workflow-runtime/execute-entry.md
+     - core/specs/workflow/quality-gate.md
+     - core/specs/workflow/review-loop.md
+     - lib/installer.js
+     - docs/worktree-hooks.md
+     - README.md
+     - tests/test_workflow_helpers.js
+
+     Reuse First
+
+     - determineNextAction() / collectSpecIndices() / current session context
+     format — core/hooks/session-start.js
+     - buildTaskContext() / current Task 注入补丁结构 —
+     core/hooks/pre-execute-inject.js
+     - ACTION_VERIFICATION_MAP / getVerificationCommands() /
+     validateVerificationOrder() — core/utils/workflow/verification.js
+     - workflow-state.json canonical schema —
+     core/specs/workflow-runtime/state-machine.md
+     - /workflow execute shared resolver semantics —
+     core/specs/workflow-runtime/execute-entry.md
+     - ensureWorktreeHooks() conservative settings merge pattern —
+     lib/installer.js
+
+     What to Avoid
+
+     - 不要把 planning / execute / delta / archive 的阶段决策搬进 hook
+     - 不要让 hook 成为第二套状态机
+     - 不要跳过现有 quality_gates.* / review_status.* sink，另造结果存储
+     - 不要默认把所有 workflow hooks 自动写进用户全局 settings.json
+     - 不要引入新的测试框架或新的 runtime state 位置
+
+     Verification
+
+     1. 运行现有 Node 测试，确保 helper / workflow runtime 未回归
+       - node --test tests/test_workflow_helpers.js
+     2. 针对 hook 脚本补充并运行测试（新增后）
+       - node --test tests/hooks/*.js
+     3. 本地验证安装链路（只在实现阶段按需）
+       - node bin/agent-workflow.js sync --project 或对应全局 sync 路径，确认
+     workflow hooks 的注册结果输出符合预期
+     4. 手工验证核心场景
+       - 有 active workflow 时新开会话，检查 SessionStart 注入的 next-action
+     是否正确
+       - planned / spec_review / running / completed
+     四种状态下尝试恢复流程，确认 hook 只提示/拦截，不越权推进状态
+       - 制造一个失败的验证命令，确认 quality-gate-loop 阻断并产出统一失败原因
+
+⏺ 已给出优化方案，核心方向是：
+
+  - 不改现有主架构：继续由 /workflow + skills + workflow-state.json 控主流程
+  - 强化 hook 为 guardrails：专注上下文注入、执行前拦截、质量卡点、并发/安装治理
+  - 优先复用现有能力：session-start.js、pre-execute-inject.js、quality-gate-loop
+  .js、ensureWorktreeHooks()、quality_gates.* / review_status.*
+
+  方案文件在：
+
+  /Users/ws/.claude/plans/quirky-swimming-fiddle.md
+
+  如果你要下一步落地，我建议按这个顺序做：
+
+  1. 先补 hook guardrails 契约文档
+  2. 再改 SessionStart / PreToolUse(Task)
+  3. 然后升级 quality-gate-loop
+  4. 最后补 installer 注册能力和测试
+
+❯ 继续                                                                          
+⏺ 先开始实现文档契约和 runtime hook。
+
+  Searched for 2 patterns, read 10 files (ctrl+o to expand)
+
+  Searched for 1 pattern, read 11 files (ctrl+o to expand)
+
+  Searched for 3 patterns, read 4 files (ctrl+o to expand)
+
+⏺ 我开始落地了：先补文档与 hook/installer/test 的关键实现。
+
+⏺ Update(core/hooks/session-start.js)
+  ⎿  Added 24 lines, removed 7 lines
+      64    const completed = progress.completed || []
+      65  
+      66    if (status === 'idle') return '使用 `/workflow start` 开始新
+          的工作流。'
+      67 -  if (status === 'planned') return '规划已完成。使用 `/workflow
+         - execute` 开始执行。'                                          
+      68 -  if (status === 'spec_review') return 'Spec 等待确认。请审查 S
+         -pec 文档后确认继续。'                                          
+      67 +  if (status === 'planned') return '规划已完成。使用 `/workflow
+         + execute` 开始执行；不要重新进入规划。'                        
+      68 +  if (status === 'spec_review') return 'Spec 等待确认。请先审查
+         + Spec 文档并完成人工确认，不能直接执行。'                      
+      69    if (status === 'running') return `工作流执行中，当前任务: ${c
+          urrentTasks[0] || '?'}。使用 /workflow execute 继续。`
+      70 -  if (status === 'paused') return '工作流已暂停。使用 `/workflo
+         -w execute` 恢复执行。'                                         
+      71 -  if (status === 'failed') return `任务 ${currentTasks[0] || '?
+         -'} 失败: ${state.failure_reason || '未知'}。使用 /workflow exec
+         -ute --retry 重试。`                                            
+      72 -  if (status === 'blocked') return '工作流被阻塞。使用 `/workfl
+         -ow unblock <dep>` 解除依赖。'                                  
+      73 -  if (status === 'completed') return `工作流已完成 (${completed
+         -.length} 任务)。使用 /workflow archive 归档。`                 
+      70 +  if (status === 'paused') return '工作流已暂停。请处理暂停原因
+         +后使用 `/workflow execute` 恢复执行。'                         
+      71 +  if (status === 'failed') return `任务 ${currentTasks[0] || '?
+         +'} 失败: ${state.failure_reason || '未知'}。使用 /workflow exec
+         +ute --retry 重试，或显式选择 skip。`                           
+      72 +  if (status === 'blocked') return '工作流被阻塞。使用 `/workfl
+         +ow unblock <dep>` 解除依赖后再恢复执行。'                      
+      73 +  if (status === 'completed') return `工作流已完成 (${completed
+         +.length} 任务)。使用 /workflow archive 归档，不要继续执行。`   
+      74    if (status === 'archived') return '工作流已归档。使用 `/workf
+          low start` 开始新任务。'
+      75 -  return `当前状态: ${status}。使用 \/workflow status 查看详情 
+         -。`                                                            
+      75 +  return `当前状态: ${status}。使用 /workflow status 查看详情。
+         +`                                                              
+      76  }
+      77  
+      78 +function determineGuardrail(state) {                           
+      79 +  if (!state) return '无活动 workflow：仅允许新建流程，不应猜测
+         +恢复执行。'                                                    
+      80 +  const status = state.status || 'idle'                        
+      81 +  if (status === 'planned') return 'Guardrail：此状态只允许显式
+         + `/workflow execute` 进入执行器；禁止自动继续或重新规划。'     
+      82 +  if (status === 'spec_review') return 'Guardrail：当前处于人工
+         + Spec 审查关口；禁止直接进入实现。'                            
+      83 +  if (status === 'running' || status === 'paused') return 'Guar
+         +drail：恢复执行必须经过 `/workflow execute` 的 shared resolver 
+         +，不得绕过治理与质量关卡。'                                    
+      84 +  if (status === 'failed') return 'Guardrail：失败态只能走 retr
+         +y/skip 治理路径，不得静默推进到下一任务。'                     
+      85 +  if (status === 'blocked') return 'Guardrail：阻塞态需先 unblo
+         +ck，不能把“继续”解释为直接执行。'                              
+      86 +  if (status === 'completed') return 'Guardrail：已完成流程只允
+         +许归档或查看状态，不允许继续执行。'                            
+      87 +  if (status === 'archived') return 'Guardrail：归档流程视为结 
+         +束，后续需求需重新 `/workflow start`。'                        
+      88 +  return 'Guardrail：主流程由 command + skill + state machine  
+         +控制，hook 只做上下文提示与守门。'                             
+      89 +}                                                              
+      90 +                                                               
+      91  function main() {
+      92    if (shouldSkip()) return
+      93    const projectRoot = process.cwd()
+     ...
+      130    parts.push(determineNextAction(state))
+      131    parts.push('</next-action>')
+      132  
+      133 +  parts.push('<workflow-guardrail>')                          
+      134 +  parts.push(determineGuardrail(state))                       
+      135 +  parts.push('</workflow-guardrail>')                         
+      136 +                                                              
+      137    if (specs) {
+      138      parts.push('<project-specs>')
+      139      parts.push(specs)
+
+⏺ Update(core/hooks/pre-execute-inject.js)
+  ⎿  Added 54 lines, removed 10 lines
+      3  const fs = require('fs')
+      4  const path = require('path')
+      5  const { detectProjectIdFromRoot, getWorkflowsDir } = require('..
+         /utils/workflow/path_utils')
+      6 +const { getReviewResult } = require('../utils/workflow/workflow_
+        +types')                                                         
+      7  
+      8  function readFile(targetPath, fallback = '') {
+      9    try {
+     ...
+      35    }
+      36  }
+      37  
+      38 +function getCurrentTaskBlock(state, workflowDir, taskId) {     
+      39 +  const tasksFile = state.tasks_file || ''                     
+      40 +  if (!workflowDir || !tasksFile || !taskId) return ''         
+      41 +  const tasksContent = readFile(path.join(workflowDir, tasksFil
+         +e))                                                            
+      42 +  if (!tasksContent) return ''                                 
+      43 +  const pattern = new RegExp(`##+\\s+${taskId.replace(/[.*+?^${
+         +}()|[\\]\\]/g, '\\$&')}:[\\s\\S]*?(?=\\n##+\\s+T\\d+:|$)`, 'm')
+      44 +  const match = tasksContent.match(pattern)                    
+      45 +  return match ? match[0] : ''                                 
+      46 +}                                                              
+      47 +                                                               
+      48 +function extractVerificationCommands(taskBlock) {              
+      49 +  if (!taskBlock) return []                                    
+      50 +  const cmdMatch = taskBlock.match(/\*\*验证命令\*\*\s*:\s*(.+?
+         +)$/m)                                                          
+      51 +  if (!cmdMatch) return []                                     
+      52 +  return cmdMatch[1].split(',').map((item) => item.trim()).filt
+         +er(Boolean)                                                    
+      53 +}                                                              
+      54 +                                                               
+      55  function buildTaskContext(state) {
+      56    const parts = []
+      57    const projectRoot = process.cwd()
+     ...
+      61  
+      62    const projectId = state.projectId || state.project_id || ''
+      63    const workflowDir = projectId ? getWorkflowsDir(projectId) : 
+          null
+      46 -  const tasksFile = state.tasks_file || ''                     
+      47 -  if (workflowDir && tasksFile) {                              
+      48 -    const tasksContent = readFile(path.join(workflowDir, tasksF
+         -ile))                                                          
+      49 -    if (tasksContent) {                                        
+      50 -      const pattern = new RegExp(`##+\\s+${taskId.replace(/[.*+
+         -?^${}()|[\\]\\]/g, '\\$&')}:[\\s\\S]*?(?=\\n##+\\s+T\\d+:|$)`, 
+         -'m')                                                           
+      51 -      const match = tasksContent.match(pattern)                
+      52 -      if (match) parts.push(`<current-task>\n${match[0].slice(0
+         -, 3000)}\n</current-task>`)                                    
+      64 +  const taskBlock = getCurrentTaskBlock(state, workflowDir, tas
+         +kId)                                                           
+      65 +  if (taskBlock) {                                             
+      66 +    parts.push(`<current-task>\n${taskBlock.slice(0, 3000)}\n</
+         +current-task>`)                                                
+      67 +    const verificationCommands = extractVerificationCommands(ta
+         +skBlock)                                                       
+      68 +    if (verificationCommands.length) {                         
+      69 +      parts.push(`<verification-commands>\n${verificationComman
+         +ds.map((item) => `- ${item}`).join('\n')}\n</verification-comma
+         +nds>`)                                                         
+      70      }
+      71    }
+      72  
+     ...
+      81      const baselineContent = readFile(path.join(projectRoot, bas
+          elinePath))
+      82      const constraints = extractSection(baselineContent, 'Critic
+          al Constraints') || extractSection(baselineContent, '关键约束')
+      83      if (constraints) parts.push(`<critical-constraints>\n${cons
+          traints.slice(0, 1000)}\n</critical-constraints>`)
+      84 +    const preserve = extractSection(baselineContent, 'Critical 
+         +Constraints to Preserve') || extractSection(baselineContent, ' 
+         +必须保留')                                                     
+      85 +    if (preserve) parts.push(`<must-preserve>\n${preserve.slice
+         +(0, 1000)}\n</must-preserve>`)                                 
+      86    }
+      87  
+      88 +  const qualityGate = getReviewResult(state, taskId)           
+      89 +  if (qualityGate) {                                           
+      90 +    parts.push(`<quality-gate-state>\nlast_decision: ${qualityG
+         +ate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.
+         +overall_passed === true}\n</quality-gate-state>`)              
+      91 +  }                                                            
+      92 +                                                               
+      93    const guidesDir = path.join(projectRoot, '.claude', 'specs', 
+          'guides')
+      94    if (fs.existsSync(guidesDir) && fs.statSync(guidesDir).isDire
+          ctory()) {
+      95      parts.push('<reminder>修改代码前请参考 .agent-workflow/spec
+          s/guides/ 中的思维指南。</reminder>')
+     ...
+      109    return result
+      110  }
+      111  
+      112 +function buildBlockResult(reason) {                           
+      113 +  return { continue: false, reason }                          
+      114 +}                                                             
+      115 +                                                              
+      116  function main() {
+      117    let hookInput = {}
+      118    try {
+     ...
+      126    }
+      127  
+      128    const state = findWorkflowState()
+      101 -  if (!state || !['running', 'paused'].includes(state.status))
+          - {                                                            
+      102 -    process.stdout.write(JSON.stringify(buildAllowResult()))  
+      129 +  if (!state) {                                               
+      130 +    process.stdout.write(JSON.stringify(buildBlockResult('[wor
+          +kflow-hook] 未发现活动 workflow，禁止直接派发执行型 Task。请先
+          +使用 `/workflow start` 或 `/workflow execute`。')))           
+      131      return
+      132    }
+      133  
+      134 +  if (!['running', 'paused'].includes(state.status)) {        
+      135 +    process.stdout.write(JSON.stringify(buildBlockResult(`[wor
+          +kflow-hook] 当前 workflow 状态为 ${state.status}，不允许直接派
+          +发执行型 Task。请先走对应的 workflow 命令路径。`)))           
+      136 +    return                                                    
+      137 +  }                                                           
+      138 +                                                              
+      139 +  const currentTaskId = (state.current_tasks || [])[0]        
+      140 +  if (!currentTaskId) {                                       
+      141 +    process.stdout.write(JSON.stringify(buildBlockResult('[wor
+          +kflow-hook] 当前没有 active task，禁止派发执行型 Task。请先通 
+          +过 `/workflow execute` 解析下一步任务。')))                   
+      142 +    return                                                    
+      143 +  }                                                           
+      144 +                                                              
+      145 +  if (!state.spec_file || !state.plan_file) {                 
+      146 +    process.stdout.write(JSON.stringify(buildBlockResult('[wor
+          +kflow-hook] 缺少 spec_file 或 plan_file，执行上下文不完整。请 
+          +先修复 workflow 状态后再继续。')))                            
+      147 +    return                                                    
+      148 +  }                                                           
+      149 +                                                              
+      150    const toolInput = typeof hookInput.tool_input === 'object' &
+           & hookInput.tool_input ? hookInput.tool_input : {}
+      151    const taskDescription = toolInput.description || ''
+      152    const context = buildTaskContext(state)
+      153  
+      154    if (!context) {
+      111 -    process.stdout.write(JSON.stringify(buildAllowResult()))  
+      155 +    process.stdout.write(JSON.stringify(buildAllowResult('[wor
+          +kflow-hook] 未注入额外上下文：当前任务缺少可提取上下文。')))  
+      156      return
+      157    }
+      158  
+
+⏺ Update(core/hooks/quality-gate-loop.js)
+  ⎿  Added 70 lines, removed 26 lines
+       4  const path = require('path')
+       5  const { spawnSync } = require('child_process')
+       6  const { detectProjectIdFromRoot, getWorkflowsDir } = require('.
+          ./utils/workflow/path_utils')
+       7 +const { getReviewResult } = require('../utils/workflow/workflow
+         +_types')                                                       
+       8  
+       9  const MAX_ITERATIONS = 5
+      10  const STATE_TIMEOUT_MINUTES = 30
+     ...
+      23    }
+      24  }
+      25  
+      25 -function getCurrentTaskVerification(state, stateDir) {         
+      26 +function getCurrentTaskBlock(state, stateDir) {                
+      27    const currentTasks = state.current_tasks || []
+      28    const taskId = currentTasks[0]
+      28 -  if (!taskId) return []                                       
+      29 +  if (!taskId) return { taskId: '', taskBlock: '' }            
+      30    const tasksFile = state.tasks_file || ''
+      30 -  if (!tasksFile) return []                                    
+      31 +  if (!tasksFile) return { taskId, taskBlock: '' }             
+      32    const tasksPath = path.join(stateDir, tasksFile)
+      32 -  if (!fs.existsSync(tasksPath)) return []                     
+      33 +  if (!fs.existsSync(tasksPath)) return { taskId, taskBlock: ''
+         + }                                                             
+      34  
+      35    try {
+      36      const content = fs.readFileSync(tasksPath, 'utf8')
+      37      const taskPattern = new RegExp(`##+\\s+${taskId.replace(/[.
+          *+?^${}()|[\\]\\]/g, '\\$&')}:[\\s\\S]*?(?=\\n##+\\s+T\\d+:|$)`
+          , 'm')
+      38      const blockMatch = content.match(taskPattern)
+      38 -    if (!blockMatch) return []                                 
+      39 -    const cmdMatch = blockMatch[0].match(/\*\*验证命令\*\*\s*:\
+         -s*(.+?)$/m)                                                    
+      40 -    if (!cmdMatch) return []                                   
+      41 -    return cmdMatch[1].split(',').map((item) => item.trim()).fi
+         -lter(Boolean)                                                  
+      39 +    return { taskId, taskBlock: blockMatch ? blockMatch[0] : ''
+         + }                                                             
+      40    } catch {
+      43 -    return []                                                  
+      41 +    return { taskId, taskBlock: '' }                           
+      42    }
+      43  }
+      44  
+      45 +function parseActions(taskBlock) {                             
+      46 +  if (!taskBlock) return []                                    
+      47 +  const actionMatch = taskBlock.match(/\*\*actions\*\*\s*:\s*(.
+         ++?)$/m)                                                        
+      48 +  if (!actionMatch) return []                                  
+      49 +  return actionMatch[1].split(',').map((item) => item.trim()).f
+         +ilter(Boolean)                                                 
+      50 +}                                                              
+      51 +                                                               
+      52 +function getCurrentTaskVerification(state, stateDir) {         
+      53 +  const { taskBlock } = getCurrentTaskBlock(state, stateDir)   
+      54 +  if (!taskBlock) return []                                    
+      55 +  const cmdMatch = taskBlock.match(/\*\*验证命令\*\*\s*:\s*(.+?
+         +)$/m)                                                          
+      56 +  if (!cmdMatch) return []                                     
+      57 +  return cmdMatch[1].split(',').map((item) => item.trim()).filt
+         +er(Boolean)                                                    
+      58 +}                                                              
+      59 +                                                               
+      60  function readLoopState(stateDir) {
+      61    const statePath = path.join(stateDir, '.quality-loop-state.js
+          on')
+      62    if (!fs.existsSync(statePath)) return { iteration: 0, started
+          _at: null, last_results: [] }
+     ...
+       91    }
+       92  }
+       93  
+       94 +function resetLoopState(stateDir) {                           
+       95 +  writeLoopState(stateDir, { iteration: 0, started_at: null, l
+          +ast_results: [] })                                            
+       96 +}                                                             
+       97 +                                                              
+       98 +function buildFailureMessage(taskId, prefix, failedItems, iter
+          +ation, maxIterations) {                                       
+       99 +  const details = failedItems.map((item) => `  ❌ \`${item.com
+          +mand}\` (exit=${item.exit_code}): ${String(item.output || '').
+          +slice(0, 200)}`).join('\n')                                   
+      100 +  return `${prefix} (迭代 ${iteration}/${maxIterations})\n任务
+          +: ${taskId}\n失败详情:\n${details}\n请修复后重试。`           
+      101 +}                                                             
+      102 +                                                              
+      103  function main() {
+      104    try {
+      105      const raw = fs.readFileSync(0, 'utf8')
+     ...
+      112      return
+      113    }
+      114  
+       93 -  const commands = getCurrentTaskVerification(state, stateDir)
+       94 -  if (!commands.length) {                                     
+      115 +  const { taskId, taskBlock } = getCurrentTaskBlock(state, sta
+          +teDir)                                                        
+      116 +  if (!taskId) {                                              
+      117      process.stdout.write(JSON.stringify({ continue: true }))
+      118      return
+      119    }
+      120  
+      121 +  const actions = parseActions(taskBlock)                     
+      122 +  const verificationCommands = getCurrentTaskVerification(stat
+          +e, stateDir)                                                  
+      123 +  const qualityGate = getReviewResult(state, taskId)          
+      124 +                                                              
+      125 +  if (!verificationCommands.length && !actions.includes('quali
+          +ty_review')) {                                                
+      126 +    process.stdout.write(JSON.stringify({ continue: true }))  
+      127 +    return                                                    
+      128 +  }                                                           
+      129 +                                                              
+      130    let loopState = readLoopState(stateDir)
+      131    if (loopState.started_at) {
+      132      const elapsedMinutes = (Date.now() - new Date(loopState.st
+           arted_at).getTime()) / 60000
+      133      if (elapsedMinutes >= STATE_TIMEOUT_MINUTES) {
+      103 -      loopState = { iteration: 0, started_at: null, last_resul
+          -ts: [] }                                                      
+      104 -      writeLoopState(stateDir, loopState)                     
+      134 +      resetLoopState(stateDir)                                
+      135        process.stdout.write(JSON.stringify({ continue: true, re
+           ason: `[quality-loop] 验证超时 (${STATE_TIMEOUT_MINUTES}min)，
+           自动放行。` }))
+      136        return
+      137      }
+      138    }
+      139  
+      140    if ((loopState.iteration || 0) >= MAX_ITERATIONS) {
+      111 -    loopState = { iteration: 0, started_at: null, last_results
+          -: [] }                                                        
+      112 -    writeLoopState(stateDir, loopState)                       
+      141 +    resetLoopState(stateDir)                                  
+      142      process.stdout.write(JSON.stringify({ continue: true, reas
+           on: `[quality-loop] 已达最大重试次数 (${MAX_ITERATIONS})，自动
+           放行。` }))
+      143      return
+      144    }
+      145  
+      146    if (!loopState.started_at) loopState.started_at = new Date()
+           .toISOString()
+      118 -  const results = commands.map((command) => runVerification(co
+          -mmand))                                                       
+      119 -  const allPassed = results.every((item) => item.passed)      
+      147    loopState.iteration = Number(loopState.iteration || 0) + 1
+      121 -  loopState.last_results = results                            
+      148 +                                                              
+      149 +  const failedItems = []                                      
+      150 +  if (verificationCommands.length) {                          
+      151 +    const commandResults = verificationCommands.map((command) 
+          +=> runVerification(command))                                  
+      152 +    loopState.last_results = commandResults                   
+      153 +    for (const result of commandResults) {                    
+      154 +      if (!result.passed) failedItems.push(result)            
+      155 +    }                                                         
+      156 +  }                                                           
+      157 +                                                              
+      158 +  if (actions.includes('quality_review')) {                   
+      159 +    const review = qualityGate || getReviewResult(state, taskI
+          +d)                                                            
+      160 +    if (!review || review.overall_passed !== true) {          
+      161 +      failedItems.push({                                      
+      162 +        command: `quality_gates.${taskId}`,                   
+      163 +        exit_code: 1,                                         
+      164 +        output: `overall_passed=${review ? review.overall_pass
+          +ed : 'missing'}; last_decision=${review ? review.last_decision
+          + : 'missing'}`,                                               
+      165 +      })                                                      
+      166 +    }                                                         
+      167 +  }                                                           
+      168 +                                                              
+      169    writeLoopState(stateDir, loopState)
+      170  
+      124 -  if (allPassed) {                                            
+      125 -    writeLoopState(stateDir, { iteration: 0, started_at: null,
+          - last_results: [] })                                          
+      126 -    process.stdout.write(JSON.stringify({ continue: true, reas
+          -on: '[quality-loop] 所有验证命令通过 ✅' }))                  
+      171 +  if (failedItems.length === 0) {                             
+      172 +    resetLoopState(stateDir)                                  
+      173 +    process.stdout.write(JSON.stringify({ continue: true, reas
+          +on: '[quality-loop] 所有验证与质量关卡均通过 ✅' }))          
+      174      return
+      175    }
+      176  
+      130 -  const failed = results.filter((item) => !item.passed)       
+      131 -  const taskId = (state.current_tasks || ['?'])[0]            
+      132 -  const failureMessage = failed.map((item) => `  ❌ \`${item.c
+          -ommand}\` (exit=${item.exit_code}): ${String(item.output || ''
+          -).slice(0, 200)}`).join('\n')                                 
+      177    process.stdout.write(JSON.stringify({
+      178      continue: false,
+      135 -    reason: `[quality-loop] 验证失败 (迭代 ${loopState.iterati
+          -on}/${MAX_ITERATIONS})\n任务: ${taskId}\n失败的验证:\n${failur
+          -eMessage}\n请修复后重试。`,                                   
+      136 -  }, null, 0))                                                
+      179 +    reason: buildFailureMessage(taskId, '[quality-loop] 验证失
+          +败', failedItems, loopState.iteration, MAX_ITERATIONS),       
+      180 +  }))                                                         
+      181  }
+      182  
+      183  try {
+
+⏺ Update(core/specs/workflow-runtime/shared-utils.md)
+  ⎿  Added 3 lines
+      132  - 任务解析只使用 V2 模型，不再维护旧格式映射
+      133  - 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，
+           应在打包环境中确认对应共享文档可达
+      134  - 任何继续执行判断都以 projected budget 为准，而非只看当前 usa
+           gePercent
+      135 +- workflow hooks 只承担 runtime guardrails：上下文注入、前置条
+          +件校验、验证证据、质量关卡阻断与 worktree/并发安全            
+      136 +- workflow hooks 不得私自决定 planning / execute / delta / arc
+          +hive 的阶段流转；主流程唯一入口仍是 command + skill + state ma
+          +chine                                                         
+      137 +- 若启用 `SessionStart` / `PreToolUse(Task)` / 质量关卡 hooks 
+          +，它们只能提示或阻断，不得绕过 `/workflow execute` shared reso
+          +lver 或另造第二套状态机                                       
+
+⏺ Update(core/specs/workflow/quality-gate.md)
+  ⎿  Added 9 lines
+      50  
+      51  `quality_review` 的 Stage 2 虽然会使用单 reviewer 子 agent，但
+          它不属于 `dispatching-parallel-agents` 的并行分派场景；后者仅用
+          于 2+ 独立问题域 / 任务域的并行执行。
+      52  
+      53 +## Hook Guardrails                                             
+      54 +                                                               
+      55 +当启用 execution-side quality hook（如 `quality-gate-loop.js`）
+         +时：                                                           
+      56 +                                                               
+      57 +- hook 只负责读取当前 task 的验证命令与 `quality_gates[taskId]`
+         +，在证据不足或关卡未通过时阻断继续                             
+      58 +- hook 不负责改写主流程状态，不得把失败直接解释为 retry / skip 
+         +/ archive                                                      
+      59 +- `run_tests` 类 gate 以命令退出码为准；`quality_review` 类 gat
+         +e 以 `state.quality_gates[taskId].overall_passed === true` 为准
+      60 +- 若下一步是 `git_commit` 且 `pause_before_commit=true`，hook  
+         +可以作为提交前暂停的 runtime adapter，但是否继续提交仍由 execut
+         +e governance 决定                                              
+      61 +                                                               
+      62  ## 常见质量关卡
+      63  
+      64  | 类型 | actions | 阈值建议 |
+
+⏺ Update(core/specs/workflow/review-loop.md)
+  ⎿  Added 8 lines
+      56  
+      57  两者共享 contract 语义，但不强制使用完全一致的数据结构，以避免
+          破坏现有执行逻辑。
+      58  
+      59 +### 5. Hook 只做 execution adapter                             
+      60 +                                                               
+      61 +若 execution side 启用了质量关卡 hook：                        
+      62 +                                                               
+      63 +- hook 只能读取 `quality_gates.*` / 验证命令 / review artifact 
+         +来决定放行或阻断                                               
+      64 +- hook 不得成为 reviewer，不得在 hook 内重新发明审查判定逻辑   
+      65 +- hook 不得直接推动状态从 `failed/blocked/paused` 进入下一个 ta
+         +sk；状态推进仍由 execute sequencer 与 shared resolver 负责     
+      66 +                                                               
+      67  ## 核心接口
+      68  
+      69  ```typescript
+
+⏺ Update(core/specs/workflow-runtime/execute-entry.md)
+  ⎿  Added 1 line
+      58  - 真正是否继续，始终以 `ContextGovernor`、验证证据、质量关卡和
+          阻塞状态为准。
+      59  - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证
+          治理。
+      60  - `continue-parallel-boundaries` 只表示 workflow 内部的并行执行
+          建议；即使识别到 2+ 独立任务，也不得自动切入 `/team`。
+      61 +- `SessionStart` / `PreToolUse(Task)` / quality gate hooks 若已
+         +启用，只能注入上下文或阻断非法继续；不得替代 shared execute res
+         +olver 决定恢复路径。                                           
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 52 lines, removed 22 lines
+      1035    },
+      1036  };
+      1037  
+      1038 +const WORKFLOW_HOOK_DEFS = {                                 
+      1039 +  SessionStart: {                                            
+      1040 +    script: 'session-start.js',                              
+      1041 +    description: '注入 workflow 状态、下一步建议与 guardrail 
+           +提示',                                                       
+      1042 +  },                                                         
+      1043 +  PreToolUse: {                                              
+      1044 +    script: 'pre-execute-inject.js',                         
+      1045 +    description: '在 Task 派发前注入当前任务上下文并阻断非法 
+           +执行',                                                       
+      1046 +    matcher: 'Task',                                         
+      1047 +  },                                                         
+      1048 +  PostToolUse: {                                             
+      1049 +    script: 'quality-gate-loop.js',                          
+      1050 +    description: '在执行后检查验证命令与质量关卡结果，阻断未 
+           +通过的继续',                                                 
+      1051 +  },                                                         
+      1052 +};                                                           
+      1053 +                                                             
+      1054  /**
+      1039 - * 确保 worktree 串行化 hooks 已注册到 settings.json。       
+      1040 - *                                                           
+      1041 - * 采用保守合并策略：只添加不存在的 hook，不修改用户已有配置 
+           -。                                                           
+      1042 - *                                                           
+      1043 - * @param {string} settingsPath - settings.json 的绝对路径   
+      1044 - * @param {string} hooksDir - hook 脚本所在目录的绝对路径    
+      1045 - * @returns {Promise<{injected: boolean, events: string[], sk
+           -ipped: string[]}>}                                           
+      1055 + * Ensure managed hooks are registered in settings.json conse
+           +rvatively.                                                   
+      1056   */
+      1047 -async function ensureWorktreeHooks(settingsPath, hooksDir) { 
+      1057 +async function ensureManagedHooks(settingsPath, hooksDir, hoo
+           +kDefs) {                                                     
+      1058    const result = { injected: false, events: [], skipped: [] }
+            ;
+      1059  
+      1050 -  // 读取现有 settings（如果不存在则创建空配置）             
+      1060    let settings = {};
+      1061    if (await fs.pathExists(settingsPath)) {
+      1062      try {
+      1063        settings = await fs.readJson(settingsPath);
+      1064      } catch {
+      1056 -      // JSON 解析失败，不修改文件                           
+      1065        result.skipped.push('settings.json 解析失败');
+      1066        return result;
+      1067      }
+      1068    }
+      1069  
+      1062 -  // 确保 hooks 对象存在                                     
+      1070    if (!settings.hooks) {
+      1071      settings.hooks = {};
+      1072    }
+      1073  
+      1074    let modified = false;
+      1075  
+      1069 -  for (const [eventName, hookDef] of Object.entries(WORKTREE_
+           -HOOK_DEFS)) {                                                
+      1070 -    // 检查 hook 脚本是否存在                                
+      1076 +  for (const [eventName, hookDef] of Object.entries(hookDefs)
+           +) {                                                          
+      1077      const scriptPath = path.join(hooksDir, hookDef.script);
+      1078      let resolvedScriptPath = scriptPath;
+      1079  
+      1074 -    // 如果 hooksDir 是 symlink，解析到实际路径              
+      1080      try {
+      1081        const stats = await fs.lstat(hooksDir);
+      1082        if (stats.isSymbolicLink()) {
+     ...
+      1084          resolvedScriptPath = path.join(realHooksDir, hookDef.
+            script);
+      1085        }
+      1086      } catch {
+      1082 -      // 忽略，使用原始路径                                  
+      1087 +      // ignore and use the original path                    
+      1088      }
+      1089  
+      1090      if (!(await fs.pathExists(resolvedScriptPath))) {
+     ...
+      1093      }
+      1094  
+      1095      const expectedCommand = `node "${scriptPath}"`;
+      1091 -                                                             
+      1092 -    // 检查是否已有该事件的 hook 配置；若命中旧路径则原地修复
+      1096      const existingHooks = Array.isArray(settings.hooks[eventN
+            ame])
+      1097        ? settings.hooks[eventName]
+      1098        : [];
+     ...
+      1100      let updatedManagedHook = false;
+      1101  
+      1102      for (const hookEntry of existingHooks) {
+      1100 -      // 支持新格式 { hooks: [{ type, command }] } 和旧格式 {
+           - type, command }                                             
+      1103        const hookConfigs = Array.isArray(hookEntry.hooks) ? ho
+            okEntry.hooks : [hookEntry];
+      1104        for (const hookConfig of hookConfigs) {
+      1105          if (!hookConfig || typeof hookConfig.command !== 'str
+            ing') {
+     ...
+      1114            hookConfig.command = expectedCommand;
+      1115            updatedManagedHook = true;
+      1116          }
+      1117 +        if (hookDef.matcher && hookEntry.matcher !== hookDef.
+           +matcher) {                                                   
+      1118 +          hookEntry.matcher = hookDef.matcher;               
+      1119 +          updatedManagedHook = true;                         
+      1120 +        }                                                    
+      1121        }
+      1122      }
+      1123  
+     ...
+      1131        continue;
+      1132      }
+      1133  
+      1128 -    // 注入 hook 配置                                        
+      1134      if (!settings.hooks[eventName]) {
+      1135        settings.hooks[eventName] = [];
+      1136      }
+      1137  
+      1133 -    settings.hooks[eventName].push({                         
+      1138 +    const hookEntry = {                                      
+      1139        hooks: [{
+      1140          type: 'command',
+      1141          command: expectedCommand,
+      1142        }],
+      1138 -    });                                                      
+      1143 +    };                                                       
+      1144 +    if (hookDef.matcher) hookEntry.matcher = hookDef.matcher;
+      1145  
+      1146 +    settings.hooks[eventName].push(hookEntry);               
+      1147      result.events.push(eventName);
+      1148      modified = true;
+      1149    }
+      1150  
+      1144 -  // 写回文件                                                
+      1151    if (modified) {
+      1152      await fs.ensureDir(path.dirname(settingsPath));
+      1153      await fs.writeJson(settingsPath, settings, { spaces: 2 })
+            ;
+      1154      result.injected = true;
+      1155 +  }                                                          
+      1156 +                                                             
+      1157 +  return result;                                             
+      1158 +}                                                            
+      1159 +                                                             
+      1160 +/**                                                          
+      1161 + * 确保 worktree 串行化 hooks 已注册到 settings.json。       
+      1162 + *                                                           
+      1163 + * 采用保守合并策略：只添加不存在的 hook，不修改用户已有配置 
+           +。                                                           
+      1164 + *                                                           
+      1165 + * @param {string} settingsPath - settings.json 的绝对路径   
+      1166 + * @param {string} hooksDir - hook 脚本所在目录的绝对路径    
+      1167 + * @returns {Promise<{injected: boolean, events: string[], sk
+           +ipped: string[]}>}                                           
+      1168 + */                                                          
+      1169 +async function ensureWorktreeHooks(settingsPath, hooksDir) { 
+      1170 +  const result = await ensureManagedHooks(settingsPath, hooks
+           +Dir, WORKTREE_HOOK_DEFS);                                    
+      1171 +  if (result.injected) {                                     
+      1172      console.log(`${LOG_PREFIX} 已注入 worktree hooks: ${resul
+            t.events.join(', ')}`);
+      1173    }
+      1174 +  return result;                                             
+      1175 +}                                                            
+      1176  
+      1177 +async function ensureWorkflowHooks(settingsPath, hooksDir) { 
+      1178 +  const result = await ensureManagedHooks(settingsPath, hooks
+           +Dir, WORKFLOW_HOOK_DEFS);                                    
+      1179 +  if (result.injected) {                                     
+      1180 +    console.log(`${LOG_PREFIX} 已注入 workflow hooks: ${resul
+           +t.events.join(', ')}`);                                      
+      1181 +  }                                                          
+      1182    return result;
+      1183  }
+      1184  
+
+⏺ Update(lib/installer.js)  ⎿  Added 10 lines
+      1002          } catch (err) {
+      1003            agentResult.worktreeHooks = { injected: false, erro
+            r: err.message };
+      1004          }
+      1005 +        agentResult.workflowHooks = {                        
+      1006 +          injected: false,                                   
+      1007 +          events: [],                                        
+      1008 +          skipped: ['workflow hooks are opt-in; use sync/link
+           + with --workflow-hooks to register'],                        
+      1009 +        };                                                   
+      1010        } else {
+      1011          agentResult.worktreeHooks = {
+      1012            injected: false,
+      1013            events: [],
+      1014            skipped: ['project-level install skips worktree hoo
+            k injection'],
+      1015          };
+      1016 +        agentResult.workflowHooks = {                        
+      1017 +          injected: false,                                   
+      1018 +          events: [],                                        
+      1019 +          skipped: ['project-level install skips workflow hoo
+           +k injection'],                                               
+      1020 +        };                                                   
+      1021        }
+      1022      }
+      1023  
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      524    migrateFromLegacy,
+      525    getInstallationStatus,
+      526    ensureWorktreeHooks,
+      527 +  ensureWorkflowHooks,                                        
+      528    INSTALL_MODE_CANONICAL_COPY,
+      529    INSTALL_MODE_REPO_LINK,
+      530  };
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 1 line
+      67      .option('--legacy', '使用旧版安装模式（仅 Claude Code）')
+      68      .option('-i, --interactive', '交互式安装模式')
+      69      .option('-y, --yes', '跳过确认提示')
+      70 +    .option('--workflow-hooks', '为 Claude Code 额外注册 workfl
+         +ow hooks（SessionStart / PreToolUse(Task) / PostToolUse）')    
+      71      .action(async (options) => {
+      72        try {
+      73          const repoRoot = path.join(__dirname, '..');
+
+  Read 3 files (ctrl+o to expand)
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      937      cwd = process.cwd(),
+      938      fallbackToCopy = true,
+      939      canonicalDir = sourceRoot,
+      940 +    enableWorkflowHooks = false,                              
+      941    } = options;
+      942    const results = {};
+      943  
+
+⏺ Update(lib/installer.js)
+  ⎿  Error editing file
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      1291      global = true,
+      1292      cwd = process.cwd(),
+      1293      fallbackToCopy = true,
+      1294 +    enableWorkflowHooks = false,                             
+      1295    } = options;
+      1296  
+      1297    let agentList = targetAgents;
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      1327        cwd,
+      1328        fallbackToCopy,
+      1329        canonicalDir,
+      1330 +      enableWorkflowHooks,                                   
+      1331      });
+      1332    } catch (err) {
+      1333      result.errors.push(`Agent linking failed: ${err.message}`
+            );
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      1356      global = true,
+      1357      cwd = process.cwd(),
+      1358      fallbackToCopy = true,
+      1359 +    enableWorkflowHooks = false,                             
+      1360    } = options;
+      1361  
+      1362    let agentList = targetAgents;
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 1 line
+      1383        cwd,
+      1384        fallbackToCopy,
+      1385        canonicalDir,
+      1386 +      enableWorkflowHooks,                                   
+      1387      });
+      1388    } catch (err) {
+      1389      result.errors.push(`Agent linking failed: ${err.message}`
+            );
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(lib/installer.js)
+  ⎿  Added 10 lines, removed 5 lines
+      1001            const settingsPath = path.join(agentBaseDir, 'setti
+            ngs.json');
+      1002            const hookResult = await ensureWorktreeHooks(settin
+            gsPath, hooksDir);
+      1003            agentResult.worktreeHooks = hookResult;
+      1004 +          if (enableWorkflowHooks) {                         
+      1005 +            agentResult.workflowHooks = await ensureWorkflowH
+           +ooks(settingsPath, hooksDir);                                
+      1006 +          } else {                                           
+      1007 +            agentResult.workflowHooks = {                    
+      1008 +              injected: false,                               
+      1009 +              events: [],                                    
+      1010 +              skipped: ['workflow hooks are opt-in; use sync/
+           +link with --workflow-hooks to register'],                    
+      1011 +            };                                               
+      1012 +          }                                                  
+      1013          } catch (err) {
+      1014            agentResult.worktreeHooks = { injected: false, erro
+            r: err.message };
+      1015 +          agentResult.workflowHooks = { injected: false, erro
+           +r: err.message };                                            
+      1016          }
+      1007 -        agentResult.workflowHooks = {                        
+      1008 -          injected: false,                                   
+      1009 -          events: [],                                        
+      1010 -          skipped: ['workflow hooks are opt-in; use sync/link
+           - with --workflow-hooks to register'],                        
+      1011 -        };                                                   
+      1017        } else {
+      1018          agentResult.worktreeHooks = {
+      1019            injected: false,
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 1 line
+      130            agents: targetAgents,
+      131            global,
+      132            cwd: process.cwd(),
+      133 +          enableWorkflowHooks: Boolean(options.workflowHooks),
+      134          });
+      135  
+      136          console.log(`\n${LOG_PREFIX} Canonical 位置: ${result.
+           canonicalDir}`);
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 1 line
+      164      .description('将受管目录直接链接到当前仓库，便于本地调试 s
+           kills')
+      165      .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔
+           ，* 表示全部）')
+      166      .option('--project', '项目级安装（当前目录）')
+      167 +    .option('--workflow-hooks', '为 Claude Code 额外注册 workf
+          +low hooks（SessionStart / PreToolUse(Task) / PostToolUse）')  
+      168      .action(async (options) => {
+      169        try {
+      170          const repoRoot = path.join(__dirname, '..');
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 1 line
+      186            agents: targetAgents,
+      187            global,
+      188            cwd: process.cwd(),
+      189 +          enableWorkflowHooks: Boolean(options.workflowHooks),
+      190          });
+      191  
+      192          console.log(`\n${LOG_PREFIX} Canonical 位置: ${result.
+           canonicalDir}`);
+
+⏺ Update(README.md)
+  ⎿  Added 3 lines
+      140  # 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/setti
+           ngs.json
+      141  npx --yes --registry <private-registry-url> @justinfan/agent-w
+           orkflow@latest sync --project -y
+      142  
+      143 +# 可选：为 Claude Code 注册 workflow hooks（SessionStart / Pre
+          +ToolUse(Task) / PostToolUse）                                 
+      144 +npx --yes --registry <private-registry-url> @justinfan/agent-w
+          +orkflow@latest sync --workflow-hooks -y                       
+      145 +                                                              
+      146  # 从源码仓库同步
+      147  npm run sync -- -a claude-code,cursor
+      148  npm run sync -- --project
+
+⏺ Update(README.md)
+  ⎿  Added 12 lines
+      170  /team execute
+      171  ```
+      172  
+      173 +### Hook Guardrails                                           
+      174 +                                                              
+      175 +Claude Code 下当前有两类 hooks：                              
+      176 +                                                              
+      177 +- **worktree hooks**：默认随全局 `sync` 自动注入，用于 `Worktr
+          +eeCreate` / `WorktreeRemove` 的串行化和清理                   
+      178 +- **workflow hooks**：默认**不自动注册**，需显式使用 `sync --w
+          +orkflow-hooks` 或 `link --workflow-hooks` 启用；用于 `SessionS
+          +tart`、`PreToolUse(Task)`、`PostToolUse` 的运行时 guardrails  
+      179 +                                                              
+      180 +workflow hooks 的职责边界：                                   
+      181 +- 注入 active workflow、next action、当前 task、验证命令与质量
+          +关卡上下文                                                    
+      182 +- 在状态非法、上下文缺失或质量关卡未通过时阻断继续            
+      183 +- 不替代 `/workflow execute` 的 shared resolver，不决定 planni
+          +ng / execute / delta / archive 的阶段流转                     
+      184 +                                                              
+      185  ---
+      186  
+      187  ## workflow 主线命令
+
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Added 3 lines
+      42  2. 注入配置到 `~/.claude/settings.json`
+      43  3. 若检测到历史遗留的旧 hook 路径（如 `~/.claude/hooks/...`），
+          会自动修正为当前托管路径
+      44  
+      45 +> `WorktreeCreate` / `WorktreeRemove` hooks 属于默认自动注入能 
+         +力。                                                           
+      46 +> `SessionStart` / `PreToolUse(Task)` / `PostToolUse` 这类 work
+         +flow hooks 默认不自动注入，需显式使用 `sync --workflow-hooks`  
+         +或手动注册。                                                   
+      47 +                                                               
+      48  ### 项目级安装
+      49  
+      50  项目级安装会同步 hook 脚本目录，但**默认跳过** `settings.json` 
+          注入。
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 4 lines
+      22  const lifecycleCmds = require(path.join(workflowDir, 'lifecycle
+          _cmds.js'))
+      23  const taskParser = require(path.join(workflowDir, 'task_parser.
+          js'))
+      24  const docContracts = require(path.join(workflowDir, 'doc_contra
+          cts.js'))
+      25 +const installer = require(path.join(repoRoot, 'lib', 'installer
+         +.js'))                                                         
+      26 +const sessionStartHook = path.join(repoRoot, 'core', 'hooks', '
+         +session-start.js')                                             
+      27 +const preExecuteHook = path.join(repoRoot, 'core', 'hooks', 'pr
+         +e-execute-inject.js')                                          
+      28 +const qualityGateHook = path.join(repoRoot, 'core', 'hooks', 'q
+         +uality-gate-loop.js')                                          
+      29  
+      30  const PLAN_FIXTURE = `## T1: 第一个任务
+      31  - **阶段**: implement
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 11 lines, removed 3 lines
+       99    return [{ HOME: home }, home]
+      100  }
+      101  
+      102 -function runNode(script, args = [], options = {}) {           
+      103 -  const result = spawnSync(process.execPath, [script, ...args]
+          -, {                                                           
+      102 +function createWorkflowPlan(home, projectId = 'proj-test', pla
+          +nName = 'tasks.md', content = PLAN_FIXTURE) {                 
+      103 +  const planPath = path.join(home, '.claude', 'workflows', pro
+          +jectId, planName)                                             
+      104 +  fs.mkdirSync(path.dirname(planPath), { recursive: true })   
+      105 +  fs.writeFileSync(planPath, content)                         
+      106 +  return planPath                                             
+      107 +}                                                             
+      108 +                                                              
+      109 +function runHook(script, input, options = {}) {               
+      110 +  return spawnSync(process.execPath, [script], {              
+      111      cwd: options.cwd,
+      112      env: { ...process.env, ...(options.env || {}) },
+      113      encoding: 'utf8',
+      114 +    input: JSON.stringify(input),                             
+      115    })
+      108 -  return result                                               
+      116  }
+      117  
+      118 +                                                              
+      119  test('workflow helper migration coverage', async (t) => {
+      120    await t.test('planning gates reflect migrated heuristics', (
+           ) => {
+      121      assert.equal(planningGates.shouldRunDiscussion('修复按钮',
+            'inline', false, 0), false)
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 85 lines
+      557      assert.equal(fs.existsSync(archivePayload.summary_file), t
+           rue)
+      558    })
+      559  
+      560 +  await t.test('session-start and task/quality hooks enforce w
+          +orkflow guardrails', () => {                                  
+      561 +    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wor
+          +kflow-hooks-'))                                               
+      562 +    const home = path.join(tmpRoot, 'home')                   
+      563 +    const root = path.join(tmpRoot, 'project')                
+      564 +    fs.mkdirSync(home, { recursive: true })                   
+      565 +    fs.mkdirSync(root, { recursive: true })                   
+      566 +    writeProjectConfig(root, 'proj-test')                     
+      567 +    fs.mkdirSync(path.join(root, '.claude', 'specs'), { recurs
+          +ive: true })                                                  
+      568 +    fs.writeFileSync(path.join(root, '.claude', 'specs', 'inde
+          +x.md'), '# Spec Index\n')                                     
+      569 +                                                              
+      570 +    withHome(home, () => {                                    
+      571 +      const statePath = createCanonicalStateFile(home, 'proj-t
+          +est', 'planned', ['T1'])                                      
+      572 +      const plannedState = JSON.parse(fs.readFileSync(statePat
+          +h, 'utf8'))                                                   
+      573 +      plannedState.tasks_file = 'tasks.md'                    
+      574 +      plannedState.requirement_baseline = { summary_path: '.cl
+          +aude/analysis/baseline.md' }                                  
+      575 +      fs.mkdirSync(path.join(root, '.claude', 'analysis'), { r
+          +ecursive: true })                                             
+      576 +      fs.writeFileSync(path.join(root, '.claude', 'analysis', 
+          +'baseline.md'), '## 关键约束\nA\n\n## 必须保留\nB\n')         
+      577 +      fs.writeFileSync(statePath, JSON.stringify(plannedState,
+          + null, 2))                                                    
+      578 +      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1
+          +: 执行任务\n- **actions**: edit_file, quality_review\n- **验证
+          +命令**: node -e "process.exit(0)"\n')                         
+      579 +                                                              
+      580 +      const sessionResult = runHook(sessionStartHook, {}, { cw
+          +d: root, env: { HOME: home } })                               
+      581 +      assert.equal(sessionResult.status, 0)                   
+      582 +      assert.match(sessionResult.stdout, /workflow-guardrail/)
+      583 +      assert.match(sessionResult.stdout, /不能直接进入实现|显 
+          +式 `\/workflow execute`|显式 \/workflow execute/)             
+      584 +                                                              
+      585 +      const blockedTask = runHook(preExecuteHook, {           
+      586 +        tool_name: 'Task',                                    
+      587 +        tool_input: { description: '执行 T1' },               
+      588 +      }, { cwd: root, env: { HOME: home } })                  
+      589 +      assert.equal(blockedTask.status, 0)                     
+      590 +      const blockedPayload = JSON.parse(blockedTask.stdout)   
+      591 +      assert.equal(blockedPayload.continue, false)            
+      592 +      assert.match(blockedPayload.reason, /当前 workflow 状态 
+          +为 planned/)                                                  
+      593 +                                                              
+      594 +      const runningState = JSON.parse(fs.readFileSync(statePat
+          +h, 'utf8'))                                                   
+      595 +      runningState.status = 'running'                         
+      596 +      fs.writeFileSync(statePath, JSON.stringify(runningState,
+          + null, 2))                                                    
+      597 +                                                              
+      598 +      const injectedTask = runHook(preExecuteHook, {          
+      599 +        tool_name: 'Task',                                    
+      600 +        tool_input: { description: '执行 T1' },               
+      601 +      }, { cwd: root, env: { HOME: home } })                  
+      602 +      const injectedPayload = JSON.parse(injectedTask.stdout) 
+      603 +      assert.equal(injectedPayload.continue, true)            
+      604 +      assert.match(injectedPayload.message, /已注入任务上下文/
+          +)                                                             
+      605 +      assert.match(injectedPayload.tool_input.description, /ve
+          +rification-commands/)                                         
+      606 +      assert.match(injectedPayload.tool_input.description, /qu
+          +ality-gate-state/)                                            
+      607 +                                                              
+      608 +      const gateFail = runHook(qualityGateHook, {}, { cwd: roo
+          +t, env: { HOME: home } })                                     
+      609 +      const gateFailPayload = JSON.parse(gateFail.stdout)     
+      610 +      assert.equal(gateFailPayload.continue, false)           
+      611 +      assert.match(gateFailPayload.reason, /quality_gates\.T1/
+          +)                                                             
+      612 +                                                              
+      613 +      runningState.quality_gates = {                          
+      614 +        T1: {                                                 
+      615 +          overall_passed: true,                               
+      616 +          last_decision: 'pass',                              
+      617 +          stage1: { passed: true, attempts: 1 },              
+      618 +          stage2: { passed: true, attempts: 1 },              
+      619 +        },                                                    
+      620 +      }                                                       
+      621 +      fs.writeFileSync(statePath, JSON.stringify(runningState,
+          + null, 2))                                                    
+      622 +                                                              
+      623 +      const gatePass = runHook(qualityGateHook, {}, { cwd: roo
+          +t, env: { HOME: home } })                                     
+      624 +      const gatePassPayload = JSON.parse(gatePass.stdout)     
+      625 +      assert.equal(gatePassPayload.continue, true)            
+      626 +      assert.match(gatePassPayload.reason, /所有验证与质量关卡
+          +均通过/)                                                      
+      627 +    })                                                        
+      628 +  })                                                          
+      629 +                                                              
+      630 +  await t.test('installer keeps workflow hooks opt-in and can 
+          +inject them explicitly', async () => {                        
+      631 +    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wor
+          +kflow-installer-'))                                           
+      632 +    const settingsPath = path.join(tmpRoot, 'settings.json')  
+      633 +    const hooksDir = path.join(repoRoot, 'core', 'hooks')     
+      634 +                                                              
+      635 +    const injected = await installer.ensureWorkflowHooks(setti
+          +ngsPath, hooksDir)                                            
+      636 +    assert.equal(injected.injected, true)                     
+      637 +    assert.deepEqual(injected.events.sort(), ['PostToolUse', '
+          +PreToolUse', 'SessionStart'])                                 
+      638 +                                                              
+      639 +    const settings = JSON.parse(fs.readFileSync(settingsPath, 
+          +'utf8'))                                                      
+      640 +    assert.ok(Array.isArray(settings.hooks.SessionStart))     
+      641 +    assert.equal(settings.hooks.PreToolUse[0].matcher, 'Task')
+      642 +    assert.match(settings.hooks.PostToolUse[0].hooks[0].comman
+          +d, /quality-gate-loop\.js/)                                   
+      643 +  })                                                          
+      644 +                                                              
+      645    await t.test('workflow CLI honors spec review branch and hel
+           per CLIs keep structured error contracts', () => {
+      646      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workfl
+           ow-cli-branch-'))
+      647      const [extraEnv, home] = makeCliEnv(root)
+  Read 2 files, ran 1 bash command (ctrl+o to expand)
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 9 lines
+       99    return [{ HOME: home }, home]
+      100  }
+      101  
+      102 +function runNode(script, args = [], options = {}) {           
+      103 +  const result = spawnSync(process.execPath, [script, ...args]
+          +, {                                                           
+      104 +    cwd: options.cwd,                                         
+      105 +    env: { ...process.env, ...(options.env || {}) },          
+      106 +    encoding: 'utf8',                                         
+      107 +  })                                                          
+      108 +  return result                                               
+      109 +}                                                             
+      110 +                                                              
+      111  function createWorkflowPlan(home, projectId = 'proj-test', pla
+           nName = 'tasks.md', content = PLAN_FIXTURE) {
+      112    const planPath = path.join(home, '.claude', 'workflows', pro
+           jectId, planName)
+      113    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 1 line, removed 1 line
+      584        fs.mkdirSync(path.join(root, '.claude', 'analysis'), { r
+           ecursive: true })
+      585        fs.writeFileSync(path.join(root, '.claude', 'analysis', 
+           'baseline.md'), '## 关键约束\nA\n\n## 必须保留\nB\n')
+      586        fs.writeFileSync(statePath, JSON.stringify(plannedState,
+            null, 2))
+      587 -      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1
+          -: 执行任务\n- **actions**: edit_file, quality_review\n- **验证
+          -命令**: node -e "process.exit(0)"\n')                         
+      587 +      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1
+          +: 执行任务\n- **actions**: edit_file, quality_review\n- **验证
+          +命令**: node -e process.exit(0)\n')                           
+      588  
+      589        const sessionResult = runHook(sessionStartHook, {}, { cw
+           d: root, env: { HOME: home } })
+      590        assert.equal(sessionResult.status, 0)
+
+  Read 1 file, ran 1 bash command (ctrl+o to expand)
+
+⏺ Update(core/hooks/pre-execute-inject.js)
+  ⎿  Added 11 lines, removed 3 lines
+      40    if (!workflowDir || !tasksFile || !taskId) return ''
+      41    const tasksContent = readFile(path.join(workflowDir, tasksFil
+          e))
+      42    if (!tasksContent) return ''
+      43 -  const pattern = new RegExp(`##+\\s+${taskId.replace(/[.*+?^${
+         -}()|[\\]\\]/g, '\\$&')}:[\\s\\S]*?(?=\\n##+\\s+T\\d+:|$)`, 'm')
+      44 -  const match = tasksContent.match(pattern)                    
+      45 -  return match ? match[0] : ''                                 
+      43 +                                                               
+      44 +  const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '
+         +\\$&')                                                         
+      45 +  const headingPattern = new RegExp(`^##+\\s+${escapedTaskId}:`
+         +, 'm')                                                         
+      46 +  const headingMatch = headingPattern.exec(tasksContent)       
+      47 +  if (!headingMatch) return ''                                 
+      48 +                                                               
+      49 +  const start = headingMatch.index                             
+      50 +  const rest = tasksContent.slice(start)                       
+      51 +  const nextHeadingMatch = /\n##+\s+T\d+:/m.exec(rest.slice(1))
+      52 +  const end = nextHeadingMatch ? start + 1 + nextHeadingMatch.i
+         +ndex : tasksContent.length                                     
+      53 +  return tasksContent.slice(start, end).trim()                 
+      54  }
+      55  
+      56  function extractVerificationCommands(taskBlock) {
+
+⏺ Update(core/hooks/quality-gate-loop.js)
+  ⎿  Added 9 lines, removed 3 lines
+      34  
+      35    try {
+      36      const content = fs.readFileSync(tasksPath, 'utf8')
+      37 -    const taskPattern = new RegExp(`##+\\s+${taskId.replace(/[.
+         -*+?^${}()|[\\]\\]/g, '\\$&')}:[\\s\\S]*?(?=\\n##+\\s+T\\d+:|$)`
+         -, 'm')                                                         
+      38 -    const blockMatch = content.match(taskPattern)              
+      39 -    return { taskId, taskBlock: blockMatch ? blockMatch[0] : ''
+         - }                                                             
+      37 +    const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g,
+         + '\\$&')                                                       
+      38 +    const headingPattern = new RegExp(`^##+\\s+${escapedTaskId}
+         +:`, 'm')                                                       
+      39 +    const headingMatch = headingPattern.exec(content)          
+      40 +    if (!headingMatch) return { taskId, taskBlock: '' }        
+      41 +    const start = headingMatch.index                           
+      42 +    const rest = content.slice(start)                          
+      43 +    const nextHeadingMatch = /\n##+\s+T\d+:/m.exec(rest.slice(1
+         +))                                                             
+      44 +    const end = nextHeadingMatch ? start + 1 + nextHeadingMatch
+         +.index : content.length                                        
+      45 +    return { taskId, taskBlock: content.slice(start, end).trim(
+         +) }                                                            
+      46    } catch {
+      47      return { taskId, taskBlock: '' }
+      48    }
+
+  Ran 1 bash command (ctrl+o to expand)
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 10 lines
+      604        runningState.status = 'running'
+      605        fs.writeFileSync(statePath, JSON.stringify(runningState,
+            null, 2))
+      606  
+      607 +      runningState.quality_gates = {                          
+      608 +        T1: {                                                 
+      609 +          overall_passed: false,                              
+      610 +          last_decision: 'revise',                            
+      611 +          stage1: { passed: false, attempts: 1 },             
+      612 +          stage2: { passed: false, attempts: 0 },             
+      613 +        },                                                    
+      614 +      }                                                       
+      615 +      fs.writeFileSync(statePath, JSON.stringify(runningState,
+          + null, 2))                                                    
+      616 +                                                              
+      617        const injectedTask = runHook(preExecuteHook, {
+      618          tool_name: 'Task',
+      619          tool_input: { description: '执行 T1' },
+
+  Read 1 file, ran 1 bash command (ctrl+o to expand)
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 3 lines, removed 2 lines
+      629        assert.equal(gateFailPayload.continue, false)
+      630        assert.match(gateFailPayload.reason, /quality_gates\.T1/
+           )
+      631  
+      632 -      runningState.quality_gates = {                          
+      632 +      const runningStatePassed = JSON.parse(fs.readFileSync(st
+          +atePath, 'utf8'))                                             
+      633 +      runningStatePassed.quality_gates = {                    
+      634          T1: {
+      635            overall_passed: true,
+      636            last_decision: 'pass',
+     ...
+      638            stage2: { passed: true, attempts: 1 },
+      639          },
+      640        }
+      640 -      fs.writeFileSync(statePath, JSON.stringify(runningState,
+          - null, 2))                                                    
+      641 +      fs.writeFileSync(statePath, JSON.stringify(runningStateP
+          +assed, null, 2))                                              
+      642  
+      643        const gatePass = runHook(qualityGateHook, {}, { cwd: roo
+           t, env: { HOME: home } })
+      644        const gatePassPayload = JSON.parse(gatePass.stdout)
+
+  Read 1 file, ran 2 bash commands (ctrl+o to expand)
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 1 line, removed 1 line
+      584        fs.mkdirSync(path.join(root, '.claude', 'analysis'), { r
+           ecursive: true })
+      585        fs.writeFileSync(path.join(root, '.claude', 'analysis', 
+           'baseline.md'), '## 关键约束\nA\n\n## 必须保留\nB\n')
+      586        fs.writeFileSync(statePath, JSON.stringify(plannedState,
+            null, 2))
+      587 -      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1
+          -: 执行任务\n- **actions**: edit_file, quality_review\n- **验证
+          -命令**: node -e process.exit(0)\n')                           
+      587 +      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1
+          +: 执行任务\n- **actions**: edit_file, quality_review\n- **验证
+          +命令**: node -e "process.exit(0)"\n')                         
+      588  
+      589        const sessionResult = runHook(sessionStartHook, {}, { cw
+           d: root, env: { HOME: home } })
+      590        assert.equal(sessionResult.status, 0)
+
+  Ran 1 bash command (ctrl+o to expand)
+
+⏺ 已继续完成第一轮落地，核心改动有三块：
+
+  1. 强化了 workflow hooks 守门能力
+
+  - core/hooks/session-start.js
+    - 新增 workflow-guardrail 注入
+    - 对 planned / spec_review / failed / blocked / completed
+  给出更明确的限制提示
+  - core/hooks/pre-execute-inject.js
+    - Task 派发前会校验 workflow 状态、active task、spec/plan 是否存在
+    - 注入内容扩展到：
+        - 当前 task
+      - verification commands
+      - must-preserve / critical constraints
+      - quality gate 状态
+  - core/hooks/quality-gate-loop.js
+    - 从“只跑验证命令”升级为：
+        - 验证命令检查
+      - quality_review 时读取 quality_gates[taskId].overall_passed
+      - 统一失败原因与通过提示
+
+  2. 补了 hook guardrails 的规范和文档
+
+  - core/specs/workflow-runtime/shared-utils.md
+  - core/specs/workflow-runtime/execute-entry.md
+  - core/specs/workflow/quality-gate.md
+  - core/specs/workflow/review-loop.md
+
+  现在文档里明确了：
+  - hook 只做 runtime guardrails
+  - 不接管 planning / execute / delta / archive 主流程
+  - 不替代 /workflow execute shared resolver
+  - 不创建第二套状态机
+
+  3. 增加了 workflow hooks 的可选安装能力
+
+  - lib/installer.js
+    - 抽出通用 ensureManagedHooks()
+    - 新增 ensureWorkflowHooks()
+    - workflow hooks 默认 opt-in
+  - bin/agent-workflow.js
+    - sync / link 新增 --workflow-hooks
+  - README.md
+  - docs/worktree-hooks.md
+
+  现在可以显式注册：
+  - SessionStart
+  - PreToolUse(Task)
+  - PostToolUse
+
+  而不是默认写进所有用户配置。
+
+  测试
+
+  已跑通：
+
+  - node --test tests/test_workflow_helpers.js
+
+  结果：17/17 通过
+
+  如果你愿意，我下一步可以继续做第二轮，把：
+  - status 输出对 hook guardrail 的说明补齐
+  - 安装状态输出里把 workflowHooks 结果展示出来
+  - 再补一份专门的 workflow hooks 文档，和 worktree hooks 分开
+
+❯ 继续                                                                          
+
+  Read 3 files (ctrl+o to expand)
+
+⏺ Update(README.md)
+  ⎿  Added 2 lines
+      146  # 从源码仓库同步
+      147  npm run sync -- -a claude-code,cursor
+      148  npm run sync -- --project
+      149 +npm run sync -- --workflow-hooks -y                           
+      150  npm run sync -- -y
+      151  
+      152  # 本地开发调试：直接把受管目录链接到当前仓库 core/
+      153  npm run link -- -a claude-code
+      154 +npm run link -- --workflow-hooks -a claude-code               
+      155  
+      156  # 结束调试后恢复标准 canonical 模式
+      157  npm run sync -- -a claude-code
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Error editing file
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Error editing file
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Error editing file
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 5 lines
+      381              }
+      382  
+      383              console.log(`    ${statusIcon} ${displayName.padEn
+           d(16)} ${statusText}`);
+      384 +            if (name === 'claude-code') {                     
+      385 +              const worktreeInstalled = agentStatus.managedDir
+          +s?.hooks?.installed === true;                                 
+      386 +              console.log(`      hooks managed dir -> ${worktr
+          +eeInstalled ? '已同步' : '未同步'}`);                         
+      387 +              console.log('      workflow hooks -> 默认 opt-in
+          +，使用 sync/link --workflow-hooks 注册到 settings.json');     
+      388 +            }                                                 
+      389            }
+      390          } else {
+      391            console.log('  状态: 未安装');
+
+  Read 2 files (ctrl+o to expand)
+
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Error editing file
+
+⏺ Update(bin/agent-workflow.js)
+  ⎿  Added 24 lines
+      145            const status = agentResult.success ? '✓' : '✗';
+      146            const mode = agentResult.skills?.rootMode || 'unknow
+           n';
+      147            console.log(`    ${status} ${displayName} (${mode})`
+           );
+      148 +          if (agentResult.worktreeHooks) {                    
+      149 +            const hookSummary = agentResult.worktreeHooks.inje
+          +cted                                                          
+      150 +              ? `已注册: ${(agentResult.worktreeHooks.events |
+          +| []).join(', ')}`                                            
+      151 +              : `未注册: ${((agentResult.worktreeHooks.skipped
+          + || [agentResult.worktreeHooks.error || '无']).join('; '))}`; 
+      152 +            console.log(`      worktree hooks -> ${hookSummary
+          +}`);                                                          
+      153 +          }                                                   
+      154 +          if (agentResult.workflowHooks) {                    
+      155 +            const hookSummary = agentResult.workflowHooks.inje
+          +cted                                                          
+      156 +              ? `已注册: ${(agentResult.workflowHooks.events |
+          +| []).join(', ')}`                                            
+      157 +              : `未注册: ${((agentResult.workflowHooks.skipped
+          + || [agentResult.workflowHooks.error || '无']).join('; '))}`; 
+      158 +            console.log(`      workflow hooks -> ${hookSummary
+          +}`);                                                          
+      159 +          }                                                   
+      160          }
+      161  
+      162          if (result.errors.length > 0) {
+     ...
+      211            const status = agentResult.success ? '✓' : '✗';
+      212            const mode = agentResult.skills?.rootMode || 'unknow
+           n';
+      213            console.log(`    ${status} ${displayName} (${mode})`
+           );
+      214 +          if (agentResult.worktreeHooks) {                    
+      215 +            const hookSummary = agentResult.worktreeHooks.inje
+          +cted                                                          
+      216 +              ? `已注册: ${(agentResult.worktreeHooks.events |
+          +| []).join(', ')}`                                            
+      217 +              : `未注册: ${((agentResult.worktreeHooks.skipped
+          + || [agentResult.worktreeHooks.error || '无']).join('; '))}`; 
+      218 +            console.log(`      worktree hooks -> ${hookSummary
+          +}`);                                                          
+      219 +          }                                                   
+      220 +          if (agentResult.workflowHooks) {                    
+      221 +            const hookSummary = agentResult.workflowHooks.inje
+          +cted                                                          
+      222 +              ? `已注册: ${(agentResult.workflowHooks.events |
+          +| []).join(', ')}`                                            
+      223 +              : `未注册: ${((agentResult.workflowHooks.skipped
+          + || [agentResult.workflowHooks.error || '无']).join('; '))}`; 
+      224 +            console.log(`      workflow hooks -> ${hookSummary
+          +}`);                                                          
+      225 +          }                                                   
+      226          }
+      227  
+      228          if (result.errors.length > 0) {
+
+⏺ Update(tests/test_workflow_helpers.js)
+  ⎿  Added 9 lines
+      662      assert.match(settings.hooks.PostToolUse[0].hooks[0].comman
+           d, /quality-gate-loop\.js/)
+      663    })
+      664  
+      665 +  await t.test('sync and link CLI expose workflow hook option 
+          +in help output', () => {                                      
+      666 +    const syncHelp = runNode(path.join(repoRoot, 'bin', 'agent
+          +-workflow.js'), ['sync', '--help'], { cwd: repoRoot })        
+      667 +    const linkHelp = runNode(path.join(repoRoot, 'bin', 'agent
+          +-workflow.js'), ['link', '--help'], { cwd: repoRoot })        
+      668 +    assert.equal(syncHelp.status, 0)                          
+      669 +    assert.equal(linkHelp.status, 0)                          
+      670 +    assert.match(syncHelp.stdout, /--workflow-hooks/)         
+      671 +    assert.match(linkHelp.stdout, /--workflow-hooks/)         
+      672 +  })                                                          
+      673 +                                                              
+      674    await t.test('workflow CLI honors spec review branch and hel
+           per CLIs keep structured error contracts', () => {
+      675      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workfl
+           ow-cli-branch-'))
+      676      const [extraEnv, home] = makeCliEnv(root)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Added 40 lines, removed 1 line
+       75            "command": "node \"$HOME/.claude/.agent-workflow/hoo
+           ks/worktree-cleanup.js\""
+       76          }]
+       77        }
+       78 -    ]                                                         
+       78 +    }                                                         
+       79    }
+       80  }
+       81  ```
+       82  
+       83 +如需启用 workflow hooks，可额外添加：                         
+       84 +                                                              
+       85 +```json                                                       
+       86 +{                                                             
+       87 +  "hooks": {                                                  
+       88 +    "SessionStart": [                                         
+       89 +      {                                                       
+       90 +        "hooks": [{                                           
+       91 +          "type": "command",                                  
+       92 +          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          +ks/session-start.js\""                                        
+       93 +        }]                                                    
+       94 +      }                                                       
+       95 +    ],                                                        
+       96 +    "PreToolUse": [                                           
+       97 +      {                                                       
+       98 +        "matcher": "Task",                                    
+       99 +        "hooks": [{                                           
+      100 +          "type": "command",                                  
+      101 +          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          +ks/pre-execute-inject.js\""                                   
+      102 +        }]                                                    
+      103 +      }                                                       
+      104 +    ],                                                        
+      105 +    "PostToolUse": [                                          
+      106 +      {                                                       
+      107 +        "hooks": [{                                           
+      108 +          "type": "command",                                  
+      109 +          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          +ks/quality-gate-loop.js\""                                    
+      110 +        }]                                                    
+      111 +      }                                                       
+      112 +    }                                                         
+      113 +  }                                                           
+      114 +}                                                             
+      115 +```                                                           
+      116 +                                                              
+      117 +workflow hooks 的职责仅限于：                                 
+      118 +- 注入 workflow 状态与当前 task 上下文                        
+      119 +- 阻断非法执行或未通过的质量关卡                              
+      120 +- 不替代 `/workflow execute` 的 shared resolver               
+      121 +                                                              
+      122  > **注意**：路径必须使用 `$HOME` 或绝对路径（如 `/Users/你的用
+           户名/...`），不能使用 `~`。
+      123  > 因为 `node "~/.../file.js"` 中 `~` 在双引号内不会被 Shell 展
+           开，会导致路径解析失败。
+      124  
+
+  Ran 1 bash command (ctrl+o to expand)
+
+⏺ 继续完成了第二轮，主要补了两类东西。
+
+  1. hook 状态展示更完整
+
+  更新了 bin/agent-workflow.js：
+
+  - sync / link 的输出现在会显示：
+    - worktree hooks -> 已注册 / 未注册
+    - workflow hooks -> 已注册 / 未注册
+  - status 输出里对 Claude Code 会额外提示：
+    - hooks managed dir 是否已同步
+    - workflow hooks 默认是 opt-in，需要 sync/link --workflow-hooks
+
+  这样用户能直接看见：
+  - 默认自动注入的是哪类 hook
+  - 哪类 hook 需要显式开启
+
+  2. workflow hooks 文档更清晰
+
+  更新了：
+
+  - README.md
+  - docs/worktree-hooks.md
+
+  补充了：
+  - sync --workflow-hooks
+  - link --workflow-hooks
+  - 手动在 ~/.claude/settings.json 里注册
+    - SessionStart
+    - PreToolUse + matcher: Task
+    - PostToolUse
+  - 明确说明 workflow hooks 的边界：
+    - 只注入上下文 / 阻断非法执行 / 卡质量关卡
+    - 不替代 /workflow execute resolver
+
+  测试
+
+  已重新跑通：
+
+  - node --test tests/test_workflow_helpers.js
+
+  结果：18/18 通过
+
+  这轮之后，hook 方案已经从“有实现”推进到了“有守门逻辑 + 有安装入口 + 有状态展示
+   + 有说明文档 + 有测试覆盖”。
+
+  如果还要继续，我建议下一步做这两个方向之一：
+
+  1. 把 workflow hook 状态纳入 getInstallationStatus() 的结构化结果
+    - 不只是 CLI 文本提示，而是真正进入安装状态模型
+  2. 把 workflow hooks 文档从 worktree-hooks.md 拆出去
+    - 单独做一份 docs/workflow-hooks.md
+    - 让 worktree hooks 和 workflow hooks 文档职责完全分离
+
+❯ 2                                                                             
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+⏺ Write(docs/workflow-hooks.md)
+  ⎿  Wrote 157 lines to docs/workflow-hooks.md
+       1 # Workflow Hook Guardrails
+       2 
+       3 ## 背景
+       4 
+       5 当前项目的 workflow 主流程由 `/workflow` command、专项 skills 和
+          `workflow-state.json` 驱动。
+       6 
+       7 workflow hooks 的定位不是接管状态机，而是作为 **runtime guardrai
+         ls**：
+       8 
+       9 - 注入会话级 workflow 上下文
+      10 - 在执行型 Task 派发前补齐当前任务上下文
+     … +147 lines (ctrl+o to expand)
+
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Added 1 line, removed 1 line
+      43  3. 若检测到历史遗留的旧 hook 路径（如 `~/.claude/hooks/...`），
+          会自动修正为当前托管路径
+      44  
+      45  > `WorktreeCreate` / `WorktreeRemove` hooks 属于默认自动注入能
+          力。
+      46 -> `SessionStart` / `PreToolUse(Task)` / `PostToolUse` 这类 work
+         -flow hooks 默认不自动注入，需显式使用 `sync --workflow-hooks`  
+         -或手动注册。                                                   
+      46 +> workflow hooks 请参考单独文档：[`workflow-hooks.md`](workflow
+         +-hooks.md)                                                     
+      47  
+      48  ### 项目级安装
+      49  
+
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Error editing file
+
+⏺ Update(README.md)
+  ⎿  Error editing file
+
+  Read 2 files (ctrl+o to expand)
+⏺ Update(docs/worktree-hooks.md)
+  ⎿  Added 3 lines, removed 40 lines
+       75            "command": "node \"$HOME/.claude/.agent-workflow/hoo
+           ks/worktree-cleanup.js\""
+       76          }]
+       77        }
+       78 -    }                                                         
+       78 +    ]                                                         
+       79    }
+       80  }
+       81  ```
+       82  
+       83 -如需启用 workflow hooks，可额外添加：                         
+       84 -                                                              
+       85 -```json                                                       
+       86 -{                                                             
+       87 -  "hooks": {                                                  
+       88 -    "SessionStart": [                                         
+       89 -      {                                                       
+       90 -        "hooks": [{                                           
+       91 -          "type": "command",                                  
+       92 -          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          -ks/session-start.js\""                                        
+       93 -        }]                                                    
+       94 -      }                                                       
+       95 -    ],                                                        
+       96 -    "PreToolUse": [                                           
+       97 -      {                                                       
+       98 -        "matcher": "Task",                                    
+       99 -        "hooks": [{                                           
+      100 -          "type": "command",                                  
+      101 -          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          -ks/pre-execute-inject.js\""                                   
+      102 -        }]                                                    
+      103 -      }                                                       
+      104 -    ],                                                        
+      105 -    "PostToolUse": [                                          
+      106 -      {                                                       
+      107 -        "hooks": [{                                           
+      108 -          "type": "command",                                  
+      109 -          "command": "node \"$HOME/.claude/.agent-workflow/hoo
+          -ks/quality-gate-loop.js\""                                    
+      110 -        }]                                                    
+      111 -      }                                                       
+      112 -    }                                                         
+      113 -  }                                                           
+      114 -}                                                             
+      115 -```                                                           
+      116 -                                                              
+      117 -workflow hooks 的职责仅限于：                                 
+      118 -- 注入 workflow 状态与当前 task 上下文                        
+      119 -- 阻断非法执行或未通过的质量关卡                              
+      120 -- 不替代 `/workflow execute` 的 shared resolver               
+      121 -                                                              
+       83  > **注意**：路径必须使用 `$HOME` 或绝对路径（如 `/Users/你的用
+           户名/...`），不能使用 `~`。
+       84  > 因为 `node "~/.../file.js"` 中 `~` 在双引号内不会被 Shell 展
+           开，会导致路径解析失败。
+       85  
+       86 +如需启用 workflow hooks，请参考单独文档：[`workflow-hooks.md`]
+          +(workflow-hooks.md)                                           
+       87 +                                                              
+       88  ### 孤立目录回收
+       89  
+       90  `WorktreeRemove` hook 不会强制删除任意传入路径；它只会：
+
+⏺ Update(README.md)
+  ⎿  Added 2 lines
+      300  
+      301  如需查看更完整说明，可参考：
+      302  
+      303 +- `docs/worktree-hooks.md`（WorktreeCreate / WorktreeRemove 串
+          +行化与清理）                                                  
+      304 +- `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) / 
+          +PostToolUse guardrails）                                      
+      305  - `Claude-Code-工作流体系指南.md`
+      306  - `core/commands/workflow.md`（统一 command 入口）
+      307  - `core/commands/team.md`（独立 team command 入口）
+
+  Ran 1 bash command (ctrl+o to expand)
+
+⏺ 已按你选的方向做完拆分。
+
+  这次完成的内容
+
+  1. 新增独立文档
+
+  新增：
+
+  - docs/workflow-hooks.md
+
+  内容单独说明了：
+  - workflow hooks 的定位
+  - 3 个 hook：
+    - SessionStart
+    - PreToolUse + matcher: Task
+    - PostToolUse
+  - 启用方式
+    - sync --workflow-hooks
+    - link --workflow-hooks
+    - 手动写入 ~/.claude/settings.json
+  - 与 worktree hooks 的职责差异
+
+  2. 精简 docs/worktree-hooks.md
+
+  现在 worktree-hooks.md 只聚焦：
+  - WorktreeCreate
+  - WorktreeRemove
+  - 串行化与清理
+
+  workflow hooks 的内容已经从里面拆走，只保留到新文档的引用。
+
+  3. README 更新了文档导航
+
+  README.md 现在会分别列出：
+  - docs/worktree-hooks.md
+  - docs/workflow-hooks.md
+
+  测试
+
+  已再次验证：
+
+  - node --test tests/test_workflow_helpers.js
+
+  结果：18/18 通过
+
+  现在文档边界已经比较干净了：
+  - worktree-hooks.md 讲 Git/worktree runtime 安全
+  - workflow-hooks.md 讲 workflow guardrails runtime
+
+  如果你还想继续，我建议下一步做：
+
+  1. 把 docs/workflow-hooks.md 链接进 README 的安装章节附近
+    - 不只是“更多文档”区可见
+  2. 在 status / doctor 里把 workflow hooks 是否已显式启用做成更结构化的诊断项
+    - 现在 CLI 里有提示，但还不是完整的安装状态模型

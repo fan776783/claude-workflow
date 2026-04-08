@@ -17,6 +17,7 @@
 在 `/team execute` 真正推进之前，必须先完成以下校验；任一项失败时，必须立即停止并返回阻断信息：
 
 - `team-state.json` 存在且可解析
+- 当前调用必须来自显式 `/team` / `team-workflow` 入口；若未提供 `teamId`，也只能在显式 team command surface 内自动定位 active team runtime
 - `team_phase` 合法，必须属于：
   - `team-plan`
   - `team-exec`

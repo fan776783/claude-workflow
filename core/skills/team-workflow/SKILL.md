@@ -1,6 +1,6 @@
 ---
 name: team-workflow
-description: "team 重型运行时入口 - 承接 /team start|execute|status|archive 的 phase/state contract，统一复用 core/specs/team-runtime/* 与 core/utils/team/*.js。"
+description: "team 重型运行时入口 - 承接 /team start|execute|status|archive|cleanup 的 phase/state contract，统一复用 core/specs/team-runtime/* 与 core/utils/team/*.js。"
 ---
 
 # team-workflow
@@ -11,7 +11,7 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 
 - `/team start` 的 team bootstrap / planning contract
 - `/team execute` 的 phase 推进、verify / fix loop 与 worker gate
-- `/team status` / `/team archive` 的共享运行时语义
+- `/team status` / `/team archive` / `/team cleanup` 的共享运行时语义
 - team runtime 文档、状态机与 Node.js helpers 的统一引用
 
 ## 先读
@@ -71,10 +71,11 @@ team-plan -> team-exec -> team-verify -> team-fix (loop) -> completed | failed |
 - verify 失败时只允许回流失败边界到 `team-fix`
 - 不得把普通 workflow 的 `parallel-boundaries` 信号解释为 team mode 或 team runtime 合法推进依据
 
-## Status / Archive Contract
+## Status / Archive / Cleanup Contract
 
 - `/team status`：读取 team runtime，展示当前阶段、边界进度、失败项与下一步建议
 - `/team archive`：归档当前 team runtime 与相关编排工件，不改变普通 `/workflow archive` 语义
+- `/team cleanup`：清理已归档的 team runtime 目录，保留 repo 内 spec / plan 等规划工件
 
 阅读：
 - [`../../specs/team-runtime/status.md`](../../specs/team-runtime/status.md)
@@ -108,6 +109,7 @@ team-plan -> team-exec -> team-verify -> team-fix (loop) -> completed | failed |
 ## 约束
 
 - `/team` 仍是显式入口，不因 `/workflow`、`/quick-plan`、Broad Request Detection、自然语言宽泛请求或 `dispatching-parallel-agents` 自动触发
-- 本 skill 持有 team 的重型 runtime contract，但不改动公开 `/team start|execute|status|archive` 命令面
+- 只有显式 `/team` / `team-workflow` 入口才能消费 active team runtime；普通 session、workflow hooks 与普通 agent launch 必须忽略 team runtime
+- 本 skill 持有 team 的重型 runtime contract，但不改动公开 `/team start|execute|status|archive|cleanup` 命令面
 - team runtime 路径继续保持在 `~/.claude/workflows/{projectId}/teams/{teamId}/`
 - 运行时实现继续收敛在 `core/specs/team-runtime/*` 与 `core/utils/team/*.js`
