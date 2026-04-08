@@ -2,9 +2,9 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v12.0.0  
-**最后更新**：2026-04-02  
-**适用仓库**：`@justinfan/agent-workflow` v4.0.0
+**文档版本**：v12.1.0  
+**最后更新**：2026-04-08  
+**适用仓库**：`@justinfan/agent-workflow` v4.1.0
 
 ---
 
@@ -95,7 +95,8 @@ npm run sync -- -y
 1. 将模板内容写入 canonical 位置
 2. 为不同 AI 编码工具建立受管挂载
 3. 将 `skills` 逐个挂载到对应工具目录
-4. 将 `commands`、`prompts`、`utils`、`specs` 作为目录级资源提供给工具使用
+4. 将 commands 挂载到 `commands/agent-workflow/` 命名空间
+5. 将 `utils`、`specs`、`hooks`、`docs` 挂载到工具内的 `.agent-workflow/` 命名空间
 
 ### 2.3 常用本地 CLI 调用方式
 
@@ -541,9 +542,9 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 ## 9. Skills 体系总览
 
-仓库当前提供 13 个 skill 目录，按职责分为三类：
+仓库当前提供 18 个 skill 目录，按职责分为四类：
 
-### 9.1 用户直接调用的专项 Skills（9 个）
+### 9.1 用户直接调用的专项 Skills（10 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
@@ -554,12 +555,13 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 | `write-tests` | `/write-tests` | 补测试、修测试 |
 | `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
-| `dispatching-parallel-agents` | 自动触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+| `search-first` | `/search-first` | 先搜后写，输出 Adopt / Extend / Build 决策 |
+| `deep-research` | `/deep-research` | 面向外部信息的多源引文研究 |
 | `collaborating-with-codex` | 主动触发 | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
-### 9.2 Workflow 子 Skills（4 个）
+### 9.2 Workflow / Team 主线 Skills（6 个）
 
-这些 skill 不直接暴露为独立命令，而是由 `/workflow` command 入口路由调用：
+这些 skill 不直接都暴露为独立命令，而是由 `/workflow` 或 `/team` command 入口路由调用，或作为其内部 runtime 能力：
 
 | Skill | 路由自 | 职责 |
 |-------|--------|------|
@@ -567,17 +569,29 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 | `workflow-executing` | `/workflow execute` | 执行阶段：治理、验证、审查、状态推进 |
 | `workflow-reviewing` | 执行内部触发 | 两阶段审查协议：Spec 合规 + 代码质量 |
 | `workflow-delta` | `/workflow delta` | 增量变更：需求 / PRD / API 变更的影响分析与同步 |
+| `team` | `/team start` 入口层 | 显式 team mode 的入口契约、边界与路由关系 |
+| `team-workflow` | `/team execute|status|archive` 及 start runtime | team phase/state contract、verify / fix loop 与运行时语义 |
 
-### 9.3 基础设施说明
+### 9.3 规划与研究辅助 Skills（2 个）
 
-- **共享运行时**（`core/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、status/archive 等运行时资源
-- **共享模板**（`core/specs/workflow-templates/`）：spec / plan 模板
+| Skill | 触发方式 | 功能 |
+|-------|---------|------|
+| `plan` | `/quick-plan` | 轻量快速规划，只产出可执行 `plan.md`，不进入 workflow 状态机 |
+| `dispatching-parallel-agents` | workflow/team 内部按需触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+
+### 9.4 基础设施说明
+
+- **共享运行时**（`core/specs/workflow-runtime/`、`core/specs/team-runtime/`）：状态机、共享工具、外部依赖语义、status/archive 等运行时资源
+- **共享模板**（`core/specs/workflow-templates/`、`core/specs/team-templates/`）：spec / plan 模板
 - **思维指南**（`core/specs/guides/`）：代码复用检查清单、跨层检查清单、AI 审查误报指南
-- **Commands**（`core/commands/`）：`workflow`（统一入口）、`enhance`（prompt 增强）、`git-rollback`（交互式回滚）
+- **Commands**（`core/commands/`）：`workflow`、`team`、`quick-plan`、`enhance`、`git-rollback`
+- **Node.js helpers**：workflow 在 `core/utils/workflow/`，team 在 `core/utils/team/`
 
-### 9.4 使用原则
+### 9.5 使用原则
 
 - 主线问题走 `workflow`
+- 显式多边界团队编排走 `/team`
+- 简单到中等复杂度任务可先走 `/quick-plan`
 - 单域问题走专项 skill
 - 需要 Codex 协作时，相关 skill 会自动通过 `collaborating-with-codex` 委派任务
 - 同阶段 2+ 独立任务由 `dispatching-parallel-agents` 负责并行分派
@@ -595,17 +609,37 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 /workflow status
 ```
 
-### 10.2 长 PRD / 高约束需求
+### 10.2 简单到中等复杂度任务
+
+如果当前任务不需要完整的 spec / 状态机，而是希望快速形成可执行计划，可以先使用：
+
+```bash
+/quick-plan "需求描述"
+```
+
+确认计划后，再决定是直接实施，还是切换到 `/workflow execute` / `/workflow start`。
+
+### 10.3 长 PRD / 高约束需求
 
 优先把需求放进 `/workflow start docs/prd.md`，让系统先做代码分析、需求讨论和 Spec 审查，再开始执行。
 
-### 10.3 UI / 前端需求
+### 10.4 UI / 前端需求
 
 如果需求涉及页面、导航、交互或首次体验，建议走 `workflow start`，因为它会触发 UX 设计审批；落地后可结合 `/figma-ui` 完成设计稿还原。
 
-### 10.4 变更驱动迭代
+### 10.5 变更驱动迭代
 
 已有工作流发生需求更新、PRD 更新或 API 变更时，不建议直接手改 `plan.md`，而是优先使用 `/workflow delta` 保持状态和工件一致。
+
+### 10.6 显式团队编排
+
+当同一需求需要拆成多个上下文边界，并希望使用 team runtime 统一治理时，显式使用：
+
+```bash
+/team start "需求描述"
+/team execute
+/team status
+```
 
 ---
 
@@ -654,6 +688,7 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 
 # 执行
 /workflow execute
+/workflow execute --phase
 /workflow execute --retry
 /workflow execute --skip
 
@@ -670,6 +705,18 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 # 归档
 /workflow archive
 
+# team
+/team "需求描述"
+/team start "需求描述"
+/team execute
+/team status
+/team archive
+
+# 轻量规划与辅助命令
+/quick-plan "需求描述"
+/enhance "原始提示词"
+/git-rollback
+
 # 专项 skill
 /analyze "架构问题"
 /fix-bug "bug 描述"
@@ -678,16 +725,30 @@ Stage 2 只有在 Stage 1 通过后才会启动。
 /write-tests
 /bug-batch
 /figma-ui <URL>
+/search-first "功能需求"
+/deep-research "研究主题"
 ```
 
 ---
 
 ## 参考资料
 
+- `README.md`
 - `core/commands/workflow.md`（统一 command 入口）
+- `core/commands/team.md`（显式 team command 入口）
+- `core/commands/quick-plan.md`
+- `core/commands/enhance.md`
+- `core/commands/git-rollback.md`
 - `core/skills/workflow-planning/SKILL.md`
 - `core/skills/workflow-executing/SKILL.md`
 - `core/skills/workflow-reviewing/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
+- `core/skills/plan/SKILL.md`
+- `core/skills/search-first/SKILL.md`
+- `core/skills/deep-research/SKILL.md`
+- `core/skills/team/SKILL.md`
+- `core/skills/team-workflow/SKILL.md`
 - `core/specs/workflow-runtime/state-machine.md`
-- `core/specs/guides/index.md`（思维指南索引）
+- `core/specs/team-runtime/overview.md`
+- `lib/agents.js`
+- `lib/installer.js`

@@ -24,12 +24,14 @@
 
 ### Public Commands
 
-除了 `/workflow` 主线外，仓库还会安装手动命令入口：
+除了 `/workflow` 主线外，仓库还会安装手动 command 入口：
 
 | 命令 | 类型 | 说明 |
 |------|------|------|
 | `/quick-plan` | command entry | 轻量快速规划，适用于简单到中等任务 |
 | `/team` | command entry | 团队协作入口；仅在用户显式输入时使用，不自动触发 |
+| `/enhance` | command entry | 对原始提示词做结构化增强，再等待用户确认 |
+| `/git-rollback` | command entry | 交互式 Git 回滚入口，默认 dry-run 预览 |
 
 ### Team 模式
 
@@ -61,6 +63,8 @@
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+| `search-first` | 先搜后写，给出 Adopt / Extend / Build 决策 |
+| `deep-research` | 面向外部信息的多源引文研究 |
 | `team` | `/team` 的显式入口 skill；只负责路由与边界，不自动触发 |
 | `team-workflow` | `/team` 的重型 runtime skill；承接 start/execute/status/archive 的 phase/state contract |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
@@ -282,10 +286,16 @@ flowchart TD
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/workflow.md`（统一 command 入口）
 - `core/commands/team.md`（独立 team command 入口）
+- `core/commands/quick-plan.md`
+- `core/commands/enhance.md`
+- `core/commands/git-rollback.md`
 - `core/skills/workflow-planning/SKILL.md`
 - `core/skills/workflow-executing/SKILL.md`
 - `core/skills/workflow-reviewing/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
+- `core/skills/plan/SKILL.md`
+- `core/skills/search-first/SKILL.md`
+- `core/skills/deep-research/SKILL.md`
 - `core/skills/team/SKILL.md`
 - `core/skills/team-workflow/SKILL.md`
 - `core/specs/workflow-runtime/state-machine.md`
