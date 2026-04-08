@@ -35,6 +35,8 @@ const reviewSubject: ReviewSubject = {
 
 ### Review Policy
 
+Stage 2 reviewer selection should prefer `state.context_injection.execution.quality_review_stage2`. If the execution slot is unset, resolve the profile dynamically from `core/utils/workflow/role_injection.js` using requirement IDs, critical constraints, diff-window metadata, and collaboration/session signals.
+
 ```typescript
 const QUALITY_REVIEW_POLICY: ReviewLoopPolicy = {
   max_attempts: 4,
@@ -136,9 +138,13 @@ interface SpecIssue {
 
 ## Stage 2：代码质量审查
 
+> reviewer 启动前先解析 `state.context_injection.execution.quality_review_stage2`；若缺失则按 `core/utils/workflow/role_injection.js` 的规则回退到默认 reviewer profile。
+
 **前置条件**：Stage 1 必须通过。禁止在 Stage 1 未通过时启动 Stage 2。
 
 **执行者**：平台感知的代码质量审查子 agent。
+
+在 reviewer 子 agent 启动前，先解析 role profile：优先读取 `state.context_injection.execution.quality_review_stage2`，否则回退到 `core/utils/workflow/role_injection.js` 的默认 profile 解析。对子 agent 实际发送的内容应为 `buildAgentPrompt(profile, injectedContext, platform)` 的结果，而不是重复维护独立 persona 文案。
 
 在启动 reviewer 子 agent 前，不需要调用 `../../../../dispatching-parallel-agents/SKILL.md`；Stage 2 走的是**单 reviewer 子 agent**路径，而不是多问题域并行分派。这里只直接复用平台路由与最小上下文封装原则即可。
 - Claude Code / Cursor：使用 `Task` 以 reviewer 角色审查 diff 窗口

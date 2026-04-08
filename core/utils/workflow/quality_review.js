@@ -4,6 +4,7 @@ const { readState, resolveStatePath, writeState } = require('./state_manager')
 const { createEvidence } = require('./verification')
 const { assertCanonicalWorkflowStatePath } = require('./path_utils')
 const { ensureStateDefaults, getReviewResult } = require('./workflow_types')
+const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile } = require('./role_injection')
 
 const GATE_BUDGET = {
   max_total_loops: 4,
@@ -30,6 +31,55 @@ function createDiffWindow(baseCommit, fromTask = null, toTask = null, filesChang
     from_task: fromTask,
     to_task: toTask,
     files_changed: filesChanged,
+  }
+}
+
+function resolveQualityReviewProfile(state = {}, requirementIds = [], criticalConstraints = [], diffWindow = null) {
+  const normalized = ensureStateDefaults(state)
+  const existing = (((normalized.context_injection || {}).execution) || {}).quality_review_stage2 || {}
+  const signals = classifyRoleSignals('', [], null, {
+    requirementIds,
+    criticalConstraints,
+    summary: requirementIds.join(' '),
+    taskName: criticalConstraints.join(' '),
+  })
+  if (existing.profile || existing.role) {
+    const profile = {
+      ...resolveRoleProfile('quality_review_stage2', signals, normalized.collaboration || {}, normalized.sessions || {}),
+      role: existing.role || resolveRoleProfile('quality_review_stage2', signals, normalized.collaboration || {}, normalized.sessions || {}).role,
+      profile: existing.profile || resolveRoleProfile('quality_review_stage2', signals, normalized.collaboration || {}, normalized.sessions || {}).profile,
+    }
+    return {
+      signals,
+      profile,
+      injectedContext: buildInjectedContext(
+        createReviewSubject(diffWindow?.base_commit || 'HEAD', requirementIds, criticalConstraints),
+        profile,
+        signals,
+        { diff_window: diffWindow }
+      ),
+    }
+  }
+  const profile = resolveRoleProfile('quality_review_stage2', signals, normalized.collaboration || {}, normalized.sessions || {})
+  return {
+    signals,
+    profile,
+    injectedContext: buildInjectedContext(
+      createReviewSubject(diffWindow?.base_commit || 'HEAD', requirementIds, criticalConstraints),
+      profile,
+      signals,
+      { diff_window: diffWindow }
+    ),
+  }
+}
+
+function createReviewerPrompt(state = {}, requirementIds = [], criticalConstraints = [], diffWindow = null) {
+  const { profile, injectedContext } = resolveQualityReviewProfile(state, requirementIds, criticalConstraints, diffWindow)
+  return {
+    role: profile.role,
+    profile: profile.profile,
+    prompt: buildAgentPrompt(profile, injectedContext, ((state || {}).sessions || {}).platform || 'claude-code'),
+    injected_context: injectedContext,
   }
 }
 
@@ -64,9 +114,11 @@ function collectBlockingIssues(result) {
   return collected
 }
 
-function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, stage2Attempts = 1, stage1IssuesFound = 0, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent') {
+function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, stage2Attempts = 1, stage1IssuesFound = 0, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent', state = {}) {
   const attempts = stage1Attempts + stage2Attempts
   const now = isoNow()
+  const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
+  const reviewerPrompt = createReviewerPrompt(state, requirementIds, criticalConstraints, diffWindow)
   return {
     review_type: 'quality_review',
     review_mode: 'machine_loop',
@@ -77,20 +129,23 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
     last_decision: 'pass',
     next_action: 'continue_execution',
     commit_hash: currentCommit || baseCommit,
-    diff_window: createDiffWindow(baseCommit, fromTask, toTask, filesChanged),
+    diff_window: diffWindow,
     stage1: { passed: true, attempts: stage1Attempts, issues_found: stage1IssuesFound, completed_at: now },
-    stage2: { passed: true, attempts: stage2Attempts, assessment: 'approved', critical_count: criticalCount, important_count: importantCount, minor_count: minorCount, completed_at: now },
+    stage2: { passed: true, attempts: stage2Attempts, assessment: 'approved', critical_count: criticalCount, important_count: importantCount, minor_count: minorCount, completed_at: now, role: reviewerPrompt.role, profile: reviewerPrompt.profile },
     overall_passed: true,
     reviewed_at: now,
     reviewer,
+    reviewer_prompt_preview: reviewerPrompt.prompt,
   }
 }
 
-function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, totalAttempts = 1, lastResult = null, reviewer = 'subagent') {
+function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, totalAttempts = 1, lastResult = null, reviewer = 'subagent', state = {}) {
   const budgetExhausted = totalAttempts > GATE_BUDGET.max_total_loops
   const terminalDecision = budgetExhausted || failedStage === 'stage2' ? 'rejected' : 'revise'
   const nextAction = terminalDecision === 'rejected' ? 'mark_task_failed_or_escalate' : 'fix_and_retry_or_escalate'
   const now = isoNow()
+  const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
+  const reviewerPrompt = createReviewerPrompt(state, requirementIds, criticalConstraints, diffWindow)
   const result = {
     review_type: 'quality_review',
     review_mode: 'machine_loop',
@@ -103,8 +158,9 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
     blocking_issues: collectBlockingIssues(lastResult),
     reviewed_at: now,
     reviewer,
+    reviewer_prompt_preview: reviewerPrompt.prompt,
     commit_hash: currentCommit || baseCommit,
-    diff_window: createDiffWindow(baseCommit, fromTask, toTask, filesChanged),
+    diff_window: diffWindow,
     stage1: { passed: failedStage !== 'stage1', attempts: stage1Attempts, issues_found: extractIssueCount(lastResult), completed_at: now },
     overall_passed: false,
   }
@@ -118,6 +174,8 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
       important_count: (issues.important || []).length,
       minor_count: (issues.minor || []).length,
       completed_at: now,
+      role: reviewerPrompt.role,
+      profile: reviewerPrompt.profile,
     }
   }
   return result
@@ -171,7 +229,7 @@ function main() {
 
     if (command === 'pass') {
       const taskId = args.shift()
-      const gateResult = buildPassGateResult(taskId, option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent')
+      const gateResult = buildPassGateResult(taskId, option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
       if ((option('--project-id') || option('--state-file')) && !statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
@@ -193,7 +251,7 @@ function main() {
         process.exitCode = 1
         return
       }
-      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent')
+      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
       if ((option('--project-id') || option('--state-file')) && !statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
@@ -251,6 +309,8 @@ module.exports = {
   collectBlockingIssues,
   buildPassGateResult,
   buildFailedGateResult,
+  resolveQualityReviewProfile,
+  createReviewerPrompt,
   writeQualityGateResult,
   readQualityGateResult,
   resolveCliStatePath,

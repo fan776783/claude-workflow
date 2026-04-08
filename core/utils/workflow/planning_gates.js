@@ -3,6 +3,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { classifyRoleSignals } = require('./role_injection')
 
 const UI_KEYWORDS_REGEX = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i
 const UI_BROAD_KEYWORDS_REGEX = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i
@@ -40,6 +41,10 @@ function shouldRunUxDesignGate(requirementContent, analysisPatterns = [], discus
 
 function needsWorkspaceDetection(requirementContent) {
   return WORKSPACE_KEYWORDS_REGEX.test(String(requirementContent || ''))
+}
+
+function deriveRoleSignals(requirementContent, analysisPatterns = [], discussionArtifact = null, extra = {}) {
+  return classifyRoleSignals(requirementContent, analysisPatterns, discussionArtifact, extra)
 }
 
 function detectAgentWorkspaces(homeDir) {
@@ -130,6 +135,7 @@ module.exports = {
   validateUxArtifact,
   buildSpecReviewSummary,
   mapSpecReviewChoice,
+  deriveRoleSignals,
 }
 
 if (require.main === module) main()

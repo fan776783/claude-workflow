@@ -137,6 +137,35 @@ function updateUserSpecReview(state, status, nextAction, reviewer = 'user') {
   return reviewStatus.user_spec_review
 }
 
+function updateContextInjection(state, contextInjection = {}) {
+  const normalized = normalizeStateInPlace(state)
+  normalized.context_injection = {
+    ...((normalized.context_injection || {})),
+    ...contextInjection,
+  }
+  return normalized.context_injection
+}
+
+function updatePlanReviewRecord(state, details = {}) {
+  const normalized = normalizeStateInPlace(state)
+  const reviewStatus = normalized.review_status || (normalized.review_status = {})
+  reviewStatus.plan_review = {
+    status: details.status || 'pending',
+    review_mode: details.review_mode || 'machine_loop',
+    reviewed_at: details.reviewed_at || null,
+    reviewer: details.reviewer || 'subagent',
+    attempt: details.attempt || 0,
+    max_attempts: details.max_attempts || 3,
+    last_decision: details.last_decision || null,
+    next_action: details.next_action || null,
+    role: details.role || null,
+    profile: details.profile || null,
+    signals_snapshot: details.signals_snapshot || null,
+    metrics: details.metrics || {},
+  }
+  return reviewStatus.plan_review
+}
+
 function completeWorkflow(state, statePath, totalTasks) {
   state.status = 'completed'
   state.current_tasks = []
@@ -376,6 +405,8 @@ module.exports = {
   updateDiscussionRecord,
   updateUxDesignRecord,
   updateUserSpecReview,
+  updateContextInjection,
+  updatePlanReviewRecord,
   completeWorkflow,
   handleTaskError,
   recordContextUsage,

@@ -89,7 +89,35 @@
       "reviewed_at": "2026-03-29T10:00:00Z",
       "reviewer": "user",
       "next_action": "continue_to_plan_generation"
+    },
+    "plan_review": {
+      "status": "pending",
+      "review_mode": "machine_loop",
+      "reviewed_at": null,
+      "reviewer": "subagent",
+      "role": "reviewer",
+      "profile": "plan-reviewer",
+      "signals_snapshot": { "ui": false, "security": false },
+      "next_action": "compile_tasks"
     }
+  },
+  "context_injection": {
+    "schema_version": "1",
+    "signals": {
+      "ui": false,
+      "workspace": false,
+      "security": false,
+      "data": false,
+      "backend_heavy": true
+    },
+    "planning": {
+      "plan_generation": { "role": "planner", "profile": "plan-planner" },
+      "plan_review": { "role": "reviewer", "profile": "plan-reviewer" }
+    },
+    "execution": {
+      "quality_review_stage2": { "role": "reviewer", "profile": "review-reviewer" }
+    },
+    "artifact_path": "role-context.json"
   },
   "quality_gates": {
     "T1": {
@@ -189,6 +217,7 @@
 ├── workflow-state.json             ← 运行时状态（唯一来源）
 ├── analysis-result.json            ← Phase 0 代码分析结果缓存（P2 持久化）
 ├── discussion-artifact.json        ← 讨论工件（Phase 0.2）
+├── role-context.json               ← 角色注入工件（signals/profile/prompt preview）
 ├── ux-design-artifact.json         ← UX 设计工件（Phase 0.3）
 ├── journal/                        ← 会话日志
 ├── changes/                        ← delta 变更记录
@@ -205,6 +234,8 @@
 | `plan_file` | Plan 文档路径 |
 | `project_root` | 项目根目录，用于从任意工作目录解析相对 `spec_file` / `plan_file` |
 | `review_status.user_spec_review` | Phase 1.1 用户 Spec 审查（HumanGovernanceGate） |
+| `review_status.plan_review` | planning side 的 Plan Review 状态与角色选择 |
+| `context_injection` | 运行时角色注入信号、profile 决策与工件路径 |
 | `quality_gates` | 执行阶段质量关卡结果（execution side review sink，per gate task） |
 | `quality_gates.{taskId}.stage1` | 规格合规审查结果 |
 | `quality_gates.{taskId}.stage2` | 代码质量审查结果 |
@@ -240,6 +271,18 @@
 | `reviewed_at` | ISO 时间 | 审查时间 |
 | `reviewer` | `user` | 审查者 |
 | `next_action` | string | 后续动作提示 |
+
+### `review_status.plan_review`（Planning Side Plan Review）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status` | `pending / passed / revise_required / rejected` | Plan 审查决策 |
+| `review_mode` | `machine_loop` | 固定为机器审查循环 |
+| `reviewer` | string | 审查执行者 |
+| `role` | string | 当前选中的 reviewer 角色 |
+| `profile` | string | 当前选中的 reviewer profile |
+| `signals_snapshot` | object | 解析 role 时使用的信号快照 |
+| `next_action` | string | 后续动作 |
 
 ### `quality_gates[taskId]`（执行阶段质量关卡）
 

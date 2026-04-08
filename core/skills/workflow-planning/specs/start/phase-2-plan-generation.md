@@ -27,6 +27,7 @@
 - `spec.md`（唯一规范输入）
 - `analysisResult`（代码分析结果，仅作为可复用组件和文件规划的辅助上下文，不改变 spec 作为唯一规范来源的地位）
 - `discussion-artifact.json`（仅用于 drift 检查，不作为规范数据源 — 见下方 Drift Check）
+- `role-context.json`（运行时角色注入工件；记录 signals、profile 选择与 prompt 预览）
 
 ### Discussion-Artifact Drift Check
 
@@ -50,6 +51,7 @@ Phase 1 Spec 生成已消费 discussion-artifact 并将决策写入 spec。Phase
 - **Exact Commands** — 验证命令包含预期输出（Self-Review 仅检查命令语法和路径存在性；语义正确性在执行阶段验证）
 - **No Placeholders** — 禁止 TBD/TODO/"类似 Task N"/模糊描述
 - **WorkflowTaskV2 Compatible** — 任务块必须使用 `## Tn:` 标题和 V2 字段，供执行器直接解析
+- **Role-Context Aware** — plan frontmatter 与正文应保留选中的 role profile 摘要，但不直接泄露整段 reviewer/planner prompt
 - **Spec Section Ref** — 每步标注对应的 spec 章节
 
 ## No Placeholders 规则

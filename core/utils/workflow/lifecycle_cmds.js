@@ -16,7 +16,9 @@ const {
   markDependencyUnblocked,
   readState,
   recordDeltaChange,
+  updateContextInjection,
   updateDiscussionRecord,
+  updatePlanReviewRecord,
   updateUserSpecReview,
   updateUxDesignRecord,
   writeState,
@@ -28,6 +30,7 @@ const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
   buildDiscussionArtifact,
   buildSpecReviewSummary,
+  deriveRoleSignals,
   detectAgentWorkspaces,
   estimateGapCount,
   mapSpecReviewChoice,
@@ -36,6 +39,11 @@ const {
   shouldRunUxDesignGate,
   validateUxArtifact,
 } = require('./planning_gates')
+const {
+  buildInjectedContext,
+  buildAgentPrompt,
+  resolveRoleProfile,
+} = require('./role_injection')
 
 function loadProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -212,6 +220,44 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   const discussionPath = path.join(workflowDir, 'discussion-artifact.json')
 
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
+  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
+  const planProfile = resolveRoleProfile('plan_generation', roleSignals)
+  const planReviewProfile = resolveRoleProfile('plan_review', roleSignals)
+  const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)
+  const roleContextPath = path.join(workflowDir, 'role-context.json')
+  const planInjectedContext = buildInjectedContext(
+    { kind: 'document', ref: specRelative.replace(/\\/g, '/'), requirement_ids: ['R1'], critical_constraints: ['保持现有功能不受影响', '仅实现当前明确范围'] },
+    planProfile,
+    roleSignals,
+    { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
+  )
+  const planAgentPrompt = buildAgentPrompt(planProfile, planInjectedContext, 'claude-code')
+  const roleContextArtifact = {
+    schema_version: '1',
+    signals: roleSignals,
+    planning: {
+      plan_generation: { role: planProfile.role, profile: planProfile.profile },
+      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+    },
+    execution: {
+      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
+    },
+    prompts: {
+      plan_generation: { preview: planAgentPrompt },
+      quality_review_stage2: {
+        preview: buildAgentPrompt(
+          executionReviewProfile,
+          buildInjectedContext(
+            { kind: 'diff_window', ref: 'HEAD', requirement_ids: ['R1'], critical_constraints: ['保持现有功能不受影响', '仅实现当前明确范围'] },
+            executionReviewProfile,
+            roleSignals,
+            { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
+          ),
+          'claude-code'
+        ),
+      },
+    },
+  }
   const uxRequired = shouldRunUxDesignGate(requirementText, analysisPatterns, discussionArtifact)
   const uxPath = path.join(workflowDir, 'ux-design-artifact.json')
 
@@ -265,6 +311,9 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
     goal: summary,
     architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
     tech_stack: buildTechStackSummary(config),
+    role_profile: planProfile.profile || planProfile.role || 'planner',
+    context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
+    injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
     files_create: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
     files_modify: '- 无',
     files_test: '- 无',
@@ -282,6 +331,7 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   fs.writeFileSync(specPath, specContent)
   fs.writeFileSync(planPath, planContent)
   fs.writeFileSync(discussionPath, `${JSON.stringify(discussionArtifact, null, 2)}\n`)
+  fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
   if (uxArtifact) fs.writeFileSync(uxPath, `${JSON.stringify(uxArtifact, null, 2)}\n`)
 
   const finalWorkflowStatus = specReview.status === 'approved' ? 'planned' : specReview.workflow_status
@@ -291,6 +341,27 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   state.task_name = taskName
   state.requirement_source = requirementSource
   updateDiscussionRecord(state, discussionPath, (discussionArtifact.clarifications || []).length, !discussionRequired)
+  updateContextInjection(state, {
+    schema_version: '1',
+    signals: roleSignals,
+    planning: {
+      plan_generation: { role: planProfile.role, profile: planProfile.profile },
+      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+    },
+    execution: {
+      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
+    },
+    artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
+  })
+  updatePlanReviewRecord(state, {
+    status: 'pending',
+    review_mode: 'machine_loop',
+    reviewer: 'subagent',
+    role: planReviewProfile.role,
+    profile: planReviewProfile.profile,
+    signals_snapshot: roleSignals,
+    next_action: 'compile_tasks',
+  })
   if (uxArtifact) {
     updateUxDesignRecord(state, uxPath, uxValidation.scenario_count, uxValidation.page_count, uxValidation.ok)
   }

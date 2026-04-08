@@ -5,6 +5,8 @@ created_at: "{{created_at}}"
 spec_file: "{{spec_file}}"
 status: draft
 role: plan
+role_profile: "{{role_profile}}"
+context_profile: "{{context_profile}}"
 ---
 
 # {{task_name}} Implementation Plan
@@ -16,6 +18,8 @@ role: plan
 **Architecture:** {{architecture_summary}}
 
 **Tech Stack:** {{tech_stack}}
+
+**Role Profile:** {{role_profile}}
 
 ---
 
@@ -32,6 +36,10 @@ role: plan
 ### Files to Test
 
 {{files_test}}
+
+### Injected Context
+
+{{injected_context_summary}}
 
 ---
 

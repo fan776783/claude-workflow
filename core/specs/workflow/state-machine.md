@@ -288,7 +288,8 @@
 | `review_status.traceability_review` | Phase 1.2 追溯审查状态（MachineReviewLoop） |
 | `review_status.user_spec_review` | Phase 1.4 用户 Spec 治理关口状态（HumanGovernanceGate） |
 | `review_status.intent_review` | Phase 1.5 Intent 条件化关口状态（ConditionalHumanGate） |
-| `review_status.plan_review` | Phase 2.5 Plan 审查状态（MachineReviewLoop） |
+| `review_status.plan_review` | Phase 2.5 Plan 审查状态（MachineReviewLoop，含 role/profile/signal snapshot） |
+| `context_injection` | 运行时角色注入信号、profile 选择与工件路径 |
 | `unblocked` | 已解除的依赖列表 |
 | `sessions` | 平台与会话槽位信息 |
 | `progress.blocked` | 当前被阻塞的任务 ID 列表 |

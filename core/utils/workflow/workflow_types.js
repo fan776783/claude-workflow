@@ -36,6 +36,25 @@ const MINIMUM_GIT_STATUS = {
   user_acknowledged_degradation: false,
 }
 
+const MINIMUM_CONTEXT_INJECTION = {
+  schema_version: '1',
+  signals: {
+    ui: false,
+    workspace: false,
+    security: false,
+    data: false,
+    backend_heavy: false,
+  },
+  planning: {
+    plan_generation: { role: 'planner', profile: null },
+    plan_review: { role: 'reviewer', profile: null },
+  },
+  execution: {
+    quality_review_stage2: { role: 'reviewer', profile: null },
+  },
+  artifact_path: null,
+}
+
 const MINIMUM_SESSIONS = {
   platform: 'claude-code',
   executor: null,
@@ -72,6 +91,7 @@ function ensureStateDefaults(state) {
   if (!normalized.sessions) normalized.sessions = copyJson(MINIMUM_SESSIONS)
   if (!normalized.delta_tracking) normalized.delta_tracking = copyJson(MINIMUM_DELTA_TRACKING)
   if (!normalized.git_status) normalized.git_status = copyJson(MINIMUM_GIT_STATUS)
+  if (!normalized.context_injection) normalized.context_injection = copyJson(MINIMUM_CONTEXT_INJECTION)
   if (!normalized.review_status) normalized.review_status = {}
   if (!normalized.api_context) normalized.api_context = copyJson(MINIMUM_API_CONTEXT)
   if (!normalized.discussion) normalized.discussion = { completed: false, artifact_path: null, clarification_count: 0 }
@@ -172,6 +192,7 @@ module.exports = {
   MINIMUM_DELTA_TRACKING,
   MINIMUM_API_CONTEXT,
   MINIMUM_GIT_STATUS,
+  MINIMUM_CONTEXT_INJECTION,
   MINIMUM_SESSIONS,
   MINIMUM_STATE_STATUSES,
   isoNow,

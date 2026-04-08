@@ -71,7 +71,9 @@ function buildRuntimeSummary(state) {
       discussion: state.discussion || {},
       ux_design: state.ux_design || {},
       user_spec_review: reviewStatus.user_spec_review || {},
+      plan_review: reviewStatus.plan_review || {},
     },
+    context_injection: state.context_injection || {},
     quality_gate_summary: {
       count: Object.keys(qualityGates).length,
       passed: Object.entries(qualityGates).filter(([, gate]) => gate.overall_passed).map(([taskId]) => taskId).sort(),
