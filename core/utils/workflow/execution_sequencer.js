@@ -98,13 +98,16 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
     }
     const status = state.status
     if (!new Set(['running', 'paused', 'failed', 'blocked']).has(status)) {
+      const message = ['planned', 'planning'].includes(status)
+        ? '规划已完成但尚未开始执行，请显式使用 /workflow execute 开始执行。'
+        : `当前状态 ${status} 不支持直接恢复，请使用 /workflow status 查看详情。`
       return {
         entry_action: 'none',
         project_id: projectId,
         state_status: status,
         can_resume: false,
         reason: 'status_not_resumable',
-        message: `当前状态 ${status} 不支持直接恢复，请使用 /workflow status 查看详情。`,
+        message,
       }
     }
     const continuation = state.continuation || {}

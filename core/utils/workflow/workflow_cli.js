@@ -178,7 +178,7 @@ function main() {
       result = cmdNext(pid, projectRoot)
     } else if (command === 'start') {
       const requirement = args[0]
-      result = cmdStart(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', 'Spec 正确，继续'))
+      result = cmdStart(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', 'Spec 正确，生成 Plan'))
     } else if (command === 'delta') {
       result = cmdDelta(args[0] || '', pid, projectRoot)
     } else if (command === 'archive') {

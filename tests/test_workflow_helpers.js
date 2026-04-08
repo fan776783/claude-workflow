@@ -115,9 +115,13 @@ test('workflow helper migration coverage', async (t) => {
       true
     )
 
-    const mapped = planningGates.mapSpecReviewChoice('Spec 正确，继续')
+    const mapped = planningGates.mapSpecReviewChoice('Spec 正确，生成 Plan')
     assert.equal(mapped.status, 'approved')
     assert.equal(mapped.next_action, 'continue_to_plan_generation')
+
+    const backwardCompatible = planningGates.mapSpecReviewChoice('Spec 正确，继续')
+    assert.equal(backwardCompatible.status, 'approved')
+    assert.equal(backwardCompatible.next_action, 'continue_to_plan_generation')
 
     const summary = planningGates.buildSpecReviewSummary(
       '## 2. Scope\nA\n\n## 3. Constraints\nB\n\n## 7. Acceptance Criteria\nC\n'
@@ -412,8 +416,15 @@ test('workflow helper migration coverage', async (t) => {
     const projectId = config.project.id
     const statePath = workflowStatePath(home, projectId)
     const initialState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-    assert.equal(initialState.status, 'planning')
+    assert.equal(initialState.status, 'planned')
     assert.deepEqual(initialState.current_tasks, ['T1'])
+
+    const continuePlannedResult = runNode(cliScript, ['continue'], { cwd: root, env: extraEnv })
+    assert.equal(continuePlannedResult.status, 0, continuePlannedResult.stderr)
+    const continuePlannedPayload = JSON.parse(continuePlannedResult.stdout)
+    assert.equal(continuePlannedPayload.entry_action, 'none')
+    assert.equal(continuePlannedPayload.reason, 'status_not_resumable')
+    assert.match(continuePlannedPayload.message, /显式使用 \/workflow execute/)
 
     const deltaResult = runNode(cliScript, ['delta', '新增导出字段'], { cwd: root, env: extraEnv })
     assert.equal(deltaResult.status, 0, deltaResult.stderr)
@@ -548,6 +559,24 @@ test('workflow helper migration coverage', async (t) => {
     const progressResult = runNode(path.join(workflowDir, 'state_manager.js'), ['progress', statePath], { env: extraEnv })
     assert.equal(progressResult.status, 0, progressResult.stderr)
     assert.ok(Object.prototype.hasOwnProperty.call(JSON.parse(progressResult.stdout), 'percent'))
+  })
+
+  await t.test('buildExecuteEntry rejects continue from planned workflow with explicit execute guidance', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-planned-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      const result = executionSequencer.buildExecuteEntry('continue', null, null, root)
+      assert.equal(result.entry_action, 'none')
+      assert.equal(result.can_resume, false)
+      assert.equal(result.reason, 'status_not_resumable')
+      assert.match(result.message, /显式使用 \/workflow execute/)
+    })
   })
 
   await t.test('buildExecuteEntry resumes paused workflow from project config', () => {

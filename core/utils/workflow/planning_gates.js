@@ -76,6 +76,7 @@ function buildSpecReviewSummary(specContent) {
 
 function mapSpecReviewChoice(choice) {
   return {
+    'Spec 正确，生成 Plan': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'planning' },
     'Spec 正确，继续': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'planning' },
     '需要修改 Spec': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation', workflow_status: 'spec_review' },
     '页面分层需要调整': { status: 'revise_required', next_action: 'return_to_phase_0_3_ux_design_gate', workflow_status: 'spec_review' },

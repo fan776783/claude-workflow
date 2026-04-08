@@ -29,6 +29,8 @@
 2. `state.status` 属于 `running` / `paused` / `failed` / `blocked`
 3. 当前对话上下文仍在 workflow 任务链上
 
+`planned` / `planning` 不属于可恢复状态：planning 阶段的人类确认或 plan 审查通过，不构成 execute 授权。开始执行必须显式使用 `/workflow execute`。
+
 若不满足上述条件，禁止猜测进入执行器，应提示用户：
 
 - `/workflow status` 查看当前状态

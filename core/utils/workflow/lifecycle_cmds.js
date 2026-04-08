@@ -172,7 +172,7 @@ function buildPlanTasks() {
 `
 }
 
-function cmdStart(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，继续') {
+function cmdStart(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan') {
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
 
@@ -284,7 +284,8 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   fs.writeFileSync(discussionPath, `${JSON.stringify(discussionArtifact, null, 2)}\n`)
   if (uxArtifact) fs.writeFileSync(uxPath, `${JSON.stringify(uxArtifact, null, 2)}\n`)
 
-  const state = ensureStateDefaults(buildMinimumState(resolvedProjectId, specRelative.replace(/\\/g, '/'), specRelative.replace(/\\/g, '/'), [parsedTasks[0].id], specReview.workflow_status))
+  const finalWorkflowStatus = specReview.status === 'approved' ? 'planned' : specReview.workflow_status
+  const state = ensureStateDefaults(buildMinimumState(resolvedProjectId, specRelative.replace(/\\/g, '/'), specRelative.replace(/\\/g, '/'), [parsedTasks[0].id], finalWorkflowStatus))
   state.plan_file = planRelative.replace(/\\/g, '/')
   state.project_root = root
   state.task_name = taskName

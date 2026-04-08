@@ -57,7 +57,7 @@ const specChoice = await AskUserQuestion({
     header: 'User Spec Review（多维度）',
     multiSelect: false,
     options: [
-      { label: 'Spec 正确，继续', description: '进入 Plan Generation' },
+      { label: 'Spec 正确，生成 Plan', description: '批准 Spec 并进入 Plan Generation，不开始执行' },
       { label: '需要修改 Spec', description: '回到 Phase 1，修改规范文档' },
       { label: '页面分层需要调整', description: '单个页面功能过多，需要拆分' },
       { label: '缺少用户流程', description: '需要补充操作流程图或首次使用引导' },
@@ -70,7 +70,7 @@ const specChoice = await AskUserQuestion({
 ### Step 3: 根据用户选择分流
 
 ```typescript
-if (specChoice === 'Spec 正确，继续') {
+if (specChoice === 'Spec 正确，生成 Plan' || specChoice === 'Spec 正确，继续') {
   state.review_status.user_spec_review = {
     status: 'approved',
     review_mode: 'human_gate',
@@ -78,7 +78,7 @@ if (specChoice === 'Spec 正确，继续') {
     reviewer: 'user',
     next_action: 'continue_to_plan_generation'
   };
-  console.log('✅ Spec 已批准，继续进入 Plan Generation');
+  console.log('✅ Spec 已批准，进入 Plan Generation；如需开始执行，后续请显式使用 /workflow execute');
 }
 
 if (specChoice === '需要修改 Spec') {

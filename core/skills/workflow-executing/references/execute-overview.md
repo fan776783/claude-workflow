@@ -45,7 +45,7 @@
 
 - `/workflow execute`：显式进入执行器，默认按 `continuous` 模式恢复/继续。
 - `/workflow execute 继续`：与默认执行一致。
-- 裸自然语言“继续”：仅在存在活动 workflow（`running` / `paused` / `failed` / `blocked`）且当前对话仍处于该 workflow 任务链上时可解释为恢复当前工作流；否则提示用户使用 `/workflow execute` 或 `/workflow status`。
+- 裸自然语言“继续”：仅在存在活动 workflow（`running` / `paused` / `failed` / `blocked`）且当前对话仍处于该 workflow 任务链上时可解释为恢复当前工作流；`planned` / `planning` 不适用，plan 审批后如需开始执行必须显式使用 `/workflow execute`；否则提示用户使用 `/workflow execute` 或 `/workflow status`。
 - 是否真正继续执行，始终先由 `ContextGovernor` 判定，而不是只看自然语言意图。
 
 ## 执行模式

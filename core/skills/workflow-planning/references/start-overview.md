@@ -204,7 +204,7 @@
 
 **用户选择**:
 
-1. **Spec 正确，继续** → 进入 Phase 2 Plan Generation
+1. **Spec 正确，生成 Plan** → 进入 Phase 2 Plan Generation（仅继续规划，不开始执行）
 2. **需要修改 Spec** → 回到 Phase 1
 3. **页面分层需要调整** → 回到 Phase 0.3，调整页面分层后重新生成 Spec
 4. **缺少用户流程** → 回到 Phase 0.3，补充流程图/首次使用引导后重新生成 Spec
@@ -281,7 +281,7 @@
 └── changes/
 ```
 
-**下一步**: 用户审查后执行 `/workflow execute`
+**下一步**: 用户审查后显式执行 `/workflow execute`
 
 ---
 
