@@ -19,6 +19,9 @@ const planDelta = require(path.join(workflowDir, 'plan_delta.js'))
 const workflowTypes = require(path.join(workflowDir, 'workflow_types.js'))
 const stateManager = require(path.join(workflowDir, 'state_manager.js'))
 const dependencyChecker = require(path.join(workflowDir, 'dependency_checker.js'))
+const lifecycleCmds = require(path.join(workflowDir, 'lifecycle_cmds.js'))
+const taskParser = require(path.join(workflowDir, 'task_parser.js'))
+const docContracts = require(path.join(workflowDir, 'doc_contracts.js'))
 
 const PLAN_FIXTURE = `## T1: 第一个任务
 - **阶段**: implement
@@ -128,6 +131,59 @@ test('workflow helper migration coverage', async (t) => {
     )
     assert.match(summary, /## 2\. Scope/)
     assert.match(summary, /## 7\. Acceptance Criteria/)
+  })
+
+  await t.test('requirement baseline coverage preserves quality gate semantics', () => {
+    const coverage = lifecycleCmds.buildRequirementCoverage([
+      {
+        id: 'R-001',
+        normalized_summary: '管理员只能导出自己有权限的数据',
+        scope_status: 'in_scope',
+        must_preserve: true,
+        type: 'constraint',
+        owner: 'backend',
+        acceptance_signal: '验证管理员权限过滤生效',
+      },
+    ])
+
+    assert.equal(coverage[0].must_preserve, true)
+
+    const tasks = taskParser.parseTasksV2(lifecycleCmds.buildPlanTasks(coverage))
+    assert.equal(tasks.length, 1)
+    assert.equal(tasks[0].quality_gate, true)
+    assert.deepEqual(tasks[0].requirement_ids, ['R-001'])
+
+    const decision = executionSequencer.decideGovernanceAction(minimumState(), tasks[0], 'continuous', false, false)
+    assert.equal(decision.action, 'pause-quality-gate')
+    assert.equal(decision.reason, 'quality-gate-boundary')
+  })
+
+  await t.test('self review doc contract wrapper keeps spec and plan arguments aligned', () => {
+    const cliContent = "command === 'start'"
+    const overviewDocContent = '/workflow start'
+    const specTemplateContent = '### 1.3 Requirement Baseline Snapshot\n{{task_name}}\n{{requirement_baseline_path}}\n{{preserved_requirement_details}}\n### 2.4 Requirement Traceability\n{{requirement_traceability}}\n### 3.1 Critical Constraints to Preserve\n{{critical_constraints_to_preserve}}\n### 9.1 Raw Requirement Nuances\n{{raw_requirement_nuances}}'
+    const planTemplateContent = '## Requirement Coverage\n{{task_name}}\n{{spec_file}}\n{{tasks}}\n{{requirement_coverage}}\n## Tasks\n阶段\n需求 ID\nSpec 参考\nPlan 参考\nactions\n步骤\n## Self-Review Checklist'
+
+    const wrapped = selfReview.runDocContractReview(
+      cliContent,
+      overviewDocContent,
+      specTemplateContent,
+      planTemplateContent,
+      [],
+      []
+    )
+    const direct = docContracts.validateWorkflowDocContracts(
+      cliContent,
+      overviewDocContent,
+      specTemplateContent,
+      planTemplateContent,
+      [],
+      []
+    )
+
+    assert.deepEqual(wrapped, direct)
+    assert.equal(wrapped.spec_template_contract.ok, true)
+    assert.equal(wrapped.plan_template_contract.ok, true)
   })
 
   await t.test('plan delta helpers add modify and remove tasks', () => {

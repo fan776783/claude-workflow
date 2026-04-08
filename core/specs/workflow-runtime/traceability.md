@@ -2,9 +2,11 @@
 
 ## 目的
 
-定义 workflow 中的需求追溯模型。在简化的三层架构（spec → plan → 执行）中，需求追溯在 spec 内部完成，plan 通过 spec section ref 建立引用关系。
+定义 workflow 中的需求追溯模型。在简化的三层架构（requirement baseline → spec → plan → 执行）中，先用 requirement baseline 保留原始需求细节，再在 spec 内部完成结构化追溯，plan 通过 requirement_ids + spec section ref 建立引用关系。
 
 ## 术语
+
+**Requirement Baseline（需求保真层）**：在 spec 生成前从完整需求文档中抽出的结构化 requirement units，是原始需求的第一层持久化表达。每条 requirement baseline item 除了摘要外，还保留 `source_excerpt`、`must_preserve`、`acceptance_signal`、`spec_targets` 等字段，用于防止细节在后续 spec / plan 生成时被压缩丢失。
 
 **Requirement（需求条目）**：spec.md 的 Scope 章节中的编号条目（R-001 起），是最小可追溯的需求单位。每条需求包含 ID、摘要、范围状态、约束和所有者。字段定义见下方表格。
 
@@ -24,6 +26,19 @@ plan 步骤对 spec 章节的引用，用于在执行后的 Spec 合规审查中
 ### Acceptance Criteria
 
 spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Spec 合规审查子 Agent 使用。
+
+### Requirement Baseline Item
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 需求 ID（R-001 起） |
+| `source_excerpt` | string | 原始需求片段 |
+| `normalized_summary` | string | 便于下游消费的摘要 |
+| `type` | `functional / ux / logic / edge_case / constraint / unresolved` | 需求类型 |
+| `scope_status` | `in_scope / out_of_scope / blocked / undecided` | 初始范围判定 |
+| `must_preserve` | boolean | 是否必须在 spec / plan 中保留 |
+| `acceptance_signal` | string? | 后续如何验证该需求 |
+| `spec_targets` | string[] | 预期应落入的 spec 章节 |
 
 ### Requirement（spec.md 中的需求条目）
 
@@ -79,6 +94,8 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 在 spec 生成后的 Self-Review 中执行：
 
 - 所有 in_scope 需求必须在 Architecture / Acceptance 章节有对应内容
+- Requirement Traceability 表必须覆盖所有 in_scope 需求
+- 所有 must_preserve 需求必须出现在 Requirement Baseline Snapshot、Critical Constraints to Preserve 或 Raw Requirement Nuances 中
 - 所有 out_of_scope / blocked 需求必须有排除原因
 - 所有 constraints 必须出现在 Constraints 章节
 
@@ -87,6 +104,8 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 在 plan 生成后的 Self-Review 中执行：
 
 - 所有 in_scope 需求至少映射到一个 plan task（通过 spec_ref / requirement_ids）
+- Requirement Coverage 表必须列出所有 in_scope requirement 的任务承接关系
+- 所有 must_preserve 细节必须在 task、critical_constraints 或 verification 中可见
 - 所有 plan step 包含完整代码（No Placeholders）
 
 ### Execution Gate（执行期规格对照检查）

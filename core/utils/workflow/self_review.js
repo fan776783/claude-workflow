@@ -16,6 +16,9 @@ function buildRequirements(items = []) {
     constraints: item.constraints || [],
     owner: item.owner || 'shared',
     exclusion_reason: item.exclusion_reason || null,
+    must_preserve: Boolean(item.must_preserve),
+    acceptance_signal: item.acceptance_signal || null,
+    spec_targets: item.spec_targets || [],
   }))
 }
 
@@ -41,8 +44,8 @@ function runPlanSelfReview(requirements, planContent) {
   return result
 }
 
-function runDocContractReview(cliContent, overviewDocContent, planTemplateContent, otherDocContents, existingScriptNames) {
-  return validateWorkflowDocContracts(cliContent, overviewDocContent, planTemplateContent, otherDocContents, existingScriptNames)
+function runDocContractReview(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames) {
+  return validateWorkflowDocContracts(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames)
 }
 
 function main() {

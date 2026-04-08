@@ -60,7 +60,7 @@ const specChoice = await AskUserQuestion({
       { label: 'Spec 正确，生成 Plan', description: '批准 Spec 并进入 Plan Generation，不开始执行' },
       { label: '需要修改 Spec', description: '回到 Phase 1，修改规范文档' },
       { label: '页面分层需要调整', description: '单个页面功能过多，需要拆分' },
-      { label: '缺少用户流程', description: '需要补充操作流程图或首次使用引导' },
+      { label: '缺少需求细节', description: '关键交互、例外条件或 must_preserve 细节在 Spec 中被压缩或遗漏' },
       { label: '需要拆分范围', description: '范围过大，需要拆分为多个 Spec' }
     ]
   }]
@@ -120,6 +120,19 @@ if (specChoice === '缺少用户流程') {
   return;
 }
 
+if (specChoice === '缺少需求细节') {
+  state.status = 'spec_review';
+  state.review_status.user_spec_review = {
+    status: 'revise_required',
+    review_mode: 'human_gate',
+    reviewed_at: new Date().toISOString(),
+    reviewer: 'user',
+    next_action: 'return_to_phase_1_spec_generation_preserve_requirement_details'
+  };
+  console.log('⏸️ 请回到 Phase 1 补充 Requirement Traceability、Raw Requirement Nuances 或 must_preserve 细节后重新生成 Spec。');
+  return;
+}
+
 if (specChoice === '需要拆分范围') {
   state.status = 'spec_review';
   state.review_status.user_spec_review = {
@@ -150,6 +163,7 @@ if (specChoice === '需要拆分范围') {
 User Spec Review 应引导用户从六个维度检查：
 
 - 功能覆盖 — 需求范围是否准确（是否有遗漏或越界）
+- 需求保真 — must_preserve 的交互细节、例外条件、角色差异是否被保留为 traceability / raw nuances
 - 架构合理性 — 关键约束是否被正确记录，架构设计是否合理
 - UX 合理性 — 页面分层是否合理，单页面尿不应承载超过 4 个独立功能模块
 - 信息密度 — 操作步骤是否过多，是否需要分层导航
@@ -162,8 +176,10 @@ User Spec Review 应引导用户从六个维度检查：
 function summarizeSpec(specContent: string): string {
   const sections = [
     extractSection(specContent, '## 2. Scope'),
+    extractSection(specContent, '### 2.4 Requirement Traceability'),
     extractSection(specContent, '## 3. Constraints'),
-    extractSection(specContent, '## 7. Acceptance Criteria')
+    extractSection(specContent, '## 7. Acceptance Criteria'),
+    extractSection(specContent, '### 9.1 Raw Requirement Nuances')
   ].filter(Boolean);
 
   return sections.join('\n\n');

@@ -159,6 +159,17 @@
     "artifact_path": "discussion-artifact.json",
     "clarification_count": 5
   },
+  "requirement_baseline": {
+    "generated": true,
+    "artifact_path": "requirement-baseline.json",
+    "summary_path": ".claude/analysis/example-requirement-baseline.md",
+    "total_requirements": 18,
+    "in_scope_count": 12,
+    "out_of_scope_count": 3,
+    "blocked_count": 1,
+    "must_preserve_count": 6,
+    "uncovered_requirement_ids": ["R-009"]
+  },
   "contextMetrics": {
     "maxContextTokens": 1000000,
     "estimatedTokens": 45000,
@@ -217,6 +228,7 @@
 ├── workflow-state.json             ← 运行时状态（唯一来源）
 ├── analysis-result.json            ← Phase 0 代码分析结果缓存（P2 持久化）
 ├── discussion-artifact.json        ← 讨论工件（Phase 0.2）
+├── requirement-baseline.json       ← 需求保真层（原始需求切片 + must_preserve + acceptance_signal）
 ├── role-context.json               ← 角色注入工件（signals/profile/prompt preview）
 ├── ux-design-artifact.json         ← UX 设计工件（Phase 0.3）
 ├── journal/                        ← 会话日志
@@ -233,6 +245,7 @@
 | `spec_file` | Spec 文档路径 |
 | `plan_file` | Plan 文档路径 |
 | `project_root` | 项目根目录，用于从任意工作目录解析相对 `spec_file` / `plan_file` |
+| `requirement_baseline` | Requirement Baseline 工件路径与覆盖统计 |
 | `review_status.user_spec_review` | Phase 1.1 用户 Spec 审查（HumanGovernanceGate） |
 | `review_status.plan_review` | planning side 的 Plan Review 状态与角色选择 |
 | `context_injection` | 运行时角色注入信号、profile 决策与工件路径 |

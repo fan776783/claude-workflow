@@ -59,7 +59,7 @@ function buildTaskContext(state) {
     if (specContent) parts.push(`<spec-context>\n${specContent.slice(0, 2000)}\n</spec-context>`)
   }
 
-  const baselinePath = (((state.requirement_baseline || {}).path) || '')
+  const baselinePath = (((state.requirement_baseline || {}).path) || ((state.requirement_baseline || {}).summary_path) || '')
   if (baselinePath) {
     const baselineContent = readFile(path.join(projectRoot, baselinePath))
     const constraints = extractSection(baselineContent, 'Critical Constraints') || extractSection(baselineContent, '关键约束')

@@ -69,6 +69,7 @@ function buildRuntimeSummary(state) {
     delta_tracking: state.delta_tracking || {},
     planning_gates: {
       discussion: state.discussion || {},
+      requirement_baseline: state.requirement_baseline || {},
       ux_design: state.ux_design || {},
       user_spec_review: reviewStatus.user_spec_review || {},
       plan_review: reviewStatus.plan_review || {},

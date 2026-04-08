@@ -229,13 +229,13 @@ function main() {
 
     if (command === 'pass') {
       const taskId = args.shift()
-      const gateResult = buildPassGateResult(taskId, option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
       if ((option('--project-id') || option('--state-file')) && !statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
         process.exitCode = 1
         return
       }
+      const gateResult = buildPassGateResult(taskId, option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       if (statePath) writeQualityGateResult(statePath, taskId, gateResult, option('--project-id'))
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return
@@ -251,13 +251,13 @@ function main() {
         process.exitCode = 1
         return
       }
-      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
       if ((option('--project-id') || option('--state-file')) && !statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
         process.exitCode = 1
         return
       }
+      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
       if (statePath) writeQualityGateResult(statePath, taskId, gateResult, option('--project-id'))
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return

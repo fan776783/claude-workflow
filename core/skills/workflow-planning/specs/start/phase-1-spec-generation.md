@@ -55,13 +55,39 @@ if (fileExists(specPath) && !forceOverwrite) {
 // 从需求内容中提取需求条目
 const requirements = extractRequirements(requirementContent, discussionArtifact);
 
-// 为每条需求编号并判定范围
-const classifiedRequirements = requirements.map((req, index) => ({
+// Requirement Baseline：先保留原始需求的可追踪单元，再进入章节归类
+const requirementBaseline = requirements.map((req, index) => ({
   id: `R-${String(index + 1).padStart(3, '0')}`,
-  summary: req.summary,
-  scope_status: classifyScope(req),  // in_scope / out_of_scope / blocked
+  source_excerpt: req.sourceExcerpt || req.summary,
+  normalized_summary: req.summary,
+  type: classifyRequirementType(req), // functional / ux / logic / edge_case / constraint / unresolved
+  scope_status: classifyScope(req),  // in_scope / out_of_scope / blocked / undecided
+  must_preserve: detectMustPreserve(req),
+  acceptance_signal: deriveAcceptanceSignal(req),
+  spec_targets: deriveSpecTargets(req),
   constraints: extractConstraints(req),
   owner: classifyOwner(req)
+}));
+
+// 为 spec / plan / execute 持久化 requirement baseline artifact
+const requirementBaselineArtifact = {
+  generated: true,
+  path: `.claude/analysis/${sanitizedName}-requirement-baseline.md`,
+  json_path: 'requirement-baseline.json',
+  total_requirements: requirementBaseline.length,
+  in_scope_count: requirementBaseline.filter((r) => r.scope_status === 'in_scope').length,
+  out_of_scope_count: requirementBaseline.filter((r) => r.scope_status === 'out_of_scope').length,
+  blocked_count: requirementBaseline.filter((r) => r.scope_status === 'blocked').length,
+  uncovered_requirements: requirementBaseline.filter((r) => r.must_preserve).map((r) => r.id)
+};
+
+// 为每条需求编号并判定范围
+const classifiedRequirements = requirementBaseline.map((req) => ({
+  id: req.id,
+  summary: req.normalized_summary,
+  scope_status: req.scope_status,
+  constraints: req.constraints,
+  owner: req.owner
 }));
 ```
 
@@ -99,17 +125,22 @@ const specTemplate = loadTemplate('spec-template.md');
 const specContent = replaceVars(specTemplate, {
   task_name: taskName,
   requirement_source: requirementSource,
+  requirement_baseline_path: requirementBaselineArtifact.path,
   created_at: new Date().toISOString(),
   context_summary: requirementContent,
+  preserved_requirement_details: renderPreservedRequirementDetails(requirementBaseline),
   scope_summary: renderScopeSummary(classifiedRequirements),
   out_of_scope_summary: renderOutOfScope(classifiedRequirements),
   blocked_summary: renderBlocked(classifiedRequirements),
+  requirement_traceability: renderRequirementTraceability(requirementBaseline),
   critical_constraints: renderConstraints(classifiedRequirements, uxDesignArtifact?.detectedWorkspaces, discussionArtifact),
+  critical_constraints_to_preserve: renderCriticalConstraintsToPreserve(requirementBaseline),
   user_facing_behavior: renderUserFacingBehavior(classifiedRequirements, uxDesignArtifact),
   architecture_summary: renderArchitecture(architectureDecisions, discussionArtifact),
   file_structure: renderFileStructure(architectureDecisions.fileStructure),
   acceptance_criteria: renderAcceptanceCriteria(acceptanceCriteria),
-  implementation_slices: renderSlices(classifiedRequirements)
+  implementation_slices: renderSlices(classifiedRequirements),
+  raw_requirement_nuances: renderRawRequirementNuances(requirementBaseline)
 });
 
 writeFile(specPath, specContent);
@@ -131,14 +162,17 @@ role: spec
 
 ### 1. Context
 问题背景、目标和触发来源。
+**包含**：需求保真层快照（must_preserve 的原始片段），用于在后续 plan 和执行时追溯原始细节。
 
 ### 2. Scope
 基于需求判定 in-scope / out-of-scope / blocked。每条需求编号 R-001 起。
+**包含**：Requirement Traceability 表，将 requirement ID 对应到 spec section / acceptance / plan slice。
 
 ### 3. Constraints
 集中列出不可协商的关键约束（字段名、条件分支、上限值等）。
 **包含**：多 Agent / 工作区相关的预设目录与环境约束（来自 Phase 0.3 UX 设计工件，如有）。
 **包含**：Phase 0.2 澄清结果摘要（关键决策、选定方案和未就绪依赖）。
+**包含**：Critical Constraints to Preserve，明确哪些原始细节不得在后续 plan 中丢失。
 
 ### 4. User-facing Behavior
 正常流程、异常流程、边界行为、可观察输出。
@@ -153,24 +187,27 @@ role: spec
 
 ### 7. Acceptance Criteria
 按模块组织的验收条件和测试策略。
+**要求**：每个 in_scope requirement 至少在一个验收项中可追溯。
 
 ### 8. Implementation Slices
 按可渐进交付的切片组织，标注 Related Requirement IDs。
 
 ### 9. Open Questions
-待确认的问题。
+分为 Raw Requirement Nuances（未决但必须保留的原始细节）与 Open Questions（待确认问题）。
 
 ## Spec Self-Review
 
 Spec 生成后，必须执行一次内联自审查（非子 Agent）：
 
-1. **需求覆盖扫描** — 逐条检查原始需求，确认每条都在 Scope 章节有对应条目
-2. **Placeholder 扫描** — 搜索 "TBD"、"TODO"、"待补充" 等占位符
-3. **内部一致性** — 架构章节是否与用户行为章节一致
-4. **约束完整性** — 原始需求中的硬约束是否都在 Constraints 章节出现
-5. **UX 流程一致性** — 流程图中的每个步骤是否在 User-facing Behavior 有对应描述（仅当 uxDesignArtifact 存在时）
-6. **页面分层合理性** — 单页面不超过 4 个独立功能模块（仅当 uxDesignArtifact 存在时）
-7. **首次使用体验** — 涉及工作区/初始化概念时必须有首次使用引导描述
+1. **需求覆盖扫描** — 逐条检查 requirement baseline，确认每条都在 Scope 章节有对应条目
+2. **Traceability 扫描** — 检查每个 in_scope requirement 是否在 Requirement Traceability 中映射到 spec section / acceptance / plan slice
+3. **Must-Preserve 扫描** — 检查所有 must_preserve 细节是否进入 Context baseline snapshot、Constraints to Preserve 或 Raw Requirement Nuances
+4. **Placeholder 扫描** — 搜索 "TBD"、"TODO"、"待补充" 等占位符
+5. **内部一致性** — 架构章节是否与用户行为章节一致
+6. **约束完整性** — 原始需求中的硬约束是否都在 Constraints 章节出现
+7. **UX 流程一致性** — 流程图中的每个步骤是否在 User-facing Behavior 有对应描述（仅当 uxDesignArtifact 存在时）
+8. **页面分层合理性** — 单页面不超过 4 个独立功能模块（仅当 uxDesignArtifact 存在时）
+9. **首次使用体验** — 涉及工作区/初始化概念时必须有首次使用引导描述
 
 发现问题直接修复，无需重新审查。
 
@@ -181,5 +218,7 @@ Spec 生成后，必须执行一次内联自审查（非子 Agent）：
 - 所有需求都必须在 Scope 章节有明确判定（in_scope / out_of_scope / blocked）
 - 所有 out_of_scope 和 blocked 需求必须写明原因
 - 所有硬约束（字段名、数量限制、条件分支等）必须在 Constraints 章节出现
+- 所有 must_preserve 细节必须进入 Requirement Baseline Snapshot、Critical Constraints to Preserve 或 Raw Requirement Nuances 之一
+- Requirement Traceability 表必须覆盖所有 in_scope 需求，并给出 spec section / acceptance / plan slice 映射
 - 验收标准章节必须覆盖所有 in_scope 需求
 - 禁止占位符（TBD/TODO/待补充）

@@ -211,6 +211,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const cliFile = path.join(scriptsDir, 'workflow_cli.js');
   const overviewFile = workflowCommandFile;
   const planTemplateFile = path.join(runtimeTemplatesDir, 'plan-template.md');
+  const specTemplateFile = path.join(runtimeTemplatesDir, 'spec-template.md');
   const referencesDir = runtimeRefsDir;
   const extraDocs = (await fs.pathExists(referencesDir))
     ? (await fs.readdir(referencesDir))
@@ -231,6 +232,18 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const jsSyntaxCheck = runNodeSyntaxValidation(scriptFiles.map(file => path.join(scriptsDir, file)));
   if (!jsSyntaxCheck.ok) {
     errors.push(`workflow Node.js 脚本语法校验失败: ${jsSyntaxCheck.error}`);
+  }
+
+  const specCheck = runNodeValidation([docContractsScript, 'spec-template', specTemplateFile]);
+  if (!specCheck.ok) {
+    errors.push(`workflow spec template 校验失败: ${specCheck.error}`);
+  } else {
+    if (specCheck.data.missing_markers?.length) {
+      errors.push(`workflow spec template 缺少标记: ${specCheck.data.missing_markers.join(', ')}`);
+    }
+    if (specCheck.data.placeholders?.length) {
+      errors.push(`workflow spec template 存在 placeholder: ${specCheck.data.placeholders.join(', ')}`);
+    }
   }
 
   const planCheck = runNodeValidation([docContractsScript, 'plan-template', planTemplateFile]);
@@ -255,6 +268,8 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     cliFile,
     '--overview',
     overviewFile,
+    '--spec-template',
+    specTemplateFile,
     '--plan-template',
     planTemplateFile,
   ];
@@ -280,6 +295,12 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   if (!data.script_reference_contract?.ok) {
     const missing = data.script_reference_contract?.missing_scripts || [];
     errors.push(`workflow 文档引用了缺失脚本: ${missing.join(', ')}`);
+  }
+  if (!data.spec_template_contract?.ok) {
+    const missingMarkers = data.spec_template_contract?.missing_markers || [];
+    if (missingMarkers.length) {
+      errors.push(`workflow spec template 缺少标记: ${missingMarkers.join(', ')}`);
+    }
   }
   if (!data.plan_template_contract?.ok) {
     const missingMarkers = data.plan_template_contract?.missing_markers || [];

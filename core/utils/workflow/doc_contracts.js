@@ -7,8 +7,9 @@ const CLI_COMMAND_REGEX = /(?:sub\.add_parser\(\s*"([a-z0-9_-]+)"|command === '(
 const WORKFLOW_COMMAND_DOC_REGEX = /\/workflow\s+([a-z0-9_-]+)/gi
 const SCRIPT_REF_REGEX = /`(?:scripts\/)?([a-zA-Z0-9_./-]+\.(?:py|js))`/g
 
-const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '## Tasks', '## Self-Review Checklist']
-const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', 'actions', '步骤']
+const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '{{requirement_coverage}}', '## Requirement Coverage', '## Tasks', '## Self-Review Checklist']
+const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{requirement_baseline_path}}', '{{preserved_requirement_details}}', '{{requirement_traceability}}', '{{critical_constraints_to_preserve}}', '{{raw_requirement_nuances}}', '### 1.3 Requirement Baseline Snapshot', '### 2.4 Requirement Traceability', '### 3.1 Critical Constraints to Preserve', '### 9.1 Raw Requirement Nuances']
+const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])
 const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure']
 
@@ -43,6 +44,12 @@ function findNonInstructionalPlaceholders(content) {
   return unique(placeholders).sort()
 }
 
+function validateSpecTemplate(specTemplateContent) {
+  const missingMarkers = REQUIRED_SPEC_TEMPLATE_MARKERS.filter((marker) => !String(specTemplateContent || '').includes(marker))
+  const placeholders = findNonInstructionalPlaceholders(specTemplateContent)
+  return { ok: !(missingMarkers.length || placeholders.length), missing_markers: missingMarkers, placeholders }
+}
+
 function validatePlanTemplate(planTemplateContent) {
   const missingMarkers = REQUIRED_PLAN_TEMPLATE_MARKERS.filter((marker) => !String(planTemplateContent || '').includes(marker))
   const missingTaskFields = REQUIRED_TASK_FIELD_MARKERS.filter((marker) => !String(planTemplateContent || '').includes(marker))
@@ -71,16 +78,18 @@ function validateScriptReferences(docContents, existingScriptNames) {
   return { ok: missing.length === 0, referenced_scripts: referenced, missing_scripts: missing }
 }
 
-function validateWorkflowDocContracts(cliContent, overviewDocContent, planTemplateContent, otherDocContents, existingScriptNames) {
+function validateWorkflowDocContracts(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames) {
   const commandDocs = [overviewDocContent, ...(otherDocContents || [])]
   const documentedCommands = unique(commandDocs.flatMap((content) => extractDocumentedWorkflowCommands(content)))
   const commandContract = validateCommandContract(cliContent, documentedCommands)
+  const specTemplateContract = validateSpecTemplate(specTemplateContent)
   const planTemplateContract = validatePlanTemplate(planTemplateContent)
   const scriptReferenceContract = validateScriptReferences(commandDocs, existingScriptNames)
-  const docPlaceholders = unique([...commandDocs, planTemplateContent].flatMap((content) => findNonInstructionalPlaceholders(content)))
+  const docPlaceholders = unique([...commandDocs, specTemplateContent, planTemplateContent].flatMap((content) => findNonInstructionalPlaceholders(content)))
   return {
-    ok: commandContract.ok && planTemplateContract.ok && scriptReferenceContract.ok && docPlaceholders.length === 0,
+    ok: commandContract.ok && specTemplateContract.ok && planTemplateContract.ok && scriptReferenceContract.ok && docPlaceholders.length === 0,
     command_contract: commandContract,
+    spec_template_contract: specTemplateContract,
     plan_template_contract: planTemplateContract,
     script_reference_contract: scriptReferenceContract,
     doc_placeholders: docPlaceholders,
@@ -110,6 +119,10 @@ function main() {
     process.stdout.write(`${JSON.stringify({ commands: extractDocumentedWorkflowCommands(readText(args[0])) })}\n`)
     return
   }
+  if (command === 'spec-template') {
+    process.stdout.write(`${JSON.stringify(validateSpecTemplate(readText(args[0]))) }\n`)
+    return
+  }
   if (command === 'plan-template') {
     process.stdout.write(`${JSON.stringify(validatePlanTemplate(readText(args[0]))) }\n`)
     return
@@ -117,13 +130,14 @@ function main() {
   if (command === 'workflow-contracts') {
     const cliFile = args[args.indexOf('--cli') + 1]
     const overviewFile = args[args.indexOf('--overview') + 1]
+    const specTemplateFile = args[args.indexOf('--spec-template') + 1]
     const planTemplateFile = args[args.indexOf('--plan-template') + 1]
     const docs = parseRepeatedOption(args, '--doc')
     const scripts = parseRepeatedOption(args, '--script')
-    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), readText(overviewFile), readText(planTemplateFile), docs.map(readText), scripts))}\n`)
+    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), readText(overviewFile), readText(specTemplateFile), readText(planTemplateFile), docs.map(readText), scripts))}\n`)
     return
   }
-  process.stderr.write('Usage: node doc_contracts.js <cli-commands|doc-commands|plan-template|workflow-contracts> ...\n')
+  process.stderr.write('Usage: node doc_contracts.js <cli-commands|doc-commands|spec-template|plan-template|workflow-contracts> ...\n')
   process.exitCode = 1
 }
 
@@ -131,6 +145,7 @@ module.exports = {
   extractCliCommands,
   extractDocumentedWorkflowCommands,
   extractScriptRefs,
+  validateSpecTemplate,
   validatePlanTemplate,
   validateCommandContract,
   validateScriptReferences,

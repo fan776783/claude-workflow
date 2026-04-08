@@ -71,8 +71,8 @@ function validateUxArtifact(artifact) {
 
 function buildSpecReviewSummary(specContent) {
   const sections = []
-  for (const heading of ['## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']) {
-    const pattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, 'm')
+  for (const heading of ['## 2. Scope', '### 2.4 Requirement Traceability', '## 3. Constraints', '## 7. Acceptance Criteria', '### 9.1 Raw Requirement Nuances']) {
+    const pattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\s*$([\\s\\S]*?)(?=^##\\s+|^###\\s+|$)`, 'm')
     const match = String(specContent || '').match(pattern)
     if (match) sections.push(match[0].trim())
   }
@@ -86,6 +86,7 @@ function mapSpecReviewChoice(choice) {
     '需要修改 Spec': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation', workflow_status: 'spec_review' },
     '页面分层需要调整': { status: 'revise_required', next_action: 'return_to_phase_0_3_ux_design_gate', workflow_status: 'spec_review' },
     '缺少用户流程': { status: 'revise_required', next_action: 'return_to_phase_0_3_ux_design_gate', workflow_status: 'spec_review' },
+    '缺少需求细节': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation_preserve_requirement_details', workflow_status: 'spec_review' },
     '需要拆分范围': { status: 'rejected', next_action: 'split_scope', workflow_status: 'spec_review' },
   }[choice] || { status: 'pending', next_action: null, workflow_status: 'spec_review' }
 }

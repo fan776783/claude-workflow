@@ -66,24 +66,37 @@ function validateSpecTraceability(requirements, specContent) {
   const constraintsSection = extractSection(specContent, 'Constraints')
   const architectureSection = extractSection(specContent, 'Architecture and Module Design')
   const acceptanceSection = extractSection(specContent, 'Acceptance Criteria')
+  const traceabilitySection = extractSection(specContent, 'Requirement Traceability')
+  const preservedDetailsSection = extractSection(specContent, 'Requirement Baseline Snapshot')
+  const preservedConstraintsSection = extractSection(specContent, 'Critical Constraints to Preserve')
+  const rawNuancesSection = extractSection(specContent, 'Raw Requirement Nuances')
   const missingArchitectureRefs = []
   const missingAcceptanceRefs = []
+  const missingTraceabilityRefs = []
+  const missingProtectedDetails = []
   const missingConstraints = []
   const missingExclusionReason = []
   for (const req of requirements || []) {
     if (req.scope_status === 'in_scope') {
       if (!architectureSection.includes(req.id)) missingArchitectureRefs.push(req.id)
       if (!acceptanceSection.includes(req.id)) missingAcceptanceRefs.push(req.id)
+      if (!traceabilitySection.includes(req.id)) missingTraceabilityRefs.push(req.id)
     } else if (!req.exclusion_reason) {
       missingExclusionReason.push(req.id)
+    }
+    if (req.must_preserve) {
+      const preserved = preservedDetailsSection.includes(req.id) || preservedConstraintsSection.includes(req.id) || rawNuancesSection.includes(req.id)
+      if (!preserved) missingProtectedDetails.push(req.id)
     }
     const absent = (req.constraints || []).filter((constraint) => constraint && !constraintsSection.includes(constraint))
     if (absent.length) missingConstraints.push({ requirement_id: req.id, constraints: absent })
   }
   return {
-    ok: !(missingArchitectureRefs.length || missingAcceptanceRefs.length || missingConstraints.length || missingExclusionReason.length),
+    ok: !(missingArchitectureRefs.length || missingAcceptanceRefs.length || missingTraceabilityRefs.length || missingProtectedDetails.length || missingConstraints.length || missingExclusionReason.length),
     missing_architecture_refs: missingArchitectureRefs,
     missing_acceptance_refs: missingAcceptanceRefs,
+    missing_traceability_refs: missingTraceabilityRefs,
+    missing_protected_details: missingProtectedDetails,
     missing_constraints: missingConstraints,
     missing_exclusion_reason: missingExclusionReason,
     placeholders: findPlaceholders(specContent),
