@@ -299,18 +299,27 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
 async function validateTeamContracts(repoRoot, packageRoot, errors) {
   const teamCommandFile = path.join(packageRoot, 'commands', 'team.md');
   const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
-  const teamSkillFile = path.join(packageRoot, 'skills', 'team', 'SKILL.md');
+  const teamEntrySkillFile = path.join(packageRoot, 'skills', 'team', 'SKILL.md');
+  const teamRuntimeSkillFile = path.join(packageRoot, 'skills', 'team-workflow', 'SKILL.md');
   const teamSpecsDir = path.join(packageRoot, 'specs', 'team-runtime');
   const teamUtilsDir = path.join(packageRoot, 'utils', 'team');
   const requiredRuntimeDocs = ['overview.md', 'state-machine.md', 'execute-entry.md', 'status.md', 'archive.md'];
   const requiredTeamScripts = ['team-cli.js', 'lifecycle.js', 'state-manager.js', 'task-board.js', 'task-board-helpers.js', 'phase-controller.js', 'governance.js', 'status-renderer.js', 'planning-support.js', 'planning-artifacts.js', 'templates.js', 'doc-contracts.js'];
+  const teamCommandContent = await fs.pathExists(teamCommandFile)
+    ? await fs.readFile(teamCommandFile, 'utf8')
+    : '';
+  const usesSplitRuntimeSkill = teamCommandContent.includes('../skills/team-workflow/SKILL.md');
   const guardPaths = [
     [teamCommandFile, 'team command 入口'],
     [workflowCommandFile, 'workflow command 入口'],
-    [teamSkillFile, 'team skill 入口'],
+    [teamEntrySkillFile, 'team entry skill 入口'],
     [teamSpecsDir, 'team-runtime references'],
     [teamUtilsDir, 'team utils/scripts'],
   ];
+
+  if (usesSplitRuntimeSkill) {
+    guardPaths.push([teamRuntimeSkillFile, 'team runtime skill 入口']);
+  }
 
   for (const [p, label] of guardPaths) {
     if (!(await fs.pathExists(p))) {
@@ -333,16 +342,20 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     }
   }
 
-  const teamSkillDocs = await collectMarkdownFiles(path.join(packageRoot, 'skills', 'team'));
+  const teamEntrySkillDocs = await collectMarkdownFiles(path.join(packageRoot, 'skills', 'team'));
+  const teamRuntimeSkillDocs = usesSplitRuntimeSkill
+    ? await collectMarkdownFiles(path.join(packageRoot, 'skills', 'team-workflow'))
+    : [];
   const teamDocFiles = [
     ...await collectMarkdownFiles(teamSpecsDir),
-    ...teamSkillDocs,
+    ...teamEntrySkillDocs,
+    ...teamRuntimeSkillDocs,
   ];
 
-  const [teamCommandContent, workflowCommandContent, teamSkillContent, readmeContent, claudeContent, coreClaudeContent] = await Promise.all([
-    fs.readFile(teamCommandFile, 'utf8'),
+  const [workflowCommandContent, teamEntrySkillContent, teamRuntimeSkillContent, readmeContent, claudeContent, coreClaudeContent] = await Promise.all([
     fs.readFile(workflowCommandFile, 'utf8'),
-    fs.readFile(teamSkillFile, 'utf8'),
+    fs.readFile(teamEntrySkillFile, 'utf8'),
+    usesSplitRuntimeSkill ? fs.readFile(teamRuntimeSkillFile, 'utf8') : Promise.resolve(''),
     fs.readFile(path.join(repoRoot, 'README.md'), 'utf8'),
     fs.readFile(path.join(repoRoot, 'CLAUDE.md'), 'utf8'),
     fs.readFile(path.join(packageRoot, 'CLAUDE.md'), 'utf8'),
@@ -362,10 +375,21 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     }
   }
 
-  const skillMarkers = ['/workflow', '/quick-plan', 'dispatching-parallel-agents', 'team-state.json', '自动触发'];
-  for (const marker of skillMarkers) {
-    if (!teamSkillContent.includes(marker)) {
-      errors.push(`team skill 缺少模式契约: ${marker}`);
+  const teamEntrySkillMarkers = usesSplitRuntimeSkill
+    ? ['/workflow', '/quick-plan', 'team-workflow', '自动触发']
+    : ['/workflow', '/quick-plan', 'dispatching-parallel-agents', 'team-state.json', '自动触发'];
+  for (const marker of teamEntrySkillMarkers) {
+    if (!teamEntrySkillContent.includes(marker)) {
+      errors.push(`team entry skill 缺少模式契约: ${marker}`);
+    }
+  }
+
+  if (usesSplitRuntimeSkill) {
+    const teamRuntimeSkillMarkers = ['dispatching-parallel-agents', 'team-state.json', 'phase/state contract'];
+    for (const marker of teamRuntimeSkillMarkers) {
+      if (!teamRuntimeSkillContent.includes(marker)) {
+        errors.push(`team runtime skill 缺少运行时契约: ${marker}`);
+      }
     }
   }
 
@@ -373,12 +397,12 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     {
       label: 'README.md',
       content: readmeContent,
-      markers: ['/team', '不自动触发', 'team-state.json'],
+      markers: ['/team', 'core/skills/team/SKILL.md', 'team-state.json'],
     },
     {
       label: 'CLAUDE.md',
       content: claudeContent,
-      markers: ['/team', 'never auto-triggered', 'team-state.json'],
+      markers: ['/team', 'never auto-triggered', 'team-state.json', 'team-workflow'],
     },
     {
       label: 'core/CLAUDE.md',

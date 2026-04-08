@@ -1,6 +1,6 @@
 # `/team execute` 入口
 
-`/team execute` 不是重写执行器，而是在现有 workflow execution/runtime helpers 外包一层 team orchestrator。
+`/team execute` 不是重写执行器，而是在已 bootstrap 的 team runtime 上推进 team lifecycle；shared workflow helpers 仅作为内部实现积木。
 
 ## 入口职责
 
@@ -114,11 +114,11 @@
 
 ```json
 {
-  "error": "team execute gate failed",
+  "error": "team runtime execute gate failed",
   "team_phase": "team-plan",
   "missing_artifacts": ["spec_file", "team_tasks_file"],
   "invalid_fields": [],
-  "next_action": "repair-runtime-or-rerun-team-start"
+  "next_action": "repair-team-runtime-or-rerun-team-start"
 }
 ```
 

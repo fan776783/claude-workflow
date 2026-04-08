@@ -49,7 +49,8 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-executing/ # Execution entry for /workflow execute
     │   ├── workflow-reviewing/ # Review protocol entry for workflow quality gates
     │   ├── workflow-delta/  # Delta entry for /workflow delta
-    │   ├── team/            # Explicit team orchestration for /team start|execute
+    │   ├── team/            # Explicit /team entry skill (routing only)
+    │   ├── team-workflow/   # Heavy runtime contract for /team start|execute|status|archive
     │   ├── scan/            # Project scanning
     │   ├── analyze/         # Analysis orchestration (Codex candidates + Claude synthesis)
     │   ├── fix-bug/         # Bug fixing workflow
@@ -110,8 +111,8 @@ The package includes the following skills (all portable across AI coding tools):
   - `delta` - Routed to `workflow-delta`
   - `status` - Still served from shared workflow runtime docs
   - `archive` - Still served from shared workflow runtime docs
-- `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md` and backed by `team` skill plus `core/specs/team-runtime/` docs)
-  - `start` - Reuses workflow planning and creates team runtime artifacts
+- `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md`, with the `team` entry skill plus `team-workflow` runtime skill backed by `core/specs/team-runtime/` docs)
+  - `start` - Bootstraps team-specific planning/runtime artifacts
   - `execute` - Runs team-exec → team-verify / team-fix loop
   - `status` - Served from shared team runtime docs
   - `archive` - Served from shared team runtime docs
@@ -119,7 +120,8 @@ The package includes the following skills (all portable across AI coding tools):
 - `workflow-executing` - Execution skill for `/workflow execute` (continuation governance + validation + quality gates + implementation report)
 - `workflow-reviewing` - Review skill used by workflow quality gates (spec compliance + code quality)
 - `workflow-delta` - Delta skill for `/workflow delta` (PRD/API/requirement changes)
-- `team` - Team orchestration skill for explicit `/team` entry only; never auto-triggered by `/workflow`, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
+- `team` - `/team` command entry skill for explicit routing/boundary semantics only; never auto-triggered by `/workflow`, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
+- `team-workflow` - Heavy team runtime skill for explicit `/team start|execute|status|archive`, owning phase/state contracts while preserving the same public `/team` command surface
 
 **Planning:**
 

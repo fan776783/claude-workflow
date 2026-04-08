@@ -157,7 +157,7 @@ team-plan -> team-exec -> team-verify -> team-fix -> team-verify
 
 - `completed` 为终态，不得继续执行推进
 - `failed` 为终态，除非有显式人工恢复策略，否则不得自动回到 `team-exec`
-- `archived` 为终态，只允许读取状态或重新启动新的 team run
+- `archived` 为终态，只允许读取状态或重新启动新的 team runtime bootstrap
 
 ## 约束
 

@@ -34,7 +34,18 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`team CLI\n\nUsage:\n  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] start <requirement> [--force] [--no-discuss] [--team-name NAME]\n  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] execute\n  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] status\n  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] archive [--summary]\n`)
+  process.stdout.write(`team CLI
+
+Usage:
+  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] start <requirement|path> [--force] [--no-discuss] [--team-name NAME]
+  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] execute
+  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] status
+  node team-cli.js [--project-id ID] [--project-root DIR] [--team-id ID] archive [--summary]
+
+Notes:
+  start bootstraps a dedicated team runtime and writes team-specific planning artifacts.
+  execute/status/archive operate on that team runtime only.
+`)
 }
 
 function main() {
@@ -42,7 +53,7 @@ function main() {
     const { options, command, requirement } = parseArgs(process.argv.slice(2))
     let result
     if (command === 'start') {
-      if (!requirement) throw new Error('start requires a requirement')
+      if (!requirement) throw new Error('start requires a requirement or requirement file')
       result = cmdTeamStart(requirement, options)
     } else if (command === 'execute') {
       result = cmdTeamExecute(options)

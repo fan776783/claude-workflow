@@ -63,7 +63,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   const activeState = detectActiveTeamState(resolvedProjectId)
   if (activeState && !force) {
     const existing = readTeamState(activeState, resolvedProjectId)
-    return { error: '已存在未归档 team run，请先 archive 或使用 --force 覆盖', project_id: resolvedProjectId, team_id: existing.team_id, state_status: existing.status }
+    return { error: '已存在未归档 team runtime，请先 archive 或使用 --force 重新 bootstrap', project_id: resolvedProjectId, team_id: existing.team_id, state_status: existing.status }
   }
 
   const { requirementSource, requirementText, sourcePath } = resolveRequirementInput(requirement, root)
@@ -82,7 +82,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   const teamTasksPath = path.join(root, teamTasksRelative)
 
   if (!force) {
-    for (const [targetPath, label] of [[specPath, 'Spec'], [planPath, 'Plan'], [teamTasksPath, 'Team task board']]) {
+    for (const [targetPath, label] of [[specPath, 'Spec'], [planPath, 'Plan'], [teamTasksPath, 'Team planning task list']]) {
       if (fs.existsSync(targetPath)) return { error: `${label} 已存在: ${path.relative(root, targetPath)}` }
     }
   }
@@ -101,7 +101,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     blocked_summary: '- 无',
     critical_constraints: '- Team mode 必须显式通过 /team 进入\n- 不得因 parallel-boundaries 自动升级为 team mode\n- 保持现有 /workflow 语义不变',
     user_facing_behavior: `- 以 team 模式协作完成：${summary}`,
-    architecture_summary: '- 以独立 team runtime 协调 planning / execution / verify / fix\n- 并行能力由 team runtime 内部管理，不直接调用 dispatching-parallel-agents 作为外层编排器',
+    architecture_summary: '- 以独立 team runtime bootstrap team-specific planning / execution / verify / fix\n- shared helpers 仅作为 team runtime 内部实现积木，不直接暴露为 workflow-planning 复用链路\n- 并行能力由 team runtime 内部管理，不直接调用 dispatching-parallel-agents 作为外层编排器',
     file_structure: `- ${specRelative}\n- ${planRelative}\n- ${teamTasksRelative}`,
     acceptance_criteria: `- [ ] ${summary}\n- [ ] Team mode 保持显式触发\n- [ ] 现有 /workflow 不被自动升级`,
     implementation_slices: '- Slice 1：生成 team 规划工件\n- Slice 2：拆分 team work packages\n- Slice 3：进入 execute / verify / fix 生命周期',
@@ -114,7 +114,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     spec_file: specRelative,
     task_name: `${taskName} (Team)`,
     goal: summary,
-    architecture_summary: 'team runtime 负责多实例协调，workflow 能力作为内部 phase engine 复用；team mode 显式触发，不自动升级。',
+    architecture_summary: 'team runtime bootstrap 负责生成 team-specific planning artifacts 与多实例协调；shared helpers 仅作为内部实现积木复用，team mode 显式触发，不自动升级。',
     tech_stack: buildTechStackSummary(config),
     files_create: `- ${specRelative}\n- ${planRelative}\n- ${teamTasksRelative}`,
     files_modify: '- 无',
@@ -173,22 +173,26 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   const startGate = validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state })
   if (!startGate.ok) {
     return {
-      error: 'team start gate failed',
+      error: 'team runtime bootstrap gate failed',
       project_id: resolvedProjectId,
       team_id: teamId,
       missing_artifacts: startGate.missing_artifacts,
       invalid_fields: startGate.invalid_fields,
-      next_action: 'repair-runtime-or-rerun-team-start',
+      next_action: 'repair-team-runtime-or-rerun-team-start',
     }
   }
 
   return {
     started: true,
+    bootstrapped: true,
     mode: 'team',
+    planning_scope: 'team-specific',
     explicit_invocation_only: true,
+    team_runtime_bootstrapped: true,
     project_id: resolvedProjectId,
     team_id: teamId,
     team_name: resolvedTeamName,
+    team_phase: state.team_phase,
     config_healed: configHealed,
     state_path: statePath,
     spec_file: specRelative,
@@ -249,19 +253,19 @@ function validateArchivePreconditions(state, board) {
   const reviewCheck = validateReviewState(state, board)
 
   if (phase === 'archived') {
-    return { ok: false, error: 'team run already archived', team_phase: phase, status: state.status }
+    return { ok: false, error: 'team runtime already archived', team_phase: phase, status: state.status }
   }
 
   if (phase === 'team-exec' || phase === 'team-fix') {
-    return { ok: false, error: 'cannot archive active team run', team_phase: phase, status: state.status }
+    return { ok: false, error: 'cannot archive active team runtime', team_phase: phase, status: state.status }
   }
 
   if (phase === 'team-verify' && !reviewCheck.ok) {
-    return { ok: false, error: 'cannot archive before valid team review', team_phase: phase, status: state.status, invalid_fields: [reviewCheck.reason] }
+    return { ok: false, error: 'cannot archive before valid team runtime review', team_phase: phase, status: state.status, invalid_fields: [reviewCheck.reason] }
   }
 
   if (!['team-verify', 'completed', 'failed'].includes(phase) && state.status !== 'completed') {
-    return { ok: false, error: 'team run not ready for archive', team_phase: phase, status: state.status }
+    return { ok: false, error: 'team runtime not ready for archive', team_phase: phase, status: state.status }
   }
 
   return { ok: true, team_phase: phase }
@@ -271,7 +275,7 @@ function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
   const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
-  if (!statePath) return { error: '没有活动 team run，请先执行 /team start' }
+  if (!statePath) return { error: '没有活动 team runtime，请先执行 /team start 完成 bootstrap' }
 
   const state = readTeamState(statePath, resolvedProjectId, teamId)
   const board = readTaskBoard(state.team_tasks_file)
@@ -280,19 +284,19 @@ function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
 
   if (!gate.ok) {
     return {
-      error: 'team execute gate failed',
+      error: 'team runtime execute gate failed',
       project_id: resolvedProjectId,
       team_id: state.team_id,
       team_phase: currentPhase,
       missing_artifacts: gate.missing_artifacts,
       invalid_fields: gate.invalid_fields,
-      next_action: 'repair-runtime-or-rerun-team-start',
+      next_action: 'repair-team-runtime-or-rerun-team-start',
     }
   }
 
   if (TERMINAL_PHASES.has(currentPhase)) {
     return {
-      error: 'team execute gate failed',
+      error: 'team runtime execute gate failed',
       project_id: resolvedProjectId,
       team_id: state.team_id,
       team_phase: currentPhase,
@@ -354,14 +358,23 @@ function cmdTeamExecute({ projectId, projectRoot, teamId } = {}) {
 
   const summary = buildExecuteSummary(state, board)
   writeTeamState(statePath, state, resolvedProjectId, state.team_id)
-  return { executed: true, project_id: resolvedProjectId, team_id: state.team_id, status: state.status, governance: state.governance, ...summary }
+  return {
+    executed: true,
+    runtime_progressed: true,
+    execution_scope: 'team-runtime-only',
+    project_id: resolvedProjectId,
+    team_id: state.team_id,
+    status: state.status,
+    governance: state.governance,
+    ...summary,
+  }
 }
 
 function cmdTeamStatus({ projectId, projectRoot, teamId } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
   const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
-  if (!statePath) return { error: '没有活动 team run' }
+  if (!statePath) return { error: '没有活动 team runtime，请先执行 /team start 完成 bootstrap' }
   const state = readTeamState(statePath, resolvedProjectId, teamId)
   const board = readTaskBoard(state.team_tasks_file)
   return buildTeamStatus(state, board)
@@ -371,7 +384,7 @@ function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false } = {}
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
   const statePath = teamId ? getTeamStatePath(resolvedProjectId, teamId) : detectActiveTeamState(resolvedProjectId)
-  if (!statePath) return { error: '没有可归档的 team run' }
+  if (!statePath) return { error: '没有可归档的 team runtime' }
   const state = readTeamState(statePath, resolvedProjectId, teamId)
   const board = readTaskBoard(state.team_tasks_file)
   const gate = validateArchivePreconditions(state, board)

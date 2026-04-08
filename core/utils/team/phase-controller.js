@@ -104,7 +104,7 @@ function buildExecuteSummary(state, board) {
   else if (teamPhase === 'team-verify') nextAction = 'run-team-verification'
   else if (teamPhase === 'team-fix') nextAction = 'repair-failed-boundaries'
   else if (teamPhase === 'completed') nextAction = 'archive-or-start-new-team-run'
-  else if (teamPhase === 'failed') nextAction = 'repair-runtime-or-rerun-team-start'
+  else if (teamPhase === 'failed') nextAction = 'repair-team-runtime-or-rerun-team-start'
   else if (teamPhase === 'archived') nextAction = 'start-new-team-run'
 
   return {

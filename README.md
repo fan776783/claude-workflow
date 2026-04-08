@@ -61,7 +61,8 @@
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
-| `team` | `/team` 的团队编排 skill；只在用户显式输入 `/team ...` 时使用，不自动触发 |
+| `team` | `/team` 的显式入口 skill；只负责路由与边界，不自动触发 |
+| `team-workflow` | `/team` 的重型 runtime skill；承接 start/execute/status/archive 的 phase/state contract |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
 ---
@@ -80,7 +81,8 @@ core/
     │   ├── workflow-executing/       # /workflow execute
     │   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
     │   ├── workflow-delta/           # /workflow delta
-    │   └── team/                     # /team start|execute
+    │   ├── team/                     # /team 显式入口路由
+    │   ├── team-workflow/            # /team start|execute|status|archive runtime
     ├── specs/
     │   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
     │   ├── workflow-templates/       # spec / plan 模板
@@ -285,6 +287,7 @@ flowchart TD
 - `core/skills/workflow-reviewing/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/team/SKILL.md`
+- `core/skills/team-workflow/SKILL.md`
 - `core/specs/workflow-runtime/state-machine.md`
 - `core/specs/team-runtime/overview.md`
 
