@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **workflow-planning Pattern Discovery + Confidence Score**：`phase-2-plan-generation.md` 新增 Step 4.8 Pattern Discovery（从 `analysisResult` 提取 Patterns to Mirror + Mandatory Reading）和 Step 4.9 Confidence Score（1-10 综合评分），Self-Review 增加 Pattern Faithfulness 和 No Prior Knowledge Test 检查项
 - **workflow-executing Pattern Mirror 引用**：`execute-overview.md` Step 5（显示任务上下文）新增 Patterns to Mirror 和 Mandatory Reading 展示，执行前先读取源文件中的模式实现确保风格一致
 - **workflow-executing Git Branch Detection**：`execute-overview.md` 新增 Step 1.5 Git 分支检测（建议性），在 `main`/`master`/`develop` 上执行时建议创建 feature branch
+- **专项技能目录与文档索引收敛**：移除 `/analyze` 后，同步更新 README、CLAUDE 与工作流指南中的技能数量、能力说明与命令示例
 
 ### Fixed
 

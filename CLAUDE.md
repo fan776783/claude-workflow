@@ -52,7 +52,6 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── team/            # Explicit /team entry skill (routing only)
     │   ├── team-workflow/   # Heavy runtime contract for /team start|execute|status|archive
     │   ├── scan/            # Project scanning
-    │   ├── analyze/         # Analysis orchestration (Codex candidates + Claude synthesis)
     │   ├── fix-bug/         # Bug fixing workflow
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
@@ -130,7 +129,6 @@ The package includes the following skills (all portable across AI coding tools):
 **Development Tools:**
 
 - `/scan` - Project scanning (tech stack detection + context report generation)
-- `/analyze` - Codex-assisted analysis with Claude adjudication and synthesis (streamlined, analysis discipline focused)
 - `/fix-bug` - Bug fixing workflow (locate → analyze → fix → review)
 - `/write-tests` - Test writing expert (unit + integration tests)
 
