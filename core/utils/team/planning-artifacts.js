@@ -12,12 +12,33 @@ function normalizeDepends(depends = [], idMap = new Map()) {
     .map((item) => idMap.get(item) || item)
 }
 
-function buildWorkerOwnershipMetadata(tasks = []) {
-  return tasks.map((task) => ({
-    boundary_id: task.id,
-    owner: task.phase === 'planning' ? 'leader' : task.phase === 'review' ? 'reviewer' : 'executor',
-    writable_required: task.phase === 'implement' || task.phase === 'fix',
-    dispatch_ready: task.phase === 'planning',
+function roleForPhase(phase = '') {
+  if (phase === 'planning') return 'planner'
+  if (phase === 'review') return 'reviewer'
+  return 'implementer'
+}
+
+function defaultProfileRef(role = '') {
+  if (role === 'planner') return { phase: 'plan_generation', role: 'planner', profile: 'plan-planner', source: 'workflow-role-profiles' }
+  if (role === 'reviewer') return { phase: 'quality_review_stage2', role: 'reviewer', profile: 'review-reviewer', source: 'workflow-role-profiles' }
+  return null
+}
+
+function buildBoundaryClaims(tasks = []) {
+  return Object.fromEntries(tasks.map((task) => {
+    const assignedRole = roleForPhase(task.phase)
+    return [task.id, {
+      assigned_role: assignedRole,
+      current_worker_id: null,
+      claim_status: 'unclaimed',
+      claim_version: 0,
+      attempt: 0,
+      claimed_at: null,
+      released_at: null,
+      reassign_reason: null,
+      history: [],
+      profile_ref: defaultProfileRef(assignedRole),
+    }]
   }))
 }
 
@@ -25,9 +46,12 @@ function buildDispatchMetadata(tasks = []) {
   return {
     mode: 'internal-team-orchestrator',
     granularity: 'boundary-level',
+    recommended_team_size: '3-5',
+    use_team_only_when: 'shared-task-board-or-direct-teammate-communication-needed',
     boundaries: tasks.map((task) => ({
       id: task.id,
       phase: task.phase || 'implement',
+      assigned_role: roleForPhase(task.phase),
       dispatch_strategy: task.phase === 'implement' ? 'parallel-eligible' : 'sequential',
       ready: task.phase === 'planning',
     })),
@@ -66,7 +90,7 @@ function buildStaticTeamTasks() {
       depends: ['B2'],
       blocked_by: [],
       acceptance_criteria: ['边界任务可进入执行'],
-      critical_constraints: ['execute 阶段必须有可写 worker', 'team runtime 内部管理并行'],
+      critical_constraints: ['execute 阶段必须有可写 implementer', '独立任务优先队内并行，不需要协作时不滥用 /team'],
       files: {},
     },
     {
@@ -77,7 +101,7 @@ function buildStaticTeamTasks() {
       depends: ['B3'],
       blocked_by: [],
       acceptance_criteria: ['team_review 写回且 verify 结论明确'],
-      critical_constraints: ['不得跳过 verify 直接 completed'],
+      critical_constraints: ['不得跳过 verify 直接 completed', 'idle 是正常信号，不等于失败'],
       files: {},
     },
     {
@@ -165,7 +189,7 @@ function buildPlanTasksMarkdown(tasks = buildStaticTeamTasks()) {
 }
 
 module.exports = {
-  buildWorkerOwnershipMetadata,
+  buildBoundaryClaims,
   buildDispatchMetadata,
   buildStaticTeamTasks,
   buildTeamTasksFromPlan,

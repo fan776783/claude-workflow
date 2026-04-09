@@ -28,7 +28,7 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 - 解析 requirement 与 team 标识
 - 生成 team 专用 `spec.md` / `plan.md` / team task markdown
 - 初始化 `team-state.json` 与 `team-task-board.json`
-- 写入 worker ownership / dispatch metadata
+- 写入 `boundary_claims` / dispatch metadata
 
 它当前**不会自动等价于**完整 `workflow-planning` 生命周期；`workflow-planning` 仍是 `/workflow start` 的权威规划入口。
 
@@ -42,7 +42,7 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 - team 专用 `plan.md` 已生成并落盘
 - `team-state.json` 已生成且可解析
 - `team-task-board.json` 已生成且可解析
-- worker ownership / dispatch metadata 已写入 runtime
+- `boundary_claims` / dispatch metadata 已写入 runtime
 
 若任一条件缺失：
 - 不得宣告 `/team start` 完成
@@ -66,7 +66,9 @@ team-plan -> team-exec -> team-verify -> team-fix (loop) -> completed | failed |
 
 执行约束：
 - execute 前必须完成 team runtime 工件、关键字段与 board 合法性校验
-- planning 阶段允许只读 worker；进入 `team-exec` 时必须至少存在一个可写执行型 worker
+- planning 阶段允许只读 worker；进入 `team-exec` 时必须至少存在一个可写 implementer
+- `/team` 默认按最小角色集运作：`orchestrator`、`implementer`、`reviewer`；`planner` 只在 `team-plan` 按需出现
+- specialist 能力优先复用 workflow role-profiles，不为 team 复制一套长期维护的 prompt
 - `dispatching-parallel-agents` 只作为独立性检查 / 边界分组 / 冲突降级的规则来源，不替代 team runtime
 - verify 失败时只允许回流失败边界到 `team-fix`
 - 不得把普通 workflow 的 `parallel-boundaries` 信号解释为 team mode 或 team runtime 合法推进依据
@@ -113,3 +115,5 @@ team-plan -> team-exec -> team-verify -> team-fix (loop) -> completed | failed |
 - 本 skill 持有 team 的重型 runtime contract，但不改动公开 `/team start|execute|status|archive|cleanup` 命令面
 - team runtime 路径继续保持在 `~/.claude/workflows/{projectId}/teams/{teamId}/`
 - 运行时实现继续收敛在 `core/specs/team-runtime/*` 与 `core/utils/team/*.js`
+- 默认 team 规模按 3–5 个 worker 规划；不是每次都强制铺满所有角色
+- idle worker 是正常协作信号，不应直接视为失败；cleanup 前必须由 lead 确认无 active worker

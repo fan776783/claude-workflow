@@ -3,7 +3,7 @@ const path = require('path')
 
 const { buildGovernanceRecord } = require('./governance')
 const { VALID_PHASES, TERMINAL_PHASES, buildExecuteSummary, hasWritableWorker, inferTeamPhase, validateBoard, validateReviewState } = require('./phase-controller')
-const { buildDispatchMetadata, buildPlanTasksMarkdown, buildStaticTeamTasks, buildTeamTasks, buildWorkerOwnershipMetadata } = require('./planning-artifacts')
+const { buildBoundaryClaims, buildDispatchMetadata, buildPlanTasksMarkdown, buildStaticTeamTasks, buildTeamTasks } = require('./planning-artifacts')
 const {
   buildDiscussionArtifact,
   buildTechStackSummary,
@@ -126,7 +126,7 @@ function validateResolvedTeamState(state) {
   return { ok: true }
 }
 
-function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state }) {
+function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, dispatchMetadata, state }) {
   const missingArtifacts = []
   const invalidFields = []
 
@@ -136,7 +136,7 @@ function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, 
 
   const boardValidation = validateBoard(board)
   if (!boardValidation.ok) invalidFields.push(boardValidation.error)
-  if (!Array.isArray(ownershipMetadata) || ownershipMetadata.length === 0) invalidFields.push('worker_ownership_metadata')
+  if (!state?.boundary_claims || typeof state.boundary_claims !== 'object' || Object.keys(state.boundary_claims).length === 0) invalidFields.push('boundary_claims')
   if (!dispatchMetadata || !Array.isArray(dispatchMetadata.boundaries) || dispatchMetadata.boundaries.length === 0) invalidFields.push('dispatch_metadata')
   if (!Array.isArray(state?.worker_roster) || state.worker_roster.length === 0) invalidFields.push('worker_roster')
 
@@ -233,16 +233,12 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   })
 
   const tasks = buildTeamTasks(planContent)
-  const ownershipMetadata = buildWorkerOwnershipMetadata(tasks)
   const dispatchMetadata = buildDispatchMetadata(tasks)
-  const board = buildTeamTaskBoard(tasks).map((item) => {
-    const ownerMeta = ownershipMetadata.find((meta) => meta.boundary_id === item.id)
-    return {
-      ...item,
-      owner: ownerMeta?.owner || item.owner,
-      ownership: ownerMeta || null,
-    }
-  })
+  const boundaryClaims = buildBoundaryClaims(tasks)
+  const board = buildTeamTaskBoard(tasks).map((item) => ({
+    ...item,
+    claim: boundaryClaims[item.id] || null,
+  }))
   fs.mkdirSync(path.dirname(specPath), { recursive: true })
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.writeFileSync(specPath, specContent)
@@ -275,17 +271,18 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   state.ux_gate_required = uxRequired
   state.governance = buildGovernanceRecord()
   state.worker_roster = [
-    { name: 'leader', role: 'orchestrator', status: 'active', writable: false },
-    { name: 'executor', role: 'worker', status: 'idle', writable: true },
+    { name: 'orchestrator', role: 'orchestrator', status: 'running', writable: false },
+    { name: 'implementer', role: 'implementer', status: 'idle', writable: true },
+    { name: 'reviewer', role: 'reviewer', status: 'idle', writable: false },
   ]
   state.dispatch_batches = []
-  state.worker_ownership = ownershipMetadata
+  state.boundary_claims = boundaryClaims
   state.dispatch_metadata = dispatchMetadata
   const statePath = getTeamStatePath(resolvedProjectId, teamId)
   if (!statePath) return { error: '无法解析 team state 路径' }
   writeTeamState(statePath, state, resolvedProjectId, teamId)
 
-  const startGate = validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, ownershipMetadata, dispatchMetadata, state })
+  const startGate = validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, dispatchMetadata, state })
   if (!startGate.ok) {
     return {
       error: 'team runtime bootstrap gate failed',
@@ -326,7 +323,7 @@ function validateExecutePreconditions(state, board) {
     invalidFields.push(`team_phase:${String(currentPhase || '')}`)
   }
 
-  const requiredFields = ['project_id', 'team_id', 'team_name', 'status', 'team_phase', 'spec_file', 'plan_file', 'team_tasks_file', 'worker_roster', 'team_review', 'fix_loop']
+  const requiredFields = ['project_id', 'team_id', 'team_name', 'status', 'team_phase', 'spec_file', 'plan_file', 'team_tasks_file', 'worker_roster', 'boundary_claims', 'team_review', 'fix_loop']
   for (const field of requiredFields) {
     if (state?.[field] == null) invalidFields.push(field)
   }
@@ -616,6 +613,17 @@ function cmdTeamCleanup({ projectId, projectRoot, teamId, invocationSource } = {
       team_phase: state.team_phase,
       status: state.status,
       next_action: 'archive-team-runtime-first',
+    }
+  }
+
+  const activeWorkers = (state.worker_roster || []).filter((worker) => !['completed', 'failed', 'offline', 'idle'].includes(worker.status))
+  if (activeWorkers.length > 0) {
+    return {
+      error: 'cannot cleanup team runtime with active workers',
+      project_id: resolvedProjectId,
+      team_id: state.team_id,
+      active_workers: activeWorkers.map((worker) => worker.worker_id || worker.name || worker.role),
+      next_action: 'shutdown-or-wait-for-workers-before-cleanup',
     }
   }
 

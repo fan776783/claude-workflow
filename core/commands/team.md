@@ -91,3 +91,5 @@ examples:
 - team runtime 继续使用 `core/utils/team/*.js` 与 `core/specs/team-runtime/*`
 - `dispatching-parallel-agents` 只能作为 `team-exec` 内部的**规则来源**（独立性检查 / 边界分组 / 冲突降级），不能替代 team runtime
 - `/workflow`、`/quick-plan`、Broad Request Detection 与自然语言请求都**不会**自动切换到 `/team`
+- `/team` 默认按最小角色集运作：`orchestrator`、`implementer`、`reviewer`；`planner` 只在 `team-plan` 按需加入
+- 只有在需要共享任务板、直接队友沟通、自主认领时才进入 `/team`；独立分析、单 reviewer、单边界修复继续走普通 Agent 或并行分派

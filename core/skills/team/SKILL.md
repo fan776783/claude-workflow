@@ -26,6 +26,7 @@ description: "团队模式入口 - 仅在用户显式调用 /team start|execute|
 - `/workflow` 保持现有语义，不自动升级为 team mode
 - `/quick-plan` 只生成轻量 `plan.md`，不会切换到 team mode
 - `dispatching-parallel-agents` 只是 `team-exec` 内部可复用的并行规则来源，不负责 team 生命周期
+- 只有在需要共享任务板、直接队友沟通、自主认领时才应进入 `/team`；独立分析或单次并行继续走普通 Agent / 并行分派
 
 ## Action 路由
 

@@ -21,4 +21,6 @@
 - 仅允许清理 `status === archived` 或 `team_phase === archived` 的 team runtime
 - cleanup 前必须已经通过显式 `/team` / `team-workflow` 入口解析到目标 runtime，并显式提供 `teamId`
 - 若 runtime 尚未 archive，应明确提示先执行 `/team archive`
+- cleanup 前必须确认只有 lead 在做收尾，不能由 worker 触发
+- 若仍存在 active worker，应阻断 cleanup，先等待或显式结束这些 worker
 - cleanup 只删除 `~/.claude/workflows/{projectId}/teams/{teamId}/`，不删除 repo 内规划工件

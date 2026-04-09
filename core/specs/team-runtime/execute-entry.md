@@ -39,8 +39,8 @@
 - `spec.md` 已存在
 - `plan.md` 已存在
 - `team-task-board.json` 已存在，且至少包含一个 boundary
-- worker ownership / dispatch metadata 已存在
-- `worker_roster` 已初始化，至少包含 orchestration 角色
+- `dispatch_metadata` / `boundary_claims` 已存在
+- `worker_roster` 已初始化，至少包含 orchestration 角色与一个可写 implementer
 
 不满足时：
 - 停留在 `team-plan`
@@ -89,9 +89,10 @@
 
 ## Worker Gate（强制）
 
-- planning 阶段允许使用只读 worker
-- execute 阶段必须至少存在一个可写执行型 worker
-- 若当前 roster 仅包含只读 worker，不得进入 `team-exec`
+- `team-plan` 阶段允许只读角色，默认只要求 `orchestrator`
+- `team-exec` 阶段必须至少存在一个可写 `implementer`
+- `team-verify` 默认由 `reviewer` 负责；若无 `reviewer`，不得宣告验证完成
+- 若当前 roster 仅包含只读角色，不得进入 `team-exec`
 
 ## 与并行分派的关系
 

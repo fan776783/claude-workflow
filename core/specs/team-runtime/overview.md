@@ -32,6 +32,10 @@
 - **phase 明确**：支持 `team-plan`、`team-exec`、`team-verify`、`team-fix`
 - **双阶段收尾**：先 `archive` 退出 active runtime，再按需 `cleanup` 物理删除 runtime 目录
 - **修复回流**：verify 失败时只重投失败边界，不重跑整个团队
+- **最小默认角色**：默认只围绕 `orchestrator`、`implementer`、`reviewer` 运作；`planner` 只在 team-plan 使用
+- **profile 复用**：安全、架构等 specialist 继续复用 workflow role-profiles，不单独复制 team prompt
+- **谨慎使用 team**：只有需要共享任务板、直接队友沟通、自主认领时才进入 `/team`；独立分析或单次并行继续走普通 Agent / 并行分派
+- **默认规模克制**：team 默认从 3–5 个 worker 规划，不鼓励固定铺满角色
 
 ## 关联文档
 

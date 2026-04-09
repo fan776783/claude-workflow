@@ -5,6 +5,7 @@ const path = require('path')
 
 const TEAM_STATE_FILENAME = 'team-state.json'
 const TEAM_ID_REGEX = /^[a-zA-Z0-9_-]+$/
+const VALID_WORKER_STATUSES = new Set(['idle', 'ready', 'claimed', 'running', 'blocked', 'verifying', 'completed', 'failed', 'offline'])
 
 function isoNow() {
   return new Date().toISOString()
@@ -53,23 +54,143 @@ function assertCanonicalTeamStatePath(statePath, projectId, teamId) {
   return resolved
 }
 
+function claimablePhasesForRole(role) {
+  if (role === 'orchestrator') return ['planning', 'implement', 'review', 'fix']
+  if (role === 'planner') return ['planning']
+  if (role === 'reviewer') return ['review']
+  if (role === 'implementer') return ['implement', 'fix']
+  return []
+}
+
+function defaultProfileRefForRole(role) {
+  if (role === 'planner') return { phase: 'plan_generation', role: 'planner', profile: 'plan-planner', source: 'workflow-role-profiles' }
+  if (role === 'reviewer') return { phase: 'quality_review_stage2', role: 'reviewer', profile: 'review-reviewer', source: 'workflow-role-profiles' }
+  return null
+}
+
+function normalizeWorkerRole(role = '') {
+  const normalized = String(role || '').trim().toLowerCase()
+  return normalized || 'implementer'
+}
+
+function normalizeWorkerStatus(status = '', role = 'implementer') {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (VALID_WORKER_STATUSES.has(normalized)) return normalized
+  if (normalized === 'active') return role === 'orchestrator' ? 'running' : 'ready'
+  return role === 'orchestrator' ? 'running' : 'idle'
+}
+
+function normalizeProfileRef(profileRef, role) {
+  if (profileRef && typeof profileRef === 'object') return profileRef
+  if (typeof profileRef === 'string' && profileRef.trim()) {
+    return { phase: null, role, profile: profileRef.trim(), source: 'team-runtime' }
+  }
+  return defaultProfileRefForRole(role)
+}
+
+function normalizeWorkerId(worker = {}, index = 0, role = 'implementer') {
+  if (worker.worker_id && typeof worker.worker_id === 'string') return worker.worker_id
+  const fallbackIndex = role === 'orchestrator' ? 1 : index + 1
+  return `${role}-${fallbackIndex}`
+}
+
+function normalizeWorkerRoster(roster = []) {
+  if (!Array.isArray(roster)) return []
+  return roster.map((worker, index) => {
+    const role = normalizeWorkerRole(worker?.role || worker?.owner || '')
+    return {
+      worker_id: normalizeWorkerId(worker, index, role),
+      name: worker?.name || role,
+      role,
+      profile_ref: normalizeProfileRef(worker?.profile_ref || worker?.profile, role),
+      writable: typeof worker?.writable === 'boolean' ? worker.writable : role === 'implementer',
+      claimable_phases: Array.isArray(worker?.claimable_phases) ? worker.claimable_phases : claimablePhasesForRole(role),
+      status: normalizeWorkerStatus(worker?.status, role),
+      current_boundary_id: worker?.current_boundary_id || null,
+      specialist_tags: Array.isArray(worker?.specialist_tags) ? worker.specialist_tags : [],
+      last_transition_at: worker?.last_transition_at || null,
+    }
+  })
+}
+
+function normalizeBoundaryClaims(boundaryClaims = {}, roster = []) {
+  const claims = {}
+  const rosterByRole = new Map(roster.map((worker) => [worker.role, worker.worker_id]))
+
+  const seedClaim = (boundaryId, source = {}) => {
+    const assignedRole = normalizeWorkerRole(source.assigned_role || '') || 'implementer'
+    claims[boundaryId] = {
+      assigned_role: assignedRole,
+      current_worker_id: source.current_worker_id || rosterByRole.get(assignedRole) || null,
+      claim_status: source.claim_status || 'unclaimed',
+      claim_version: Number(source.claim_version || 0),
+      attempt: Number(source.attempt || 0),
+      claimed_at: source.claimed_at || null,
+      released_at: source.released_at || null,
+      reassign_reason: source.reassign_reason || null,
+      history: Array.isArray(source.history) ? source.history : [],
+      profile_ref: source.profile_ref || defaultProfileRefForRole(assignedRole),
+    }
+  }
+
+  if (boundaryClaims && typeof boundaryClaims === 'object' && !Array.isArray(boundaryClaims)) {
+    for (const [boundaryId, claim] of Object.entries(boundaryClaims)) {
+      if (!boundaryId) continue
+      seedClaim(boundaryId, claim || {})
+    }
+  }
+
+  return claims
+}
+
 function ensureTeamStateDefaults(state) {
-  return {
+  const seeded = {
     status: 'planning',
     team_phase: 'team-plan',
     current_tasks: [],
     worker_roster: [],
     dispatch_batches: [],
-    team_review: { overall_passed: false, reviewed_at: null, notes: [] },
+    boundary_claims: {},
+    team_review: { overall_passed: false, reviewed_at: null, notes: [], failed_boundaries: [], quality_gate_ids: [], evidence_summary: [] },
     fix_loop: { attempt: 0, current_failed_boundaries: [] },
     quality_gates: {},
     progress: { completed: [], blocked: [], failed: [], skipped: [] },
     continuation: { strategy: 'explicit-team', last_decision: null, handoff_required: false, artifact_path: null },
     governance: { explicit_invocation_only: true, auto_trigger_allowed: false, parallel_dispatch_mode: 'internal-team-only' },
     activation: { mode: 'explicit-team-command', entry: 'team', auto_trigger_allowed: false },
-    created_at: state?.updated_at || isoNow(),
+    created_at: state?.created_at || state?.updated_at || isoNow(),
     updated_at: isoNow(),
     ...state,
+  }
+
+  const workerRoster = normalizeWorkerRoster(seeded.worker_roster)
+  const boundaryClaims = normalizeBoundaryClaims(seeded.boundary_claims, workerRoster)
+
+  return {
+    ...seeded,
+    current_tasks: Array.isArray(seeded.current_tasks) ? seeded.current_tasks : [],
+    worker_roster: workerRoster,
+    boundary_claims: boundaryClaims,
+    dispatch_batches: Array.isArray(seeded.dispatch_batches) ? seeded.dispatch_batches : [],
+    team_review: {
+      overall_passed: Boolean(seeded.team_review?.overall_passed),
+      reviewed_at: seeded.team_review?.reviewed_at || null,
+      notes: Array.isArray(seeded.team_review?.notes) ? seeded.team_review.notes : [],
+      failed_boundaries: Array.isArray(seeded.team_review?.failed_boundaries) ? seeded.team_review.failed_boundaries : [],
+      quality_gate_ids: Array.isArray(seeded.team_review?.quality_gate_ids) ? seeded.team_review.quality_gate_ids : [],
+      evidence_summary: Array.isArray(seeded.team_review?.evidence_summary) ? seeded.team_review.evidence_summary : [],
+    },
+    fix_loop: {
+      attempt: Number(seeded.fix_loop?.attempt || 0),
+      current_failed_boundaries: Array.isArray(seeded.fix_loop?.current_failed_boundaries) ? seeded.fix_loop.current_failed_boundaries : [],
+    },
+    quality_gates: seeded.quality_gates && typeof seeded.quality_gates === 'object' ? seeded.quality_gates : {},
+    progress: {
+      completed: Array.isArray(seeded.progress?.completed) ? seeded.progress.completed : [],
+      blocked: Array.isArray(seeded.progress?.blocked) ? seeded.progress.blocked : [],
+      failed: Array.isArray(seeded.progress?.failed) ? seeded.progress.failed : [],
+      skipped: Array.isArray(seeded.progress?.skipped) ? seeded.progress.skipped : [],
+    },
   }
 }
 
@@ -108,7 +229,7 @@ function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specF
 
 function readTeamState(statePath, projectId, teamId) {
   const resolved = assertCanonicalTeamStatePath(statePath, projectId, teamId)
-  return JSON.parse(fs.readFileSync(resolved, 'utf8'))
+  return ensureTeamStateDefaults(JSON.parse(fs.readFileSync(resolved, 'utf8')))
 }
 
 function writeTeamState(statePath, state, projectId, teamId) {

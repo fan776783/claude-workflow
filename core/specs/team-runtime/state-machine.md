@@ -71,6 +71,7 @@
 以下字段可作为扩展状态写入，但不替代最小必填字段：
 
 - `dispatch_batches`
+- `boundary_claims`
 - `quality_gates`
 - `continuation`
 - `governance`
@@ -93,7 +94,36 @@
   "spec_file": ".claude/specs/auth-rollout.spec.md",
   "team_tasks_file": "~/.claude/workflows/abc123/teams/team-auth-rollout/team-task-board.json",
   "current_tasks": ["B1", "B2"],
-  "worker_roster": [],
+  "worker_roster": [
+    {
+      "worker_id": "orchestrator-1",
+      "role": "orchestrator",
+      "writable": false,
+      "status": "running"
+    },
+    {
+      "worker_id": "implementer-1",
+      "role": "implementer",
+      "writable": true,
+      "status": "idle"
+    },
+    {
+      "worker_id": "reviewer-1",
+      "role": "reviewer",
+      "writable": false,
+      "status": "idle"
+    }
+  ],
+  "boundary_claims": {
+    "B1": {
+      "assigned_role": "implementer",
+      "current_worker_id": null,
+      "claim_status": "unclaimed",
+      "claim_version": 0,
+      "attempt": 0,
+      "history": []
+    }
+  },
   "dispatch_batches": [],
   "progress": {
     "completed": [],
@@ -160,6 +190,7 @@ team-plan -> team-exec -> team-verify -> team-fix -> team-verify
 - `team-verify` 时缺少 `team_review`
 - `completed`、`failed`、`archived` 状态仍试图继续进入 execute
 - execute 阶段缺少可写 worker，而 runtime 仍尝试推进到 `team-exec`
+- cleanup 前仍存在 active worker
 
 ## 终态约束
 
@@ -170,7 +201,10 @@ team-plan -> team-exec -> team-verify -> team-fix -> team-verify
 ## 约束
 
 - team state 复用 workflow 顶层字段，如 `project_id`、`status`、`current_tasks`、`plan_file`、`spec_file`、`progress`、`quality_gates`、`continuation`
-- team 扩展字段至少包括：`team_id`、`team_name`、`team_phase`、`team_tasks_file`、`worker_roster`、`dispatch_batches`、`team_review`、`fix_loop`
+- team 扩展字段至少包括：`team_id`、`team_name`、`team_phase`、`team_tasks_file`、`worker_roster`、`boundary_claims`、`dispatch_batches`、`team_review`、`fix_loop`
+- `worker_roster` 推荐收敛为最小默认角色：`orchestrator`、`implementer`、`reviewer`；`planner` 只在 `team-plan` 阶段按需出现
+- specialist 能力优先复用 workflow role-profiles，而不是为 `/team` 复制 prompt
 - team runtime 的脚本实现收敛于 `core/utils/team/*.js`
 - `team_phase` 与 `/workflow` 的普通执行状态必须区分，避免把 `parallel-boundaries` 误判成 team lifecycle
 - “推荐 schema” 不得弱化 `/team execute` 的最小必填要求
+- 只有需要共享任务板、直接队友通信、自主认领时才应进入 `/team`；独立分析或单次并行继续走普通 Agent / 并行分派

@@ -1,6 +1,7 @@
 const TERMINAL_PHASES = new Set(['completed', 'failed', 'archived'])
 const VALID_PHASES = new Set(['team-plan', 'team-exec', 'team-verify', 'team-fix', 'completed', 'failed', 'archived'])
 const VALID_BOARD_STATUSES = new Set(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped'])
+const VALID_LIFECYCLE_STATES = new Set(['pending', 'claimed', 'in_progress', 'awaiting_verify', 'verified', 'failed', 'blocked', 'skipped'])
 
 function validateBoard(board) {
   if (!Array.isArray(board) || board.length === 0) {
@@ -23,16 +24,23 @@ function validateBoard(board) {
     if (!VALID_BOARD_STATUSES.has(status)) {
       return { ok: false, error: `team task board item has invalid status: ${item.id}:${status}` }
     }
+    const runState = item.lifecycle?.run_state
+    if (runState && !VALID_LIFECYCLE_STATES.has(runState)) {
+      return { ok: false, error: `team task board item has invalid lifecycle: ${item.id}:${runState}` }
+    }
   }
 
   return { ok: true }
 }
 
 function hasWritableWorker(workerRoster = []) {
-  return Array.isArray(workerRoster) && workerRoster.some((worker) => {
-    const role = String(worker?.role || '').toLowerCase()
-    return role && !['analyst', 'explorer', 'reviewer', 'planner', 'orchestrator', 'leader'].includes(role)
-  })
+  return Array.isArray(workerRoster) && workerRoster.some((worker) => worker?.writable === true)
+}
+
+function claimableRoleForPhase(phase = '') {
+  if (phase === 'planning') return 'planner'
+  if (phase === 'review') return 'reviewer'
+  return 'implementer'
 }
 
 function inferTeamPhase(board, currentPhase = 'team-plan', options = {}) {
@@ -97,6 +105,9 @@ function buildExecuteSummary(state, board) {
   const teamPhase = inferTeamPhase(board, state.team_phase || 'team-plan', { state })
   const pendingBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'pending').map((item) => item.id) : []
   const failedBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'failed').map((item) => item.id) : []
+  const availableClaims = Array.isArray(board)
+    ? board.filter((item) => item.status === 'pending' && (!item.blocked_by || item.blocked_by.length === 0)).map((item) => ({ id: item.id, role: claimableRoleForPhase(item.phase) }))
+    : []
 
   let nextAction = 'complete-team-run'
   if (teamPhase === 'team-plan') nextAction = 'complete-planning-boundary'
@@ -112,6 +123,7 @@ function buildExecuteSummary(state, board) {
     next_action: nextAction,
     pending_boundaries: pendingBoundaries,
     failed_boundaries: failedBoundaries,
+    available_claims: availableClaims,
     board_valid: boardValidation.ok,
     board_error: boardValidation.ok ? null : boardValidation.error,
     has_writable_worker: hasWritableWorker(state.worker_roster),
@@ -124,6 +136,7 @@ module.exports = {
   TERMINAL_PHASES,
   validateBoard,
   hasWritableWorker,
+  claimableRoleForPhase,
   validateReviewState,
   inferTeamPhase,
   buildExecuteSummary,
