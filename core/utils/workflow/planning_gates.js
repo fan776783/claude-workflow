@@ -70,14 +70,11 @@ function validateUxArtifact(artifact) {
 }
 
 function buildSpecReviewSummary(specContent) {
-  const sections = []
-  for (const heading of ['## 2. Scope', '### 2.4 Requirement Traceability', '## 3. Constraints', '## 7. Acceptance Criteria', '### 9.1 Raw Requirement Nuances']) {
-    const pattern = new RegExp(`^${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\s*$([\\s\\S]*?)(?=^##\\s+|^###\\s+|$)`, 'm')
-    const match = String(specContent || '').match(pattern)
-    if (match) sections.push(match[0].trim())
-  }
-  return sections.join('\n\n')
+  const allSections = String(specContent || '').split(/^(?=## \d)/m)
+  const targetPrefixes = ['## 2.', '## 3.', '## 7.']
+  return allSections.filter((s) => targetPrefixes.some((p) => s.trimStart().startsWith(p))).map((s) => s.trim()).join('\n\n')
 }
+
 
 function mapSpecReviewChoice(choice) {
   return {

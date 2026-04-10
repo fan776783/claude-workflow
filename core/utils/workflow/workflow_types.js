@@ -60,18 +60,6 @@ const MINIMUM_SESSIONS = {
   executor: null,
 }
 
-const MINIMUM_REQUIREMENT_BASELINE = {
-  generated: false,
-  path: null,
-  artifact_path: null,
-  summary_path: null,
-  total_requirements: 0,
-  in_scope_count: 0,
-  out_of_scope_count: 0,
-  blocked_count: 0,
-  must_preserve_count: 0,
-  uncovered_requirement_ids: [],
-}
 
 const MINIMUM_STATE_STATUSES = new Set(['idle', 'spec_review', 'planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed', 'archived'])
 
@@ -108,7 +96,7 @@ function ensureStateDefaults(state) {
   if (!normalized.review_status) normalized.review_status = {}
   if (!normalized.api_context) normalized.api_context = copyJson(MINIMUM_API_CONTEXT)
   if (!normalized.discussion) normalized.discussion = { completed: false, artifact_path: null, clarification_count: 0 }
-  if (!normalized.requirement_baseline) normalized.requirement_baseline = copyJson(MINIMUM_REQUIREMENT_BASELINE)
+
   if (!normalized.ux_design) normalized.ux_design = { completed: false, artifact_path: null, flowchart_scenarios: 0, page_count: 0, approved_at: null }
   if (!normalized.review_status.user_spec_review) normalized.review_status.user_spec_review = { status: 'pending', review_mode: 'human_gate', reviewed_at: null, reviewer: 'user', next_action: null }
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
@@ -208,7 +196,7 @@ module.exports = {
   MINIMUM_GIT_STATUS,
   MINIMUM_CONTEXT_INJECTION,
   MINIMUM_SESSIONS,
-  MINIMUM_REQUIREMENT_BASELINE,
+
   MINIMUM_STATE_STATUSES,
   isoNow,
   copyJson,

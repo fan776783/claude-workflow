@@ -193,28 +193,47 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(backwardCompatible.next_action, 'continue_to_plan_generation')
 
     const summary = planningGates.buildSpecReviewSummary(
-      '## 2. Scope\nA\n\n## 3. Constraints\nB\n\n## 7. Acceptance Criteria\nC\n'
+      '## 2. Scope\n\n### 2.1 In Scope\nA\n\n### 2.2 Out of Scope\nB\n\n## 3. Constraints\nC\n\n## 4. User-facing Behavior\nD\n\n## 7. Acceptance Criteria\nE\n\n### 7.1 Test Strategy\nF\n'
     )
     assert.match(summary, /## 2\. Scope/)
+    assert.match(summary, /### 2\.1 In Scope/)
     assert.match(summary, /## 7\. Acceptance Criteria/)
+    assert.match(summary, /### 7\.1 Test Strategy/)
   })
 
-  await t.test('requirement baseline coverage preserves quality gate semantics', () => {
+  await t.test('requirement coverage preserves quality gate semantics', () => {
+    // 无 must_preserve 的普通需求
     const coverage = lifecycleCmds.buildRequirementCoverage([
       {
         id: 'R-001',
         normalized_summary: '管理员只能导出自己有权限的数据',
         scope_status: 'in_scope',
-        must_preserve: true,
         type: 'constraint',
         owner: 'backend',
         acceptance_signal: '验证管理员权限过滤生效',
       },
     ])
 
-    assert.equal(coverage[0].must_preserve, true)
+    assert.equal(coverage[0].must_preserve, false)
 
-    const tasks = taskParser.parseTasksV2(lifecycleCmds.buildPlanTasks(coverage))
+    // 有 must_preserve 的高风险需求
+    const highRiskCoverage = lifecycleCmds.buildRequirementCoverage([
+      {
+        id: 'R-001',
+        normalized_summary: '管理员只能导出自己有权限的数据',
+        scope_status: 'in_scope',
+        must_preserve: true,
+        constraints: ['管理员只能导出自己有权限的数据'],
+        type: 'constraint',
+        owner: 'backend',
+        acceptance_signal: '验证管理员权限过滤生效',
+      },
+    ])
+
+    assert.equal(highRiskCoverage[0].must_preserve, true)
+    assert.deepEqual(highRiskCoverage[0].protected_details, ['管理员只能导出自己有权限的数据'])
+
+    const tasks = taskParser.parseTasksV2(lifecycleCmds.buildPlanTasks(highRiskCoverage))
     assert.equal(tasks.length, 1)
     assert.equal(tasks[0].quality_gate, true)
     assert.deepEqual(tasks[0].requirement_ids, ['R-001'])
@@ -227,7 +246,7 @@ test('workflow helper migration coverage', async (t) => {
   await t.test('self review doc contract wrapper keeps spec and plan arguments aligned', () => {
     const cliContent = "command === 'start'"
     const overviewDocContent = '/workflow start'
-    const specTemplateContent = '### 1.3 Requirement Baseline Snapshot\n{{task_name}}\n{{requirement_baseline_path}}\n{{preserved_requirement_details}}\n### 2.4 Requirement Traceability\n{{requirement_traceability}}\n### 3.1 Critical Constraints to Preserve\n{{critical_constraints_to_preserve}}\n### 9.1 Raw Requirement Nuances\n{{raw_requirement_nuances}}'
+    const specTemplateContent = '## 2. Scope\n{{task_name}}\n{{scope_summary}}\n{{critical_constraints}}\n## 3. Constraints\n{{acceptance_criteria}}\n## 7. Acceptance Criteria'
     const planTemplateContent = '## Requirement Coverage\n{{task_name}}\n{{spec_file}}\n{{tasks}}\n{{requirement_coverage}}\n## Tasks\n阶段\n需求 ID\nSpec 参考\nPlan 参考\nactions\n步骤\n## Self-Review Checklist'
 
     const wrapped = selfReview.runDocContractReview(

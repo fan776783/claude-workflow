@@ -19,7 +19,6 @@ const {
   updateContextInjection,
   updateDiscussionRecord,
   updatePlanReviewRecord,
-  updateRequirementBaselineRecord,
   updateUserSpecReview,
   updateUxDesignRecord,
   writeState,
@@ -164,12 +163,12 @@ function resolveWorkflowRuntime(projectId = null, projectRoot = null) {
   return [resolvedProjectId, root, workflowDir, statePath, state]
 }
 
-function buildRequirementBaseline(requirementText, summary, requirementSource) {
+function extractRequirementItems(requirementText, summary) {
   const text = String(requirementText || '')
   const bulletLike = text.split(/\n/).map((line) => line.trim()).filter((line) => /^[-*\d]+[.)\s]|^[A-Za-z]\./.test(line))
   const paragraphs = String(requirementText || '').split(/\n{2,}/).map((item) => item.trim()).filter(Boolean)
   const seedItems = bulletLike.length >= 2 ? bulletLike : (paragraphs.length ? paragraphs : [String(requirementText || '').trim()].filter(Boolean))
-  const items = seedItems.map((item, index) => {
+  return seedItems.map((item, index) => {
     const normalized = summarizeText(item, 120)
     const lowered = item.toLowerCase()
     const type = /异常|边界|edge|error|empty|无权限|失败/.test(item) ? 'edge_case'
@@ -178,7 +177,7 @@ function buildRequirementBaseline(requirementText, summary, requirementSource) {
       : /待确认|待补充|待定|question|unknown|unclear/.test(item) ? 'unresolved'
       : /如果|当|条件|状态|判断|逻辑/.test(item) ? 'logic'
       : 'functional'
-    const mustPreserve = /必须|不得|only|must|按钮|字段|上限|排序|异常|边界|角色|权限/.test(item)
+    const hasHighRisk = /必须|不得|only|must|按钮|字段|上限|排序|异常|边界|角色|权限/.test(item)
     return {
       id: `R-${String(index + 1).padStart(3, '0')}`,
       source_excerpt: item,
@@ -186,87 +185,104 @@ function buildRequirementBaseline(requirementText, summary, requirementSource) {
       summary: normalized,
       type,
       scope_status: 'in_scope',
-      must_preserve: mustPreserve,
-      acceptance_signal: mustPreserve ? `验证 ${normalized}` : `确认 ${normalized} 可工作`,
+      acceptance_signal: `确认 ${normalized} 可工作`,
       spec_targets: type === 'constraint' ? ['Constraints'] : type === 'ux' ? ['User-facing Behavior', 'Acceptance Criteria'] : ['Scope', 'Acceptance Criteria'],
-      constraints: mustPreserve ? [normalized] : [],
+      constraints: hasHighRisk ? [normalized] : [],
+      must_preserve: hasHighRisk,
       owner: /后端|接口|API|server|backend/.test(lowered) ? 'backend' : /前端|页面|UI|交互|frontend/.test(lowered) ? 'frontend' : 'shared',
       exclusion_reason: null,
     }
   })
-  return {
-    requirement_source: requirementSource,
-    summary,
-    items,
-  }
 }
 
-function buildRequirementBaselineMarkdown(baseline) {
-  const items = (baseline || {}).items || []
-  const rows = items.map((item) => `| ${item.id} | ${item.type} | ${item.scope_status} | ${item.must_preserve ? 'yes' : 'no'} | ${item.normalized_summary} |`).join('\n') || '| - | - | - | - | - |'
-  const protectedDetails = items.filter((item) => item.must_preserve).map((item) => `- ${item.id}: ${item.source_excerpt}`).join('\n') || '- 无'
-  return [
-    '# Requirement Baseline',
-    '',
-    `- Source: ${(baseline || {}).requirement_source || 'inline'}`,
-    `- Total Requirements: ${items.length}`,
-    '',
-    '## Requirement Items',
-    '',
-    '| ID | Type | Scope | Must Preserve | Summary |',
-    '|----|------|-------|---------------|---------|',
-    rows,
-    '',
-    '## Critical Constraints',
-    '',
-    protectedDetails,
-    '',
-  ].join('\n')
-}
-
-function renderPreservedRequirementDetails(requirementBaseline) {
-  const items = (requirementBaseline || []).filter((item) => item.must_preserve)
-  if (!items.length) return '- 无需要额外保留的原始细节'
-  return items.map((item) => `- ${item.id}: ${item.source_excerpt}`).join('\n')
-}
-
-function renderRequirementTraceability(requirementBaseline) {
-  const items = requirementBaseline || []
-  if (!items.length) return '| R-001 | 待补充 | §2 / §7 | 待定义 | P1 |'
-  return items.map((item, index) => `| ${item.id} | ${item.normalized_summary} | §${item.type === 'constraint' ? '3' : item.type === 'ux' ? '4' : '2'} | ${item.acceptance_signal || '待定义'} | P${index + 1} |`).join('\n')
-}
-
-function renderCriticalConstraintsToPreserve(requirementBaseline) {
-  const items = (requirementBaseline || []).filter((item) => item.must_preserve)
-  if (!items.length) return '- 无'
-  return items.map((item) => `- ${item.id}: ${item.normalized_summary}`).join('\n')
-}
-
-function renderRawRequirementNuances(requirementBaseline) {
-  const items = (requirementBaseline || []).filter((item) => item.type === 'unresolved' || item.must_preserve)
-  if (!items.length) return '- 当前需求已充分结构化，无额外 raw nuance'
-  return items.map((item) => `- ${item.id}: ${item.source_excerpt}`).join('\n')
-}
-
-function buildRequirementCoverage(requirementBaseline) {
-  return (requirementBaseline || []).filter((item) => item.scope_status === 'in_scope').map((item, index) => ({
+function buildRequirementCoverage(items) {
+  return (items || []).filter((item) => item.scope_status === 'in_scope').map((item, index) => ({
     id: item.id,
     summary: item.normalized_summary,
     spec_section: item.type === 'constraint' ? '§3' : item.type === 'ux' ? '§4' : item.type === 'logic' ? '§5' : '§2',
     covered_by_tasks: [`T${index + 1}`],
-    coverage_status: item.must_preserve ? 'protected' : 'covered',
-    protected_details: item.must_preserve ? [item.normalized_summary] : [],
-    must_preserve: Boolean(item.must_preserve),
+    coverage_status: 'covered',
     type: item.type,
     owner: item.owner,
     acceptance_signal: item.acceptance_signal,
+    must_preserve: Boolean(item.must_preserve),
+    protected_details: (item.constraints && item.constraints.length) ? item.constraints : [],
   }))
 }
 
 function renderRequirementCoverage(requirementCoverage) {
   const rows = requirementCoverage || []
-  if (!rows.length) return '| R-001 | 待补充 | §2 | T1 | pending |'
+  if (!rows.length) return '| - | - | - | - | - |'
   return rows.map((row) => `| ${row.id} | ${row.summary} | ${row.spec_section} | ${(row.covered_by_tasks || []).join(', ')} | ${row.coverage_status} |`).join('\n')
+}
+
+function buildPRDCoverageReport(items, specContent) {
+  const segments = (items || []).map((item) => {
+    const keywords = item.normalized_summary.split(/\s+/).filter((w) => w.length > 1)
+    const keywordHits = keywords.filter((kw) => specContent.includes(kw))
+    const coverage = keywordHits.length / Math.max(keywords.length, 1)
+    const status = coverage >= 0.7 ? 'covered' : coverage >= 0.3 ? 'partial' : 'uncovered'
+
+    // 只在实际命中时填写 matchedSpecSections
+    const matchedSections = []
+    if (status !== 'uncovered') {
+      for (const target of (item.spec_targets || [])) {
+        if (specContent.includes(target) || keywordHits.length > 0) matchedSections.push(target)
+      }
+    }
+
+    // 检测高风险特征缺失
+    const missingDetails = []
+    const excerpt = item.source_excerpt || ''
+    if (/\d+|最[多少]|公式|枚举/.test(excerpt)) {
+      const numbers = excerpt.match(/\d+/g) || []
+      const missingNumbers = numbers.filter((n) => !specContent.includes(n))
+      if (missingNumbers.length) missingDetails.push(`精确值未保留：${missingNumbers.join('、')}`)
+    }
+    if (/不支持|不展示|禁[止用]|不可|不得/.test(excerpt)) {
+      const negPatterns = excerpt.match(/(?:不支持|不展示|禁[止用]|不可|不得)[^。，；\n]*/g) || []
+      for (const neg of negPatterns) {
+        if (!specContent.includes(neg.substring(0, 6).trim())) missingDetails.push(`否定约束未保留："${neg.trim()}"`)
+      }
+    }
+    if (/联动|根据.*拉取|条件.*展示/.test(excerpt)) {
+      const linkPatterns = excerpt.match(/(?:联动|根据[^。，；\n]*拉取|条件[^。，；\n]*展示)/g) || []
+      for (const link of linkPatterns) {
+        if (!specContent.includes(link.substring(0, 8).trim())) missingDetails.push(`联动关系未保留："${link.trim()}"`)
+      }
+    }
+    if (/改[名为]|替换|更换|重命名/.test(excerpt)) {
+      const refactorPatterns = excerpt.match(/(?:改[名为]|替换|更换|重命名)[^。，；\n]*/g) || []
+      for (const r of refactorPatterns) {
+        if (!specContent.includes(r.substring(0, 8).trim())) missingDetails.push(`改造指令未保留："${r.trim()}"`)
+      }
+    }
+
+    // 有关键细节缺失时，covered 降级为 partial
+    const finalStatus = (missingDetails.length && status === 'covered') ? 'partial' : status
+
+    return {
+      segmentId: item.id,
+      status: finalStatus,
+      matchedSpecSections: matchedSections,
+      missingDetails,
+      confidence: coverage,
+      excerpt: item.source_excerpt,
+      type: item.type,
+    }
+  })
+  const covered = segments.filter((s) => s.status === 'covered').length
+  const partial = segments.filter((s) => s.status === 'partial').length
+  const uncovered = segments.filter((s) => s.status === 'uncovered').length
+  return {
+    generatedAt: new Date().toISOString(),
+    totalSegments: segments.length,
+    covered,
+    partial,
+    uncovered,
+    coverageRate: (covered + partial * 0.5) / Math.max(segments.length, 1),
+    segments,
+  }
 }
 
 function buildTaskBlock(entry, index, allEntries = []) {
@@ -371,11 +387,6 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   const discussionRequired = shouldRunDiscussion(requirementText, requirementSource, noDiscuss, gapCount)
   const discussionArtifact = buildDiscussionArtifact(requirementSource)
   const discussionPath = path.join(workflowDir, 'discussion-artifact.json')
-  const requirementBaseline = buildRequirementBaseline(requirementText, summary, requirementSource)
-  const requirementBaselinePath = path.join(workflowDir, 'requirement-baseline.json')
-  const requirementBaselineSummaryRelative = path.join('.claude', 'analysis', `${slug}-requirement-baseline.md`)
-  const requirementBaselineSummaryPath = path.join(root, requirementBaselineSummaryRelative)
-  const requirementCoverage = buildRequirementCoverage(requirementBaseline.items)
 
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
   const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
@@ -384,7 +395,7 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)
   const roleContextPath = path.join(workflowDir, 'role-context.json')
   const planInjectedContext = buildInjectedContext(
-    { kind: 'document', ref: specRelative.replace(/\\/g, '/'), requirement_ids: requirementCoverage.map((item) => item.id), critical_constraints: requirementCoverage.flatMap((item) => item.protected_details || []).slice(0, 5) },
+    { kind: 'document', ref: specRelative.replace(/\\/g, '/'), requirement_ids: [], critical_constraints: [] },
     planProfile,
     roleSignals,
     { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
@@ -406,7 +417,7 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
         preview: buildAgentPrompt(
           executionReviewProfile,
           buildInjectedContext(
-            { kind: 'diff_window', ref: 'HEAD', requirement_ids: requirementCoverage.map((item) => item.id), critical_constraints: requirementCoverage.flatMap((item) => item.protected_details || []).slice(0, 5) },
+            { kind: 'diff_window', ref: 'HEAD', requirement_ids: [], critical_constraints: [] },
             executionReviewProfile,
             roleSignals,
             { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
@@ -445,25 +456,23 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   const specTemplate = fs.readFileSync(path.join(templateRoot, 'spec-template.md'), 'utf8')
   const planTemplate = fs.readFileSync(path.join(templateRoot, 'plan-template.md'), 'utf8')
 
+  const requirementItems = extractRequirementItems(requirementText, summary)
+  const requirementCoverage = buildRequirementCoverage(requirementItems)
+
   const specContent = renderTemplate(specTemplate, {
     requirement_source: requirementSource,
-    requirement_baseline_path: requirementBaselineSummaryRelative.replace(/\\/g, '/'),
     created_at: now,
     task_name: taskName,
     context_summary: `- 原始需求来源: ${requirementSource}\n- 需求摘要: ${summary}`,
-    preserved_requirement_details: renderPreservedRequirementDetails(requirementBaseline.items),
-    scope_summary: requirementBaseline.items.filter((item) => item.scope_status === 'in_scope').map((item) => `- ${item.id}: ${item.normalized_summary}`).join('\n') || '- 无',
-    out_of_scope_summary: requirementBaseline.items.filter((item) => item.scope_status === 'out_of_scope').map((item) => `- ${item.id}: ${item.normalized_summary}`).join('\n') || '- 未在原始需求中明确提出的扩展项不纳入本次范围',
-    blocked_summary: requirementBaseline.items.filter((item) => item.scope_status === 'blocked').map((item) => `- ${item.id}: ${item.normalized_summary}`).join('\n') || '- 无',
-    requirement_traceability: renderRequirementTraceability(requirementBaseline.items),
-    critical_constraints: '- 保持现有功能不受影响\n- 优先复用现有模块与状态管理能力',
-    critical_constraints_to_preserve: renderCriticalConstraintsToPreserve(requirementBaseline.items),
+    scope_summary: requirementItems.filter((item) => item.scope_status === 'in_scope').map((item) => `- ${item.id}: ${item.normalized_summary}`).join('\n') || `- ${summary}`,
+    out_of_scope_summary: '- 未在原始需求中明确提出的扩展项不纳入本次范围',
+    blocked_summary: '- 无',
+    critical_constraints: requirementItems.filter((item) => item.constraints.length).map((item) => `- ${item.id}: ${item.constraints.join(', ')}`).join('\n') || '- 保持现有功能不受影响\n- 优先复用现有模块与状态管理能力',
     user_facing_behavior: `- 按需求实现并交付：${summary}`,
-    architecture_summary: `- 以现有代码结构为基线，采用最小必要改动完成需求\n- 优先复用现有模块、状态流转与验证能力\n- Related Requirements: ${(requirementBaseline.items || []).map((item) => item.id).join(', ')}`,
+    architecture_summary: `- 以现有代码结构为基线，采用最小必要改动完成需求\n- 优先复用现有模块、状态流转与验证能力`,
     file_structure: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
-    acceptance_criteria: requirementBaseline.items.map((item) => `- [ ] ${item.id}: ${item.acceptance_signal || item.normalized_summary}`).join('\n'),
-    implementation_slices: requirementBaseline.items.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n'),
-    raw_requirement_nuances: renderRawRequirementNuances(requirementBaseline.items),
+    acceptance_criteria: requirementItems.map((item) => `- [ ] ${item.id}: ${item.acceptance_signal || item.normalized_summary}`).join('\n') || `- [ ] ${summary}`,
+    implementation_slices: requirementItems.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n') || `- Slice 1：响应 ${summary}`,
   })
 
   const planContent = renderTemplate(planTemplate, {
@@ -491,12 +500,11 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
 
   fs.mkdirSync(path.dirname(specPath), { recursive: true })
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
-  fs.mkdirSync(path.dirname(requirementBaselineSummaryPath), { recursive: true })
   fs.mkdirSync(workflowDir, { recursive: true })
   fs.writeFileSync(specPath, specContent)
   fs.writeFileSync(planPath, planContent)
-  fs.writeFileSync(requirementBaselinePath, `${JSON.stringify(requirementBaseline, null, 2)}\n`)
-  fs.writeFileSync(requirementBaselineSummaryPath, `${buildRequirementBaselineMarkdown(requirementBaseline)}\n`)
+  const prdCoverageReport = buildPRDCoverageReport(requirementItems, specContent)
+  fs.writeFileSync(path.join(workflowDir, 'prd-spec-coverage.json'), `${JSON.stringify(prdCoverageReport, null, 2)}\n`)
   fs.writeFileSync(discussionPath, `${JSON.stringify(discussionArtifact, null, 2)}\n`)
   fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
   if (uxArtifact) fs.writeFileSync(uxPath, `${JSON.stringify(uxArtifact, null, 2)}\n`)
@@ -508,18 +516,7 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   state.task_name = taskName
   state.requirement_source = requirementSource
   updateDiscussionRecord(state, discussionPath, (discussionArtifact.clarifications || []).length, !discussionRequired)
-  updateRequirementBaselineRecord(state, {
-    generated: true,
-    path: requirementBaselineSummaryRelative.replace(/\\/g, '/'),
-    artifact_path: 'requirement-baseline.json',
-    summary_path: requirementBaselineSummaryRelative.replace(/\\/g, '/'),
-    total_requirements: requirementBaseline.items.length,
-    in_scope_count: requirementBaseline.items.filter((item) => item.scope_status === 'in_scope').length,
-    out_of_scope_count: requirementBaseline.items.filter((item) => item.scope_status === 'out_of_scope').length,
-    blocked_count: requirementBaseline.items.filter((item) => item.scope_status === 'blocked').length,
-    must_preserve_count: requirementBaseline.items.filter((item) => item.must_preserve).length,
-    uncovered_requirement_ids: requirementCoverage.filter((item) => item.coverage_status === 'pending').map((item) => item.id),
-  })
+
   updateContextInjection(state, {
     schema_version: '1',
     signals: roleSignals,
@@ -694,14 +691,11 @@ module.exports = {
   buildTechStackSummary,
   resolveWorkflowRuntime,
   buildPlanTasks,
-  buildRequirementBaseline,
-  buildRequirementBaselineMarkdown,
-  renderPreservedRequirementDetails,
-  renderRequirementTraceability,
-  renderCriticalConstraintsToPreserve,
-  renderRawRequirementNuances,
+  extractRequirementItems,
   buildRequirementCoverage,
   renderRequirementCoverage,
+  buildPRDCoverageReport,
+
   cmdStart,
   detectDeltaTrigger,
   cmdDelta,

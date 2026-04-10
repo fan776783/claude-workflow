@@ -84,14 +84,7 @@ function buildTaskContext(state) {
     if (specContent) parts.push(`<spec-context>\n${specContent.slice(0, 2000)}\n</spec-context>`)
   }
 
-  const baselinePath = (((state.requirement_baseline || {}).path) || ((state.requirement_baseline || {}).summary_path) || '')
-  if (baselinePath) {
-    const baselineContent = readFile(path.join(projectRoot, baselinePath))
-    const constraints = extractSection(baselineContent, 'Critical Constraints') || extractSection(baselineContent, '关键约束')
-    if (constraints) parts.push(`<critical-constraints>\n${constraints.slice(0, 1000)}\n</critical-constraints>`)
-    const preserve = extractSection(baselineContent, 'Critical Constraints to Preserve') || extractSection(baselineContent, '必须保留')
-    if (preserve) parts.push(`<must-preserve>\n${preserve.slice(0, 1000)}\n</must-preserve>`)
-  }
+
 
   const qualityGate = getReviewResult(state, taskId)
   if (qualityGate) {

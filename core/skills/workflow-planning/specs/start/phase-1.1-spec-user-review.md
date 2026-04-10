@@ -34,7 +34,7 @@
 
 ## 实现细节
 
-### Step 1: 展示 Spec 摘要
+### Step 1: 展示 Spec 摘要 + PRD 覆盖率报告
 
 ```typescript
 console.log(`
@@ -46,6 +46,40 @@ console.log(`
 const specContent = readFile(specPath);
 const specSummary = summarizeSpec(specContent);
 console.log(specSummary);
+
+// 读取并展示 PRD 覆盖率报告
+const coveragePath = path.join(workflowDir, 'prd-spec-coverage.json');
+if (fileExists(coveragePath)) {
+  const coverage: PRDCoverageReport = JSON.parse(readFile(coveragePath));
+  console.log(`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 PRD ↔ Spec 覆盖率：${(coverage.coverageRate * 100).toFixed(1)}%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 已覆盖：${coverage.covered}/${coverage.totalSegments}
+⚠️ 部分覆盖：${coverage.partial}/${coverage.totalSegments}
+❌ 未覆盖：${coverage.uncovered}/${coverage.totalSegments}
+  `);
+
+  // 展示需要用户关注的段落
+  const gaps = coverage.segments.filter(s => s.status !== 'covered');
+  if (gaps.length > 0) {
+    console.log('\n以下 PRD 段落需要关注：\n');
+    for (const gap of gaps) {
+      const icon = gap.status === 'uncovered' ? '❌' : '⚠️';
+      const flags = [];
+      if (gap.flags.hasQuantitative) flags.push('精确值');
+      if (gap.flags.hasNegation) flags.push('否定约束');
+      if (gap.flags.hasLinkage) flags.push('联动关系');
+      if (gap.flags.hasRefactoring) flags.push('改造指令');
+      const flagStr = flags.length > 0 ? ` [${flags.join('|')}]` : '';
+      console.log(`  ${icon} [${gap.segmentId}]${flagStr} "${gap.excerpt.substring(0, 80)}..."`);
+      if (gap.missingDetails?.length > 0) {
+        console.log(`     缺失：${gap.missingDetails.join('、')}`);
+      }
+    }
+  }
+}
 ```
 
 ### Step 2: 请求用户确认
@@ -60,7 +94,7 @@ const specChoice = await AskUserQuestion({
       { label: 'Spec 正确，生成 Plan', description: '批准 Spec 并进入 Plan Generation，不开始执行' },
       { label: '需要修改 Spec', description: '回到 Phase 1，修改规范文档' },
       { label: '页面分层需要调整', description: '单个页面功能过多，需要拆分' },
-      { label: '缺少需求细节', description: '关键交互、例外条件或 must_preserve 细节在 Spec 中被压缩或遗漏' },
+      { label: '缺少需求细节', description: 'PRD 覆盖率报告中标注的 partial/uncovered 段落需要补充' },
       { label: '需要拆分范围', description: '范围过大，需要拆分为多个 Spec' }
     ]
   }]
@@ -127,9 +161,9 @@ if (specChoice === '缺少需求细节') {
     review_mode: 'human_gate',
     reviewed_at: new Date().toISOString(),
     reviewer: 'user',
-    next_action: 'return_to_phase_1_spec_generation_preserve_requirement_details'
+    next_action: 'return_to_phase_1_spec_generation_prd_coverage_gaps'
   };
-  console.log('⏸️ 请回到 Phase 1 补充 Requirement Traceability、Raw Requirement Nuances 或 must_preserve 细节后重新生成 Spec。');
+  console.log('⏸️ 请回到 Phase 1，根据 PRD 覆盖率报告中的 partial/uncovered 段落补充 Spec 后重新生成。');
   return;
 }
 
@@ -160,15 +194,16 @@ if (specChoice === '需要拆分范围') {
 
 ## 用户关注点
 
-User Spec Review 应引导用户从六个维度检查：
+User Spec Review 应引导用户从以下维度检查：
 
-- 功能覆盖 — 需求范围是否准确（是否有遗漏或越界）
-- 需求保真 — must_preserve 的交互细节、例外条件、角色差异是否被保留为 traceability / raw nuances
-- 架构合理性 — 关键约束是否被正确记录，架构设计是否合理
-- UX 合理性 — 页面分层是否合理，单页面尿不应承载超过 4 个独立功能模块
-- 信息密度 — 操作步骤是否过多，是否需要分层导航
-- 首次体验 — 新用户首次使用是否有引导流程
-- 多平台联动 — 工作目录是否可自动发现和关联
+- **功能覆盖** — 需求范围是否准确（是否有遗漏或越界）
+- **PRD 覆盖率** — 检查覆盖率报告中的未覆盖/部分覆盖段落，确认是合理排除还是遗漏
+- **细节保真** — 精确值（数字/公式/枚举）、联动关系、改造指令、否定约束是否保留原文
+- **架构合理性** — 关键约束是否被正确记录，架构设计是否合理
+- **UX 合理性** — 页面分层是否合理，单页面不应承载超过 4 个独立功能模块
+- **信息密度** — 操作步骤是否过多，是否需要分层导航
+- **首次体验** — 新用户首次使用是否有引导流程
+- **多平台联动** — 工作目录是否可自动发现和关联
 
 ## Spec 摘要函数
 

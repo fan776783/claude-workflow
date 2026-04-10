@@ -8,7 +8,7 @@ const WORKFLOW_COMMAND_DOC_REGEX = /\/workflow\s+([a-z0-9_-]+)/gi
 const SCRIPT_REF_REGEX = /`(?:scripts\/)?([a-zA-Z0-9_./-]+\.(?:py|js))`/g
 
 const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '{{requirement_coverage}}', '## Requirement Coverage', '## Tasks', '## Self-Review Checklist']
-const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{requirement_baseline_path}}', '{{preserved_requirement_details}}', '{{requirement_traceability}}', '{{critical_constraints_to_preserve}}', '{{raw_requirement_nuances}}', '### 1.3 Requirement Baseline Snapshot', '### 2.4 Requirement Traceability', '### 3.1 Critical Constraints to Preserve', '### 9.1 Raw Requirement Nuances']
+const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{critical_constraints}}', '{{scope_summary}}', '{{acceptance_criteria}}', '## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']
 const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])
 const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure']

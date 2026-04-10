@@ -1,10 +1,10 @@
 ---
-version: 2
+version: 3
 requirement_source: "{{requirement_source}}"
-requirement_baseline: "{{requirement_baseline_path}}"
 created_at: "{{created_at}}"
 status: draft
 role: spec
+prd_coverage: "prd-spec-coverage.json"
 ---
 
 # Spec: {{task_name}}
@@ -26,12 +26,6 @@ role: spec
 - 技术假设：
 - 业务假设：
 
-### 1.3 Requirement Baseline Snapshot
-
-> 需求保真层：保留必须直达 spec / plan 的原始细节，避免在结构化过程中被摘要吞掉。
-
-{{preserved_requirement_details}}
-
 ---
 
 ## 2. Scope
@@ -48,12 +42,6 @@ role: spec
 
 {{blocked_summary}}
 
-### 2.4 Requirement Traceability
-
-| Requirement ID | Summary | Spec Target | Acceptance Signal | Plan Slice |
-|----------------|---------|-------------|-------------------|------------|
-{{requirement_traceability}}
-
 ---
 
 ## 3. Constraints
@@ -61,10 +49,6 @@ role: spec
 > 不可协商的硬约束，来自原始需求或技术限制。
 
 {{critical_constraints}}
-
-### 3.1 Critical Constraints to Preserve
-
-{{critical_constraints_to_preserve}}
 
 ---
 
@@ -139,12 +123,6 @@ role: spec
 ---
 
 ## 9. Open Questions
-
-### 9.1 Raw Requirement Nuances
-
-{{raw_requirement_nuances}}
-
-### 9.2 Open Questions
 
 - 问题 1：
 - 问题 2：

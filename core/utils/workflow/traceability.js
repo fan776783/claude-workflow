@@ -57,46 +57,42 @@ function validatePlanTraceability(requirements, tasks) {
 }
 
 function extractSection(content, heading) {
-  const pattern = new RegExp(`^##+\\s+${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\s*$([\\s\\S]*?)(?=^##+\\s+|$)`, 'm')
-  const match = String(content || '').match(pattern)
-  return match ? match[1].trim() : ''
+  // 兼容旧格式 "## Heading" 和新格式 "## N. Heading"
+  const allSections = String(content || '').split(/^(?=##+\s+)/m)
+  const target = allSections.find((s) => {
+    const firstLine = s.split('\n')[0] || ''
+    // 移除 heading 标记和可选编号前缀后比较
+    const stripped = firstLine.replace(/^##+\s+(?:\d+\.\s*)?/, '').trim()
+    return stripped === heading || stripped.startsWith(heading)
+  })
+  if (!target) return ''
+  // 移除第一行（标题行）后返回正文
+  const lines = target.split('\n')
+  return lines.slice(1).join('\n').trim()
 }
 
 function validateSpecTraceability(requirements, specContent) {
   const constraintsSection = extractSection(specContent, 'Constraints')
   const architectureSection = extractSection(specContent, 'Architecture and Module Design')
   const acceptanceSection = extractSection(specContent, 'Acceptance Criteria')
-  const traceabilitySection = extractSection(specContent, 'Requirement Traceability')
-  const preservedDetailsSection = extractSection(specContent, 'Requirement Baseline Snapshot')
-  const preservedConstraintsSection = extractSection(specContent, 'Critical Constraints to Preserve')
-  const rawNuancesSection = extractSection(specContent, 'Raw Requirement Nuances')
   const missingArchitectureRefs = []
   const missingAcceptanceRefs = []
-  const missingTraceabilityRefs = []
-  const missingProtectedDetails = []
   const missingConstraints = []
   const missingExclusionReason = []
   for (const req of requirements || []) {
     if (req.scope_status === 'in_scope') {
       if (!architectureSection.includes(req.id)) missingArchitectureRefs.push(req.id)
       if (!acceptanceSection.includes(req.id)) missingAcceptanceRefs.push(req.id)
-      if (!traceabilitySection.includes(req.id)) missingTraceabilityRefs.push(req.id)
     } else if (!req.exclusion_reason) {
       missingExclusionReason.push(req.id)
-    }
-    if (req.must_preserve) {
-      const preserved = preservedDetailsSection.includes(req.id) || preservedConstraintsSection.includes(req.id) || rawNuancesSection.includes(req.id)
-      if (!preserved) missingProtectedDetails.push(req.id)
     }
     const absent = (req.constraints || []).filter((constraint) => constraint && !constraintsSection.includes(constraint))
     if (absent.length) missingConstraints.push({ requirement_id: req.id, constraints: absent })
   }
   return {
-    ok: !(missingArchitectureRefs.length || missingAcceptanceRefs.length || missingTraceabilityRefs.length || missingProtectedDetails.length || missingConstraints.length || missingExclusionReason.length),
+    ok: !(missingArchitectureRefs.length || missingAcceptanceRefs.length || missingConstraints.length || missingExclusionReason.length),
     missing_architecture_refs: missingArchitectureRefs,
     missing_acceptance_refs: missingAcceptanceRefs,
-    missing_traceability_refs: missingTraceabilityRefs,
-    missing_protected_details: missingProtectedDetails,
     missing_constraints: missingConstraints,
     missing_exclusion_reason: missingExclusionReason,
     placeholders: findPlaceholders(specContent),

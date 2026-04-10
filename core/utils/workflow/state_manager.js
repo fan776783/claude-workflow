@@ -130,23 +130,6 @@ function updateUxDesignRecord(state, artifactPath, flowchartScenarios = 0, pageC
   return normalized.ux_design
 }
 
-function updateRequirementBaselineRecord(state, details = {}) {
-  const normalized = normalizeStateInPlace(state)
-  normalized.requirement_baseline = {
-    ...((normalized.requirement_baseline || {})),
-    generated: details.generated !== false,
-    path: details.path || normalized.requirement_baseline?.path || null,
-    artifact_path: details.artifact_path || normalized.requirement_baseline?.artifact_path || null,
-    summary_path: details.summary_path || normalized.requirement_baseline?.summary_path || null,
-    total_requirements: Number(details.total_requirements ?? normalized.requirement_baseline?.total_requirements ?? 0),
-    in_scope_count: Number(details.in_scope_count ?? normalized.requirement_baseline?.in_scope_count ?? 0),
-    out_of_scope_count: Number(details.out_of_scope_count ?? normalized.requirement_baseline?.out_of_scope_count ?? 0),
-    blocked_count: Number(details.blocked_count ?? normalized.requirement_baseline?.blocked_count ?? 0),
-    must_preserve_count: Number(details.must_preserve_count ?? normalized.requirement_baseline?.must_preserve_count ?? 0),
-    uncovered_requirement_ids: [...(details.uncovered_requirement_ids || normalized.requirement_baseline?.uncovered_requirement_ids || [])],
-  }
-  return normalized.requirement_baseline
-}
 
 function updateUserSpecReview(state, status, nextAction, reviewer = 'user') {
   const normalized = normalizeStateInPlace(state)
@@ -421,7 +404,7 @@ module.exports = {
   updateApiContext,
   markDependencyUnblocked,
   updateDiscussionRecord,
-  updateRequirementBaselineRecord,
+
   updateUxDesignRecord,
   updateUserSpecReview,
   updateContextInjection,

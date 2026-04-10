@@ -176,7 +176,7 @@
 **核心章节**:
 
 1. Context — 背景和目标
-2. Scope — 需求编号 + 范围判定（in/out/blocked）
+2. Scope — 需求范围判定（in/out/blocked）
 3. Constraints — 不可协商的硬约束 + UX 预设工作区/环境约束 + Phase 0.2 澄清结果摘要
 4. User-facing Behavior — 正常/异常/边界行为 + UX 流程图
 5. Architecture and Module Design — 模块划分 + 技术选型 + 页面分层信息架构
@@ -187,7 +187,8 @@
 
 **生成后执行 Self-Review**:
 
-- 需求覆盖扫描
+- PRD 原文回溯扫描（覆盖率 ≥ 90% 阈值）
+- 细节保留扫描（精确值/联动/改造/否定约束）
 - Placeholder 扫描（禁止 TBD/TODO）
 - 内部一致性检查
 - 约束完整性检查
@@ -277,6 +278,7 @@
 ├── workflow-state.json             ← 运行时状态
 ├── analysis-result.json            ← 代码分析结果（Phase 0 持久化）
 ├── discussion-artifact.json        ← 讨论工件（若 Phase 0.2 执行则必须存在）
+├── prd-spec-coverage.json          ← PRD↔Spec 覆盖率报告（Phase 1 生成）
 ├── ux-design-artifact.json         ← UX 设计工件（若 Phase 0.3 触发并通过则存在）
 └── changes/
 ```
