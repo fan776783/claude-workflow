@@ -472,7 +472,7 @@ function inferPlanRelativeFromSpec(specRelative, taskName) {
   return path.join('.claude', 'plans', `${slug}.md`).replace(/\\/g, '/')
 }
 
-function cmdStart(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan') {
+function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan') {
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
 
@@ -994,7 +994,8 @@ module.exports = {
   renderRequirementCoverage,
   buildPRDCoverageReport,
 
-  cmdStart,
+  cmdPlan,
+  cmdStart: cmdPlan,
   cmdSpecReview,
   detectDeltaTrigger,
   cmdDelta,

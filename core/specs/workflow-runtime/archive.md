@@ -247,7 +247,7 @@ console.log(`
 🎉 工作流已归档，可以开始新的任务了！
 
 \`\`\`bash
-/workflow start "新功能描述"
+/workflow plan "新功能描述"
 \`\`\`
 `);
 ```

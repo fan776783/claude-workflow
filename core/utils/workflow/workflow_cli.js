@@ -15,7 +15,7 @@ const {
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdSpecReview, cmdStart, cmdUnblock } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDelta, cmdSpecReview, cmdPlan, cmdUnblock } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
@@ -183,9 +183,9 @@ function main() {
       result = buildExecuteEntry(command, intent, normalizedMode, root)
     } else if (command === 'next') {
       result = cmdNext(pid, projectRoot)
-    } else if (command === 'start') {
+    } else if (command === 'plan' || command === 'start') {
       const requirement = args[0]
-      result = cmdStart(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null))
+      result = cmdPlan(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null))
     } else if (command === 'spec-review') {
       result = cmdSpecReview(optionOrArg(args, '--choice', option(args, '--spec-choice', null)), pid, projectRoot)
     } else if (command === 'delta') {
@@ -226,7 +226,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <execute|continue|start|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n  plan (alias: start) - 启动规划流程\n')
       process.exitCode = 1
       return
     }

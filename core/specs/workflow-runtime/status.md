@@ -53,7 +53,7 @@ node utils/workflow/workflow_cli.js status
 
 **错误情况**：
 - 无项目配置 → 提示执行 `/scan`
-- 无状态文件 → 提示执行 `/workflow start`
+- 无状态文件 → 提示执行 `/workflow plan`
 - 计划文件缺失 → 提示重新启动
 
 ### Step 2：获取进度详情
@@ -183,7 +183,7 @@ node utils/workflow/workflow_cli.js journal list
 | `blocked` | 使用 `/workflow unblock <dep>` 解除依赖 |
 | `failed` | 修复后 `/workflow execute --retry` 或 `--skip` |
 | `completed` | 🎉 工作流已完成 |
-| `archived` | 需要新需求请 `/workflow start` |
+| `archived` | 需要新需求请 `/workflow plan` |
 
 ---
 
@@ -206,7 +206,7 @@ node utils/workflow/workflow_cli.js journal list
 /workflow execute --skip
 
 # 启动新工作流
-/workflow start "功能需求描述"
+/workflow plan "功能需求描述"
 
 # 查看会话历史
 /workflow journal list

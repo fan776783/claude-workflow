@@ -19,7 +19,7 @@
 2. **质量关卡 Stage 2**：将指南作为审查维度之一
 3. **`--retry` 调试**：Phase 2 模式分析时参考代码复用指南
 
-### 在 `/workflow start` 中应用
+### 在 `/workflow plan` 中应用
 
 1. **Phase 1 技术设计**：参考跨层检查清单，提前识别数据边界
 2. **Phase 2.5 Plan Review**：检查计划是否遗漏了跨层影响

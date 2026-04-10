@@ -1,7 +1,7 @@
 ---
 version: 2
 # DEPRECATED: 本遗留模板仅保留为迁移占位说明。
-replacement: "core/skills/workflow-planning/references/start-overview.md"
+replacement: "core/skills/workflow-planning/SKILL.md"
 ---
 
 # 遗留验收清单模板（已废弃）
@@ -9,7 +9,7 @@ replacement: "core/skills/workflow-planning/references/start-overview.md"
 当前 workflow 已不再生成独立“验收清单”模板，也不再维护旧的 Brief / requirement baseline 模板路径。
 
 请改为：
-- `core/skills/workflow-planning/references/start-overview.md`
+- `core/skills/workflow-planning/SKILL.md`
 - `core/commands/workflow.md`
 
 ## 路径迁移
@@ -17,7 +17,7 @@ replacement: "core/skills/workflow-planning/references/start-overview.md"
 | 旧路径 | 当前入口 |
 |--------|---------|
 | `.claude/acceptance/{name}-checklist.md` | `.claude/specs/{name}.md` + `.claude/plans/{name}.md` |
-| `acceptance-checklist-template.md` | `core/skills/workflow-planning/references/start-overview.md` |
+| `acceptance-checklist-template.md` | `core/skills/workflow-planning/SKILL.md` |
 
 ## 说明
 

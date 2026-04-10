@@ -30,7 +30,7 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 - 初始化 `team-state.json` 与 `team-task-board.json`
 - 写入 `boundary_claims` / dispatch metadata
 
-它当前**不会自动等价于**完整 `workflow-planning` 生命周期；`workflow-planning` 仍是 `/workflow start` 的权威规划入口。
+它当前**不会自动等价于**完整 `workflow-planning` 生命周期；`workflow-planning` 仍是 `/workflow plan` 的权威规划入口。
 
 阅读：
 - [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md)

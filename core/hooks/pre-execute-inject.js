@@ -130,7 +130,7 @@ function main() {
 
   const state = findWorkflowState()
   if (!state) {
-    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 未发现活动 workflow，禁止直接派发执行型 Task。请先使用 `/workflow start` 或 `/workflow execute`。')))
+    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 未发现活动 workflow，禁止直接派发执行型 Task。请先使用 `/workflow plan` 或 `/workflow execute`。')))
     return
   }
 

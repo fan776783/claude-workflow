@@ -58,7 +58,7 @@ function collectSpecIndices(projectRoot) {
 }
 
 function determineNextAction(state) {
-  if (!state) return '没有活跃的工作流。使用 `/workflow start` 开始新任务。'
+  if (!state) return '没有活跃的工作流。使用 `/workflow plan` 开始新任务。'
   const gateViolation = getSpecReviewGateViolation(state)
   if (gateViolation) return '检测到 User Spec Review 缺失。请先回到 Phase 1.1 完成显式批准，再继续进入 plan 或 execute。'
   const status = state.status || 'idle'
@@ -66,7 +66,7 @@ function determineNextAction(state) {
   const progress = state.progress || {}
   const completed = progress.completed || []
 
-  if (status === 'idle') return '使用 `/workflow start` 开始新的工作流。'
+  if (status === 'idle') return '使用 `/workflow plan` 开始新的工作流。'
   if (status === 'planned') return '规划已完成。使用 `/workflow execute` 开始执行；不要重新进入规划。'
   if (status === 'spec_review') return 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。'
   if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow execute 继续。`
@@ -74,7 +74,7 @@ function determineNextAction(state) {
   if (status === 'failed') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow execute --retry 重试，或显式选择 skip。`
   if (status === 'blocked') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
   if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow archive 归档，不要继续执行。`
-  if (status === 'archived') return '工作流已归档。使用 `/workflow start` 开始新任务。'
+  if (status === 'archived') return '工作流已归档。使用 `/workflow plan` 开始新任务。'
   return `当前状态: ${status}。使用 /workflow status 查看详情。`
 }
 
@@ -89,7 +89,7 @@ function determineGuardrail(state) {
   if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务，也不得继承 team context。'
   if (status === 'blocked') return 'Guardrail：阻塞态需先 unblock，不能把“继续”解释为直接执行或 team 恢复。'
   if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行，也不读取 team runtime。'
-  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow start`；team runtime 不会自动继承到普通会话。'
+  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow plan`；team runtime 不会自动继承到普通会话。'
   return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门；非 `/team` 路径必须忽略 team runtime。'
 }
 
