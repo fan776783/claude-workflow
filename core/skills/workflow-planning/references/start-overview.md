@@ -205,7 +205,7 @@
 
 **用户选择**:
 
-1. **Spec 正确，生成 Plan** → 进入 Phase 2 Plan Generation（仅继续规划，不开始执行）
+1. **Spec 正确，生成 Plan** → 通过 `/workflow spec-review --choice "Spec 正确，生成 Plan"` 进入 Phase 2 Plan Generation（仅继续规划，不开始执行）
 2. **需要修改 Spec** → 回到 Phase 1
 3. **页面分层需要调整** → 回到 Phase 0.3，调整页面分层后重新生成 Spec
 4. **缺少用户流程** → 回到 Phase 0.3，补充流程图/首次使用引导后重新生成 Spec
@@ -219,7 +219,7 @@
 
 **目的**: 从 `spec.md` 生成可直接执行的实施计划
 
-**前置状态**: `planning`（Spec 已批准，正在生成或整理 Plan）
+**前置状态**: `spec_review` 审批通过后进入 Plan Generation；如写入 `planning`，该状态仅作为内部短暂阶段存在
 
 **输入**: `spec.md`（唯一规范输入）+ `analysisResult`（仅作为文件规划与复用提示的辅助上下文）
 
@@ -256,8 +256,8 @@
 
 **状态结果**:
 
-- Phase 1.1 审批通过后，状态进入 `planning`
-- Phase 2 完成后，状态写入 `planned`
+- `/workflow start` 默认停在 `spec_review`
+- Phase 1.1 审批通过后，生成 `plan.md` 并写入 `planned`
 - `/workflow execute` 启动时再由 `planned → running`
 
 **输出摘要**:
@@ -283,7 +283,11 @@
 └── changes/
 ```
 
-**下一步**: 用户审查后显式执行 `/workflow execute`
+**下一步**:
+
+1. 审查 `spec.md`
+2. 执行 `/workflow spec-review --choice "Spec 正确，生成 Plan"` 生成 `plan.md`
+3. 再显式执行 `/workflow execute`
 
 ---
 

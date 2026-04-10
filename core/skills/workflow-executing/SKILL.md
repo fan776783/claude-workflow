@@ -15,13 +15,21 @@ description: "workflow 执行引擎入口 - 对应 /workflow execute。承接执
 - TDD enforcement
 - 与两阶段审查、并行子 Agent 分派的衔接
 
+## 执行入口铁律（state-first）
+
+- 先读取 `../../specs/workflow-runtime/state-machine.md`，以运行时状态机作为当前 phase / status / current task / progress / quality gate 的唯一真相
+- 判断“现在执行到哪里”“是否可以继续”“当前 task 是谁”“哪些 task 已完成/失败/跳过”时，优先读取 `workflow-state.json` 或调用 `../../utils/workflow/workflow_cli.js status|context|next`
+- 在完成 Step 1 之前，不得通过读取仓库代码、plan 文字状态、验证输出或文件改动来猜测 workflow 运行时状态
+- 只有在状态已确定、当前 task 已锁定后，才按需读取 `plan.md`、Patterns to Mirror、Mandatory Reading 与源码实现细节
+
 ## 先读
 
-- 执行概览：[`references/execute-overview.md`](references/execute-overview.md)
-- 执行入口：[`references/execute-entry.md`](references/execute-entry.md)
-- 执行检查清单：[`references/execution-checklist.md`](references/execution-checklist.md)
 - 状态机：[`../../specs/workflow-runtime/state-machine.md`](../../specs/workflow-runtime/state-machine.md)
+- 运行时状态：[`../../specs/workflow-runtime/status.md`](../../specs/workflow-runtime/status.md)
 - 共享工具：[`../../specs/workflow-runtime/shared-utils.md`](../../specs/workflow-runtime/shared-utils.md)
+- 执行入口：[`references/execute-entry.md`](references/execute-entry.md)
+- 执行概览：[`references/execute-overview.md`](references/execute-overview.md)
+- 执行检查清单：[`references/execution-checklist.md`](references/execution-checklist.md)
 
 ## 执行阶段规格
 

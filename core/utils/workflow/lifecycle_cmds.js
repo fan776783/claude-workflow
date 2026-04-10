@@ -210,6 +210,120 @@ function buildRequirementCoverage(items) {
   }))
 }
 
+function inferRequirementType(summary) {
+  const value = String(summary || '')
+  if (/异常|边界|edge|error|empty|无权限|失败/.test(value)) return 'edge_case'
+  if (/按钮|页面|界面|弹窗|交互|flow|导航/.test(value)) return 'ux'
+  if (/必须|不得|限制|上限|only|must|should/.test(value)) return 'constraint'
+  if (/如果|当|条件|状态|判断|逻辑/.test(value)) return 'logic'
+  return 'functional'
+}
+
+function inferRequirementOwner(summary) {
+  const lowered = String(summary || '').toLowerCase()
+  if (/后端|接口|api|server|backend/.test(lowered)) return 'backend'
+  if (/前端|页面|ui|交互|frontend/.test(lowered)) return 'frontend'
+  return 'shared'
+}
+
+function extractSubsection(content, heading) {
+  const lines = String(content || '').split('\n')
+  const headingPattern = new RegExp(`^###\\s+(?:\\d+(?:\\.\\d+)*\\s*)?${String(heading || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*)$`)
+  let startIndex = -1
+  for (let index = 0; index < lines.length; index += 1) {
+    if (headingPattern.test(lines[index].trim())) {
+      startIndex = index + 1
+      break
+    }
+  }
+  if (startIndex < 0) return ''
+
+  const collected = []
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (/^###\s+/.test(line) || /^##\s+/.test(line) || /^---\s*$/.test(line.trim())) break
+    collected.push(line)
+  }
+  return collected.join('\n').trim()
+}
+
+function extractNamedSection(content, heading) {
+  const lines = String(content || '').split('\n')
+  const headingPattern = new RegExp(`^##\\s+(?:\\d+\\.\\s*)?${String(heading || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*)$`)
+  let startIndex = -1
+  for (let index = 0; index < lines.length; index += 1) {
+    if (headingPattern.test(lines[index].trim())) {
+      startIndex = index + 1
+      break
+    }
+  }
+  if (startIndex < 0) return ''
+
+  const collected = []
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (/^##\s+/.test(line)) break
+    collected.push(line)
+  }
+  return collected.join('\n').trim()
+}
+
+function collectBulletLines(sectionContent) {
+  return String(sectionContent || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^-\s+/.test(line))
+}
+
+function buildRequirementCoverageFromSpec(specContent) {
+  const scopeSection = extractNamedSection(specContent, 'Scope')
+  const inScopeLines = collectBulletLines(extractSubsection(scopeSection, 'In Scope'))
+  const constraintsSection = extractNamedSection(specContent, 'Constraints')
+  const acceptanceSection = extractNamedSection(specContent, 'Acceptance Criteria')
+
+  const constraintMap = {}
+  const sharedConstraints = []
+  for (const line of collectBulletLines(constraintsSection)) {
+    const text = line.replace(/^-\s+/, '').trim()
+    const match = text.match(/^(R-\d{3}):\s*(.+)$/)
+    if (match) {
+      constraintMap[match[1]] = constraintMap[match[1]] || []
+      constraintMap[match[1]].push(match[2].trim())
+    } else if (text) {
+      sharedConstraints.push(text)
+    }
+  }
+
+  const acceptanceMap = {}
+  for (const line of collectBulletLines(acceptanceSection)) {
+    const text = line.replace(/^-\s+/, '').trim()
+    const match = text.match(/^(?:\[[ xX]?\]\s*)?(R-\d{3}):\s*(.+)$/)
+    if (!match) continue
+    acceptanceMap[match[1]] = match[2].trim()
+  }
+
+  return inScopeLines.map((line, index) => {
+    const text = line.replace(/^-\s+/, '').trim()
+    const match = text.match(/^(R-\d{3}):\s*(.+)$/)
+    const id = match ? match[1] : `R-${String(index + 1).padStart(3, '0')}`
+    const summary = (match ? match[2] : text).trim()
+    const type = inferRequirementType(summary)
+    const protectedDetails = [...sharedConstraints, ...((constraintMap[id]) || [])]
+    return {
+      id,
+      summary,
+      spec_section: type === 'constraint' ? '§3' : type === 'ux' ? '§4' : type === 'logic' ? '§5' : '§2',
+      covered_by_tasks: [`T${index + 1}`],
+      coverage_status: 'covered',
+      type,
+      owner: inferRequirementOwner(summary),
+      acceptance_signal: acceptanceMap[id] || `确认 ${summary} 可工作`,
+      must_preserve: protectedDetails.length > 0,
+      protected_details: protectedDetails,
+    }
+  })
+}
+
 function renderRequirementCoverage(requirementCoverage) {
   const rows = requirementCoverage || []
   if (!rows.length) return '| - | - | - | - | - |'
@@ -349,6 +463,15 @@ function buildPlanTasks(requirementCoverage = []) {
   return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries)).join('\n')
 }
 
+function inferPlanRelativeFromSpec(specRelative, taskName) {
+  const normalizedSpec = String(specRelative || '').replace(/\\/g, '/')
+  if (normalizedSpec.startsWith('.claude/specs/')) {
+    return normalizedSpec.replace('.claude/specs/', '.claude/plans/')
+  }
+  const slug = slugifyFilename(taskName) || 'workflow-task'
+  return path.join('.claude', 'plans', `${slug}.md`).replace(/\\/g, '/')
+}
+
 function cmdStart(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan') {
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
@@ -363,7 +486,7 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
   const statePath = path.join(workflowDir, 'workflow-state.json')
   if (fs.existsSync(statePath)) {
     const existingState = ensureStateDefaults(readState(statePath))
-    if (existingState.status !== 'archived' && !force) {
+    if (existingState.status !== 'archived' && existingState.status !== 'idle' && !force) {
       return { error: '已存在未归档工作流，请先归档或使用 --force 覆盖', project_id: resolvedProjectId, state_status: existingState.status }
     }
   }
@@ -475,46 +598,58 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
     implementation_slices: requirementItems.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n') || `- Slice 1：响应 ${summary}`,
   })
 
-  const planContent = renderTemplate(planTemplate, {
-    requirement_source: requirementSource,
-    created_at: now,
-    spec_file: specRelative.replace(/\\/g, '/'),
-    task_name: taskName,
-    goal: summary,
-    architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
-    tech_stack: buildTechStackSummary(config),
-    role_profile: planProfile.profile || planProfile.role || 'planner',
-    context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
-    injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
-    files_create: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
-    files_modify: '- 无',
-    files_test: '- 无',
-    requirement_coverage: renderRequirementCoverage(requirementCoverage),
-    tasks: buildPlanTasks(requirementCoverage),
-  })
-
-  const parsedTasks = parseTasksV2(planContent)
-  if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析' }
-
   const specReview = mapSpecReviewChoice(specChoice)
+  const shouldGeneratePlan = specReview.status === 'approved'
+  const planRequirementCoverage = buildRequirementCoverageFromSpec(specContent)
+  const planContent = shouldGeneratePlan
+    ? renderTemplate(planTemplate, {
+      requirement_source: requirementSource,
+      created_at: now,
+      spec_file: specRelative.replace(/\\/g, '/'),
+      task_name: taskName,
+      goal: summary,
+      architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
+      tech_stack: buildTechStackSummary(config),
+      role_profile: planProfile.profile || planProfile.role || 'planner',
+      context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
+      injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
+      files_create: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
+      files_modify: '- 无',
+      files_test: '- 无',
+      requirement_coverage: renderRequirementCoverage(planRequirementCoverage),
+      tasks: buildPlanTasks(planRequirementCoverage),
+    })
+    : null
+
+  const parsedTasks = planContent ? parseTasksV2(planContent) : []
+  if (planContent && !parsedTasks.length) return { error: '生成的 Plan 未通过任务解析' }
 
   fs.mkdirSync(path.dirname(specPath), { recursive: true })
-  fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.mkdirSync(workflowDir, { recursive: true })
   fs.writeFileSync(specPath, specContent)
-  fs.writeFileSync(planPath, planContent)
+  if (planContent) {
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, planContent)
+  }
   const prdCoverageReport = buildPRDCoverageReport(requirementItems, specContent)
   fs.writeFileSync(path.join(workflowDir, 'prd-spec-coverage.json'), `${JSON.stringify(prdCoverageReport, null, 2)}\n`)
   fs.writeFileSync(discussionPath, `${JSON.stringify(discussionArtifact, null, 2)}\n`)
   fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
   if (uxArtifact) fs.writeFileSync(uxPath, `${JSON.stringify(uxArtifact, null, 2)}\n`)
 
-  const finalWorkflowStatus = specReview.status === 'approved' ? 'planned' : specReview.workflow_status
-  const state = ensureStateDefaults(buildMinimumState(resolvedProjectId, specRelative.replace(/\\/g, '/'), specRelative.replace(/\\/g, '/'), [parsedTasks[0].id], finalWorkflowStatus))
-  state.plan_file = planRelative.replace(/\\/g, '/')
+  const finalWorkflowStatus = shouldGeneratePlan ? 'planned' : specReview.workflow_status
+  const state = ensureStateDefaults(buildMinimumState(
+    resolvedProjectId,
+    shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null,
+    specRelative.replace(/\\/g, '/'),
+    shouldGeneratePlan && parsedTasks.length ? [parsedTasks[0].id] : [],
+    finalWorkflowStatus
+  ))
+  state.plan_file = shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null
   state.project_root = root
   state.task_name = taskName
   state.requirement_source = requirementSource
+  state.requirement_text = requirementText
   updateDiscussionRecord(state, discussionPath, (discussionArtifact.clarifications || []).length, !discussionRequired)
 
   updateContextInjection(state, {
@@ -529,19 +664,22 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
     },
     artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
   })
-  updatePlanReviewRecord(state, {
-    status: 'pending',
-    review_mode: 'machine_loop',
-    reviewer: 'subagent',
-    role: planReviewProfile.role,
-    profile: planReviewProfile.profile,
-    signals_snapshot: roleSignals,
-    next_action: 'compile_tasks',
-  })
+  if (shouldGeneratePlan) {
+    updatePlanReviewRecord(state, {
+      status: 'pending',
+      review_mode: 'machine_loop',
+      reviewer: 'subagent',
+      role: planReviewProfile.role,
+      profile: planReviewProfile.profile,
+      signals_snapshot: roleSignals,
+      next_action: 'compile_tasks',
+    })
+  }
   if (uxArtifact) {
     updateUxDesignRecord(state, uxPath, uxValidation.scenario_count, uxValidation.page_count, uxValidation.ok)
   }
   updateUserSpecReview(state, specReview.status, specReview.next_action)
+  if (!shouldGeneratePlan) state.current_tasks = []
   writeState(statePath, state)
 
   return {
@@ -550,12 +688,172 @@ function cmdStart(requirement, force = false, noDiscuss = false, projectId = nul
     config_healed: configHealed,
     workflow_status: state.status,
     spec_file: specRelative.replace(/\\/g, '/'),
-    plan_file: planRelative.replace(/\\/g, '/'),
+    plan_file: shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null,
     task_count: parsedTasks.length,
     current_tasks: state.current_tasks || [],
     discussion_required: discussionRequired,
     ux_gate_required: uxRequired,
+    awaiting_user_spec_review: !shouldGeneratePlan,
     spec_review_summary: buildSpecReviewSummary(specContent),
+  }
+}
+
+function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
+  const choice = String(specChoice || '').trim()
+  if (!choice) return { error: '缺少 Spec Review 选择，请使用 --choice 传入用户结论' }
+
+  const specReview = mapSpecReviewChoice(choice)
+  if (specReview.status === 'pending') {
+    return { error: `无法识别的 Spec Review 选择: ${choice}` }
+  }
+
+  const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
+  if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有活跃的工作流' }
+
+  const normalizedState = ensureStateDefaults(state)
+  if (normalizedState.status !== 'spec_review') {
+    return { error: '当前工作流不在 spec_review 状态', project_id: resolvedProjectId, state_status: normalizedState.status }
+  }
+
+  updateUserSpecReview(normalizedState, specReview.status, specReview.next_action)
+  normalizedState.current_tasks = []
+
+  if (specReview.status !== 'approved') {
+    normalizedState.status = specReview.workflow_status
+    writeState(statePath, normalizedState)
+    return {
+      review_recorded: true,
+      project_id: resolvedProjectId,
+      workflow_status: normalizedState.status,
+      plan_file: normalizedState.plan_file || null,
+      awaiting_user_spec_review: normalizedState.status === 'spec_review',
+      spec_review_status: normalizedState.review_status.user_spec_review.status,
+    }
+  }
+
+  const config = loadProjectConfig(root)
+  if (!config) return { error: '缺少项目配置，无法继续生成 Plan' }
+
+  const specRelative = String(normalizedState.spec_file || '').replace(/\\/g, '/')
+  if (!specRelative) return { error: '缺少 spec_file，无法继续生成 Plan', project_id: resolvedProjectId }
+  const specPath = path.join(root, specRelative)
+  if (!fs.existsSync(specPath)) return { error: 'spec 文件不存在，无法继续生成 Plan', project_id: resolvedProjectId }
+  const specContent = fs.readFileSync(specPath, 'utf8')
+
+  const requirementText = String(normalizedState.requirement_text || specContent).trim()
+  const requirementSource = normalizedState.requirement_source || 'inline'
+  const taskName = normalizedState.task_name || deriveTaskName(requirementText, null)
+  const summary = summarizeText(extractSubsection(extractNamedSection(specContent, 'Scope'), 'In Scope') || requirementText, 120)
+
+  const planRelative = inferPlanRelativeFromSpec(normalizedState.plan_file || specRelative, taskName)
+  const planPath = path.join(root, planRelative)
+  const discussionArtifact = buildDiscussionArtifact(requirementSource)
+  const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
+  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
+  const planProfile = resolveRoleProfile('plan_generation', roleSignals)
+  const planReviewProfile = resolveRoleProfile('plan_review', roleSignals)
+  const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)
+  const roleContextPath = path.join(workflowDir, 'role-context.json')
+  const planInjectedContext = buildInjectedContext(
+    { kind: 'document', ref: specRelative, requirement_ids: [], critical_constraints: [] },
+    planProfile,
+    roleSignals,
+    { spec_file: specRelative, plan_file: planRelative }
+  )
+  const roleContextArtifact = {
+    schema_version: '1',
+    signals: roleSignals,
+    planning: {
+      plan_generation: { role: planProfile.role, profile: planProfile.profile },
+      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+    },
+    execution: {
+      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
+    },
+    prompts: {
+      plan_generation: { preview: buildAgentPrompt(planProfile, planInjectedContext, 'claude-code') },
+      quality_review_stage2: {
+        preview: buildAgentPrompt(
+          executionReviewProfile,
+          buildInjectedContext(
+            { kind: 'diff_window', ref: 'HEAD', requirement_ids: [], critical_constraints: [] },
+            executionReviewProfile,
+            roleSignals,
+            { spec_file: specRelative, plan_file: planRelative }
+          ),
+          'claude-code'
+        ),
+      },
+    },
+  }
+
+  const templateRoot = path.resolve(__dirname, '..', '..', 'specs', 'workflow-templates')
+  const planTemplate = fs.readFileSync(path.join(templateRoot, 'plan-template.md'), 'utf8')
+  const requirementCoverage = buildRequirementCoverageFromSpec(specContent)
+  const planContent = renderTemplate(planTemplate, {
+    requirement_source: requirementSource,
+    created_at: new Date().toISOString(),
+    spec_file: specRelative,
+    task_name: taskName,
+    goal: summary,
+    architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
+    tech_stack: buildTechStackSummary(config),
+    role_profile: planProfile.profile || planProfile.role || 'planner',
+    context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
+    injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
+    files_create: `- ${specRelative}\n- ${planRelative}`,
+    files_modify: '- 无',
+    files_test: '- 无',
+    requirement_coverage: renderRequirementCoverage(requirementCoverage),
+    tasks: buildPlanTasks(requirementCoverage),
+  })
+  const parsedTasks = parseTasksV2(planContent)
+  if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析', project_id: resolvedProjectId }
+
+  fs.mkdirSync(path.dirname(planPath), { recursive: true })
+  fs.writeFileSync(planPath, planContent)
+  fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
+
+  normalizedState.status = 'planned'
+  normalizedState.plan_file = planRelative
+  normalizedState.project_root = root
+  normalizedState.task_name = taskName
+  normalizedState.requirement_source = requirementSource
+  normalizedState.requirement_text = requirementText
+  normalizedState.current_tasks = [parsedTasks[0].id]
+  updateContextInjection(normalizedState, {
+    schema_version: '1',
+    signals: roleSignals,
+    planning: {
+      plan_generation: { role: planProfile.role, profile: planProfile.profile },
+      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+    },
+    execution: {
+      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
+    },
+    artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
+  })
+  updatePlanReviewRecord(normalizedState, {
+    status: 'pending',
+    review_mode: 'machine_loop',
+    reviewer: 'subagent',
+    role: planReviewProfile.role,
+    profile: planReviewProfile.profile,
+    signals_snapshot: roleSignals,
+    next_action: 'compile_tasks',
+  })
+  writeState(statePath, normalizedState)
+
+  return {
+    review_recorded: true,
+    project_id: resolvedProjectId,
+    workflow_status: normalizedState.status,
+    spec_file: specRelative,
+    plan_file: planRelative,
+    task_count: parsedTasks.length,
+    current_tasks: normalizedState.current_tasks,
+    awaiting_user_spec_review: false,
+    spec_review_status: normalizedState.review_status.user_spec_review.status,
   }
 }
 
@@ -697,6 +995,7 @@ module.exports = {
   buildPRDCoverageReport,
 
   cmdStart,
+  cmdSpecReview,
   detectDeltaTrigger,
   cmdDelta,
   cmdArchive,

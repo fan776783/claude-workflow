@@ -62,6 +62,7 @@ const MINIMUM_SESSIONS = {
 
 
 const MINIMUM_STATE_STATUSES = new Set(['idle', 'spec_review', 'planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed', 'archived'])
+const POST_SPEC_REVIEW_STATUSES = new Set(['planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed'])
 
 function buildMinimumState(projectId, planFile, specFile, currentTasks = [], status = 'running') {
   if (!MINIMUM_STATE_STATUSES.has(status)) throw new Error(`invalid workflow status: ${status}`)
@@ -151,7 +152,7 @@ function buildUserSpecReview(status, nextAction, reviewer = 'user', reviewMode =
   return {
     status,
     review_mode: reviewMode,
-    reviewed_at: isoNow(),
+    reviewed_at: status === 'pending' ? null : isoNow(),
     reviewer,
     next_action: nextAction,
   }
@@ -160,6 +161,27 @@ function buildUserSpecReview(status, nextAction, reviewer = 'user', reviewMode =
 function nextChangeId(deltaTracking) {
   const counter = Number(((deltaTracking || {}).change_counter) || 0) + 1
   return `CHG-${String(counter).padStart(3, '0')}`
+}
+
+function getUserSpecReview(state) {
+  return ensureStateDefaults(state).review_status.user_spec_review
+}
+
+function isUserSpecReviewApproved(state) {
+  return getUserSpecReview(state).status === 'approved'
+}
+
+function getSpecReviewGateViolation(state) {
+  const normalized = ensureStateDefaults(state)
+  if (!POST_SPEC_REVIEW_STATUSES.has(normalized.status)) return null
+  const review = normalized.review_status.user_spec_review || {}
+  if (review.status === 'approved') return null
+  return {
+    code: 'user_spec_review_required',
+    status: normalized.status,
+    review_status: review.status || 'pending',
+    message: `workflow 处于 ${normalized.status}，但 Phase 1.1 User Spec Review 尚未 approved`,
+  }
 }
 
 function main() {
@@ -207,6 +229,9 @@ module.exports = {
   summarizeProgress,
   buildUserSpecReview,
   nextChangeId,
+  getUserSpecReview,
+  isUserSpecReviewApproved,
+  getSpecReviewGateViolation,
 }
 
 if (require.main === module) main()

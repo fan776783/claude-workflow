@@ -3,6 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
+const { getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
 function shouldSkip() {
   return process.env.CLAUDE_NON_INTERACTIVE === '1'
@@ -58,6 +59,8 @@ function collectSpecIndices(projectRoot) {
 
 function determineNextAction(state) {
   if (!state) return '没有活跃的工作流。使用 `/workflow start` 开始新任务。'
+  const gateViolation = getSpecReviewGateViolation(state)
+  if (gateViolation) return '检测到 User Spec Review 缺失。请先回到 Phase 1.1 完成显式批准，再继续进入 plan 或 execute。'
   const status = state.status || 'idle'
   const currentTasks = state.current_tasks || []
   const progress = state.progress || {}
@@ -77,6 +80,8 @@ function determineNextAction(state) {
 
 function determineGuardrail(state) {
   if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行；普通会话不得继承或恢复任何 team context。'
+  const gateViolation = getSpecReviewGateViolation(state)
+  if (gateViolation) return 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。'
   const status = state.status || 'idle'
   if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow execute` 进入执行器；禁止自动继续或重新规划，也不得混入 team context。'
   if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现，也不得切换到 team 语义。'

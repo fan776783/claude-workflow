@@ -3,9 +3,12 @@
 > 本文件为摘要层，不定义新的状态字段、触发规则或执行语义；具体行为以 `execute-entry.md`、`../../../specs/workflow-runtime/state-machine.md` 与 `../specs/execute/*.md` 为准。
 >
 > 精简接口：默认治理 continuous 模式，支持自然语言控制执行模式与恢复解析。
+>
+> 进入 execute 后，先判定运行时状态，再读取任务上下文与源码；不得通过仓库代码或 plan 文本猜测当前 status / current task / 完成态。
 
 ## 快速导航
 
+- 想先判断“当前执行到哪里 / 当前 task 是谁 / 能不能继续”：先看 `../../../specs/workflow-runtime/state-machine.md` 与 `../../../specs/workflow-runtime/status.md`
 - 想判断“继续”到底会不会恢复执行：看“自然语言控制”与 `execute-entry.md`
 - 想看执行模式路由：看 Step 0 与 `../specs/execute/execution-modes.md`
 - 想看 state 自愈与路径安全：看 Step 1 / Step 2
@@ -21,6 +24,20 @@
 - 需要确认执行模式、恢复解析、预算治理或审查触发规则时
 
 执行工作流任务。
+
+## 执行前铁律（state-first）
+
+在任何任务解析、源码阅读、完成态判断之前，先做下面三件事：
+
+1. 读取 `../../../specs/workflow-runtime/state-machine.md`，确认 `status` / `current_tasks` / `progress` / `quality_gates` 的语义
+2. 优先调用 `node utils/workflow/workflow_cli.js status`、`context`、`next`，或直接读取 `workflow-state.json`
+3. 只有当 `state.status` 与 `state.current_tasks` 已明确后，才继续读取 `plan.md` 与源码
+
+禁止项：
+
+- 不得通过“某段代码已经存在”来判断 task 已完成
+- 不得通过 plan 标题 emoji 或仓库 diff 单独判断运行时状态
+- 不得在 Step 1 之前就展开 `Patterns to Mirror`、`Mandatory Reading` 或大范围源码阅读
 
 ## 参数
 
@@ -89,7 +106,13 @@
 
 ### Step 1：读取工作流状态
 
-读取 `workflow-state.json`，执行状态预检查：
+读取 `workflow-state.json`，执行状态预检查。优先使用结构化入口：
+
+- `node utils/workflow/workflow_cli.js status`
+- `node utils/workflow/workflow_cli.js context`
+- `node utils/workflow/workflow_cli.js next`
+
+运行时判定以状态机和状态文件为准，再进入任务与代码上下文。状态预检查包括：
 
 - 检查项目配置（`.claude/config/project-config.json`）
 - 验证项目 ID 安全性
@@ -187,20 +210,22 @@
 
 ### Step 4：提取当前任务
 
-从 `plan.md` 中提取当前任务信息：
+仅在 Step 1 已确认 `state.current_tasks` 或通过 `workflow_cli.js next` 锁定当前任务后，再从 `plan.md` 中提取该任务的详细信息：
 
 - 任务 ID 格式校验（防止正则注入）
 - 解析任务标题（支持状态 emoji）
 - 提取任务字段（阶段、文件、依赖、验收项等）
 - 检查任务是否已完成，如是则移动到下一个
 
+> 不得跳过状态读取，直接通过仓库代码或 plan 的表面文本推断“当前做到哪个 task”。
+
 **详细实现**: 参见 `../../../specs/workflow-runtime/shared-utils.md`
 
 ---
 
-### Step 5：显示任务上下文
+### Step 5：显示任务上下文（按需）
 
-显示当前任务的详细信息：
+在当前 task 已确定后，按需显示该任务的详细信息：
 
 - 任务 ID 和名称
 - 阶段和文件
@@ -212,6 +237,8 @@
 - 全局约束（从 `plan.md` 提取）
 - **Patterns to Mirror**（如有）：从 `plan.md` 的 `## Patterns to Mirror` 区块提取本任务相关的代码模式，展示模式名称和源文件路径。执行时应先读取源文件中的模式实现，再编写当前任务代码，确保风格一致
 - **Mandatory Reading**（如有）：从 `plan.md` 的 `## Mandatory Reading` 区块提取本任务优先级为 P0 的必读文件列表，在执行前必须先读取这些文件
+
+> 这些阅读都是当前 task 级别的按需阅读，不用于判定 workflow runtime 状态。
 
 ---
 

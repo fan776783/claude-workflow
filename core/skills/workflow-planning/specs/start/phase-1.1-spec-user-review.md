@@ -16,6 +16,8 @@
 
 在进入 Plan 生成前，让用户显式确认 `spec.md` 的范围、架构设计、验收标准和关键约束。
 
+审查时必须把 `spec.md` 与需求原文 / PRD 原文逐段对照，确认范围、约束、细节、联动关系与 out-of-scope 判定都忠实保留，不能只依据摘要判断。
+
 > 本阶段属于 **HumanGovernanceGate**。它只负责范围和方向的主权确认，不参与机器自动修文。
 
 ## 执行时机
@@ -112,7 +114,7 @@ if (specChoice === 'Spec 正确，生成 Plan' || specChoice === 'Spec 正确，
     reviewer: 'user',
     next_action: 'continue_to_plan_generation'
   };
-  console.log('✅ Spec 已批准，进入 Plan Generation；如需开始执行，后续请显式使用 /workflow execute');
+  console.log('✅ Spec 已批准。请执行 /workflow spec-review --choice "Spec 正确，生成 Plan" 继续生成 Plan；如需开始执行，后续再显式使用 /workflow execute');
 }
 
 if (specChoice === '需要修改 Spec') {
@@ -168,7 +170,7 @@ if (specChoice === '缺少需求细节') {
 }
 
 if (specChoice === '需要拆分范围') {
-  state.status = 'spec_review';
+  state.status = 'idle';
   state.review_status.user_spec_review = {
     status: 'rejected',
     review_mode: 'human_gate',
@@ -186,7 +188,7 @@ if (specChoice === '需要拆分范围') {
 2. 或使用 /workflow start -f "新的缩小范围需求" 全新启动
 3. 将 out-of-scope 部分另起一个独立的 /workflow start
 
-注意：当前工作流状态为 spec_review，可通过 /workflow status 查看。
+注意：当前工作流状态会回到 idle，可重新使用 /workflow start 启动新的缩小范围流程。
   `);
   return;
 }
@@ -196,6 +198,7 @@ if (specChoice === '需要拆分范围') {
 
 User Spec Review 应引导用户从以下维度检查：
 
+- **原文对照** — 必须逐段回看需求原文 / PRD 原文，不能只看 Spec 摘要或覆盖率数字
 - **功能覆盖** — 需求范围是否准确（是否有遗漏或越界）
 - **PRD 覆盖率** — 检查覆盖率报告中的未覆盖/部分覆盖段落，确认是合理排除还是遗漏
 - **细节保真** — 精确值（数字/公式/枚举）、联动关系、改造指令、否定约束是否保留原文
@@ -223,6 +226,6 @@ function summarizeSpec(specContent: string): string {
 
 ## 输出结果约定
 
-- **approved**：进入 Phase 2 Plan Generation
+- **approved**：通过 `/workflow spec-review --choice "Spec 正确，生成 Plan"` 进入 Phase 2 Plan Generation
 - **revise_required**：返回 Phase 1 Spec Generation，或在 UX 结构问题时返回 Phase 0.3 UX 设计审批
-- **rejected**：拆分范围后重新启动。恢复方式：手动缩小 Spec Scope 后 `/workflow start -f` 覆盖启动，或全新启动
+- **rejected**：拆分范围后回到 `idle`，可重新启动。恢复方式：手动缩小 Spec Scope 后 `/workflow start -f` 覆盖启动，或用新的缩小范围需求重新 `/workflow start`

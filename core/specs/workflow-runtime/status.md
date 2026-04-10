@@ -175,8 +175,8 @@ node utils/workflow/workflow_cli.js journal list
 
 | 当前状态 | 下一步提示 |
 |---------|-----------|
-| `spec_review` | 审查 `spec.md` 后确认或修改 |
-| `planning` | 等待或检查 Plan 生成过程；完成后进入 `planned` |
+| `spec_review` | 审查 `spec.md` 后执行 `/workflow spec-review --choice "<结论>"` |
+| `planning` | 内部瞬时阶段；如长时间停留应检查 Plan 生成流程 |
 | `planned` | 审查 Spec 和 Plan 后执行 `/workflow execute` |
 | `running` | 继续执行 `/workflow execute` |
 | `paused` | 根据暂停原因处理后 `/workflow execute` |

@@ -3,7 +3,9 @@ description: 统一 workflow 命令入口，路由规划、执行、增量变更
 allowed-tools: Read(*), Grep(*), Glob(*)
 examples:
   - /workflow start "实现用户认证功能"
-    启动规划流程，生成 spec.md 与 plan.md
+    启动规划流程，生成 spec.md 并进入用户审查
+  - /workflow spec-review --choice "Spec 正确，生成 Plan"
+    在用户审查通过后生成 plan.md 并进入 planned
   - /workflow execute
     恢复执行器，按 plan 推进任务
   - /workflow delta docs/prd-v2.md
@@ -32,6 +34,7 @@ examples:
 /workflow start "需求描述"
 /workflow start docs/prd.md
 /workflow start --no-discuss docs/prd.md
+/workflow spec-review --choice "Spec 正确，生成 Plan"
 
 /workflow execute
 /workflow execute --phase
@@ -54,14 +57,23 @@ examples:
 
 ### `start`
 
-进入规划阶段，生成 `spec.md` 与 `plan.md`。
+进入规划阶段，生成 `spec.md` 并进入用户审查。
+
+默认先生成 `spec.md` 并停在 `spec_review`；用户审查通过后，再通过 `/workflow spec-review --choice ...` 生成 `plan.md`。
 
 阅读：
 - `../skills/workflow-planning/SKILL.md`
 
+### `spec-review`
+
+记录用户对 `spec.md` 的审查结论；通过时生成 `plan.md` 并进入 `planned`。
+
+阅读：
+- `../skills/workflow-planning/specs/start/phase-1.1-spec-user-review.md`
+
 ### `execute`
 
-恢复执行器，读取当前状态、决定治理边界并推进任务。
+恢复执行器，先读取 workflow runtime 状态，再决定治理边界并推进任务。
 
 阅读：
 - `../skills/workflow-executing/SKILL.md`
@@ -97,7 +109,9 @@ examples:
 - 当前 shared runtime 已迁移到 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
 - 普通 `/workflow` session 只允许读取 workflow runtime；不得继承 team runtime 的 `team_id`、`team_name`、`worker_roster`、`dispatch_batches`、`team_review` 或 `team-state.json` 上下文
 - `/team` 是独立 command 入口；即使 workflow 检测到 2+ 独立任务或 `parallel-boundaries` 机会，也不会自动升级为 team mode
-- `/workflow start` 结束于规划产物与 `planned` 状态；不会自动进入 execute，如需开始执行必须显式使用 `/workflow execute`
+- `/workflow start` 默认结束于 `spec_review`，不会直接开始执行
+- `/workflow spec-review --choice "Spec 正确，生成 Plan"` 会把已批准的 `spec.md` 继续推进到 `planned`
+- 规划完成后不会自动进入 execute；如需开始执行必须显式使用 `/workflow execute`
 
 ---
 
@@ -106,6 +120,7 @@ examples:
 ```bash
 /scan
 /workflow start "需求描述"
+/workflow spec-review --choice "Spec 正确，生成 Plan"
 /workflow execute
 ```
 

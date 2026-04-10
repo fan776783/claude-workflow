@@ -15,7 +15,7 @@ const {
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdStart, cmdUnblock } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDelta, cmdSpecReview, cmdStart, cmdUnblock } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
@@ -161,6 +161,13 @@ function option(args, flag, fallback = null) {
   return index >= 0 ? args[index + 1] : fallback
 }
 
+function optionOrArg(args, flag, fallback = null) {
+  const explicit = option(args, flag)
+  if (explicit != null) return explicit
+  const first = args.find((arg) => !String(arg).startsWith('--'))
+  return first != null ? first : fallback
+}
+
 function main() {
   try {
     const { options, command, args } = parseArgs(process.argv.slice(2))
@@ -178,7 +185,9 @@ function main() {
       result = cmdNext(pid, projectRoot)
     } else if (command === 'start') {
       const requirement = args[0]
-      result = cmdStart(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', 'Spec 正确，生成 Plan'))
+      result = cmdStart(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null))
+    } else if (command === 'spec-review') {
+      result = cmdSpecReview(optionOrArg(args, '--choice', option(args, '--spec-choice', null)), pid, projectRoot)
     } else if (command === 'delta') {
       result = cmdDelta(args[0] || '', pid, projectRoot)
     } else if (command === 'archive') {
@@ -217,7 +226,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <execute|continue|start|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <execute|continue|start|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n')
       process.exitCode = 1
       return
     }

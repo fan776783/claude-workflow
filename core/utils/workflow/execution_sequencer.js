@@ -22,7 +22,7 @@ const {
   taskToDict,
   updateTaskStatusInMarkdown,
 } = require('./task_parser')
-const { ensureStateDefaults } = require('./workflow_types')
+const { ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
 
 function loadProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -61,14 +61,54 @@ function resolveExistingStatePath(stateOrProject) {
 
 const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
 const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
+const EXECUTE_ENTRY_STATUSES = new Set(['planned', 'running', 'paused', 'failed', 'blocked'])
 
 function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
   const config = loadProjectConfig(projectRoot)
   const projectId = extractProjectId(config) || detectProjectId(String(projectRoot))
   const context = loadExecutionContext(projectId, String(projectRoot))
   const state = !context.error ? context.state : null
+  const gateViolation = state ? getSpecReviewGateViolation(state) : null
 
   if (command === 'execute') {
+    if (!state) {
+      return {
+        entry_action: 'none',
+        resolved_mode: null,
+        project_id: projectId,
+        state_status: null,
+        can_resume: false,
+        reason: 'no_active_workflow',
+        message: '未发现活动工作流，请先执行 /workflow start 创建规划。',
+      }
+    }
+    if (gateViolation) {
+      return {
+        entry_action: 'none',
+        resolved_mode: null,
+        project_id: projectId,
+        state_status: state ? state.status : null,
+        can_resume: false,
+        reason: gateViolation.code,
+        message: 'Spec 尚未通过 Phase 1.1 用户审查，不能进入执行阶段。请先完成显式批准。',
+      }
+    }
+    if (!EXECUTE_ENTRY_STATUSES.has(state.status)) {
+      const message = state.status === 'spec_review'
+        ? 'Spec 正在等待用户确认，请先完成 User Spec Review 并生成 Plan，再执行 /workflow execute。'
+        : state.status === 'planning'
+          ? 'Plan 仍在生成或审查中，请先完成规划流程后再执行。'
+          : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow status 查看详情。`
+      return {
+        entry_action: 'none',
+        resolved_mode: null,
+        project_id: projectId,
+        state_status: state.status,
+        can_resume: false,
+        reason: 'status_not_executable',
+        message,
+      }
+    }
     const preferredMode = state ? state.execution_mode : null
     const resolvedMode = resolveExecutionMode(explicitMode || intent, preferredMode)
     const result = {
@@ -94,6 +134,16 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
         can_resume: false,
         reason: 'no_active_workflow',
         message: '未发现活动工作流，请先执行 /workflow status 或 /workflow execute。',
+      }
+    }
+    if (gateViolation) {
+      return {
+        entry_action: 'none',
+        project_id: projectId,
+        state_status: state.status,
+        can_resume: false,
+        reason: gateViolation.code,
+        message: 'Spec 尚未通过 Phase 1.1 用户审查，不能继续执行。请先完成显式批准。',
       }
     }
     const status = state.status

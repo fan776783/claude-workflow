@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const { detectProjectIdFromRoot, getWorkflowsDir } = require('../utils/workflow/path_utils')
-const { getReviewResult } = require('../utils/workflow/workflow_types')
+const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
 function readFile(targetPath, fallback = '') {
   try {
@@ -131,6 +131,12 @@ function main() {
   const state = findWorkflowState()
   if (!state) {
     process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 未发现活动 workflow，禁止直接派发执行型 Task。请先使用 `/workflow start` 或 `/workflow execute`。')))
+    return
+  }
+
+  const gateViolation = getSpecReviewGateViolation(state)
+  if (gateViolation) {
+    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] Phase 1.1 User Spec Review 尚未 approved，禁止派发执行型 Task。请先回到 spec_review 完成人工确认。')))
     return
   }
 

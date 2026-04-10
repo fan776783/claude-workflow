@@ -50,12 +50,22 @@ const PLAN_FIXTURE = `## T1: 第一个任务
 `
 
 function minimumState(status = 'running', currentTasks = ['T1']) {
+  const approved = ['planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed'].includes(status)
   return {
     project_id: 'proj-test',
     status,
     current_tasks: currentTasks,
     plan_file: '.claude/plans/test.md',
     spec_file: '.claude/specs/test.md',
+    review_status: {
+      user_spec_review: {
+        status: approved ? 'approved' : 'pending',
+        review_mode: 'human_gate',
+        reviewed_at: approved ? '2026-03-31T00:00:00' : null,
+        reviewer: 'user',
+        next_action: approved ? 'continue_to_plan_generation' : null,
+      },
+    },
     progress: {
       completed: [],
       blocked: [],
@@ -539,33 +549,55 @@ test('workflow helper migration coverage', async (t) => {
     const executeResult = runNode(cliScript, ['execute'], { cwd: root, env: extraEnv })
     assert.equal(executeResult.status, 0, executeResult.stderr)
     const executePayload = JSON.parse(executeResult.stdout)
-    assert.equal(executePayload.entry_action, 'execute')
-    assert.equal(executePayload.resolved_mode, 'continuous')
+    assert.equal(executePayload.entry_action, 'none')
+    assert.equal(executePayload.reason, 'no_active_workflow')
 
     const startResult = runNode(cliScript, ['start', '实现导出功能'], { cwd: root, env: extraEnv })
     assert.equal(startResult.status, 0, startResult.stderr)
     const startPayload = JSON.parse(startResult.stdout)
     assert.equal(startPayload.started, true)
     assert.equal(startPayload.discussion_required, false)
+    assert.equal(startPayload.awaiting_user_spec_review, true)
 
     const specPath = path.join(root, startPayload.spec_file)
-    const planPath = path.join(root, startPayload.plan_file)
     assert.equal(fs.existsSync(specPath), true)
-    assert.equal(fs.existsSync(planPath), true)
+    assert.equal(startPayload.plan_file, null)
 
     const config = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'config', 'project-config.json'), 'utf8'))
     const projectId = config.project.id
     const statePath = workflowStatePath(home, projectId)
     const initialState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-    assert.equal(initialState.status, 'planned')
-    assert.deepEqual(initialState.current_tasks, ['T1'])
+    assert.equal(initialState.status, 'spec_review')
+    assert.deepEqual(initialState.current_tasks, [])
 
     const continuePlannedResult = runNode(cliScript, ['continue'], { cwd: root, env: extraEnv })
     assert.equal(continuePlannedResult.status, 0, continuePlannedResult.stderr)
     const continuePlannedPayload = JSON.parse(continuePlannedResult.stdout)
     assert.equal(continuePlannedPayload.entry_action, 'none')
     assert.equal(continuePlannedPayload.reason, 'status_not_resumable')
-    assert.match(continuePlannedPayload.message, /显式使用 \/workflow execute/)
+    assert.match(continuePlannedPayload.message, /spec_review/)
+
+    let editedSpecContent = fs.readFileSync(specPath, 'utf8')
+    editedSpecContent = editedSpecContent.replace('R-001: 实现导出功能', 'R-001: 仅实现 CSV 导出')
+    editedSpecContent = editedSpecContent.replace('R-001: 确认 实现导出功能 可工作', 'R-001: 确认 仅实现 CSV 导出 可工作')
+    fs.writeFileSync(specPath, editedSpecContent)
+
+    const approvedReviewResult = runNode(
+      cliScript,
+      ['spec-review', '--choice', 'Spec 正确，生成 Plan'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(approvedReviewResult.status, 0, approvedReviewResult.stderr)
+    const approvedReviewPayload = JSON.parse(approvedReviewResult.stdout)
+    const planPath = path.join(root, approvedReviewPayload.plan_file)
+    assert.equal(fs.existsSync(planPath), true)
+    const generatedPlan = fs.readFileSync(planPath, 'utf8')
+    assert.match(generatedPlan, /仅实现 CSV 导出/)
+
+    const approvedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(approvedState.status, 'planned')
+    assert.equal(approvedState.review_status.user_spec_review.status, 'approved')
+    assert.deepEqual(approvedState.current_tasks, ['T1'])
 
     const deltaResult = runNode(cliScript, ['delta', '新增导出字段'], { cwd: root, env: extraEnv })
     assert.equal(deltaResult.status, 0, deltaResult.stderr)
@@ -732,7 +764,22 @@ test('workflow helper migration coverage', async (t) => {
 
       const runningState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
       runningState.status = 'running'
+      runningState.review_status.user_spec_review = {
+        status: 'pending',
+        review_mode: 'human_gate',
+        reviewed_at: null,
+        reviewer: 'user',
+        next_action: null,
+      }
       fs.writeFileSync(statePath, JSON.stringify(runningState, null, 2))
+
+      const reviewBlockedTask = runHook(preExecuteHook, {
+        tool_name: 'Task',
+        tool_input: { description: '执行 T1' },
+      }, { cwd: root, env: { HOME: home } })
+      const reviewBlockedPayload = JSON.parse(reviewBlockedTask.stdout)
+      assert.equal(reviewBlockedPayload.continue, false)
+      assert.match(reviewBlockedPayload.reason, /User Spec Review 尚未 approved/)
 
       runningState.quality_gates = {
         T1: {
@@ -740,6 +787,15 @@ test('workflow helper migration coverage', async (t) => {
           last_decision: 'revise',
           stage1: { passed: false, attempts: 1 },
           stage2: { passed: false, attempts: 0 },
+        },
+      }
+      runningState.review_status = {
+        user_spec_review: {
+          status: 'approved',
+          review_mode: 'human_gate',
+          reviewed_at: '2026-04-10T00:00:00.000Z',
+          reviewer: 'user',
+          next_action: 'continue_to_plan_generation',
         },
       }
       fs.writeFileSync(statePath, JSON.stringify(runningState, null, 2))
@@ -951,6 +1007,7 @@ test('workflow helper migration coverage', async (t) => {
     const startPayload = JSON.parse(startResult.stdout)
     const statePath = workflowStatePath(home, startPayload.project_id)
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(startPayload.plan_file, null)
     assert.equal(state.status, 'spec_review')
     assert.equal(state.review_status.user_spec_review.status, 'revise_required')
 
@@ -965,6 +1022,34 @@ test('workflow helper migration coverage', async (t) => {
     const stateCliResult = runNode(path.join(workflowDir, 'state_manager.js'), ['--project-id', 'proj-test', 'progress'], { env: extraEnv })
     assert.equal(stateCliResult.status, 1)
     assert.equal(JSON.parse(stateCliResult.stdout).error, '没有活跃的工作流')
+  })
+
+  await t.test('split-scope spec review returns workflow to idle so a new start can proceed', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-split-scope-'))
+    const [extraEnv, home] = makeCliEnv(root)
+
+    const startResult = runNode(cliScript, ['start', '实现导出功能'], { cwd: root, env: extraEnv })
+    assert.equal(startResult.status, 0, startResult.stderr)
+
+    const splitResult = runNode(
+      cliScript,
+      ['spec-review', '--choice', '需要拆分范围'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(splitResult.status, 0, splitResult.stderr)
+    const splitPayload = JSON.parse(splitResult.stdout)
+    assert.equal(splitPayload.workflow_status, 'idle')
+    assert.equal(splitPayload.spec_review_status, 'rejected')
+
+    const config = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'config', 'project-config.json'), 'utf8'))
+    const statePath = workflowStatePath(home, config.project.id)
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(state.status, 'idle')
+
+    const restartResult = runNode(cliScript, ['start', '实现新的缩小范围需求'], { cwd: root, env: extraEnv })
+    assert.equal(restartResult.status, 0, restartResult.stderr)
+    const restartPayload = JSON.parse(restartResult.stdout)
+    assert.equal(restartPayload.started, true)
   })
 
   await t.test('legacy canonical state path arguments still work for helper CLIs', () => {
@@ -1025,6 +1110,54 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.can_resume, false)
       assert.equal(result.reason, 'status_not_resumable')
       assert.match(result.message, /显式使用 \/workflow execute/)
+    })
+  })
+
+  await t.test('buildExecuteEntry blocks execute when user spec review is missing', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-gate-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.review_status = {
+        user_spec_review: {
+          status: 'pending',
+          review_mode: 'human_gate',
+          reviewed_at: null,
+          reviewer: 'user',
+          next_action: null,
+        },
+      }
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'none')
+      assert.equal(result.can_resume, false)
+      assert.equal(result.reason, 'user_spec_review_required')
+      assert.match(result.message, /Phase 1\.1/)
+    })
+  })
+
+  await t.test('buildExecuteEntry rejects execute while workflow is still in spec_review', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-review-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'spec_review', [])
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'none')
+      assert.equal(result.can_resume, false)
+      assert.equal(result.reason, 'status_not_executable')
+      assert.match(result.message, /User Spec Review/)
     })
   })
 

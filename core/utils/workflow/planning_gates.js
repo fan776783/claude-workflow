@@ -84,7 +84,7 @@ function mapSpecReviewChoice(choice) {
     '页面分层需要调整': { status: 'revise_required', next_action: 'return_to_phase_0_3_ux_design_gate', workflow_status: 'spec_review' },
     '缺少用户流程': { status: 'revise_required', next_action: 'return_to_phase_0_3_ux_design_gate', workflow_status: 'spec_review' },
     '缺少需求细节': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation_preserve_requirement_details', workflow_status: 'spec_review' },
-    '需要拆分范围': { status: 'rejected', next_action: 'split_scope', workflow_status: 'spec_review' },
+    '需要拆分范围': { status: 'rejected', next_action: 'split_scope', workflow_status: 'idle' },
   }[choice] || { status: 'pending', next_action: null, workflow_status: 'spec_review' }
 }
 
