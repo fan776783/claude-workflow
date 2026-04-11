@@ -54,7 +54,26 @@ function getVerificationCommands(actions) {
 function validateEvidence(evidence) {
   const required = ['command', 'exit_code', 'output_summary', 'timestamp', 'passed']
   const missingFields = required.filter((field) => !(field in (evidence || {})))
-  return { valid: missingFields.length === 0, missing_fields: missingFields }
+  if (missingFields.length) return { valid: false, missing_fields: missingFields }
+
+  const violations = []
+
+  // 新鲜度校验：timestamp 必须在 15 分钟内
+  const FRESHNESS_WINDOW_MS = 15 * 60 * 1000
+  const age = Date.now() - new Date(evidence.timestamp).getTime()
+  if (Number.isNaN(age) || age > FRESHNESS_WINDOW_MS) {
+    violations.push(`evidence_stale:${Math.round(age / 1000)}s`)
+  }
+
+  // 一致性校验：passed 与 exit_code 逻辑一致
+  if (evidence.passed && evidence.exit_code !== 0) {
+    violations.push(`inconsistent:passed=true,exit_code=${evidence.exit_code}`)
+  }
+  if (!evidence.passed && evidence.exit_code === 0 && !evidence.artifact_ref) {
+    violations.push('inconsistent:passed=false,exit_code=0,no_artifact_ref')
+  }
+
+  return { valid: violations.length === 0, missing_fields: [], violations }
 }
 
 function validateVerificationOrder(evidence, stateUpdated, planUpdated, qualityGatePassed = true) {
@@ -68,22 +87,34 @@ function validateVerificationOrder(evidence, stateUpdated, planUpdated, qualityG
 
 function parseArgs(argv) {
   const args = [...argv]
+  const positionals = []
   const options = {}
-  while (args.length && args[0].startsWith('--')) {
-    const flag = args.shift()
-    if (flag === '--cmd') options.cmd = args.shift()
-    else if (flag === '--exit-code') options.exitCode = Number(args.shift())
-    else if (flag === '--output') options.output = args.shift()
-    else if (flag === '--passed') options.passed = true
-    else if (flag === '--artifact-ref') options.artifactRef = args.shift()
+  let command = null
+
+  while (args.length) {
+    const token = args.shift()
+    if (!command && !token.startsWith('--')) {
+      command = token
+      continue
+    }
+    if (token === '--cmd') options.cmd = args.shift()
+    else if (token === '--exit-code') options.exitCode = Number(args.shift())
+    else if (token === '--output') options.output = args.shift()
+    else if (token === '--passed') options.passed = true
+    else if (token === '--artifact-ref') options.artifactRef = args.shift()
+    else positionals.push(token)
   }
-  return { command: args.shift(), args, options }
+
+  return { command, args: positionals, options }
 }
 
 function main() {
   const { command, args, options } = parseArgs(process.argv.slice(2))
   if (command === 'create') {
-    process.stdout.write(`${JSON.stringify(createEvidence(options.cmd, options.exitCode, options.output, options.passed, options.artifactRef), null, 2)}\n`)
+    const evidence = createEvidence(options.cmd, options.exitCode, options.output, options.passed, options.artifactRef)
+    const validation = validateEvidence(evidence)
+    process.stdout.write(`${JSON.stringify({ ...evidence, validation }, null, 2)}\n`)
+    if (!validation.valid) process.exitCode = 1
     return
   }
   if (command === 'info') {

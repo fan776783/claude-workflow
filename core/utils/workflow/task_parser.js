@@ -149,6 +149,57 @@ function parseTasksV2(content) {
   return tasks
 }
 
+function summarizeTaskProgress(tasks) {
+  const progress = {
+    completed: [],
+    skipped: [],
+    failed: [],
+    blocked: [],
+  }
+  let currentTaskId = null
+  let currentTaskStatus = null
+
+  for (const task of tasks || []) {
+    const status = String(task?.status || 'pending')
+    if (status.includes('completed')) {
+      progress.completed.push(task.id)
+      continue
+    }
+    if (status.includes('skipped')) {
+      progress.skipped.push(task.id)
+      continue
+    }
+    if (status.includes('failed')) progress.failed.push(task.id)
+    if (status.includes('blocked')) progress.blocked.push(task.id)
+
+    if (!currentTaskId) {
+      currentTaskId = task.id
+      currentTaskStatus = status
+    }
+  }
+
+  const doneCount = progress.completed.length + progress.skipped.length
+  const total = (tasks || []).length
+  const workflowStatus = total > 0 && doneCount >= total
+    ? 'completed'
+    : currentTaskStatus && currentTaskStatus.includes('failed')
+      ? 'failed'
+      : currentTaskStatus && currentTaskStatus.includes('blocked')
+        ? 'blocked'
+      : 'running'
+
+  return {
+    progress,
+    current_task_id: currentTaskId,
+    current_task_status: currentTaskStatus,
+    workflow_status: workflowStatus,
+  }
+}
+
+function findTaskById(content, taskId) {
+  return parseTasksV2(content).find((task) => task.id === taskId) || null
+}
+
 function findNextTask(content, completed, skipped, failed, blocked = []) {
   const excluded = new Set([...(completed || []), ...(skipped || []), ...(failed || [])])
   for (const taskId of extractAllTaskIds(content)) {
@@ -220,7 +271,15 @@ function main() {
   const command = args.shift()
   const split = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
   if (command === 'parse') {
-    const content = fs.readFileSync(args[0], 'utf8')
+    const taskIdIndex = args.indexOf('--task-id')
+    const taskId = taskIdIndex >= 0 ? args[taskIdIndex + 1] : null
+    const file = args.find((arg, index) => arg && !arg.startsWith('--') && index !== taskIdIndex + 1)
+    if (!file) throw new Error('parse 需要提供 plan 文件路径')
+    const content = fs.readFileSync(file, 'utf8')
+    if (taskId) {
+      process.stdout.write(`${JSON.stringify(findTaskById(content, taskId), null, 2)}\n`)
+      return
+    }
     process.stdout.write(`${JSON.stringify(parseTasksV2(content).map(taskToDict), null, 2)}\n`)
     return
   }
@@ -272,6 +331,8 @@ module.exports = {
   parseTaskFiles,
   parseTaskVerification,
   parseTasksV2,
+  summarizeTaskProgress,
+  findTaskById,
   findNextTask,
   countTasks,
   extractConstraints,

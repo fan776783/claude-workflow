@@ -69,7 +69,7 @@ function readStateFromProject(projectId) {
 }
 
 function recordDeltaChange(state, changeId = null, markApplied = true) {
-  const normalized = ensureStateDefaults(state)
+  const normalized = normalizeStateInPlace(state)
   const tracking = normalized.delta_tracking || (normalized.delta_tracking = {})
   const resolvedChangeId = changeId || nextChangeId(tracking)
   tracking.current_change = resolvedChangeId
@@ -77,6 +77,16 @@ function recordDeltaChange(state, changeId = null, markApplied = true) {
   const appliedChanges = tracking.applied_changes || (tracking.applied_changes = [])
   if (markApplied && !appliedChanges.includes(resolvedChangeId)) appliedChanges.push(resolvedChangeId)
   return resolvedChangeId
+}
+
+function markDeltaApplied(state, changeId) {
+  const normalized = normalizeStateInPlace(state)
+  const tracking = normalized.delta_tracking || (normalized.delta_tracking = {})
+  const resolvedChangeId = String(changeId || '').trim()
+  if (!resolvedChangeId) return normalized
+  const appliedChanges = tracking.applied_changes || (tracking.applied_changes = [])
+  if (!appliedChanges.includes(resolvedChangeId)) appliedChanges.push(resolvedChangeId)
+  return normalized
 }
 
 function normalizeStateInPlace(state) {
@@ -401,6 +411,7 @@ module.exports = {
   normalizeForWrite,
   normalizeStateInPlace,
   recordDeltaChange,
+  markDeltaApplied,
   updateApiContext,
   markDependencyUnblocked,
   updateDiscussionRecord,

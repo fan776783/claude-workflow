@@ -38,10 +38,10 @@ gh pr diff <number> --name-only
 
 ### Phase 4: Candidate Finding + Verification + Impact
 
-根据是否附带 `--deep`，选择 Quick 或 Deep 模式的候选问题发现流程：
+根据是否附带 `--quick`，选择 Quick 或 Deep 模式的候选问题发现流程：
 
-- **无 `--deep`**：Quick 模式候选发现（当前模型单独审查）
-- **有 `--deep`**：Deep 模式候选发现（Codex + 当前模型并行）
+- **有 `--quick`**：Quick 模式候选发现（当前模型单独审查）
+- **默认 / `--deep`**：Deep 模式候选发现（Codex + 当前模型并行）
 
 之后完全复用共享管线：
 
@@ -88,6 +88,7 @@ gh api repos/{owner}/{repo}/pulls/<number>/comments \
 
 与本地模式相同：
 
+- 报告输出后默认停止，等待用户显式确认并输入 `fix` 或 `skip`
 - `fix` → 按方案修复 → push → 重新审查
 - `skip` → 结束
 - 最多 3 轮

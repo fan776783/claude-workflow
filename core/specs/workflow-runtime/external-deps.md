@@ -7,7 +7,7 @@
 - 想区分 workflow / figma-ui 的职责：看“设计理念”
 - 想看 `api_spec` 的来源与处理入口：看“API 依赖”
 - 想判断哪些路径/命令只是项目示例：看对应示例段落，按项目现状核实
-- 想处理 API 变更：回到 `references/delta-overview.md` 与 `specs/delta/api-sync.md`
+- 想处理 API 变更：回到 `../../skills/workflow-delta/SKILL.md`
 
 ## 何时读取
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
+const { spawnSync } = require('child_process')
 const { readState, resolveStatePath, writeState } = require('./state_manager')
 const { createEvidence } = require('./verification')
-const { assertCanonicalWorkflowStatePath } = require('./path_utils')
+const { assertCanonicalWorkflowStatePath, detectProjectIdFromRoot } = require('./path_utils')
 const { ensureStateDefaults, getReviewResult } = require('./workflow_types')
 const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile } = require('./role_injection')
 
@@ -17,9 +18,10 @@ function isoNow() {
 }
 
 function createReviewSubject(baseCommit, requirementIds = [], criticalConstraints = []) {
+  const ref = baseCommit ? `${baseCommit}..HEAD` : 'HEAD'
   return {
     kind: 'diff_window',
-    ref: `${baseCommit}..HEAD`,
+    ref,
     requirement_ids: requirementIds,
     critical_constraints: criticalConstraints,
   }
@@ -31,6 +33,61 @@ function createDiffWindow(baseCommit, fromTask = null, toTask = null, filesChang
     from_task: fromTask,
     to_task: toTask,
     files_changed: filesChanged,
+  }
+}
+
+function getGitHead(projectRoot = process.cwd()) {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    timeout: 5000,
+  })
+  if (result.status !== 0) return null
+  const commit = String(result.stdout || '').trim()
+  return commit || null
+}
+
+function getPassedQualityGates(state = {}) {
+  const reviewedAt = (gate) => {
+    const value = gate?.reviewed_at || gate?.stage2?.completed_at || gate?.stage1?.completed_at
+    const timestamp = value ? Date.parse(value) : Number.NaN
+    return Number.isNaN(timestamp) ? 0 : timestamp
+  }
+  return Object.entries((state || {}).quality_gates || {})
+    .filter(([, gate]) => gate && gate.overall_passed === true)
+    .sort((left, right) => reviewedAt(right[1]) - reviewedAt(left[1]))
+}
+
+function resolveReviewBaseline(state = {}, projectRoot = process.cwd()) {
+  const normalized = ensureStateDefaults(state)
+  const [latestPassedGateId, latestPassedGate] = getPassedQualityGates(normalized)[0] || []
+  if (latestPassedGate?.commit_hash) {
+    return {
+      base_commit: latestPassedGate.commit_hash,
+      baseline_source: 'last_passed_gate',
+      gate_task_id: latestPassedGateId,
+    }
+  }
+  if (normalized.initial_head_commit) {
+    return {
+      base_commit: normalized.initial_head_commit,
+      baseline_source: 'initial_head_commit',
+      gate_task_id: null,
+    }
+  }
+  return {
+    base_commit: null,
+    baseline_source: 'unavailable',
+    gate_task_id: null,
+  }
+}
+
+function buildBudgetSnapshot(state = {}, projectRoot = process.cwd()) {
+  const baseline = resolveReviewBaseline(state, projectRoot)
+  return {
+    ...GATE_BUDGET,
+    ...baseline,
+    passed_gate_count: getPassedQualityGates(state).length,
   }
 }
 
@@ -140,8 +197,10 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
 }
 
 function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, totalAttempts = 1, lastResult = null, reviewer = 'subagent', state = {}) {
-  const budgetExhausted = totalAttempts > GATE_BUDGET.max_total_loops
-  const terminalDecision = budgetExhausted || failedStage === 'stage2' ? 'rejected' : 'revise'
+  const budgetExhausted = totalAttempts >= GATE_BUDGET.max_total_loops
+  const stage1Failed = failedStage === 'stage1' || failedStage === 'stage1_recheck'
+  const stage2Failed = failedStage === 'stage2'
+  const terminalDecision = budgetExhausted || stage2Failed ? 'rejected' : 'revise'
   const nextAction = terminalDecision === 'rejected' ? 'mark_task_failed_or_escalate' : 'fix_and_retry_or_escalate'
   const now = isoNow()
   const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
@@ -161,10 +220,10 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
     reviewer_prompt_preview: reviewerPrompt.prompt,
     commit_hash: currentCommit || baseCommit,
     diff_window: diffWindow,
-    stage1: { passed: failedStage !== 'stage1', attempts: stage1Attempts, issues_found: extractIssueCount(lastResult), completed_at: now },
+    stage1: { passed: !stage1Failed, attempts: stage1Attempts, issues_found: extractIssueCount(lastResult), completed_at: now },
     overall_passed: false,
   }
-  if (failedStage !== 'stage1') {
+  if (stage2Failed) {
     const issues = typeof lastResult === 'object' && lastResult ? (lastResult.issues || {}) : {}
     result.stage2 = {
       passed: false,
@@ -177,8 +236,31 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
       role: reviewerPrompt.role,
       profile: reviewerPrompt.profile,
     }
+  } else if (failedStage === 'stage1_recheck') {
+    result.stage2 = {
+      passed: true,
+      attempts: Math.max(totalAttempts - stage1Attempts, 0),
+      assessment: 'approved',
+      critical_count: 0,
+      important_count: 0,
+      minor_count: 0,
+      completed_at: now,
+      role: reviewerPrompt.role,
+      profile: reviewerPrompt.profile,
+    }
   }
   return result
+}
+
+function resolveBaseCommitForCommand(state = {}, projectRoot = process.cwd(), explicitBaseCommit = null) {
+  if (explicitBaseCommit) {
+    return {
+      base_commit: explicitBaseCommit,
+      baseline_source: 'explicit',
+      gate_task_id: null,
+    }
+  }
+  return resolveReviewBaseline(state, projectRoot)
 }
 
 function writeQualityGateResult(statePath, taskId, gateResult, projectId = null) {
@@ -217,6 +299,23 @@ function createQualityReviewEvidence(taskId, gateResult) {
   return createEvidence('two-stage code review', passed ? 0 : 1, outputSummary, passed, `quality_gates.${taskId}`)
 }
 
+function resolveCommandState(commandProjectId = null, commandStateFile = null) {
+  const projectId = commandProjectId || (commandStateFile ? null : detectProjectIdFromRoot(process.cwd()))
+  const statePath = resolveExistingCliStatePath(projectId, commandStateFile)
+  if (!statePath) {
+    return {
+      projectId,
+      statePath: null,
+      state: {},
+    }
+  }
+  return {
+    projectId,
+    statePath,
+    state: readState(statePath, projectId),
+  }
+}
+
 function main() {
   try {
     const args = [...process.argv.slice(2)]
@@ -229,14 +328,22 @@ function main() {
 
     if (command === 'pass') {
       const taskId = args.shift()
-      const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
-      if ((option('--project-id') || option('--state-file')) && !statePath) {
+      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
+      if ((option('--project-id') || option('--state-file')) && !commandState.statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
         process.exitCode = 1
         return
       }
-      const gateResult = buildPassGateResult(taskId, option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
-      if (statePath) writeQualityGateResult(statePath, taskId, gateResult, option('--project-id'))
+      const baseline = resolveBaseCommitForCommand(commandState.state, commandState.state.project_root || process.cwd(), option('--base-commit'))
+      const baseCommit = baseline.base_commit
+      if (!baseCommit) {
+        process.stdout.write(`${JSON.stringify({ error: '缺少质量关卡基线，请先补齐 initial_head_commit 或显式传入 --base-commit', baseline_source: baseline.baseline_source })}\n`)
+        process.exitCode = 1
+        return
+      }
+      const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
+      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state)
+      if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return
     }
@@ -251,14 +358,22 @@ function main() {
         process.exitCode = 1
         return
       }
-      const statePath = option('--project-id') || option('--state-file') ? resolveExistingCliStatePath(option('--project-id'), option('--state-file')) : null
-      if ((option('--project-id') || option('--state-file')) && !statePath) {
+      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
+      if ((option('--project-id') || option('--state-file')) && !commandState.statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
         process.exitCode = 1
         return
       }
-      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), option('--base-commit'), option('--current-commit'), option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', statePath ? readState(statePath, option('--project-id')) : {})
-      if (statePath) writeQualityGateResult(statePath, taskId, gateResult, option('--project-id'))
+      const baseline = resolveBaseCommitForCommand(commandState.state, commandState.state.project_root || process.cwd(), option('--base-commit'))
+      const baseCommit = baseline.base_commit
+      if (!baseCommit) {
+        process.stdout.write(`${JSON.stringify({ error: '缺少质量关卡基线，请先补齐 initial_head_commit 或显式传入 --base-commit', baseline_source: baseline.baseline_source })}\n`)
+        process.exitCode = 1
+        return
+      }
+      const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
+      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', commandState.state)
+      if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return
     }
@@ -288,7 +403,8 @@ function main() {
     }
 
     if (command === 'budget') {
-      process.stdout.write(`${JSON.stringify(GATE_BUDGET)}\n`)
+      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
+      process.stdout.write(`${JSON.stringify(buildBudgetSnapshot(commandState.state, commandState.state.project_root || process.cwd()))}\n`)
       return
     }
 
@@ -316,6 +432,11 @@ module.exports = {
   resolveCliStatePath,
   resolveExistingCliStatePath,
   createQualityReviewEvidence,
+  getGitHead,
+  getPassedQualityGates,
+  resolveReviewBaseline,
+  resolveBaseCommitForCommand,
+  buildBudgetSnapshot,
 }
 
 if (require.main === module) main()

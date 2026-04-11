@@ -86,12 +86,25 @@ function createCanonicalStateFile(home, projectId = 'proj-test', status = 'runni
 
 function withHome(home, fn) {
   const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
+  const previousHomeDrive = process.env.HOMEDRIVE
+  const previousHomePath = process.env.HOMEPATH
+  const parsedHome = path.parse(home)
   process.env.HOME = home
+  process.env.USERPROFILE = home
+  process.env.HOMEDRIVE = parsedHome.root.replace(/[\\\/]+$/, '') || parsedHome.root
+  process.env.HOMEPATH = home.slice(process.env.HOMEDRIVE.length) || path.sep
   try {
     return fn()
   } finally {
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+    if (previousHomeDrive === undefined) delete process.env.HOMEDRIVE
+    else process.env.HOMEDRIVE = previousHomeDrive
+    if (previousHomePath === undefined) delete process.env.HOMEPATH
+    else process.env.HOMEPATH = previousHomePath
   }
 }
 
@@ -109,7 +122,10 @@ function workflowStatePath(home, projectId) {
 function makeCliEnv(root) {
   const home = path.join(root, 'home')
   fs.mkdirSync(home, { recursive: true })
-  return [{ HOME: home }, home]
+  const parsedHome = path.parse(home)
+  const homeDrive = parsedHome.root.replace(/[\\\/]+$/, '') || parsedHome.root
+  const homePath = home.slice(homeDrive.length) || path.sep
+  return [{ HOME: home, USERPROFILE: home, HOMEDRIVE: homeDrive, HOMEPATH: homePath }, home]
 }
 
 function runNode(script, args = [], options = {}) {
@@ -281,6 +297,11 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(wrapped.plan_template_contract.ok, true)
   })
 
+  await t.test('doc placeholder scan ignores quoted instructional TODO markers', () => {
+    const placeholders = docContracts.findNonInstructionalPlaceholders('- "TBD"、"TODO"、"implement later"')
+    assert.deepEqual(placeholders, [])
+  })
+
   await t.test('plan delta helpers add modify and remove tasks', () => {
     const deltas = planDelta.buildTaskDeltaExamples(
       'CHG-001',
@@ -383,6 +404,108 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(failedGate.overall_passed, false)
     assert.equal(failedGate.last_decision, 'rejected')
     assert.equal(failedGate.stage2.critical_count, 1)
+
+    const stage1RecheckGate = qualityReview.buildFailedGateResult(
+      'T9',
+      'stage1_recheck',
+      'abc123',
+      null,
+      null,
+      null,
+      0,
+      [],
+      [],
+      1,
+      2,
+      {
+        missing: [{ description: 'spec drift after stage2 fix' }],
+      }
+    )
+    assert.equal(stage1RecheckGate.last_decision, 'revise')
+    assert.equal(stage1RecheckGate.stage1.passed, false)
+    assert.equal(stage1RecheckGate.stage2.passed, true)
+
+    const exhaustedStage1Gate = qualityReview.buildFailedGateResult(
+      'T10',
+      'stage1',
+      'abc123',
+      null,
+      null,
+      null,
+      0,
+      [],
+      [],
+      1,
+      4,
+      {
+        missing: [{ description: 'still missing requirement' }],
+      }
+    )
+    assert.equal(exhaustedStage1Gate.last_decision, 'rejected')
+  })
+
+  await t.test('quality review budget resolves baseline from state and latest passed gate', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-review-budget-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T3'])
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    state.project_root = root
+    state.initial_head_commit = 'base-000'
+    state.quality_gates = {
+      T1: {
+        overall_passed: true,
+        commit_hash: 'pass-111',
+        reviewed_at: '2026-03-31T00:00:00.000Z',
+      },
+      T2: {
+        overall_passed: true,
+        commit_hash: 'pass-222',
+        reviewed_at: '2026-03-31T01:00:00.000Z',
+      },
+    }
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+    const budgetResult = runNode(path.join(workflowDir, 'quality_review.js'), ['budget'], {
+      cwd: root,
+      env: extraEnv,
+    })
+    assert.equal(budgetResult.status, 0, budgetResult.stderr)
+    const budget = JSON.parse(budgetResult.stdout)
+    assert.equal(budget.base_commit, 'pass-222')
+    assert.equal(budget.baseline_source, 'last_passed_gate')
+    assert.equal(budget.gate_task_id, 'T2')
+    assert.equal(budget.passed_gate_count, 2)
+  })
+
+  await t.test('quality review requires an explicit or persisted baseline for first gate on legacy state', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-review-baseline-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    state.project_root = root
+    state.initial_head_commit = null
+    state.quality_gates = {}
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+    const budgetResult = runNode(path.join(workflowDir, 'quality_review.js'), ['budget'], {
+      cwd: root,
+      env: extraEnv,
+    })
+    assert.equal(budgetResult.status, 0, budgetResult.stderr)
+    const budget = JSON.parse(budgetResult.stdout)
+    assert.equal(budget.base_commit, null)
+    assert.equal(budget.baseline_source, 'unavailable')
+
+    const failResult = runNode(path.join(workflowDir, 'quality_review.js'), ['fail', 'T1', '--failed-stage', 'stage1'], {
+      cwd: root,
+      env: extraEnv,
+    })
+    assert.equal(failResult.status, 1)
+    const failPayload = JSON.parse(failResult.stdout)
+    assert.match(failPayload.error, /缺少质量关卡基线/)
+    assert.equal(failPayload.baseline_source, 'unavailable')
   })
 
   await t.test('self review verification and project id checks stay aligned', () => {
@@ -604,17 +727,21 @@ test('workflow helper migration coverage', async (t) => {
     const deltaPayload = JSON.parse(deltaResult.stdout)
     assert.equal(deltaPayload.delta_created, true)
     assert.equal(deltaPayload.change_id, 'CHG-001')
-    assert.equal(deltaPayload.task_delta_summary.add, 1)
-    assert.equal(deltaPayload.task_delta_summary.modify, 1)
-    assert.equal(deltaPayload.task_delta_summary.remove, 0)
+    assert.equal(deltaPayload.trigger_type, 'requirement')
     assert.equal(fs.existsSync(path.join(deltaPayload.change_dir, 'delta.json')), true)
     assert.equal(fs.existsSync(path.join(deltaPayload.change_dir, 'intent.md')), true)
     assert.equal(fs.existsSync(path.join(deltaPayload.change_dir, 'review-status.json')), true)
 
-    let planContent = fs.readFileSync(planPath, 'utf8')
-    assert.match(planContent, /响应增量变更 CHG-001/)
-    assert.match(planContent, /## T2: 响应增量变更 CHG-001/)
-    assert.doesNotMatch(planContent, /## T1: 第一个任务\n/)
+    const deltaState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(deltaState.delta_tracking.current_change, 'CHG-001')
+    assert.deepEqual(deltaState.delta_tracking.applied_changes, [])
+
+    const reviewStatus = JSON.parse(fs.readFileSync(path.join(deltaPayload.change_dir, 'review-status.json'), 'utf8'))
+    assert.equal(reviewStatus.status, 'draft')
+
+    const planContent = fs.readFileSync(planPath, 'utf8')
+    assert.doesNotMatch(planContent, /响应增量变更 CHG-001/)
+    assert.match(planContent, /## T1:/)
 
     const blockedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     blockedState.status = 'blocked'
@@ -660,6 +787,113 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(archivePayload.workflow_status, 'archived')
     assert.equal(fs.existsSync(path.join(path.dirname(statePath), 'archive', 'CHG-001', 'delta.json')), true)
     assert.equal(fs.existsSync(archivePayload.summary_file), true)
+  })
+
+  await t.test('delta init only marks applied changes after apply and keeps audit artifacts', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-delta-init-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+
+    const initResult = runNode(
+      cliScript,
+      ['delta', 'init', '--type', 'requirement', '--source', '新增导出字段', '--description', '导出字段变更'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(initResult.status, 0, initResult.stderr)
+    const initPayload = JSON.parse(initResult.stdout)
+    assert.equal(initPayload.delta_created, true)
+    assert.equal(initPayload.change_id, 'CHG-001')
+
+    let state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(state.delta_tracking.current_change, 'CHG-001')
+    assert.deepEqual(state.delta_tracking.applied_changes, [])
+
+    const changeDir = path.join(path.dirname(statePath), 'changes', 'CHG-001')
+    assert.equal(fs.existsSync(path.join(changeDir, 'delta.json')), true)
+    assert.equal(fs.existsSync(path.join(changeDir, 'intent.md')), true)
+    assert.equal(fs.existsSync(path.join(changeDir, 'review-status.json')), true)
+
+    const applyResult = runNode(cliScript, ['delta', 'apply', '--change-id', 'CHG-001'], { cwd: root, env: extraEnv })
+    assert.equal(applyResult.status, 0, applyResult.stderr)
+    const applyPayload = JSON.parse(applyResult.stdout)
+    assert.equal(applyPayload.applied, true)
+
+    state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.deepEqual(state.delta_tracking.applied_changes, ['CHG-001'])
+  })
+
+  await t.test('legacy delta command keeps confirmation gate and does not edit plan before apply', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-delta-legacy-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+    const planPath = path.join(root, '.claude', 'plans', 'test.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, PLAN_FIXTURE)
+
+    const deltaResult = runNode(cliScript, ['delta', '新增导出字段'], { cwd: root, env: extraEnv })
+    assert.equal(deltaResult.status, 0, deltaResult.stderr)
+    const deltaPayload = JSON.parse(deltaResult.stdout)
+    assert.equal(deltaPayload.delta_created, true)
+    assert.equal(deltaPayload.trigger_type, 'requirement')
+
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(state.delta_tracking.current_change, 'CHG-001')
+    assert.deepEqual(state.delta_tracking.applied_changes, [])
+
+    const changeDir = path.join(path.dirname(statePath), 'changes', 'CHG-001')
+    const reviewStatus = JSON.parse(fs.readFileSync(path.join(changeDir, 'review-status.json'), 'utf8'))
+    assert.equal(reviewStatus.status, 'draft')
+
+    const planContent = fs.readFileSync(planPath, 'utf8')
+    assert.equal((planContent.match(/## T3:/g) || []).length, 0)
+    assert.doesNotMatch(planContent, /响应增量变更 CHG-001/)
+  })
+
+  await t.test('delta apply is idempotent and does not duplicate task blocks', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-delta-apply-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+    const planPath = path.join(root, '.claude', 'plans', 'test.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, PLAN_FIXTURE)
+
+    const initResult = runNode(
+      cliScript,
+      ['delta', 'init', '--type', 'requirement', '--source', '新增导出字段', '--description', '导出字段变更'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(initResult.status, 0, initResult.stderr)
+
+    const changeDir = path.join(path.dirname(statePath), 'changes', 'CHG-001')
+    const deltaPath = path.join(changeDir, 'delta.json')
+    const delta = JSON.parse(fs.readFileSync(deltaPath, 'utf8'))
+    delta.task_deltas = [
+      {
+        action: 'add',
+        task_markdown: `## T3: 增量任务\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P3\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - A3: 处理增量变更 → 完成增量任务\n`,
+      },
+    ]
+    fs.writeFileSync(deltaPath, `${JSON.stringify(delta, null, 2)}\n`)
+
+    const firstApplyResult = runNode(cliScript, ['delta', 'apply', '--change-id', 'CHG-001'], { cwd: root, env: extraEnv })
+    assert.equal(firstApplyResult.status, 0, firstApplyResult.stderr)
+    const secondApplyResult = runNode(cliScript, ['delta', 'apply', '--change-id', 'CHG-001'], { cwd: root, env: extraEnv })
+    assert.equal(secondApplyResult.status, 0, secondApplyResult.stderr)
+
+    const secondApplyPayload = JSON.parse(secondApplyResult.stdout)
+    assert.equal(secondApplyPayload.already_applied, true)
+
+    const planContent = fs.readFileSync(planPath, 'utf8')
+    assert.equal((planContent.match(/## T3: 增量任务/g) || []).length, 1)
+  })
+
+  await t.test('detectDeltaTrigger recognizes Windows autogen paths as api changes', () => {
+    const trigger = lifecycleCmds.detectDeltaTrigger('packages\\api\\lib\\autogen\\teamApi.ts', repoRoot)
+    assert.equal(trigger.type, 'api')
+    assert.equal(trigger.source, 'packages\\api\\lib\\autogen\\teamApi.ts')
   })
 
   await t.test('session-start ignores active team runtime artifacts for ordinary workflow context', () => {
@@ -1050,6 +1284,37 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(restartResult.status, 0, restartResult.stderr)
     const restartPayload = JSON.parse(restartResult.stdout)
     assert.equal(restartPayload.started, true)
+  })
+
+  await t.test('workflow init self-heal preserves blocked task status', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-init-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+
+    const planPath = path.join(root, '.claude', 'plans', 'recovery.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, [
+      '## T1: 等待依赖',
+      '- **状态**: blocked',
+      '- **actions**: edit_file',
+      '',
+      '## T2: 后续任务',
+      '- **状态**: pending',
+      '- **actions**: edit_file',
+      '',
+    ].join('\n'))
+
+    const initResult = runNode(cliScript, ['init'], { cwd: root, env: extraEnv })
+    assert.equal(initResult.status, 0, initResult.stderr)
+    const initPayload = JSON.parse(initResult.stdout)
+    assert.equal(initPayload.initialized, true)
+    assert.equal(initPayload.workflow_status, 'blocked')
+    assert.deepEqual(initPayload.progress.blocked, ['T1'])
+
+    const state = JSON.parse(fs.readFileSync(workflowStatePath(home, 'proj-test'), 'utf8'))
+    assert.equal(state.status, 'blocked')
+    assert.deepEqual(state.current_tasks, ['T1'])
+    assert.deepEqual(state.progress.blocked, ['T1'])
   })
 
   await t.test('legacy canonical state path arguments still work for helper CLIs', () => {

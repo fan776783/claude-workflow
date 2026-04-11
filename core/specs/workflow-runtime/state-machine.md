@@ -148,7 +148,7 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
 }
 ```
 
-> 其他字段（`quality_gates`, `context_injection`, `continuation`, `discussion`, `ux_design`, `requirement_baseline` 等）为可选增强字段，由 CLI 按需自动添加。
+> 其他字段（`quality_gates`, `context_injection`, `continuation`, `discussion`, `ux_design`, `requirement_baseline`, `initial_head_commit` 等）为可选增强字段，由 CLI 按需自动添加。
 
 ## 依赖类型
 

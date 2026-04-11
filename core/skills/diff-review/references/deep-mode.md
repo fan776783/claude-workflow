@@ -1,6 +1,6 @@
-# Deep Review Mode (--deep)
+# Deep Review Mode (默认 / --deep)
 
-Codex 协作审查，适用于重要 PR / 高风险改动。Deep 模式不是把 Codex 意见直接展示给用户，而是将 Codex 与当前模型的候选问题统一纳入 adjudication pipeline，完成验证、影响分析和最终裁决。
+Codex 协作审查，适用于默认 diff-review、重要 PR 或高风险改动。Deep 模式不是把 Codex 意见直接展示给用户，而是将 Codex 与当前模型的候选问题统一纳入 adjudication pipeline，完成验证、影响分析和最终裁决。
 
 ## 角色
 
@@ -15,6 +15,7 @@ Codex 协作审查，适用于重要 PR / 高风险改动。Deep 模式不是把
 - 最终进入报告的问题必须经过当前模型统一验证与 impact analysis
 - 只有通过验证的问题才能出现在最终报告中
 - 报告结构必须遵循 `../specs/report-schema.md`
+- 输出报告后默认停止；只有用户明确确认要修复并输入 `fix`，才进入 Review Loop
 
 ## 流程
 
@@ -199,8 +200,10 @@ Codex prompt 应明确要求：
 - 报告末尾必须保留：
 
 ```markdown
-> 发现 X 个 P0/P1 问题，修复方案如上。输入 `fix` 按方案执行修复，`skip` 跳过。
+> 发现 X 个 P0/P1 问题，修复方案如上。是否按以上方案执行修复？输入 `fix` 执行，输入 `skip` 跳过。
 ```
+
+在用户实际确认并输入 `fix` 前，Deep 模式默认停在报告阶段，不自动转入修复。
 
 重新审查时：
 1. 先重新检查上轮 blocking findings 的 impact scope 与 validation scope

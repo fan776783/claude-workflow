@@ -84,6 +84,7 @@ function ensureStateDefaults(state) {
   if (!normalized.project_id && normalized.projectId) normalized.project_id = normalized.projectId
   if (!normalized.status) normalized.status = 'idle'
   if (!normalized.current_tasks) normalized.current_tasks = []
+  if (!('initial_head_commit' in normalized)) normalized.initial_head_commit = null
   normalized.progress = normalized.progress || {}
   for (const [key, value] of Object.entries(MINIMUM_PROGRESS)) {
     if (!Array.isArray(normalized.progress[key])) normalized.progress[key] = [...value]

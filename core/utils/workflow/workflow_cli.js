@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
+const fs = require('fs')
 const path = require('path')
 const { writeState } = require('./state_manager')
+const { getWorkflowStatePath, getWorkflowsDir } = require('./path_utils')
 const {
   cmdComplete,
   cmdContextBudget,
@@ -15,10 +17,11 @@ const {
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdSpecReview, cmdPlan, cmdUnblock } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
-const { countTasks } = require('./task_parser')
+const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
+const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
 
 const EXECUTION_MODE_ALIASES = {
   继续: 'continuous',
@@ -31,6 +34,90 @@ const EXECUTION_MODE_ALIASES = {
   retry: 'retry',
   跳过: 'skip',
   skip: 'skip',
+}
+
+function detectGitHead(projectRoot) {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    timeout: 5000,
+  })
+  if (result.status !== 0) return null
+  const commit = String(result.stdout || '').trim()
+  return commit || null
+}
+
+function cmdInit(projectId = null, projectRoot = null) {
+  const root = detectProjectRoot(projectRoot)
+  const pid = projectId || detectProjectId(root)
+  if (!pid) return { error: '无法检测项目 ID，请使用 --project-id 指定' }
+
+  const statePath = getWorkflowStatePath(pid)
+  if (!statePath) return { error: `无法解析状态文件路径: ${pid}` }
+  if (fs.existsSync(statePath)) {
+    const existing = ensureStateDefaults(JSON.parse(fs.readFileSync(statePath, 'utf8')))
+    return { initialized: false, reason: 'state_exists', project_id: pid, state_status: existing.status }
+  }
+
+  // 不能用 resolveStateAndTasks——它要求 state 文件已存在。直接扫描当前支持的 plan 产物路径。
+  const legacyCandidates = ['.claude/plan.md', '.claude/plans/plan.md', '.cursor/plan.md']
+  const planCandidates = []
+  for (const candidate of legacyCandidates) {
+    const absolute = path.join(root, candidate)
+    if (fs.existsSync(absolute)) planCandidates.push(absolute)
+  }
+  const plansDir = path.join(root, '.claude', 'plans')
+  if (fs.existsSync(plansDir)) {
+    for (const entry of fs.readdirSync(plansDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.md')) planCandidates.push(path.join(plansDir, entry.name))
+    }
+  }
+
+  const [tasksPath] = planCandidates
+    .filter((candidate, index, list) => list.indexOf(candidate) === index)
+    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)
+
+  const tasksContent = tasksPath ? fs.readFileSync(tasksPath, 'utf8') : null
+  if (!tasksContent) return { error: '未找到 plan.md，无法推导首个任务' }
+
+  const tasks = parseTasksV2(tasksContent)
+  if (!tasks.length) return { error: '无法从 plan.md 解析任务' }
+  const inferred = summarizeTaskProgress(tasks)
+
+  const planRelative = tasksPath ? path.relative(root, tasksPath).replace(/\\/g, '/') : null
+  let specFile = null
+  if (planRelative?.startsWith('.claude/plans/')) {
+    const derivedSpec = planRelative.replace('.claude/plans/', '.claude/specs/')
+    if (fs.existsSync(path.join(root, derivedSpec))) specFile = derivedSpec
+  }
+  if (!specFile) {
+    const specDir = path.join(root, '.claude', 'specs')
+    const specFiles = fs.existsSync(specDir)
+      ? fs.readdirSync(specDir)
+        .filter((file) => file.endsWith('.md'))
+        .sort((left, right) => fs.statSync(path.join(specDir, right)).mtimeMs - fs.statSync(path.join(specDir, left)).mtimeMs)
+      : []
+    specFile = specFiles.length ? `.claude/specs/${specFiles[0]}` : null
+  }
+
+  const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
+  const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
+  state.progress = inferred.progress
+  state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
+  state.project_root = root
+  state.initial_head_commit = detectGitHead(root)
+  writeState(statePath, state)
+
+  return {
+    initialized: true,
+    project_id: pid,
+    state_path: statePath,
+    plan_file: planRelative,
+    spec_file: specFile,
+    first_task: inferred.current_task_id,
+    workflow_status: inferred.workflow_status,
+    progress: inferred.progress,
+  }
 }
 
 function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId = null, projectRoot = null) {
@@ -189,7 +276,21 @@ function main() {
     } else if (command === 'spec-review') {
       result = cmdSpecReview(optionOrArg(args, '--choice', option(args, '--spec-choice', null)), pid, projectRoot)
     } else if (command === 'delta') {
-      result = cmdDelta(args[0] || '', pid, projectRoot)
+      const deltaSubcommand = args[0]
+      if (deltaSubcommand === 'init') {
+        result = cmdDeltaInit(option(args, '--type'), option(args, '--source'), option(args, '--description'), pid, projectRoot)
+      } else if (deltaSubcommand === 'impact') {
+        result = cmdDeltaImpact(option(args, '--change-id'), option(args, '--tasks-added'), option(args, '--tasks-modified'), option(args, '--tasks-removed'), option(args, '--risk-level'), pid, projectRoot)
+      } else if (deltaSubcommand === 'apply') {
+        result = cmdDeltaApply(option(args, '--change-id'), pid, projectRoot)
+      } else if (deltaSubcommand === 'fail') {
+        result = cmdDeltaFail(option(args, '--change-id'), option(args, '--error'), pid, projectRoot)
+      } else if (deltaSubcommand === 'sync') {
+        result = cmdDeltaSync(option(args, '--dependency') || args[1], pid, projectRoot)
+      } else {
+        // Legacy: 旧的单参数模式
+        result = cmdDelta(args[0] || '', pid, projectRoot)
+      }
     } else if (command === 'archive') {
       result = cmdArchive(args.includes('--summary'), pid, projectRoot)
     } else if (command === 'unblock') {
@@ -208,6 +309,8 @@ function main() {
       result = cmdParallel(pid, projectRoot)
     } else if (command === 'budget') {
       result = cmdContextBudget(pid, projectRoot)
+    } else if (command === 'init') {
+      result = cmdInit(pid, projectRoot)
     } else if (command === 'journal') {
       const journalCommand = args.shift()
       const resolvedPid = pid || detectProjectId(projectRoot)
@@ -226,7 +329,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n  plan (alias: start) - 启动规划流程\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n')
       process.exitCode = 1
       return
     }
@@ -242,6 +345,7 @@ module.exports = {
   EXECUTION_MODE_ALIASES,
   cmdAdvance,
   cmdContext,
+  cmdInit,
 }
 
 if (require.main === module) main()

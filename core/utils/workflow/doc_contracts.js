@@ -11,7 +11,7 @@ const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tas
 const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{critical_constraints}}', '{{scope_summary}}', '{{acceptance_criteria}}', '## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']
 const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])
-const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure']
+const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure', '"tbd"', '"todo"', '“tbd”', '“todo”']
 
 function unique(items) {
   return [...new Set(items)]

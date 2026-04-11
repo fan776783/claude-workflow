@@ -23,7 +23,7 @@ examples:
 - `plan` → `workflow-planning`（`start` 为向后兼容别名）
 - `execute` → `workflow-executing`
 - `delta` → `workflow-delta`
-- `status` / `archive` → shared runtime references
+- `status` / `archive` → `workflow-ops`
 - `review` **不是公开 action**，而是在执行阶段按质量关卡由 `workflow-reviewing` 内部触发
 
 ---
@@ -92,23 +92,23 @@ examples:
 查看运行时状态、当前任务与下一步建议。
 
 阅读：
-- `../specs/workflow-runtime/status.md`
+- `../skills/workflow-ops/SKILL.md`（Action 1: status）
 
 ### `archive`
 
 归档已完成工作流与变更记录。
 
 阅读：
-- `../specs/workflow-runtime/archive.md`
+- `../skills/workflow-ops/SKILL.md`（Action 2: archive）
 
 ---
 
 ## Command Contract
 
 - `/workflow` 是 **command 入口**，不是专项 skill 本身
-- `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` 是真正的 workflow skills
+- `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` / `workflow-ops` 是真正的 workflow skills
 - `workflow-reviewing` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
-- 当前 shared runtime 已迁移到 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
+- shared runtime 规格位于 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
 - 普通 `/workflow` session 只允许读取 workflow runtime；不得继承 team runtime 的 `team_id`、`team_name`、`worker_roster`、`dispatch_batches`、`team_review` 或 `team-state.json` 上下文
 - `/team` 是独立 command 入口；即使 workflow 检测到 2+ 独立任务或 `parallel-boundaries` 机会，也不会自动升级为 team mode
 - `/workflow plan` 默认结束于 `spec_review`，不会直接开始执行

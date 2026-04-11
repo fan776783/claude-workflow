@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const { spawnSync } = require('child_process')
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
@@ -13,6 +14,7 @@ const {
   toPrettyJson,
 } = require('./plan_delta')
 const {
+  markDeltaApplied,
   markDependencyUnblocked,
   readState,
   recordDeltaChange,
@@ -76,6 +78,17 @@ function slugifyFilename(value) {
 
 function stableProjectId(projectRoot) {
   return crypto.createHash('md5').update(String(path.resolve(projectRoot)).toLowerCase()).digest('hex').slice(0, 12)
+}
+
+function detectGitHead(projectRoot) {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    timeout: 5000,
+  })
+  if (result.status !== 0) return null
+  const commit = String(result.stdout || '').trim()
+  return commit || null
 }
 
 function buildProjectConfig(projectRoot, existing = null, forcedProjectId = null) {
@@ -645,6 +658,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     shouldGeneratePlan && parsedTasks.length ? [parsedTasks[0].id] : [],
     finalWorkflowStatus
   ))
+  state.initial_head_commit = detectGitHead(root)
   state.plan_file = shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null
   state.project_root = root
   state.task_name = taskName
@@ -817,6 +831,7 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   normalizedState.status = 'planned'
   normalizedState.plan_file = planRelative
   normalizedState.project_root = root
+  if (!normalizedState.initial_head_commit) normalizedState.initial_head_commit = detectGitHead(root)
   normalizedState.task_name = taskName
   normalizedState.requirement_source = requirementSource
   normalizedState.requirement_text = requirementText
@@ -861,37 +876,37 @@ function detectDeltaTrigger(source, projectRoot) {
   const raw = String(source || '').trim()
   if (!raw) return { type: 'sync', source: null, description: '执行 API 同步' }
   const absolute = path.isAbsolute(raw) ? raw : path.join(projectRoot, raw)
+  const normalizedSource = raw.replace(/\\/g, '/')
   if (raw.endsWith('.md') && fs.existsSync(absolute)) return { type: 'prd', source: raw, description: `PRD 更新: ${path.basename(raw)}` }
-  if (raw.endsWith('Api.ts') || raw.includes('/autogen/') || raw.endsWith('.api.ts')) return { type: 'api', source: raw, description: `API 变更: ${raw}` }
+  if (raw.endsWith('Api.ts') || normalizedSource.includes('/autogen/') || raw.endsWith('.api.ts')) return { type: 'api', source: raw, description: `API 变更: ${raw}` }
   return { type: 'requirement', source: raw, description: summarizeText(raw, 120) }
 }
 
-function cmdDelta(source = '', projectId = null, projectRoot = null) {
+// --- Delta 子命令 ---
+
+function resolveActiveDelta(projectId, projectRoot) {
   const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
-  if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有活跃的工作流' }
+  if (!resolvedProjectId || !workflowDir || !statePath || !state) return [null, null, null, null, null, { error: '没有活跃的工作流' }]
 
   const normalizedState = ensureStateDefaults(state)
-  if (normalizedState.status === 'archived') return { error: '当前工作流已归档，无法追加 delta' }
+  if (normalizedState.status === 'archived') return [null, null, null, null, null, { error: '当前工作流已归档，无法追加 delta' }]
 
-  const trigger = detectDeltaTrigger(source, root)
+  return [resolvedProjectId, workflowDir, statePath, normalizedState, root, null]
+}
+
+function cmdDeltaInit(triggerType, source, description, projectId = null, projectRoot = null) {
+  const [resolvedProjectId, workflowDir, statePath, normalizedState, root, err] = resolveActiveDelta(projectId, projectRoot)
+  if (err) return err
+
+  const trigger = { type: triggerType || 'requirement', source: source || null, description: description || `${triggerType || 'requirement'} 变更` }
   const tracking = normalizedState.delta_tracking || (normalizedState.delta_tracking = {})
   const parentChange = tracking.current_change || null
-  const changeId = recordDeltaChange(normalizedState)
+  const changeId = recordDeltaChange(normalizedState, null, false)
 
   const changeDir = path.join(workflowDir, 'changes', changeId)
   fs.mkdirSync(changeDir, { recursive: true })
 
   const artifacts = createDeltaArtifacts(changeId, trigger, parentChange)
-  let taskDeltas = []
-  const [, , tasksContent, tasksPath] = resolveStateAndTasks(resolvedProjectId, root)
-  if (tasksContent && tasksPath && trigger.type === 'requirement') {
-    const existingTasks = parseTasksV2(tasksContent).map(taskToDict)
-    taskDeltas = buildTaskDeltaExamples(changeId, trigger, existingTasks)
-    fs.writeFileSync(tasksPath, applyTaskDeltas(tasksContent, taskDeltas))
-    artifacts.delta.task_deltas = taskDeltas
-    artifacts.delta.impact_analysis.summary = `applied ${taskDeltas.length} task delta(s)`
-  }
-
   fs.writeFileSync(path.join(changeDir, 'delta.json'), toPrettyJson(artifacts.delta))
   fs.writeFileSync(path.join(changeDir, 'intent.md'), artifacts.intent)
   fs.writeFileSync(path.join(changeDir, 'review-status.json'), toPrettyJson(artifacts.review_status))
@@ -904,10 +919,183 @@ function cmdDelta(source = '', projectId = null, projectRoot = null) {
     change_id: changeId,
     trigger_type: trigger.type,
     change_dir: changeDir,
-    current_change: tracking.current_change,
-    review_status_file: path.join(changeDir, 'review-status.json'),
-    task_delta_summary: summarizeTaskDeltas(taskDeltas),
+    parent_change: parentChange,
   }
+}
+
+function cmdDeltaImpact(changeId, tasksAdded, tasksModified, tasksRemoved, riskLevel, projectId = null, projectRoot = null) {
+  const [resolvedProjectId, workflowDir, statePath, normalizedState, , err] = resolveActiveDelta(projectId, projectRoot)
+  if (err) return err
+
+  if (!changeId) return { error: '缺少 --change-id' }
+  const changeDir = path.join(workflowDir, 'changes', changeId)
+  const deltaPath = path.join(changeDir, 'delta.json')
+  if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }
+
+  const delta = JSON.parse(fs.readFileSync(deltaPath, 'utf8'))
+  delta.impact_analysis = {
+    summary: `新增 ${tasksAdded || 0} / 修改 ${tasksModified || 0} / 废弃 ${tasksRemoved || 0}`,
+    tasks_added: Number(tasksAdded || 0),
+    tasks_modified: Number(tasksModified || 0),
+    tasks_removed: Number(tasksRemoved || 0),
+    risk_level: riskLevel || 'low',
+    affected_tasks: delta.impact_analysis?.affected_tasks || [],
+    affected_files: delta.impact_analysis?.affected_files || [],
+  }
+  delta.status = 'analyzed'
+  fs.writeFileSync(deltaPath, toPrettyJson(delta))
+
+  return {
+    impact_recorded: true,
+    project_id: resolvedProjectId,
+    change_id: changeId,
+    impact: delta.impact_analysis,
+  }
+}
+
+function cmdDeltaApply(changeId, projectId = null, projectRoot = null) {
+  const [resolvedProjectId, workflowDir, statePath, normalizedState, root, err] = resolveActiveDelta(projectId, projectRoot)
+  if (err) return err
+
+  if (!changeId) return { error: '缺少 --change-id' }
+  const changeDir = path.join(workflowDir, 'changes', changeId)
+  const deltaPath = path.join(changeDir, 'delta.json')
+  if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }
+
+  const delta = JSON.parse(fs.readFileSync(deltaPath, 'utf8'))
+  if (delta.status === 'applied') {
+    markDeltaApplied(normalizedState, changeId)
+    writeState(statePath, normalizedState)
+    return {
+      applied: true,
+      already_applied: true,
+      project_id: resolvedProjectId,
+      change_id: changeId,
+      workflow_status: normalizedState.status,
+      task_delta_summary: { add: 0, modify: 0, remove: 0 },
+    }
+  }
+
+  delta.status = 'applied'
+  delta.applied_at = new Date().toISOString()
+  fs.writeFileSync(deltaPath, toPrettyJson(delta))
+  markDeltaApplied(normalizedState, changeId)
+
+  // 更新 review-status
+  const reviewStatusPath = path.join(changeDir, 'review-status.json')
+  if (fs.existsSync(reviewStatusPath)) {
+    const reviewStatus = JSON.parse(fs.readFileSync(reviewStatusPath, 'utf8'))
+    reviewStatus.status = 'approved'
+    reviewStatus.reviewed_at = new Date().toISOString()
+    reviewStatus.review_mode = 'human_gate'
+    fs.writeFileSync(reviewStatusPath, toPrettyJson(reviewStatus))
+  }
+
+  // 应用 task deltas（如有）
+  let taskDeltaSummary = { add: 0, modify: 0, remove: 0 }
+  const taskDeltas = delta.task_deltas || []
+  if (taskDeltas.length) {
+    const [, , tasksContent, tasksPath] = resolveStateAndTasks(resolvedProjectId, root)
+    if (tasksContent && tasksPath) {
+      fs.writeFileSync(tasksPath, applyTaskDeltas(tasksContent, taskDeltas))
+      taskDeltaSummary = summarizeTaskDeltas(taskDeltas)
+    }
+  }
+
+  writeState(statePath, normalizedState)
+
+  return {
+    applied: true,
+    project_id: resolvedProjectId,
+    change_id: changeId,
+    workflow_status: normalizedState.status,
+    task_delta_summary: taskDeltaSummary,
+  }
+}
+
+function cmdDeltaFail(changeId, errorMessage, projectId = null, projectRoot = null) {
+  const [resolvedProjectId, workflowDir, statePath, normalizedState, , err] = resolveActiveDelta(projectId, projectRoot)
+  if (err) return err
+
+  if (!changeId) return { error: '缺少 --change-id' }
+  const changeDir = path.join(workflowDir, 'changes', changeId)
+  const deltaPath = path.join(changeDir, 'delta.json')
+  if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }
+
+  const delta = JSON.parse(fs.readFileSync(deltaPath, 'utf8'))
+  delta.status = 'failed'
+  delta.error = String(errorMessage || '').substring(0, 500)
+  delta.failed_at = new Date().toISOString()
+  fs.writeFileSync(deltaPath, toPrettyJson(delta))
+
+  writeState(statePath, normalizedState)
+
+  return {
+    failed: true,
+    project_id: resolvedProjectId,
+    change_id: changeId,
+  }
+}
+
+function cmdDeltaSync(dependency, projectId = null, projectRoot = null) {
+  const [resolvedProjectId, workflowDir, statePath, normalizedState, root, err] = resolveActiveDelta(projectId, projectRoot)
+  if (err) return err
+
+  const dep = String(dependency || 'api_spec').trim()
+
+  // 1. 初始化变更记录
+  const trigger = { type: 'sync', source: dep, description: `同步 ${dep} 并解除阻塞` }
+  const tracking = normalizedState.delta_tracking || (normalizedState.delta_tracking = {})
+  const parentChange = tracking.current_change || null
+  const changeId = recordDeltaChange(normalizedState)
+  const changeDir = path.join(workflowDir, 'changes', changeId)
+  fs.mkdirSync(changeDir, { recursive: true })
+
+  // 2. 解除阻塞
+  markDependencyUnblocked(normalizedState, dep)
+  const [, , tasksContent] = resolveStateAndTasks(resolvedProjectId, root)
+  let newlyUnblocked = []
+  if (tasksContent) {
+    const tasks = parseTasksV2(tasksContent).map(taskToDict)
+    const reconciliation = reconcileBlockedTasks(tasks, normalizedState.unblocked || [], ((normalizedState.progress || {}).blocked) || [])
+    if (!normalizedState.progress) normalizedState.progress = {}
+    normalizedState.progress.blocked = reconciliation.blocked
+    newlyUnblocked = reconciliation.newly_unblocked
+    if (normalizedState.status === 'blocked' && !reconciliation.blocked.length) normalizedState.status = 'running'
+  }
+
+  // 3. 写入审计记录（先审计后生效）
+  const artifacts = createDeltaArtifacts(changeId, trigger, parentChange)
+  artifacts.delta.status = 'applied'
+  artifacts.delta.applied_at = new Date().toISOString()
+  artifacts.delta.impact_analysis.summary = `同步 ${dep}，解除 ${newlyUnblocked.length} 个任务阻塞`
+  artifacts.review_status.status = 'auto_applied'
+  artifacts.review_status.review_mode = 'sync'
+  artifacts.review_status.reviewed_at = new Date().toISOString()
+
+  fs.writeFileSync(path.join(changeDir, 'delta.json'), toPrettyJson(artifacts.delta))
+  fs.writeFileSync(path.join(changeDir, 'intent.md'), artifacts.intent)
+  fs.writeFileSync(path.join(changeDir, 'review-status.json'), toPrettyJson(artifacts.review_status))
+
+  // 4. 持久化状态（后生效）
+  writeState(statePath, normalizedState)
+
+  return {
+    synced: true,
+    project_id: resolvedProjectId,
+    change_id: changeId,
+    dependency: dep,
+    workflow_status: normalizedState.status,
+    newly_unblocked_tasks: newlyUnblocked,
+    known_unblocked: normalizedState.unblocked || [],
+  }
+}
+
+// Legacy: 保留旧的单参数调用模式用于向后兼容
+function cmdDelta(source = '', projectId = null, projectRoot = null) {
+  const root = detectProjectRoot(projectRoot)
+  const trigger = detectDeltaTrigger(source, root)
+  return cmdDeltaInit(trigger.type, trigger.source, trigger.description, projectId, projectRoot)
 }
 
 function cmdArchive(summary = false, projectId = null, projectRoot = null) {
@@ -999,6 +1187,11 @@ module.exports = {
   cmdSpecReview,
   detectDeltaTrigger,
   cmdDelta,
+  cmdDeltaInit,
+  cmdDeltaImpact,
+  cmdDeltaApply,
+  cmdDeltaFail,
+  cmdDeltaSync,
   cmdArchive,
   cmdUnblock,
 }

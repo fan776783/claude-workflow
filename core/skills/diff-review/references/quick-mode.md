@@ -1,13 +1,14 @@
-# Quick Review Mode (默认)
+# Quick Review Mode (--quick)
 
 适用于日常快速检查，Claude 单模型审查，但必须遵循 impact-aware review pipeline，而不是直接从 diff 跳到最终 findings。
 
 ## 执行原则
 
-- Quick 模式是**单模型审查**，不是低标准审查
+- Quick 模式是**单模型审查**，不是默认模式，也不是低标准审查
 - 只对最终会进入报告的 material findings 做完整验证与影响分析
 - 对局部且低风险的问题，可使用轻量 impact scan
 - 报告结构必须遵循 `../specs/report-schema.md`
+- 输出报告后默认停止；只有用户明确确认要修复并输入 `fix`，才进入 Review Loop
 
 ## 流程
 
@@ -158,8 +159,10 @@ Quick 模式需要重点回答：
 - 报告末尾必须提示用户：
 
 ```markdown
-> 发现 X 个 P0/P1 问题，修复方案如上。输入 `fix` 按方案执行修复，`skip` 跳过。
+> 发现 X 个 P0/P1 问题，修复方案如上。是否按以上方案执行修复？输入 `fix` 执行，输入 `skip` 跳过。
 ```
+
+在用户实际确认并输入 `fix` 前，Quick 模式默认停在报告阶段，不自动转入修复。
 
 重新审查时：
 1. 先检查上轮 finding 的 `Validation scope` / `Regression Verification`
