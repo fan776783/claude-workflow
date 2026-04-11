@@ -5,6 +5,9 @@ const os = require('os')
 const path = require('path')
 
 const WORKFLOW_STATE_FILENAME = 'workflow-state.json'
+const THINKING_GUIDES_DISPLAY_PATH = '.claude/.agent-workflow/specs/guides'
+const THINKING_GUIDES_MANAGED_SEGMENTS = ['.claude', '.agent-workflow', 'specs', 'guides']
+const THINKING_GUIDES_LEGACY_SEGMENTS = ['.claude', 'specs', 'guides']
 
 function resolveUnder(baseDir, relativePath) {
   if (!relativePath) return null
@@ -68,6 +71,32 @@ function detectProjectIdFromRoot(projectRoot) {
   }
 }
 
+function getThinkingGuidesDir(projectRoot, options = {}) {
+  const { allowLegacy = true } = options
+  const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+  const managedDir = path.join(root, ...THINKING_GUIDES_MANAGED_SEGMENTS)
+  if (fs.existsSync(managedDir) && fs.statSync(managedDir).isDirectory()) {
+    return {
+      path: managedDir,
+      displayPath: THINKING_GUIDES_DISPLAY_PATH,
+      source: 'managed',
+    }
+  }
+
+  if (!allowLegacy) return null
+
+  const legacyDir = path.join(root, ...THINKING_GUIDES_LEGACY_SEGMENTS)
+  if (fs.existsSync(legacyDir) && fs.statSync(legacyDir).isDirectory()) {
+    return {
+      path: legacyDir,
+      displayPath: THINKING_GUIDES_DISPLAY_PATH,
+      source: 'legacy',
+    }
+  }
+
+  return null
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === 'resolve') {
@@ -104,6 +133,8 @@ module.exports = {
   isCanonicalWorkflowStatePath,
   assertCanonicalWorkflowStatePath,
   detectProjectIdFromRoot,
+  getThinkingGuidesDir,
+  THINKING_GUIDES_DISPLAY_PATH,
 }
 
 if (require.main === module) main()

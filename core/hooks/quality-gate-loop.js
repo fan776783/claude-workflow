@@ -3,64 +3,15 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
-const { detectProjectIdFromRoot, getWorkflowsDir } = require('../utils/workflow/path_utils')
+const { getWorkflowRuntime, getCurrentTask, getCurrentTaskId, getTaskActions, getTaskVerificationCommands } = require('../utils/workflow/task_runtime')
 const { getReviewResult } = require('../utils/workflow/workflow_types')
 
 const MAX_ITERATIONS = 5
 const STATE_TIMEOUT_MINUTES = 30
 
 function findWorkflowState() {
-  const projectId = detectProjectIdFromRoot(process.cwd())
-  if (!projectId) return { state: null, stateDir: '' }
-  const workflowDir = getWorkflowsDir(projectId)
-  if (!workflowDir) return { state: null, stateDir: '' }
-  const statePath = path.join(workflowDir, 'workflow-state.json')
-  if (!fs.existsSync(statePath)) return { state: null, stateDir: workflowDir }
-  try {
-    return { state: JSON.parse(fs.readFileSync(statePath, 'utf8')), stateDir: workflowDir }
-  } catch {
-    return { state: null, stateDir: workflowDir }
-  }
-}
-
-function getCurrentTaskBlock(state, stateDir) {
-  const currentTasks = state.current_tasks || []
-  const taskId = currentTasks[0]
-  if (!taskId) return { taskId: '', taskBlock: '' }
-  const tasksFile = state.tasks_file || ''
-  if (!tasksFile) return { taskId, taskBlock: '' }
-  const tasksPath = path.join(stateDir, tasksFile)
-  if (!fs.existsSync(tasksPath)) return { taskId, taskBlock: '' }
-
-  try {
-    const content = fs.readFileSync(tasksPath, 'utf8')
-    const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const headingPattern = new RegExp(`^##+\\s+${escapedTaskId}:`, 'm')
-    const headingMatch = headingPattern.exec(content)
-    if (!headingMatch) return { taskId, taskBlock: '' }
-    const start = headingMatch.index
-    const rest = content.slice(start)
-    const nextHeadingMatch = /\n##+\s+T\d+:/m.exec(rest.slice(1))
-    const end = nextHeadingMatch ? start + 1 + nextHeadingMatch.index : content.length
-    return { taskId, taskBlock: content.slice(start, end).trim() }
-  } catch {
-    return { taskId, taskBlock: '' }
-  }
-}
-
-function parseActions(taskBlock) {
-  if (!taskBlock) return []
-  const actionMatch = taskBlock.match(/\*\*actions\*\*\s*:\s*(.+?)$/m)
-  if (!actionMatch) return []
-  return actionMatch[1].split(',').map((item) => item.trim()).filter(Boolean)
-}
-
-function getCurrentTaskVerification(state, stateDir) {
-  const { taskBlock } = getCurrentTaskBlock(state, stateDir)
-  if (!taskBlock) return []
-  const cmdMatch = taskBlock.match(/\*\*验证命令\*\*\s*:\s*(.+?)$/m)
-  if (!cmdMatch) return []
-  return cmdMatch[1].split(',').map((item) => item.trim()).filter(Boolean)
+  const runtime = getWorkflowRuntime(process.cwd())
+  return { state: runtime.state, stateDir: runtime.workflowDir || '', runtime }
 }
 
 function readLoopState(stateDir) {
@@ -112,20 +63,21 @@ function main() {
     if (raw.trim()) JSON.parse(raw)
   } catch {}
 
-  const { state, stateDir } = findWorkflowState()
+  const { state, stateDir, runtime } = findWorkflowState()
   if (!state || state.status !== 'running') {
     process.stdout.write(JSON.stringify({ continue: true }))
     return
   }
 
-  const { taskId, taskBlock } = getCurrentTaskBlock(state, stateDir)
+  const taskId = getCurrentTaskId(runtime)
   if (!taskId) {
     process.stdout.write(JSON.stringify({ continue: true }))
     return
   }
 
-  const actions = parseActions(taskBlock)
-  const verificationCommands = getCurrentTaskVerification(state, stateDir)
+  const task = getCurrentTask(runtime)
+  const actions = getTaskActions(task)
+  const verificationCommands = getTaskVerificationCommands(task)
   const qualityGate = getReviewResult(state, taskId)
 
   if (!verificationCommands.length && !actions.includes('quality_review')) {

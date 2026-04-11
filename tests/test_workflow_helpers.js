@@ -13,7 +13,7 @@ const planningGates = require(path.join(workflowDir, 'planning_gates.js'))
 const qualityReview = require(path.join(workflowDir, 'quality_review.js'))
 const executionSequencer = require(path.join(workflowDir, 'execution_sequencer.js'))
 const verification = require(path.join(workflowDir, 'verification.js'))
-const selfReview = require(path.join(workflowDir, 'self_review.js'))
+
 const pathUtils = require(path.join(workflowDir, 'path_utils.js'))
 const planDelta = require(path.join(workflowDir, 'plan_delta.js'))
 const workflowTypes = require(path.join(workflowDir, 'workflow_types.js'))
@@ -21,8 +21,10 @@ const stateManager = require(path.join(workflowDir, 'state_manager.js'))
 const dependencyChecker = require(path.join(workflowDir, 'dependency_checker.js'))
 const lifecycleCmds = require(path.join(workflowDir, 'lifecycle_cmds.js'))
 const taskParser = require(path.join(workflowDir, 'task_parser.js'))
+const taskRuntime = require(path.join(workflowDir, 'task_runtime.js'))
 const docContracts = require(path.join(workflowDir, 'doc_contracts.js'))
 const installer = require(path.join(repoRoot, 'lib', 'installer.js'))
+const interactiveInstaller = require(path.join(repoRoot, 'lib', 'interactive-installer.js'))
 const teamLifecycle = require(path.join(repoRoot, 'core', 'utils', 'team', 'lifecycle.js'))
 const teamStateManager = require(path.join(repoRoot, 'core', 'utils', 'team', 'state-manager.js'))
 const teamCliScript = path.join(repoRoot, 'core', 'utils', 'team', 'team-cli.js')
@@ -269,33 +271,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(decision.reason, 'quality-gate-boundary')
   })
 
-  await t.test('self review doc contract wrapper keeps spec and plan arguments aligned', () => {
-    const cliContent = "command === 'start'"
-    const overviewDocContent = '/workflow start'
-    const specTemplateContent = '## 2. Scope\n{{task_name}}\n{{scope_summary}}\n{{critical_constraints}}\n## 3. Constraints\n{{acceptance_criteria}}\n## 7. Acceptance Criteria'
-    const planTemplateContent = '## Requirement Coverage\n{{task_name}}\n{{spec_file}}\n{{tasks}}\n{{requirement_coverage}}\n## Tasks\n阶段\n需求 ID\nSpec 参考\nPlan 参考\nactions\n步骤\n## Self-Review Checklist'
 
-    const wrapped = selfReview.runDocContractReview(
-      cliContent,
-      overviewDocContent,
-      specTemplateContent,
-      planTemplateContent,
-      [],
-      []
-    )
-    const direct = docContracts.validateWorkflowDocContracts(
-      cliContent,
-      overviewDocContent,
-      specTemplateContent,
-      planTemplateContent,
-      [],
-      []
-    )
-
-    assert.deepEqual(wrapped, direct)
-    assert.equal(wrapped.spec_template_contract.ok, true)
-    assert.equal(wrapped.plan_template_contract.ok, true)
-  })
 
   await t.test('doc placeholder scan ignores quoted instructional TODO markers', () => {
     const placeholders = docContracts.findNonInstructionalPlaceholders('- "TBD"、"TODO"、"implement later"')
@@ -508,14 +484,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(failPayload.baseline_source, 'unavailable')
   })
 
-  await t.test('self review verification and project id checks stay aligned', () => {
-    const requirements = [{ id: 'R-001', summary: '导出', scope_status: 'in_scope' }]
-    const planContent = `## T1: 导出任务\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P1\n- **需求 ID**: R-001\n- **actions**: edit_file\n- **步骤**:\n  - A1: 修改实现 → 完成导出\n`
-
-    const review = selfReview.runPlanSelfReview(requirements, planContent)
-    assert.equal(review.ok, false)
-    assert.deepEqual(review.tasks_missing_verification, ['T1'])
-
+  await t.test('verification and project id checks stay aligned', () => {
     const verificationResult = verification.validateVerificationOrder(null, true, true)
     assert.equal(verificationResult.valid, false)
     assert.ok(verificationResult.violations.includes('updated_before_verification'))
@@ -524,6 +493,57 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(pathUtils.validateProjectId(''), false)
     assert.equal(pathUtils.validateProjectId('../etc/passwd'), false)
     assert.equal(pathUtils.validateProjectId('proj/test'), false)
+  })
+
+  await t.test('task runtime helpers reuse parser output and normalize thinking guides path', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-runtime-helper-'))
+    const home = path.join(root, 'home')
+    const projectRoot = path.join(root, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(projectRoot, { recursive: true })
+    writeProjectConfig(projectRoot, 'proj-test')
+
+    withHome(home, () => {
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.tasks_file = 'tasks.md'
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      createWorkflowPlan(home, 'proj-test', 'tasks.md', [
+        '## T1: 执行任务',
+        '- **阶段**: implement',
+        '- **Spec 参考**: §1',
+        '- **Plan 参考**: P1',
+        '- **状态**: pending',
+        '- **actions**: edit_file, quality_review',
+        '- **验证命令**: node -e "process.exit(0)", node -e "process.exit(0)"',
+        '- **步骤**:',
+        '  - A1: 修改实现 → 完成任务',
+        '',
+      ].join('\n'))
+
+      const legacyGuidesDir = path.join(projectRoot, '.claude', 'specs', 'guides')
+      fs.mkdirSync(legacyGuidesDir, { recursive: true })
+      fs.writeFileSync(path.join(legacyGuidesDir, 'debug.md'), '# guide\n')
+
+      const runtime = taskRuntime.getWorkflowRuntime(projectRoot)
+      assert.equal(runtime.projectId, 'proj-test')
+      assert.equal(taskRuntime.getCurrentTaskId(runtime), 'T1')
+      assert.deepEqual(taskRuntime.getTaskActions(taskRuntime.getCurrentTask(runtime)), ['edit_file', 'quality_review'])
+      assert.deepEqual(taskRuntime.getTaskVerificationCommands(taskRuntime.getCurrentTask(runtime)), [
+        'node -e "process.exit(0)"',
+        'node -e "process.exit(0)"',
+      ])
+
+      const guidesDir = pathUtils.getThinkingGuidesDir(projectRoot)
+      assert.equal(guidesDir.displayPath, '.claude/.agent-workflow/specs/guides')
+      assert.equal(guidesDir.source, 'legacy')
+
+      const guides = taskRuntime.getThinkingGuides(projectRoot)
+      assert.equal(guides.displayPath, '.claude/.agent-workflow/specs/guides')
+      assert.equal(guides.files[0].displayPath, '.claude/.agent-workflow/specs/guides/debug.md')
+      assert.match(guides.legacyWarning, /建议迁移到/)
+    })
   })
 
   await t.test('dependency and governance helpers preserve runtime decisions', () => {
@@ -1130,8 +1150,10 @@ test('workflow helper migration coverage', async (t) => {
       }, { cwd: root, env: { HOME: home } })
       assert.equal(noWorkflowTask.status, 0)
       const noWorkflowPayload = JSON.parse(noWorkflowTask.stdout)
-      assert.equal(noWorkflowPayload.continue, false)
-      assert.match(noWorkflowPayload.reason, /禁止直接派发执行型 Task|禁止透传 team 上下文字段/)
+      assert.equal(noWorkflowPayload.continue, true)
+      assert.match(noWorkflowPayload.message, /已忽略 team 上下文字段/)
+      assert.equal(noWorkflowPayload.tool_input.team_name, undefined)
+      assert.equal(noWorkflowPayload.tool_input.description, '执行普通任务')
 
       const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
       const runningState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
@@ -1204,19 +1226,32 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('installer keeps workflow hooks opt-in and can inject them explicitly', async () => {
+  await t.test('installer registers workflow base hooks by default and strict hook explicitly', async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-installer-'))
     const settingsPath = path.join(tmpRoot, 'settings.json')
     const hooksDir = path.join(repoRoot, 'core', 'hooks')
 
     const injected = await installer.ensureWorkflowHooks(settingsPath, hooksDir)
     assert.equal(injected.injected, true)
-    assert.deepEqual(injected.events.sort(), ['PostToolUse', 'PreToolUse', 'SessionStart'])
+    assert.deepEqual(injected.events.sort(), ['PreToolUse', 'SessionStart'])
+    assert.equal(injected.base.injected, true)
+    assert.equal(injected.strict.injected, false)
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
     assert.ok(Array.isArray(settings.hooks.SessionStart))
     assert.equal(settings.hooks.PreToolUse[0].matcher, 'Task')
-    assert.match(settings.hooks.PostToolUse[0].hooks[0].command, /quality-gate-loop\.js/)
+
+    const explicitStrict = await installer.ensureWorkflowHooks(settingsPath, hooksDir, { enableStrict: true })
+    assert.equal(explicitStrict.strict.injected, true)
+    const updatedSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+    assert.match(updatedSettings.hooks.PostToolUse[0].hooks[0].command, /quality-gate-loop\.js/)
+  })
+
+  await t.test('interactive hook status descriptions respect project-level installs and optional hooks', () => {
+    assert.equal(interactiveInstaller.describeHookStatus(null, { projectLevel: true }), '项目级安装（按设计跳过）')
+    assert.equal(interactiveInstaller.describeHookStatus({ complete: false, configured: true, issues: ['bad config'] }), '异常: bad config')
+    assert.equal(interactiveInstaller.describeHookStatus({ complete: false, configured: false }, { optional: true }), '未启用（可选）')
+    assert.equal(interactiveInstaller.describeHookStatus({ complete: true }), '已注册')
   })
 
   await t.test('sync and link CLI expose workflow hook option in help output', () => {

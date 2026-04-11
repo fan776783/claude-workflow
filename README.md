@@ -10,15 +10,18 @@
 
 ### Workflow 主线
 
-`/workflow` 是统一 command 入口，路由到 4 个专项 workflow skills：
+`/workflow` 是统一 command 入口，路由到 5 个专项 workflow skills：
 
 | 命令 | 路由到 | 说明 |
 |------|--------|------|
-| `/workflow start` | `workflow-planning` | 代码分析、需求讨论、UX 设计审批、Spec / Plan 生成 |
+| `/workflow plan` | `workflow-planning` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review` |
+| `/workflow spec-review` | `workflow-planning` | 用户审查 Spec 后生成 Plan，状态进入 `planned` |
 | `/workflow execute` | `workflow-executing` | 治理决策、任务执行、验证、审查与状态推进 |
 | `/workflow delta` | `workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
-| `/workflow status` | 共享运行时 | 查看当前进度、阻塞点与下一步建议 |
-| `/workflow archive` | 共享运行时 | 归档已完成工作流 |
+| `/workflow status` | `workflow-ops` | 查看当前进度、阻塞点与下一步建议 |
+| `/workflow archive` | `workflow-ops` | 归档已完成工作流 |
+
+> `start` 是 `plan` 的向后兼容别名。
 
 `workflow-reviewing`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
 
@@ -75,30 +78,38 @@
 
 ## workflow 的当前模型
 
-当前 `workflow` 采用"**command 入口 + 4 个专项 workflow skills + 共享运行时**"的模块化结构：
+当前 `workflow` 采用"**command 入口 + 5 个专项 workflow skills + 共享运行时**"的模块化结构：
 
 ```text
 core/
-└── core/
-    ├── commands/workflow.md          # 统一 command 入口（路由层）
-    ├── commands/team.md              # 独立 /team command 入口
-    ├── skills/
-    │   ├── workflow-planning/        # /workflow start
-    │   ├── workflow-executing/       # /workflow execute
-    │   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
-    │   ├── workflow-delta/           # /workflow delta
-    │   ├── team/                     # /team 显式入口路由
-    │   ├── team-workflow/            # /team start|execute|status|archive runtime
-    ├── specs/
-    │   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
-    │   ├── workflow-templates/       # spec / plan 模板
-    │   └── team-runtime/             # team 状态机与共享运行时文档
-    └── .agent-workflow style managed projection
-        ├── commands/agent-workflow/*
-        └── .agent-workflow/{utils,specs,hooks,docs}
+├── commands/workflow.md          # 统一 command 入口（路由层）
+├── commands/team.md              # 独立 /team command 入口
+├── skills/
+│   ├── workflow-planning/        # /workflow plan + spec-review
+│   ├── workflow-executing/       # /workflow execute
+│   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
+│   ├── workflow-delta/           # /workflow delta
+│   ├── workflow-ops/             # /workflow status + archive
+│   ├── team/                     # /team 显式入口路由
+│   ├── team-workflow/            # /team start|execute|status|archive runtime
+├── specs/
+│   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
+│   ├── workflow-templates/       # spec / plan 模板
+│   └── team-runtime/             # team 状态机与共享运行时文档
+└── utils/
+    ├── workflow/                  # workflow_cli.js、execution_sequencer.js 等
+    └── team/                      # team runtime 脚本
 ```
 
-在此结构下，工作流仍保持三层工件模型，并且受管内部资源已收敛为 `utils/specs/hooks/docs`。
+### 声明式 Skill 架构
+
+每个 workflow skill 采用统一的声明式架构：
+
+- **HARD-GATE**：不可违反的铁律规则
+- **Checklist**：必须按序完成的行动清单
+- **CLI 接管**：所有状态变更通过 CLI 完成，不直接读写 JSON
+
+在此结构下，工作流仍保持三层工件模型：
 - `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
 - `plan.md`：可直接执行的原子步骤、文件清单与验证命令
 - 执行层：按计划产出代码，并经过验证与两阶段审查
@@ -107,8 +118,9 @@ core/
 
 - 单一 `spec.md` 作为规划阶段的权威规范
 - `plan.md` 必须可直接执行，禁止占位式描述
-- `execute` 采用 governance-first continuation governance，由 `ContextGovernor` 优先基于任务独立性与上下文污染风险决定继续、暂停、并行边界或 handoff，并由 budget 作为兜底信号
+- `execute` 采用 governance-first continuation，由 `ContextGovernor` 优先基于任务独立性与上下文污染风险决定继续、暂停、并行边界或 handoff
 - 质量关卡任务执行两阶段审查：先做 Spec 合规，再做代码质量
+- 所有状态变更通过 CLI 完成，不直接读写 `workflow-state.json`
 
 ---
 
@@ -142,7 +154,7 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 # 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/settings.json
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
 
-# 可选：为 Claude Code 注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）
+# 可选：为 Claude Code 注册 strict workflow hook（PostToolUse 质量关卡；SessionStart / PreToolUse(Task) 默认注册）
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --workflow-hooks -y
 
 # 从源码仓库同步
@@ -163,7 +175,8 @@ npm run sync -- -a claude-code
 
 ```bash
 /scan
-/workflow start "需求描述"
+/workflow plan "需求描述"
+/workflow spec-review --choice "Spec 正确，生成 Plan"
 /workflow execute
 ```
 
@@ -179,7 +192,8 @@ npm run sync -- -a claude-code
 Claude Code 下当前有两类 hooks：
 
 - **worktree hooks**：默认随全局 `sync` 自动注入，用于 `WorktreeCreate` / `WorktreeRemove` 的串行化和清理
-- **workflow hooks**：默认**不自动注册**，需显式使用 `sync --workflow-hooks` 或 `link --workflow-hooks` 启用；用于 `SessionStart`、`PreToolUse(Task)`、`PostToolUse` 的运行时 guardrails
+- **workflow base hooks**：默认随全局 `sync` 自动注入，用于 `SessionStart`、`PreToolUse(Task)` 的运行时 guardrails
+- **workflow strict hooks**：需显式使用 `sync --workflow-hooks` 或 `link --workflow-hooks` 启用；当前对应 `PostToolUse` 质量关卡 hook
 
 workflow hooks 的职责边界：
 - 注入 active workflow、next action、当前 task、验证命令与质量关卡上下文
@@ -191,9 +205,10 @@ workflow hooks 的职责边界：
 ## workflow 主线命令
 
 ```bash
-/workflow start "需求描述"
-/workflow start docs/prd.md
-/workflow start --no-discuss docs/prd.md
+/workflow plan "需求描述"
+/workflow plan docs/prd.md
+/workflow plan --no-discuss docs/prd.md
+/workflow spec-review --choice "Spec 正确，生成 Plan"
 
 /workflow execute
 /workflow execute --retry
@@ -211,7 +226,8 @@ workflow hooks 的职责边界：
 
 含义如下：
 
-- `start`：启动规划流程，生成 `spec.md` 与 `plan.md`
+- `plan`：启动规划流程，生成 `spec.md` 并停在 `spec_review`（`start` 为别名）
+- `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
 - `execute`：按 `plan.md` 推进执行，并经过验证与审查
 - `status`：查看当前状态、进度与下一步建议
 - `delta`：处理 PRD / API / 需求增量变更
@@ -224,31 +240,29 @@ workflow hooks 的职责边界：
 ```mermaid
 flowchart TD
     A["准备项目"] --> B["/scan 生成项目配置"]
-    B --> C["/workflow start 输入需求"]
-    C --> D["Phase 0 代码分析 + Git 检查"]
+    B --> C["/workflow plan 输入需求"]
+    C --> D["代码分析 + Git 检查"]
     D --> E{"是否需要澄清需求"}
-    E -->|是| F["Phase 0.2 需求讨论"]
-    E -->|否| G["Phase 0.3 UX 设计审批或跳过"]
+    E -->|是| F["需求讨论"]
+    E -->|否| G{"是否有 UI 需求"}
     F --> G
-    G --> H["Phase 1 生成 spec.md"]
-    H --> I["Phase 1.1 用户确认 Spec"]
-    I --> J["Phase 2 生成 plan.md + Self-Review"]
-    J --> K["规划完成 Hard Stop"]
-    K --> L["/workflow execute"]
-    L --> M["ContextGovernor 评估预算 / 治理边界 / 并行边界"]
-    M --> N["执行任务动作"]
-    N --> O["Step 6.5 验证铁律"]
-    O --> P["Step 6.6 自审查"]
-    P --> Q["Step 6.7 Spec 合规检查"]
-    Q --> R{"是否为质量关卡"}
-    R -->|是| S["Stage 1 Spec 合规 → Stage 2 代码质量"]
-    R -->|否| T["更新状态并进入下一步"]
-    S --> T
-    T --> U{"继续 / 暂停 / handoff / archive"}
-    U -->|继续| M
-    U -->|暂停| V["等待下次 execute"]
-    U -->|handoff| W["生成 continuation artifact"]
-    U -->|完成| X["/workflow archive"]
+    G -->|是| H["UX 设计审批（HARD-GATE）"]
+    G -->|否| I["Spec 生成 + Self-Review"]
+    H --> I
+    I --> J["🛑 spec_review 等待用户确认"]
+    J --> K["/workflow spec-review"]
+    K --> L["Plan 生成 + Self-Review"]
+    L --> M["🛑 planned 等待执行"]
+
+    M --> N["/workflow execute"]
+    N --> O["ContextGovernor 治理决策"]
+    O --> P["执行任务动作"]
+    P --> Q["Post-Execution Pipeline（验证 → 自审查 → 更新 → 审查）"]
+    Q --> R{"继续 / 暂停 / handoff / 完成"}
+    R -->|继续| O
+    R -->|暂停| S["等待下次 execute"]
+    R -->|handoff| T["生成 continuation artifact"]
+    R -->|完成| U["/workflow archive"]
 ```
 
 ---
@@ -313,6 +327,7 @@ flowchart TD
 - `core/skills/workflow-executing/SKILL.md`
 - `core/skills/workflow-reviewing/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
+- `core/skills/workflow-ops/SKILL.md`
 - `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`

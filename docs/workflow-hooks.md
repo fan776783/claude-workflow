@@ -42,10 +42,14 @@ workflow hooks **不负责**：
 
 ## 启用方式
 
-### 通过 CLI 显式启用
+### 默认注册 + 显式 strict 注册
 
-默认全局 `sync` 只会自动注入 worktree hooks。
-workflow hooks 默认 **opt-in**，需要显式开启：
+默认全局 `sync` 会自动注入：
+
+- worktree hooks
+- workflow base hooks（`SessionStart` / `PreToolUse(Task)`）
+
+如需额外启用 strict workflow hook（`PostToolUse` 质量关卡）：
 
 ```bash
 agent-workflow sync --workflow-hooks -y
@@ -129,6 +133,8 @@ agent-workflow link --workflow-hooks -a claude-code
 
 - task 中的验证命令是否全部通过
 - 若当前 task 包含 `quality_review`，则 `state.quality_gates[taskId].overall_passed` 是否为 `true`
+
+> `PostToolUse` 属于 strict hook；验证 evidence 仍由 CLI/runtime 写入，hook 只负责读取并阻断未通过的继续。
 
 若未通过：
 

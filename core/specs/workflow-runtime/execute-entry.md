@@ -59,4 +59,4 @@
 - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证治理。
 - `continue-parallel-boundaries` 只表示 workflow 内部的并行执行建议；即使识别到 2+ 独立任务，也不得自动切入 `/team`。
 - workflow hooks 与普通 agent launch 只允许消费 workflow runtime，不得继承或透传 active team runtime 的 `team_id` / `team_name` / `team_phase`。
-- `SessionStart` / `PreToolUse(Task)` / quality gate hooks 若已启用，只能注入上下文或阻断非法继续；不得替代 shared execute resolver 决定恢复路径。
+- `SessionStart` / `PreToolUse(Task)` 属于默认 base hooks，quality gate hook (`PostToolUse`) 属于可选 strict hook；它们只能注入上下文或阻断非法继续，不能替代 shared execute resolver 决定恢复路径。

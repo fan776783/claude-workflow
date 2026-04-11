@@ -178,6 +178,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const runtimeRefsDir = path.join(packageRoot, 'specs', 'workflow-runtime');
   const runtimeTemplatesDir = path.join(packageRoot, 'specs', 'workflow-templates');
   const runtimeScriptsDir = path.join(packageRoot, 'utils', 'workflow');
+  const workflowHooksDir = path.join(packageRoot, 'hooks');
   const guardPaths = [
     [workflowCommandFile, 'workflow command 入口'],
     [runtimeRefsDir, 'workflow-runtime references'],
@@ -193,7 +194,10 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
 
   const scriptsDir = runtimeScriptsDir;
   const scriptFiles = (await fs.readdir(scriptsDir)).filter(file => file.endsWith('.js'));
-  const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
+  const hookScriptFiles = (await fs.pathExists(workflowHooksDir))
+    ? (await fs.readdir(workflowHooksDir)).filter(file => file.endsWith('.js'))
+    : [];
+  const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'task_runtime.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
   const workflowDocSkills = ['workflow-planning', 'workflow-executing', 'workflow-reviewing', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {
@@ -232,6 +236,10 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const jsSyntaxCheck = runNodeSyntaxValidation(scriptFiles.map(file => path.join(scriptsDir, file)));
   if (!jsSyntaxCheck.ok) {
     errors.push(`workflow Node.js 脚本语法校验失败: ${jsSyntaxCheck.error}`);
+  }
+  const hookSyntaxCheck = runNodeSyntaxValidation(hookScriptFiles.map(file => path.join(workflowHooksDir, file)));
+  if (!hookSyntaxCheck.ok) {
+    errors.push(`workflow hook 语法校验失败: ${hookSyntaxCheck.error}`);
   }
 
   const specCheck = runNodeValidation([docContractsScript, 'spec-template', specTemplateFile]);
@@ -278,6 +286,9 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     contractArgs.push('--doc', doc);
   }
   for (const file of scriptFiles) {
+    contractArgs.push('--script', file);
+  }
+  for (const file of hookScriptFiles) {
     contractArgs.push('--script', file);
   }
 

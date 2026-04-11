@@ -2,16 +2,8 @@
 
 const fs = require('fs')
 const path = require('path')
-const { detectProjectIdFromRoot, getWorkflowsDir } = require('../utils/workflow/path_utils')
+const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides } = require('../utils/workflow/task_runtime')
 const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
-
-function readFile(targetPath, fallback = '') {
-  try {
-    return fs.readFileSync(targetPath, 'utf8')
-  } catch {
-    return fallback
-  }
-}
 
 function extractSection(content, heading, maxChars = 2000) {
   const pattern = new RegExp(`^(#{1,4})\\s+${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n\\1\\s|$)`, 'm')
@@ -22,69 +14,28 @@ function extractSection(content, heading, maxChars = 2000) {
 }
 
 function findWorkflowState() {
-  const projectId = detectProjectIdFromRoot(process.cwd())
-  if (!projectId) return null
-  const workflowDir = getWorkflowsDir(projectId)
-  if (!workflowDir) return null
-  const statePath = path.join(workflowDir, 'workflow-state.json')
-  if (!fs.existsSync(statePath)) return null
-  try {
-    return JSON.parse(fs.readFileSync(statePath, 'utf8'))
-  } catch {
-    return null
-  }
+  return getWorkflowRuntime(process.cwd())
 }
 
-function getCurrentTaskBlock(state, workflowDir, taskId) {
-  const tasksFile = state.tasks_file || ''
-  if (!workflowDir || !tasksFile || !taskId) return ''
-  const tasksContent = readFile(path.join(workflowDir, tasksFile))
-  if (!tasksContent) return ''
-
-  const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const headingPattern = new RegExp(`^##+\\s+${escapedTaskId}:`, 'm')
-  const headingMatch = headingPattern.exec(tasksContent)
-  if (!headingMatch) return ''
-
-  const start = headingMatch.index
-  const rest = tasksContent.slice(start)
-  const nextHeadingMatch = /\n##+\s+T\d+:/m.exec(rest.slice(1))
-  const end = nextHeadingMatch ? start + 1 + nextHeadingMatch.index : tasksContent.length
-  return tasksContent.slice(start, end).trim()
-}
-
-function extractVerificationCommands(taskBlock) {
-  if (!taskBlock) return []
-  const cmdMatch = taskBlock.match(/\*\*验证命令\*\*\s*:\s*(.+?)$/m)
-  if (!cmdMatch) return []
-  return cmdMatch[1].split(',').map((item) => item.trim()).filter(Boolean)
-}
-
-function buildTaskContext(state) {
+function buildTaskContext(runtime) {
   const parts = []
-  const projectRoot = process.cwd()
-  const currentTasks = state.current_tasks || []
-  const taskId = currentTasks[0]
+  const state = runtime?.state
+  const projectRoot = runtime?.projectRoot || process.cwd()
+  const taskId = getCurrentTaskId(runtime)
   if (!taskId) return ''
 
-  const projectId = state.projectId || state.project_id || ''
-  const workflowDir = projectId ? getWorkflowsDir(projectId) : null
-  const taskBlock = getCurrentTaskBlock(state, workflowDir, taskId)
+  const task = getCurrentTask(runtime)
+  const taskBlock = getTaskBlock(runtime, taskId)
   if (taskBlock) {
     parts.push(`<current-task>\n${taskBlock.slice(0, 3000)}\n</current-task>`)
-    const verificationCommands = extractVerificationCommands(taskBlock)
+    const verificationCommands = getTaskVerificationCommands(task)
     if (verificationCommands.length) {
       parts.push(`<verification-commands>\n${verificationCommands.map((item) => `- ${item}`).join('\n')}\n</verification-commands>`)
     }
   }
 
-  const specFile = state.spec_file || ''
-  if (specFile) {
-    const specContent = readFile(path.join(projectRoot, specFile))
-    if (specContent) parts.push(`<spec-context>\n${specContent.slice(0, 2000)}\n</spec-context>`)
-  }
-
-
+  const specContent = getSpecContent(projectRoot, state)
+  if (specContent) parts.push(`<spec-context>\n${specContent}\n</spec-context>`)
 
   const qualityGate = getReviewResult(state, taskId)
   if (qualityGate) {
@@ -93,9 +44,10 @@ function buildTaskContext(state) {
 
   parts.push('<team-guardrail>\nordinary workflow task injection must ignore team runtime context; do not read or inherit team_id, team_name, worker_roster, dispatch_batches, team_review, or ~/.claude/workflows/{projectId}/teams/* unless the user explicitly entered /team.\n</team-guardrail>')
 
-  const guidesDir = path.join(projectRoot, '.claude', 'specs', 'guides')
-  if (fs.existsSync(guidesDir) && fs.statSync(guidesDir).isDirectory()) {
-    parts.push('<reminder>修改代码前请参考 .agent-workflow/specs/guides/ 中的思维指南。</reminder>')
+  const guides = getThinkingGuides(projectRoot)
+  if (guides && guides.files.length) {
+    parts.push(`<reminder>修改代码前请参考 ${guides.displayPath}/ 中的思维指南。</reminder>`)
+    if (guides.legacyWarning) parts.push(`<guides-warning>\n${guides.legacyWarning}\n</guides-warning>`)
   }
 
   return parts.join('\n\n')
@@ -116,6 +68,14 @@ function buildBlockResult(reason) {
   return { continue: false, reason }
 }
 
+function stripForbiddenTeamFields(toolInput) {
+  const forbiddenTeamFields = ['team', 'team_name', 'team_id', 'teamId']
+  const sanitizedToolInput = { ...toolInput }
+  const removedFields = forbiddenTeamFields.filter((field) => Object.prototype.hasOwnProperty.call(sanitizedToolInput, field))
+  for (const field of removedFields) delete sanitizedToolInput[field]
+  return { sanitizedToolInput, removedFields }
+}
+
 function main() {
   let hookInput = {}
   try {
@@ -128,9 +88,16 @@ function main() {
     return
   }
 
-  const state = findWorkflowState()
+  const toolInput = typeof hookInput.tool_input === 'object' && hookInput.tool_input ? hookInput.tool_input : {}
+  const { sanitizedToolInput, removedFields: inheritedTeamFields } = stripForbiddenTeamFields(toolInput)
+  const runtime = findWorkflowState()
+  const state = runtime?.state
   if (!state) {
-    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 未发现活动 workflow，禁止直接派发执行型 Task。请先使用 `/workflow plan` 或 `/workflow execute`。')))
+    const message = inheritedTeamFields.length
+      ? `[workflow-hook] 未发现活动 workflow，已忽略 team 上下文字段: ${inheritedTeamFields.join(', ')}。`
+      : '[workflow-hook] 未发现活动 workflow，跳过上下文注入。'
+    const patchedToolInput = inheritedTeamFields.length ? sanitizedToolInput : null
+    process.stdout.write(JSON.stringify(buildAllowResult(message, patchedToolInput)))
     return
   }
 
@@ -156,22 +123,19 @@ function main() {
     return
   }
 
-  const toolInput = typeof hookInput.tool_input === 'object' && hookInput.tool_input ? hookInput.tool_input : {}
-  const forbiddenTeamFields = ['team', 'team_name', 'team_id', 'teamId']
-  const inheritedTeamFields = forbiddenTeamFields.filter((field) => Object.prototype.hasOwnProperty.call(toolInput, field))
   if (inheritedTeamFields.length) {
     process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] 当前不是显式 /team 路径，禁止透传 team 上下文字段: ${inheritedTeamFields.join(', ')}`)))
     return
   }
-  const taskDescription = toolInput.description || ''
-  const context = buildTaskContext(state)
+  const taskDescription = sanitizedToolInput.description || ''
+  const context = buildTaskContext(runtime)
 
   if (!context) {
     process.stdout.write(JSON.stringify(buildAllowResult('[workflow-hook] 未注入额外上下文：当前任务缺少可提取上下文。')))
     return
   }
 
-  const patchedToolInput = { ...toolInput, description: `${context}\n\n---\n\n${taskDescription}` }
+  const patchedToolInput = { ...sanitizedToolInput, description: `${context}\n\n---\n\n${taskDescription}` }
   const result = buildAllowResult(`[workflow-hook] 已注入任务上下文 (${context.length} 字符)`, patchedToolInput)
   process.stdout.write(JSON.stringify(result))
 }

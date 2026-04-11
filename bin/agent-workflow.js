@@ -35,6 +35,23 @@ const LOG_PREFIX = '[agent-workflow]';
 const APP_DISPLAY_NAME = 'Agent Workflow';
 const LEGACY_META_DIR = '.claude-workflow';
 
+function formatHookResult(result, fallbackMessage = '未注册') {
+  if (!result) return fallbackMessage;
+  if (result.error) return `异常: ${result.error}`;
+  if (result.injected) return `已注册: ${(result.events || []).join(', ')}`;
+  if ((result.skipped || []).length > 0 && result.skipped.every((item) => String(item).includes('已注册'))) {
+    return `已注册: ${(result.skipped || []).join(', ')}`;
+  }
+  return `未注册: ${((result.skipped || ['无']).join('; '))}`;
+}
+
+function formatHookInspection(summary, { optional = false } = {}) {
+  if (!summary) return optional ? '未检测（可选）' : '未检测';
+  if (summary.complete) return '已注册';
+  if (summary.configured) return `异常: ${(summary.issues || []).join('; ')}`;
+  return optional ? '未注册（可选）' : '未注册';
+}
+
 if (process.argv.length === 2) {
   if (process.stdin.isTTY && process.stdout.isTTY) {
     const { run } = require('../lib/menu');
@@ -67,7 +84,7 @@ if (process.argv.length === 2) {
     .option('--legacy', '使用旧版安装模式（仅 Claude Code）')
     .option('-i, --interactive', '交互式安装模式')
     .option('-y, --yes', '跳过确认提示')
-    .option('--workflow-hooks', '为 Claude Code 额外注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）')
+    .option('--workflow-hooks', '为 Claude Code 额外注册 strict workflow hook（PostToolUse 质量关卡；SessionStart / PreToolUse(Task) 默认注册）')
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
@@ -146,16 +163,11 @@ if (process.argv.length === 2) {
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
           if (agentResult.worktreeHooks) {
-            const hookSummary = agentResult.worktreeHooks.injected
-              ? `已注册: ${(agentResult.worktreeHooks.events || []).join(', ')}`
-              : `未注册: ${((agentResult.worktreeHooks.skipped || [agentResult.worktreeHooks.error || '无']).join('; '))}`;
-            console.log(`      worktree hooks -> ${hookSummary}`);
+            console.log(`      worktree hooks -> ${formatHookResult(agentResult.worktreeHooks)}`);
           }
           if (agentResult.workflowHooks) {
-            const hookSummary = agentResult.workflowHooks.injected
-              ? `已注册: ${(agentResult.workflowHooks.events || []).join(', ')}`
-              : `未注册: ${((agentResult.workflowHooks.skipped || [agentResult.workflowHooks.error || '无']).join('; '))}`;
-            console.log(`      workflow hooks -> ${hookSummary}`);
+            console.log(`      workflow hooks (base) -> ${formatHookResult(agentResult.workflowHooks.base || agentResult.workflowHooks)}`);
+            console.log(`      workflow hooks (strict) -> ${formatHookResult(agentResult.workflowHooks.strict || null, '未注册（可选）')}`);
           }
         }
 
@@ -176,7 +188,7 @@ if (process.argv.length === 2) {
     .description('将受管目录直接链接到当前仓库，便于本地调试 skills')
     .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
     .option('--project', '项目级安装（当前目录）')
-    .option('--workflow-hooks', '为 Claude Code 额外注册 workflow hooks（SessionStart / PreToolUse(Task) / PostToolUse）')
+    .option('--workflow-hooks', '为 Claude Code 额外注册 strict workflow hook（PostToolUse 质量关卡；SessionStart / PreToolUse(Task) 默认注册）')
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
@@ -212,16 +224,11 @@ if (process.argv.length === 2) {
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
           if (agentResult.worktreeHooks) {
-            const hookSummary = agentResult.worktreeHooks.injected
-              ? `已注册: ${(agentResult.worktreeHooks.events || []).join(', ')}`
-              : `未注册: ${((agentResult.worktreeHooks.skipped || [agentResult.worktreeHooks.error || '无']).join('; '))}`;
-            console.log(`      worktree hooks -> ${hookSummary}`);
+            console.log(`      worktree hooks -> ${formatHookResult(agentResult.worktreeHooks)}`);
           }
           if (agentResult.workflowHooks) {
-            const hookSummary = agentResult.workflowHooks.injected
-              ? `已注册: ${(agentResult.workflowHooks.events || []).join(', ')}`
-              : `未注册: ${((agentResult.workflowHooks.skipped || [agentResult.workflowHooks.error || '无']).join('; '))}`;
-            console.log(`      workflow hooks -> ${hookSummary}`);
+            console.log(`      workflow hooks (base) -> ${formatHookResult(agentResult.workflowHooks.base || agentResult.workflowHooks)}`);
+            console.log(`      workflow hooks (strict) -> ${formatHookResult(agentResult.workflowHooks.strict || null, '未注册（可选）')}`);
           }
         }
 
@@ -408,7 +415,13 @@ if (process.argv.length === 2) {
             if (name === 'claude-code') {
               const worktreeInstalled = agentStatus.managedDirs?.hooks?.installed === true;
               console.log(`      hooks managed dir -> ${worktreeInstalled ? '已同步' : '未同步'}`);
-              console.log('      workflow hooks -> 默认 opt-in，使用 sync/link --workflow-hooks 注册到 settings.json');
+              if (global) {
+                console.log(`      worktree hooks -> ${formatHookInspection(agentStatus.worktreeHooks)}`);
+                console.log(`      workflow hooks (base) -> ${formatHookInspection(agentStatus.workflowHooks?.base)}`);
+                console.log(`      workflow hooks (strict) -> ${formatHookInspection(agentStatus.workflowHooks?.strict, { optional: true })}`);
+              } else {
+                console.log('      hooks 注册 -> 项目级安装不修改 settings.json');
+              }
             }
           }
         } else {
@@ -503,6 +516,31 @@ if (process.argv.length === 2) {
           }
           if (!agentStatus.managedRoot.valid && agentStatus.managedRoot.mode) {
             issues.push(`${agents[name]?.displayName || name}: 受管根目录异常 (${agentStatus.managedRoot.path})`);
+          }
+          if (name === 'claude-code') {
+            if (!global) {
+              ok.push('Claude Code: 项目级安装按契约跳过 hooks 注册检查');
+            } else {
+              if (!agentStatus.worktreeHooks?.complete) {
+                issues.push(`Claude Code: worktree hooks 未完整注册 (${(agentStatus.worktreeHooks?.issues || ['未注册']).join('; ')})`);
+              } else {
+                ok.push('Claude Code: worktree hooks 已注册');
+              }
+
+              if (!agentStatus.workflowHooks?.base?.complete) {
+                issues.push(`Claude Code: workflow base hooks 未完整注册 (${(agentStatus.workflowHooks?.base?.issues || ['未注册']).join('; ')})`);
+              } else {
+                ok.push('Claude Code: workflow base hooks 已注册');
+              }
+
+              if (agentStatus.workflowHooks?.strict?.complete) {
+                ok.push('Claude Code: workflow strict hooks 已注册');
+              } else if (agentStatus.workflowHooks?.strict?.configured) {
+                issues.push(`Claude Code: workflow strict hooks 配置异常 (${(agentStatus.workflowHooks.strict.issues || ['配置异常']).join('; ')})`);
+              } else {
+                ok.push('Claude Code: workflow strict hooks 未启用（可选）');
+              }
+            }
           }
         }
 

@@ -4,6 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
 const { getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { getWorkflowRuntime, getThinkingGuides } = require('../utils/workflow/task_runtime')
 
 function shouldSkip() {
   return process.env.CLAUDE_NON_INTERACTIVE === '1'
@@ -22,16 +23,6 @@ function findProjectConfig(projectRoot) {
   if (!fs.existsSync(configPath)) return null
   try {
     return JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-function findWorkflowState(projectId) {
-  const statePath = getWorkflowStatePath(projectId)
-  if (!statePath || !fs.existsSync(statePath)) return null
-  try {
-    return JSON.parse(fs.readFileSync(statePath, 'utf8'))
   } catch {
     return null
   }
@@ -106,7 +97,8 @@ function main() {
   const project = config.project || {}
   const projectId = project.id || config.projectId || ''
   const projectName = project.name || config.projectName || path.basename(projectRoot)
-  const state = projectId ? findWorkflowState(projectId) : null
+  const runtime = getWorkflowRuntime(projectRoot)
+  const state = projectId && runtime.projectId === projectId ? runtime.state : null
   const specs = collectSpecIndices(projectRoot)
 
   const parts = []
@@ -153,13 +145,12 @@ function main() {
     parts.push('</project-specs>')
   }
 
-  const guidesDir = path.join(projectRoot, '.claude', '.agent-workflow', 'specs', 'guides')
-  if (fs.existsSync(guidesDir) && fs.statSync(guidesDir).isDirectory()) {
+  const guides = getThinkingGuides(projectRoot)
+  if (guides && guides.files.length) {
     parts.push('<thinking-guides>')
     parts.push('项目包含思维指南，修改代码前请参考:')
-    for (const name of fs.readdirSync(guidesDir).sort()) {
-      if (name !== 'index.md' && name.endsWith('.md')) parts.push(`  - .claude/.agent-workflow/specs/guides/${name}`)
-    }
+    for (const guide of guides.files) parts.push(`  - ${guide.displayPath}`)
+    if (guides.legacyWarning) parts.push(`兼容提示: ${guides.legacyWarning}`)
     parts.push('</thinking-guides>')
   }
 
