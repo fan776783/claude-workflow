@@ -20,11 +20,11 @@ examples:
 
 它只负责暴露稳定命令面，并把具体能力路由到专项 workflow skills 或 shared runtime 文档：
 
-- `plan` → `workflow-planning`（`start` 为向后兼容别名）
-- `execute` → `workflow-executing`
+- `plan` → `workflow-plan`（`start` 为向后兼容别名）
+- `execute` → `workflow-execute`
 - `delta` → `workflow-delta`
 - `status` / `archive` → `workflow-ops`
-- `review` **不是公开 action**，而是在执行阶段按质量关卡由 `workflow-reviewing` 内部触发
+- `review` **不是公开 action**，而是在执行阶段按质量关卡由 `workflow-review` 内部触发
 
 ---
 
@@ -64,21 +64,21 @@ examples:
 > `start` 是 `plan` 的向后兼容别名，功能完全相同。
 
 阅读：
-- `../skills/workflow-planning/SKILL.md`
+- `../skills/workflow-plan/SKILL.md`
 
 ### `spec-review`
 
 记录用户对 `spec.md` 的审查结论；通过时生成 `plan.md` 并进入 `planned`。
 
 阅读：
-- `../skills/workflow-planning/SKILL.md`（Step 6: User Spec Review）
+- `../skills/workflow-plan/SKILL.md`（Step 6: User Spec Review）
 
 ### `execute`
 
 恢复执行器，先读取 workflow runtime 状态，再决定治理边界并推进任务。
 
 阅读：
-- `../skills/workflow-executing/SKILL.md`
+- `../skills/workflow-execute/SKILL.md`
 
 ### `delta`
 
@@ -106,8 +106,8 @@ examples:
 ## Command Contract
 
 - `/workflow` 是 **command 入口**，不是专项 skill 本身
-- `workflow-planning` / `workflow-executing` / `workflow-reviewing` / `workflow-delta` / `workflow-ops` 是真正的 workflow skills
-- `workflow-reviewing` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
+- `workflow-plan` / `workflow-execute` / `workflow-review` / `workflow-delta` / `workflow-ops` 是真正的 workflow skills
+- `workflow-review` 不直接暴露为单独的 review action，而由执行流程内部在质量关卡处引用
 - shared runtime 规格位于 `core/specs/workflow-runtime/`、`core/specs/workflow-templates/` 与 `core/utils/workflow/`
 - 普通 `/workflow` session 只允许读取 workflow runtime；不得继承 team runtime 的 `team_id`、`team_name`、`worker_roster`、`dispatch_batches`、`team_review` 或 `team-state.json` 上下文
 - `/team` 是独立 command 入口；即使 workflow 检测到 2+ 独立任务或 `parallel-boundaries` 机会，也不会自动升级为 team mode

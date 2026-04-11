@@ -320,9 +320,9 @@ node core/utils/workflow/workflow_cli.js unblock <dependency>
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-planning` | 初始规划 | [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md) |
-| `workflow-executing` | 按 Plan 执行 | [`../workflow-executing/SKILL.md`](../workflow-executing/SKILL.md) |
-| `workflow-reviewing` | 质量关卡审查 | [`../workflow-reviewing/SKILL.md`](../workflow-reviewing/SKILL.md) |
+| `workflow-plan` | 初始规划 | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
+| `workflow-execute` | 按 Plan 执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
+| `workflow-review` | 质量关卡审查 | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 
 > CLI 入口：`core/utils/workflow/workflow_cli.js`
 >

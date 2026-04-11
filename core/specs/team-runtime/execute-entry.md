@@ -105,8 +105,8 @@
 ## 复用优先级
 
 优先复用：
-- `workflow-executing`
-- `workflow-reviewing`
+- `workflow-execute`
+- `workflow-review`
 - `dispatching-parallel-agents`（只复用独立性检查 / 边界分组 / 冲突降级规则）
 - workflow runtime shared helpers
 

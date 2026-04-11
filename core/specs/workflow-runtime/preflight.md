@@ -1,6 +1,6 @@
 # Preflight 预检模块
 
-> 从 workflow-planning 提取的共享基础设施预检。可被 `/workflow plan`、`/quick-plan` 等命令复用。
+> 从 workflow-plan 提取的共享基础设施预检。可被 `/workflow plan`、`/quick-plan` 等命令复用。
 
 ## 预检流程
 

@@ -1,11 +1,11 @@
 ---
-name: workflow-executing
-description: "workflow-executing 入口。完整行动指南：状态读取 → 治理决策 → 任务执行 → 后置管线 → 循环控制。"
+name: workflow-execute
+description: "workflow-execute 入口。完整行动指南：状态读取 → 治理决策 → 任务执行 → 后置管线 → 循环控制。"
 ---
 
-# workflow-executing
+# workflow-execute
 
-> 本 skill 是 `workflow-executing` 的完整行动指南。
+> 本 skill 是 `workflow-execute` 的完整行动指南。
 
 <HARD-GATE>
 四条不可违反的规则：
@@ -41,14 +41,14 @@ description: "workflow-executing 入口。完整行动指南：状态读取 → 
 
 | 命令 | 模式 |
 |------|------|
-| `workflow-executing` | 连续模式（默认） |
-| `workflow-executing --phase` | 阶段模式 |
-| `workflow-executing --retry` | 重试模式 |
-| `workflow-executing --skip` | 跳过模式 |
+| `workflow-execute` | 连续模式（默认） |
+| `workflow-execute --phase` | 阶段模式 |
+| `workflow-execute --retry` | 重试模式 |
+| `workflow-execute --skip` | 跳过模式 |
 
 **自然语言映射**：`继续/连续` → continuous、`下一阶段/单阶段` → phase、`重试` → retry、`跳过` → skip。
 
-**裸"继续"解析**：仅在存在活动工作流（`running`/`paused`/`failed`/`blocked`）且当前对话仍在该工作流上时恢复。`planned`/`planning` 不适用，必须显式使用 `workflow-executing`。
+**裸"继续"解析**：仅在存在活动工作流（`running`/`paused`/`failed`/`blocked`）且当前对话仍在该工作流上时恢复。`planned`/`planning` 不适用，必须显式使用 `workflow-execute`。
 
 **优先级**：`显式模式` > `自然语言意图` > `state.execution_mode` > `continuous`
 
@@ -202,7 +202,7 @@ node core/utils/workflow/task_parser.js parse --task-id T3 <plan-path>
 1. Stage 1：规格合规审查（当前模型）
 2. Stage 2：代码质量审查（平台感知 reviewer 子 agent）
 
-详见 `../workflow-reviewing/SKILL.md`（Step 2-3）。
+详见 `../workflow-review/SKILL.md`（Step 2-3）。
 
 ### 并行执行
 
@@ -356,7 +356,7 @@ CLI 自动标记 `skipped` + 更新 plan.md + state.json + 找下一任务。
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-reviewing` | 质量关卡审查 | [`../workflow-reviewing/SKILL.md`](../workflow-reviewing/SKILL.md) |
+| `workflow-review` | 质量关卡审查 | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `dispatching-parallel-agents` | 并行子 Agent 分派 | [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) |
 
 > CLI 入口：`core/utils/workflow/workflow_cli.js`（统一）、`core/utils/workflow/execution_sequencer.js`（执行治理）

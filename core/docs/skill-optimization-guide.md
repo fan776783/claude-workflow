@@ -1,6 +1,6 @@
 # Skill 提示词优化指南
 
-> 基于 `workflow-planning` skill 优化实践总结（2026-04）。为后续其他 skills 的优化提供方向指引。
+> 基于 `workflow-plan` skill 优化实践总结（2026-04）。为后续其他 skills 的优化提供方向指引。
 
 ## 核心问题
 
@@ -160,7 +160,7 @@ phase-2-plan-generation.md → No-TBD HARD-GATE
 
 ---
 
-## 实践案例：workflow-planning 优化记录
+## 实践案例：workflow-plan 优化记录
 
 ### 优化前
 
@@ -194,8 +194,8 @@ phase-2-plan-generation.md → No-TBD HARD-GATE
 
 | Skill | 现状 | 优化方向 |
 |-------|------|---------|
-| `workflow-executing` | SKILL.md 52 行索引页 + specs/ 多文件 | 合并为完整行动指南，同 workflow-planning |
-| `workflow-reviewing` | specs/execute/ 下 subagent-review.md 较长 | 精简伪代码，CLI 接管审查状态写入 |
+| `workflow-execute` | SKILL.md 52 行索引页 + specs/ 多文件 | 合并为完整行动指南，同 workflow-plan |
+| `workflow-review` | specs/execute/ 下 subagent-review.md 较长 | 精简伪代码，CLI 接管审查状态写入 |
 | `workflow-delta` | 中等体量 | 检查 JSON 构造是否可由 CLI 接管 |
 | `team-workflow` | 引用较多外部文档 | 检查前置加载情况 |
 | `scan` | 295 行，含伪代码 | 声明式替代 |

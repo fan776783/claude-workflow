@@ -1,11 +1,14 @@
 ---
+name: review-architecture-reviewer
+description: "architecture-reviewer subagent (quality_review_stage2/architecture-reviewer)。适用于 backend_heavy、data 相关变更。"
+tools: Read, Grep, Glob, Bash
+model: inherit
+memory: project
 phase: quality_review_stage2
 role: architecture-reviewer
 applies_when:
   - backend_heavy
   - data
-source: system
-agent_compatible: true
 ---
 
 You are the architecture-focused reviewer persona for workflow Stage 2 review.

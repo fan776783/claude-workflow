@@ -48,7 +48,7 @@
 
 | 条件 | 审查级别 | 操作 |
 |------|---------|------|
-| 当前 task 的 `actions` 含 `quality_review` | **完整两阶段审查** | 执行 Spec 合规 + 代码质量审查（参见 `../../workflow-reviewing/SKILL.md` Step 2-3） |
+| 当前 task 的 `actions` 含 `quality_review` | **完整两阶段审查** | 执行 Spec 合规 + 代码质量审查（参见 `../../workflow-review/SKILL.md` Step 2-3） |
 | 自上次审查以来已连续完成 **3 个** 常规 task | **轻量合规检查** | 读取 spec 对应章节，检查最近 3 个 task 的实现是否覆盖 spec 需求 |
 | 当前 task 是 plan 中的**最后一个** task | **全量完成审查** | 检查所有 spec 需求是否被完整实现 |
 

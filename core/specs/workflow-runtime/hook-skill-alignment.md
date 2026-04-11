@@ -11,9 +11,9 @@
 
 | Surface | 运行时角色 | 对应 hooks |
 |---------|------------|-----------|
-| `workflow-planning` | 规划流程与人工 gate | 无专属 hook；仅在执行前由 `PreToolUse(Task)` 间接保护 |
-| `workflow-executing` | 恢复执行器、推进任务、触发验证与审查 | `SessionStart`、`PreToolUse(Task)`、`PostToolUse` |
-| `workflow-reviewing` | 两阶段审查与 `quality_gates.*` 写入 | `PostToolUse` 只读取结果，不触发审查本身 |
+| `workflow-plan` | 规划流程与人工 gate | 无专属 hook；仅在执行前由 `PreToolUse(Task)` 间接保护 |
+| `workflow-execute` | 恢复执行器、推进任务、触发验证与审查 | `SessionStart`、`PreToolUse(Task)`、`PostToolUse` |
+| `workflow-review` | 两阶段审查与 `quality_gates.*` 写入 | `PostToolUse` 只读取结果，不触发审查本身 |
 | `workflow-delta` | 增量变更分析与 apply | 无专属 hook |
 | `workflow-ops` | `status` / `archive` 运行时操作 | 无专属 hook |
 | `dispatching-parallel-agents` | 并行执行规则来源 | 间接依赖 `WorktreeCreate` / `WorktreeRemove` |

@@ -14,16 +14,16 @@
 
 | 命令 | 路由到 | 说明 |
 |------|--------|------|
-| `/workflow plan` | `workflow-planning` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review` |
-| `/workflow spec-review` | `workflow-planning` | 用户审查 Spec 后生成 Plan，状态进入 `planned` |
-| `/workflow execute` | `workflow-executing` | 治理决策、任务执行、验证、审查与状态推进 |
+| `/workflow plan` | `workflow-plan` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review` |
+| `/workflow spec-review` | `workflow-plan` | 用户审查 Spec 后生成 Plan，状态进入 `planned` |
+| `/workflow execute` | `workflow-execute` | 治理决策、任务执行、验证、审查与状态推进 |
 | `/workflow delta` | `workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
 | `/workflow status` | `workflow-ops` | 查看当前进度、阻塞点与下一步建议 |
 | `/workflow archive` | `workflow-ops` | 归档已完成工作流 |
 
 > `start` 是 `plan` 的向后兼容别名。
 
-`workflow-reviewing`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
+`workflow-review`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
 
 ### Public Commands
 
@@ -85,9 +85,9 @@ core/
 ├── commands/workflow.md          # 统一 command 入口（路由层）
 ├── commands/team.md              # 独立 /team command 入口
 ├── skills/
-│   ├── workflow-planning/        # /workflow plan + spec-review
-│   ├── workflow-executing/       # /workflow execute
-│   ├── workflow-reviewing/       # 两阶段审查（execute 内部触发）
+│   ├── workflow-plan/        # /workflow plan + spec-review
+│   ├── workflow-execute/       # /workflow execute
+│   ├── workflow-review/       # 两阶段审查（execute 内部触发）
 │   ├── workflow-delta/           # /workflow delta
 │   ├── workflow-ops/             # /workflow status + archive
 │   ├── team/                     # /team 显式入口路由
@@ -323,9 +323,9 @@ flowchart TD
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
 - `core/commands/git-rollback.md`
-- `core/skills/workflow-planning/SKILL.md`
-- `core/skills/workflow-executing/SKILL.md`
-- `core/skills/workflow-reviewing/SKILL.md`
+- `core/skills/workflow-plan/SKILL.md`
+- `core/skills/workflow-execute/SKILL.md`
+- `core/skills/workflow-review/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-ops/SKILL.md`
 - `core/skills/plan/SKILL.md`

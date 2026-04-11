@@ -1,11 +1,11 @@
 ---
-name: workflow-reviewing
-description: "workflow 两阶段审查行动指南 — 被 workflow-executing 在质量关卡和审查触发点调用。"
+name: workflow-review
+description: "workflow 两阶段审查行动指南 — 被 workflow-execute 在质量关卡和审查触发点调用。"
 ---
 
-# workflow-reviewing
+# workflow-review
 
-> 本 skill 是 workflow 两阶段审查的完整行动指南。被 `workflow-executing` 在质量关卡任务和审查触发点引用，不提供独立的 `/workflow` action。
+> 本 skill 是 workflow 两阶段审查的完整行动指南。被 `workflow-execute` 在质量关卡任务和审查触发点引用，不提供独立的 `/workflow` action。
 
 <HARD-GATE>
 四条不可违反的规则：
@@ -255,7 +255,7 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId
 
 | 关联 | 路径 |
 |------|------|
-| 执行引擎 | [`../workflow-executing/SKILL.md`](../workflow-executing/SKILL.md) |
+| 执行引擎 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
 | 并行分派（平台路由） | [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) |
 | CLI 入口 | `core/utils/workflow/quality_review.js` |
 | Command 入口 | [`../../commands/workflow.md`](../../commands/workflow.md) |

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//d/code/claude-workflow/**)",
+      "Bash(done)",
+      "Bash(node -e \"const p = require\\(''path''\\); console.log\\(p.resolve\\(''core/utils/workflow'', ''..'', ''..'', ''agents''\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''path''\\); const pkgRoot = p.join\\(''core'', ''skills''\\); console.log\\(p.join\\(pkgRoot, ''..'', ''..'', ''core'', ''agents''\\)\\)\")",
+      "Bash(node -e \":*)",
+      "Bash(node:*)"
+    ]
+  }
+}

@@ -211,7 +211,7 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
     blocked_summary: '- 无',
     critical_constraints: '- Team mode 必须显式通过 /team 进入\n- 不得因 parallel-boundaries 自动升级为 team mode\n- 保持现有 /workflow 语义不变',
     user_facing_behavior: `- 以 team 模式协作完成：${summary}`,
-    architecture_summary: '- 以独立 team runtime bootstrap team-specific planning / execution / verify / fix\n- shared helpers 仅作为 team runtime 内部实现积木，不直接暴露为 workflow-planning 复用链路\n- 并行能力由 team runtime 内部管理，不直接调用 dispatching-parallel-agents 作为外层编排器',
+    architecture_summary: '- 以独立 team runtime bootstrap team-specific planning / execution / verify / fix\n- shared helpers 仅作为 team runtime 内部实现积木，不直接暴露为 workflow-plan 复用链路\n- 并行能力由 team runtime 内部管理，不直接调用 dispatching-parallel-agents 作为外层编排器',
     file_structure: `- ${specRelative}\n- ${planRelative}\n- ${teamTasksRelative}`,
     acceptance_criteria: `- [ ] ${summary}\n- [ ] Team mode 保持显式触发\n- [ ] 现有 /workflow 不被自动升级`,
     implementation_slices: '- Slice 1：生成 team 规划工件\n- Slice 2：拆分 team work packages\n- Slice 3：进入 execute / verify / fix 生命周期',

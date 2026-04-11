@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const PROFILE_DIR = path.resolve(__dirname, '..', '..', 'specs', 'workflow-runtime', 'role-profiles')
+const PROFILE_DIR = path.resolve(__dirname, '..', '..', 'agents')
 
 function safeArray(value) {
   return Array.isArray(value) ? value : []

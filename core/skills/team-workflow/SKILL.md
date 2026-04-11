@@ -30,12 +30,12 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 - 初始化 `team-state.json` 与 `team-task-board.json`
 - 写入 `boundary_claims` / dispatch metadata
 
-它当前**不会自动等价于**完整 `workflow-planning` 生命周期；`workflow-planning` 仍是 `/workflow plan` 的权威规划入口。
+它当前**不会自动等价于**完整 `workflow-plan` 生命周期；`workflow-plan` 仍是 `/workflow plan` 的权威规划入口。
 
-### 与 workflow-planning 的关系
+### 与 workflow-plan 的关系
 
 > ⚠️ team 专用 spec/plan 是**简化版规划产物**，不等同于 `/workflow plan` 的完整 8 步管线。
-> 以下 workflow-planning 的治理措施在 team planning 中**不适用**：
+> 以下 workflow-plan 的治理措施在 team planning 中**不适用**：
 > - UX 设计审批 (Step 4)
 > - 需求讨论 (Step 3)
 > - Spec Self-Review / Plan Self-Review
@@ -45,10 +45,10 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 > 再将规划产物导入 team runtime。
 >
 > ⚠️ team spec/plan 的 task 格式必须与 workflow 的 `WorkflowTaskV2` 兼容，
-> 以确保 `workflow-executing` 和 `workflow-reviewing` 可正常消费。
+> 以确保 `workflow-execute` 和 `workflow-review` 可正常消费。
 
 阅读：
-- [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md)
+- [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md)
 - [`../../specs/team-runtime/overview.md`](../../specs/team-runtime/overview.md)
 - [`../../specs/team-runtime/state-machine.md`](../../specs/team-runtime/state-machine.md)
 
@@ -73,8 +73,8 @@ team-plan -> team-exec -> team-verify -> team-fix (loop) -> completed | failed |
 ```
 
 阅读：
-- [`../workflow-executing/SKILL.md`](../workflow-executing/SKILL.md)
-- [`../workflow-reviewing/SKILL.md`](../workflow-reviewing/SKILL.md)
+- [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md)
+- [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md)
 - [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md)
 - [`../../specs/team-runtime/execute-entry.md`](../../specs/team-runtime/execute-entry.md)
 - [`../../specs/team-runtime/status.md`](../../specs/team-runtime/status.md)

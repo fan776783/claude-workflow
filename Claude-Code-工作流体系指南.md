@@ -136,9 +136,9 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | Command 入口 | `core/commands/workflow.md` | 稳定的 `/workflow` 命令路由层 |
-| `workflow-planning` | `core/skills/workflow-planning/` | `/workflow plan` + `/workflow spec-review` 规划阶段 |
-| `workflow-executing` | `core/skills/workflow-executing/` | `/workflow execute` 执行阶段 |
-| `workflow-reviewing` | `core/skills/workflow-reviewing/` | 两阶段审查协议（由 execute 内部触发） |
+| `workflow-plan` | `core/skills/workflow-plan/` | `/workflow plan` + `/workflow spec-review` 规划阶段 |
+| `workflow-execute` | `core/skills/workflow-execute/` | `/workflow execute` 执行阶段 |
+| `workflow-review` | `core/skills/workflow-review/` | 两阶段审查协议（由 execute 内部触发） |
 | `workflow-delta` | `core/skills/workflow-delta/` | `/workflow delta` 增量变更 |
 | `workflow-ops` | `core/skills/workflow-ops/` | `/workflow status` + `/workflow archive` 运行时操作 |
 | 共享运行时 | `core/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
@@ -274,7 +274,7 @@ flowchart TD
 
 ## 5. Skill 流程图
 
-### 5.1 workflow-planning（规划阶段）
+### 5.1 workflow-plan（规划阶段）
 
 ```mermaid
 flowchart TD
@@ -337,7 +337,7 @@ flowchart TD
     Step7 --> Step8
 ```
 
-### 5.2 workflow-executing（执行阶段）
+### 5.2 workflow-execute（执行阶段）
 
 ```mermaid
 flowchart TD
@@ -374,7 +374,7 @@ flowchart TD
         E1 -->|是| E2["Red → Green → Refactor"]
         E1 -->|否| E3["直接执行"]
         E4{"质量关卡？"}
-        E4 -->|是| E5["触发 workflow-reviewing"]
+        E4 -->|是| E5["触发 workflow-review"]
     end
 
     subgraph Step6["Step 6: Post-Execution Pipeline"]
@@ -403,7 +403,7 @@ flowchart TD
     Step6 --> Step7
 ```
 
-### 5.3 workflow-reviewing（两阶段审查）
+### 5.3 workflow-review（两阶段审查）
 
 ```mermaid
 flowchart TD
@@ -614,7 +614,7 @@ stateDiagram-v2
 |------|---------|---------| 
 | 用户 Spec 审查 | `review_status.user_spec_review` | `workflow spec-review --choice` |
 | Plan Review | `review_status.plan_review` | 执行引擎自动触发 |
-| 执行质量关卡 | `quality_gates[taskId]` | `workflow-reviewing` skill 自动触发 |
+| 执行质量关卡 | `quality_gates[taskId]` | `workflow-review` skill 自动触发 |
 
 ### 6.7 自愈机制
 
@@ -908,9 +908,9 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 | Skill | 路由自 | 职责 |
 |-------|--------|------|
-| `workflow-planning` | `/workflow plan` + `/workflow spec-review` | 规划阶段：代码分析、需求讨论、UX 审批、Spec / Plan 生成 |
-| `workflow-executing` | `/workflow execute` | 执行阶段：治理、验证、审查、状态推进 |
-| `workflow-reviewing` | 执行内部触发 | 两阶段审查协议：Spec 合规 + 代码质量 |
+| `workflow-plan` | `/workflow plan` + `/workflow spec-review` | 规划阶段：代码分析、需求讨论、UX 审批、Spec / Plan 生成 |
+| `workflow-execute` | `/workflow execute` | 执行阶段：治理、验证、审查、状态推进 |
+| `workflow-review` | 执行内部触发 | 两阶段审查协议：Spec 合规 + 代码质量 |
 | `workflow-delta` | `/workflow delta` | 增量变更：需求 / PRD / API 变更的影响分析与同步 |
 | `workflow-ops` | `/workflow status` + `/workflow archive` | 运行时状态查看与工作流归档 |
 | `team` | `/team start` 入口层 | 显式 team mode 的入口契约、边界与路由关系 |
@@ -1022,11 +1022,11 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ### 13.8 workflow 为什么从单一 skill 拆分为 5 个子 skill？
 
-为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用。当前 5 个 skill 分别是：`workflow-planning`、`workflow-executing`、`workflow-reviewing`、`workflow-delta`、`workflow-ops`。
+为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用。当前 5 个 skill 分别是：`workflow-plan`、`workflow-execute`、`workflow-review`、`workflow-delta`、`workflow-ops`。
 
 ### 13.9 `collaborating-with-codex` 何时被使用？
 
-该 skill 是 Codex 协作的基础设施层，被 `fix-bug`、`diff-review --deep`、`workflow-reviewing` 等多个 skill 内部引用，用于只读候选分析、审查与其他委派任务。
+该 skill 是 Codex 协作的基础设施层，被 `fix-bug`、`diff-review --deep`、`workflow-review` 等多个 skill 内部引用，用于只读候选分析、审查与其他委派任务。
 
 ### 13.10 什么是声明式 Skill 架构？
 
@@ -1100,9 +1100,9 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
 - `core/commands/git-rollback.md`
-- `core/skills/workflow-planning/SKILL.md`
-- `core/skills/workflow-executing/SKILL.md`
-- `core/skills/workflow-reviewing/SKILL.md`
+- `core/skills/workflow-plan/SKILL.md`
+- `core/skills/workflow-execute/SKILL.md`
+- `core/skills/workflow-review/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-ops/SKILL.md`
 - `core/skills/plan/SKILL.md`

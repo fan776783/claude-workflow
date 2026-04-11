@@ -39,10 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `doctor` 在 repo-link 模式下改为检查 package root，并给出与当前模式一致的恢复建议
 - **analyze 合同内聚**：将 `core/prompts/codex/analyzer.md` 迁移到 `core/skills/analyze/references/codex-analyzer.md`，并按当前 `/analyze` 的 `analysis_depth` / `codex_involvement` 契约重写为本地 skill 级分析合同
 - **受管内部资源精简**：安装器、校验脚本、交互式安装摘要与文档同步移除 `project` / `prompts` 目录，`.agent-workflow/` 托管资源收敛为 `utils/specs/hooks/docs`
-- **workflow-planning 基础设施预检拆分**：将 Git 检查、项目配置自愈、工作流状态检测从 `phase-0-code-analysis.md`（407→~230 行）提取为独立共享模块 `core/specs/workflow-runtime/preflight.md`，`/quick-plan` 等轻量命令可复用
-- **workflow-planning Pattern Discovery + Confidence Score**：`phase-2-plan-generation.md` 新增 Step 4.8 Pattern Discovery（从 `analysisResult` 提取 Patterns to Mirror + Mandatory Reading）和 Step 4.9 Confidence Score（1-10 综合评分），Self-Review 增加 Pattern Faithfulness 和 No Prior Knowledge Test 检查项
-- **workflow-executing Pattern Mirror 引用**：`execute-overview.md` Step 5（显示任务上下文）新增 Patterns to Mirror 和 Mandatory Reading 展示，执行前先读取源文件中的模式实现确保风格一致
-- **workflow-executing Git Branch Detection**：`execute-overview.md` 新增 Step 1.5 Git 分支检测（建议性），在 `main`/`master`/`develop` 上执行时建议创建 feature branch
+- **workflow-plan 基础设施预检拆分**：将 Git 检查、项目配置自愈、工作流状态检测从 `phase-0-code-analysis.md`（407→~230 行）提取为独立共享模块 `core/specs/workflow-runtime/preflight.md`，`/quick-plan` 等轻量命令可复用
+- **workflow-plan Pattern Discovery + Confidence Score**：`phase-2-plan-generation.md` 新增 Step 4.8 Pattern Discovery（从 `analysisResult` 提取 Patterns to Mirror + Mandatory Reading）和 Step 4.9 Confidence Score（1-10 综合评分），Self-Review 增加 Pattern Faithfulness 和 No Prior Knowledge Test 检查项
+- **workflow-execute Pattern Mirror 引用**：`execute-overview.md` Step 5（显示任务上下文）新增 Patterns to Mirror 和 Mandatory Reading 展示，执行前先读取源文件中的模式实现确保风格一致
+- **workflow-execute Git Branch Detection**：`execute-overview.md` 新增 Step 1.5 Git 分支检测（建议性），在 `main`/`master`/`develop` 上执行时建议创建 feature branch
 - **专项技能目录与文档索引收敛**：移除 `/analyze` 后，同步更新 README、CLAUDE 与工作流指南中的技能数量、能力说明与命令示例
 
 ### Fixed
@@ -62,9 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **workflow 模块化拆分**：原单体 `workflow` skill 拆分为 4 个专项 workflow skills + 共享运行时
-  - `workflow-planning`：承接 `/workflow start` 的规划阶段（Phase 0 ~ Phase 2）
-  - `workflow-executing`：承接 `/workflow execute` 的执行阶段（治理、验证、审查、状态推进）
-  - `workflow-reviewing`：承接两阶段审查协议（Stage 1 Spec 合规 + Stage 2 代码质量），由 execute 内部质量关卡触发
+  - `workflow-plan`：承接 `/workflow start` 的规划阶段（Phase 0 ~ Phase 2）
+  - `workflow-execute`：承接 `/workflow execute` 的执行阶段（治理、验证、审查、状态推进）
+  - `workflow-review`：承接两阶段审查协议（Stage 1 Spec 合规 + Stage 2 代码质量），由 execute 内部质量关卡触发
   - `workflow-delta`：承接 `/workflow delta` 的增量变更（需求 / PRD / API 变更影响分析与同步）
   - 共享运行时迁移到 `core/specs/workflow-runtime/`（状态机、共享工具、外部依赖语义）
   - 共享模板迁移到 `core/specs/workflow-templates/`（spec / plan 模板）

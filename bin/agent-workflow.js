@@ -52,6 +52,13 @@ function formatHookInspection(summary, { optional = false } = {}) {
   return optional ? '未注册（可选）' : '未注册';
 }
 
+function formatAgentFilesResult(result, fallbackMessage = '未检测') {
+  if (!result) return fallbackMessage;
+  if (result.synced) return `已同步 (${result.count} 个)`;
+  const detail = result.error || (result.issues || []).join('; ') || '未知错误';
+  return `异常: ${detail}`;
+}
+
 if (process.argv.length === 2) {
   if (process.stdin.isTTY && process.stdout.isTTY) {
     const { run } = require('../lib/menu');
@@ -169,6 +176,9 @@ if (process.argv.length === 2) {
             console.log(`      workflow hooks (base) -> ${formatHookResult(agentResult.workflowHooks.base || agentResult.workflowHooks)}`);
             console.log(`      workflow hooks (strict) -> ${formatHookResult(agentResult.workflowHooks.strict || null, '未注册（可选）')}`);
           }
+          if (agentResult.agentFiles) {
+            console.log(`      subagent 文件 -> ${formatAgentFilesResult(agentResult.agentFiles)}`);
+          }
         }
 
         if (result.errors.length > 0) {
@@ -229,6 +239,9 @@ if (process.argv.length === 2) {
           if (agentResult.workflowHooks) {
             console.log(`      workflow hooks (base) -> ${formatHookResult(agentResult.workflowHooks.base || agentResult.workflowHooks)}`);
             console.log(`      workflow hooks (strict) -> ${formatHookResult(agentResult.workflowHooks.strict || null, '未注册（可选）')}`);
+          }
+          if (agentResult.agentFiles) {
+            console.log(`      subagent 文件 -> ${formatAgentFilesResult(agentResult.agentFiles)}`);
           }
         }
 
@@ -400,6 +413,8 @@ if (process.argv.length === 2) {
                     ? `commands 异常: ${agentStatus.brokenCommands.join(', ')}`
                     : agentStatus.managedDirIssues.length > 0
                       ? `受管目录异常: ${agentStatus.managedDirIssues.join(', ')}`
+                      : agentStatus.agentFiles && !agentStatus.agentFiles.synced
+                        ? `subagent 异常: ${(agentStatus.agentFiles.issues || ['未同步']).join(', ')}`
                       : '安装异常';
                 statusText = `(${brokenSummary})`;
               }
@@ -421,6 +436,10 @@ if (process.argv.length === 2) {
                 console.log(`      workflow hooks (strict) -> ${formatHookInspection(agentStatus.workflowHooks?.strict, { optional: true })}`);
               } else {
                 console.log('      hooks 注册 -> 项目级安装不修改 settings.json');
+              }
+              if (agentStatus.agentFiles) {
+                const af = agentStatus.agentFiles;
+                console.log(`      subagent 文件 -> ${formatAgentFilesResult(af)}`);
               }
             }
           }
@@ -539,6 +558,16 @@ if (process.argv.length === 2) {
                 issues.push(`Claude Code: workflow strict hooks 配置异常 (${(agentStatus.workflowHooks.strict.issues || ['配置异常']).join('; ')})`);
               } else {
                 ok.push('Claude Code: workflow strict hooks 未启用（可选）');
+              }
+
+              if (agentStatus.agentFiles) {
+                if (agentStatus.agentFiles.synced) {
+                  ok.push(`Claude Code: subagent 文件已同步 (${agentStatus.agentFiles.count} 个)`);
+                } else {
+                  issues.push(`Claude Code: subagent 文件异常 (${(agentStatus.agentFiles.issues || ['未同步']).join('; ')})`);
+                }
+              } else {
+                issues.push('Claude Code: subagent 文件未检测到');
               }
             }
           }

@@ -36,7 +36,7 @@ description: "团队模式入口 - 仅在用户显式调用 /team start|execute|
 
 阅读：
 - [`../team-workflow/SKILL.md`](../team-workflow/SKILL.md)
-- [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md)
+- [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md)
 
 ### `execute`
 

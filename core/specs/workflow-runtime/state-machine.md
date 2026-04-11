@@ -168,7 +168,7 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
 |------|---------|---------|
 | 用户 Spec 审查 | `review_status.user_spec_review` | `workflow spec-review --choice` |
 | Plan Review | `review_status.plan_review` | 执行引擎自动触发 |
-| 执行质量关卡 | `quality_gates[taskId]` | `workflow-reviewing` skill 自动触发 |
+| 执行质量关卡 | `quality_gates[taskId]` | `workflow-review` skill 自动触发 |
 
 > `execution_reviews` 为旧版字段（只读兼容）。新写入只使用 `quality_gates`。归一化读取：`node utils/workflow/state_manager.js review-result --task-id <id>`。
 

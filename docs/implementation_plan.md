@@ -1,6 +1,6 @@
-# workflow-executing 优化方案
+# workflow-execute 优化方案
 
-> 基于 `core/docs/skill-optimization-guide.md` 六大原则，对 `core/skills/workflow-executing` 进行系统性优化。
+> 基于 `core/docs/skill-optimization-guide.md` 六大原则，对 `core/skills/workflow-execute` 进行系统性优化。
 
 ## 现状诊断
 
@@ -62,7 +62,7 @@
 ## 优化目标架构
 
 ```
-workflow-executing/
+workflow-execute/
 ├── SKILL.md              (~350 行)   ← 合并为完整行动指南
 ├── references/
 │   ├── execution-checklist.md  (~90 行)   ← 保留（已优质）
@@ -88,18 +88,18 @@ workflow-executing/
 
 ### 核心理念
 
-仿照 `workflow-planning` 的优化成果：**SKILL.md 不再是索引页，而是完整的行动指南**。所有执行步骤、治理规则、模式路由集中在一个文件内，用自然语言声明行为，伪代码全部删除（对应函数已有 CLI/Node.js 实现）。
+仿照 `workflow-plan` 的优化成果：**SKILL.md 不再是索引页，而是完整的行动指南**。所有执行步骤、治理规则、模式路由集中在一个文件内，用自然语言声明行为，伪代码全部删除（对应函数已有 CLI/Node.js 实现）。
 
 ---
 
 ### 组件 1：SKILL.md 重写
 
-#### [MODIFY] [SKILL.md](file:///d:/code/claude-workflow/core/skills/workflow-executing/SKILL.md)
+#### [MODIFY] [SKILL.md](file:///d:/code/claude-workflow/core/skills/workflow-execute/SKILL.md)
 
 **从 39 行索引页 → ~350 行完整行动指南**。结构如下：
 
 ```markdown
-# workflow-executing
+# workflow-execute
 
 > 本 skill 是 `/workflow execute` 的完整行动指南。
 
@@ -180,7 +180,7 @@ workflow-executing/
 
 ### 组件 2：提取 Self-Review
 
-#### [NEW] [self-review-checklist.md](file:///d:/code/claude-workflow/core/skills/workflow-executing/references/self-review-checklist.md)
+#### [NEW] [self-review-checklist.md](file:///d:/code/claude-workflow/core/skills/workflow-execute/references/self-review-checklist.md)
 
 从 `post-execution-pipeline.md` 的 Step 6.6 自审查清单提取（~40 行），遵循原则 6。
 
@@ -188,11 +188,11 @@ workflow-executing/
 
 ### 组件 3：保留优质 references
 
-#### [保留] [execution-checklist.md](file:///d:/code/claude-workflow/core/skills/workflow-executing/references/execution-checklist.md)
+#### [保留] [execution-checklist.md](file:///d:/code/claude-workflow/core/skills/workflow-execute/references/execution-checklist.md)
 
 当前已是高质量独立文档，无需修改。SKILL.md 中引用 `执行自审：阅读 references/execution-checklist.md 并逐项检查。`
 
-#### [保留] [implementation-report.md](file:///d:/code/claude-workflow/core/skills/workflow-executing/references/implementation-report.md)
+#### [保留] [implementation-report.md](file:///d:/code/claude-workflow/core/skills/workflow-execute/references/implementation-report.md)
 
 从 specs/ 移至 references/，纯模板定义，保留原样。
 
@@ -247,7 +247,7 @@ workflow-executing/
 
 > [!IMPORTANT]
 > **架构决策：SKILL.md 作为唯一行动指南**
-> 优化后 SKILL.md 从 39 行索引页扩展为 ~350 行完整指南。所有 specs 文件被删除，行动逻辑集中在一处。这与 `workflow-planning` 的优化路径一致。
+> 优化后 SKILL.md 从 39 行索引页扩展为 ~350 行完整指南。所有 specs 文件被删除，行动逻辑集中在一处。这与 `workflow-plan` 的优化路径一致。
 >
 > 请确认此方向是否可接受。
 
@@ -381,23 +381,23 @@ workflow-executing/
 
 ```bash
 # 1. 确认优化后文件计数和行数
-find core/skills/workflow-executing -type f | wc -l  # 目标: 4
-wc -l core/skills/workflow-executing/SKILL.md        # 目标: ≤ 350
+find core/skills/workflow-execute -type f | wc -l  # 目标: 4
+wc -l core/skills/workflow-execute/SKILL.md        # 目标: ≤ 350
 
 # 2. 确认无 TypeScript 伪代码残留
-grep -rn "function\|interface\|async\|Promise<\|: void\|: string" core/skills/workflow-executing/SKILL.md
+grep -rn "function\|interface\|async\|Promise<\|: void\|: string" core/skills/workflow-execute/SKILL.md
 # 目标: 0 匹配
 
 # 3. 确认无"先读"前置加载
-grep -n "先读" core/skills/workflow-executing/SKILL.md
+grep -n "先读" core/skills/workflow-execute/SKILL.md
 # 目标: 0 匹配
 
 # 4. 确认 HARD-GATE 集中
-grep -n "HARD-GATE\|铁律\|Iron Law" core/skills/workflow-executing/SKILL.md
+grep -n "HARD-GATE\|铁律\|Iron Law" core/skills/workflow-execute/SKILL.md
 # 目标: 仅在文件开头 <HARD-GATE> 块中出现
 
 # 5. 确认 CLI 引用覆盖
-grep -cn "workflow_cli.js\|task_parser.js\|state_manager.js\|dependency_checker.js\|verification.js\|execution_sequencer.js" core/skills/workflow-executing/SKILL.md
+grep -cn "workflow_cli.js\|task_parser.js\|state_manager.js\|dependency_checker.js\|verification.js\|execution_sequencer.js" core/skills/workflow-execute/SKILL.md
 # 目标: ≥ 10 处引用
 ```
 

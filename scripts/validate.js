@@ -85,10 +85,10 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
       message: 'hooks/runtime 文档仍引用旧的 .claude/specs/guides/ 路径',
     },
     {
-      root: path.join(packageRoot, 'skills', 'workflow-reviewing'),
+      root: path.join(packageRoot, 'skills', 'workflow-review'),
       predicate: (_, name) => name.endsWith('.md'),
       forbidden: '.claude/specs/guides/',
-      message: 'workflow-reviewing 文档仍引用旧的 .claude/specs/guides/ 路径',
+      message: 'workflow-review 文档仍引用旧的 .claude/specs/guides/ 路径',
     },
     {
       root: repoRoot,
@@ -198,7 +198,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     ? (await fs.readdir(workflowHooksDir)).filter(file => file.endsWith('.js'))
     : [];
   const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'task_runtime.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
-  const workflowDocSkills = ['workflow-planning', 'workflow-executing', 'workflow-reviewing', 'workflow-delta'];
+  const workflowDocSkills = ['workflow-plan', 'workflow-execute', 'workflow-review', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {
     if (!scriptFiles.includes(file)) {
@@ -325,6 +325,33 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   }
   if (data.doc_placeholders?.length) {
     errors.push(`workflow 文档存在 placeholder: ${data.doc_placeholders.join(', ')}`);
+  }
+  // Agents 契约：core/agents/ 必须存在且每个 agent 文件包含必要的路由元数据
+  const agentsDir = path.join(packageRoot, '..', 'core', 'agents');
+
+  if (await fs.pathExists(agentsDir)) {
+    const agentFiles = (await fs.readdir(agentsDir)).filter(f => f.endsWith('.md'));
+    if (agentFiles.length === 0) {
+      errors.push('core/agents/ 为空');
+    } else {
+      let validCount = 0;
+      for (const f of agentFiles) {
+        const content = require('fs').readFileSync(path.join(agentsDir, f), 'utf8');
+        const hasPhase = /^phase:\s+\S/m.test(content);
+        const hasRole = /^role:\s+\S/m.test(content);
+        const hasName = /^name:\s+\S/m.test(content);
+        if (!hasPhase || !hasRole || !hasName) {
+          errors.push(`core/agents/${f} 缺少必要字段 (name/phase/role)`);
+        } else {
+          validCount++;
+        }
+      }
+      if (validCount === agentFiles.length) {
+        console.log(`  ✅ agents 契约: ${validCount} 个 subagent 文件校验通过`);
+      }
+    }
+  } else {
+    errors.push('core/agents/ 目录不存在');
   }
 }
 

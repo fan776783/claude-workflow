@@ -246,9 +246,9 @@ node core/utils/workflow/workflow_cli.js archive --summary
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-planning` | 规划流程 | [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md) |
-| `workflow-executing` | 任务执行 | [`../workflow-executing/SKILL.md`](../workflow-executing/SKILL.md) |
-| `workflow-reviewing` | 质量关卡审查 | [`../workflow-reviewing/SKILL.md`](../workflow-reviewing/SKILL.md) |
+| `workflow-plan` | 规划流程 | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
+| `workflow-execute` | 任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
+| `workflow-review` | 质量关卡审查 | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-delta` | 增量变更 | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |
 
 > CLI 入口：`core/utils/workflow/workflow_cli.js`
