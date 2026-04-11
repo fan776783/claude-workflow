@@ -1,5 +1,8 @@
 # 任务完成检查清单（每个 Task 完成后强制执行）
 
+> ⚠️ **DEPRECATED**：权威版本已迁移至 [`../../skills/workflow-executing/references/execution-checklist.md`](../../skills/workflow-executing/references/execution-checklist.md)。本文件保留仅供向后兼容参考，不再更新。
+
+
 > 每个 **已完成实现并准备声明 completed 的 task**，在进入下一个 task 之前，必须依次完成以下检查。
 >
 > ⚠️ 跳过 ①~⑤ 中的任意一项即为执行违规。⑥ Journal 为条件步骤，仅在列出的触发场景下执行。
@@ -40,7 +43,7 @@
 
 | 条件 | 审查级别 | 操作 |
 |------|---------|------|
-| 当前 task 的 `actions` 含 `quality_review` | **完整两阶段审查** | 执行 Spec 合规 + 代码质量审查（参见 `specs/execute/subagent-review.md`） |
+| 当前 task 的 `actions` 含 `quality_review` | **完整两阶段审查** | 执行 Spec 合规 + 代码质量审查（参见 `../../skills/workflow-reviewing/SKILL.md` Step 2-3） |
 | 自上次审查以来已连续完成 **3 个** 常规 task | **轻量合规检查** | 读取 spec 对应章节，检查最近 3 个 task 的实现是否覆盖 spec 需求 |
 | 当前 task 是 plan 中的**最后一个** task | **全量完成审查** | 检查所有 spec 需求是否被完整实现 |
 

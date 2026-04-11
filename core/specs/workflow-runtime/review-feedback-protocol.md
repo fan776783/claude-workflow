@@ -1,5 +1,8 @@
 # 审查反馈处理协议
 
+> ⚠️ **DEPRECATED**：权威版本已迁移至 [`../../skills/workflow-reviewing/references/review-feedback-protocol.md`](../../skills/workflow-reviewing/references/review-feedback-protocol.md)。本文件保留仅供向后兼容参考，不再更新。
+
+
 > 借鉴 Superpowers receiving-code-review 的结构化反馈处理。
 
 收到代码审查反馈后（两阶段审查、Codex review、外部审查），按此协议处理。

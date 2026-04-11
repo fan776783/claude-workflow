@@ -61,6 +61,10 @@ node core/utils/workflow/workflow_cli.js execute --mode phase
 
 CLI 返回 `entry_action`、`resolved_mode`、`state_status`、`can_resume` 等完整信息。若返回 `entry_action: 'none'`，按 `message` 字段提示用户。
 
+**自愈后 upgrade_required 检测**：当 Step 2 中 `cmdInit` 自愈创建状态后，检查返回的 `upgrade_required` 字段。若为 `true`（plan 来自 `/quick-plan`，无独立 spec），提示用户：
+- 当前 plan 来自 `/quick-plan`，无独立 spec 和完整状态机
+- 建议方案：① `/workflow plan` 升级为完整工作流  ② 直接手动执行  ③ `--force` 强制继续（spec 审批标记为 skipped）
+
 ---
 
 ## Step 2: 读取工作流状态（state-first）
@@ -91,6 +95,14 @@ node core/utils/workflow/workflow_cli.js init
 CLI 自动从 plan.md 推导首个未完成任务并创建最小状态文件。
 
 **自愈失败 → fail-fast**：若创建失败（权限不足、磁盘满、plan.md 不存在），终止执行并提示用户检查后重试。不得静默继续。
+
+### 自愈审批状态
+
+自愈重建状态文件时，`user_spec_review` 根据 spec 文件存在性差异化处理：
+
+- `spec_file` 存在 → `user_spec_review` 恢复为 `approved`（reviewer: `system-recovery`）
+- `spec_file` 不存在（如来自 `/quick-plan`） → `user_spec_review` 标记为 `skipped`
+- 自愈后首次执行时，应在 Step 4 显示 `⚠️ 状态已自愈恢复，spec 审批标记为 system-recovery` 提醒
 
 ### 路径安全校验
 

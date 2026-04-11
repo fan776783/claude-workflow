@@ -191,6 +191,12 @@ node core/utils/workflow/workflow_cli.js delta fail \
 
 ### 6.1 更新 spec.md 和 plan.md
 
+> ⚠️ **Spec-Normative 约束**：任何对 plan.md 的修改，如果涉及 spec 中已定义的章节
+> （需求范围、架构模块、验收标准），必须**先更新 spec.md 对应章节**，再修改 plan.md。
+> 不得绕过 spec 直接在 plan 中新增或修改 spec 层面的语义。
+>
+> 允许不改 spec 的场景：纯执行层变更（调整步骤顺序、更新文件路径、添加验证命令）。
+
 根据影响分析结果直接编辑文件：
 
 - **新增任务**：追加为 `## Tn:` WorkflowTaskV2 任务块到 plan.md

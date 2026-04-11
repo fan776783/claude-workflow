@@ -47,6 +47,21 @@ function detectGitHead(projectRoot) {
   return commit || null
 }
 
+function inferSpecRelativeFromPlan(planRelative, projectRoot) {
+  const normalizedPlan = String(planRelative || '').replace(/\\/g, '/')
+  const candidates = []
+  if (normalizedPlan.startsWith('.claude/plans/')) {
+    candidates.push(normalizedPlan.replace('.claude/plans/', '.claude/specs/'))
+  }
+  if (normalizedPlan === '.claude/plan.md') candidates.push('.claude/spec.md')
+  if (normalizedPlan === '.cursor/plan.md') candidates.push('.cursor/spec.md')
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(projectRoot, candidate))) return candidate
+  }
+  return null
+}
+
 function cmdInit(projectId = null, projectRoot = null) {
   const root = detectProjectRoot(projectRoot)
   const pid = projectId || detectProjectId(root)
@@ -85,25 +100,22 @@ function cmdInit(projectId = null, projectRoot = null) {
   const inferred = summarizeTaskProgress(tasks)
 
   const planRelative = tasksPath ? path.relative(root, tasksPath).replace(/\\/g, '/') : null
-  let specFile = null
-  if (planRelative?.startsWith('.claude/plans/')) {
-    const derivedSpec = planRelative.replace('.claude/plans/', '.claude/specs/')
-    if (fs.existsSync(path.join(root, derivedSpec))) specFile = derivedSpec
-  }
-  if (!specFile) {
-    const specDir = path.join(root, '.claude', 'specs')
-    const specFiles = fs.existsSync(specDir)
-      ? fs.readdirSync(specDir)
-        .filter((file) => file.endsWith('.md'))
-        .sort((left, right) => fs.statSync(path.join(specDir, right)).mtimeMs - fs.statSync(path.join(specDir, left)).mtimeMs)
-      : []
-    specFile = specFiles.length ? `.claude/specs/${specFiles[0]}` : null
-  }
+  const specFile = inferSpecRelativeFromPlan(planRelative, root)
 
   const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
   const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
   state.progress = inferred.progress
-  state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
+  // spec 文件存在 → 推断历史上已通过审批，标记为 system-recovery
+  // 无 spec → 可能来自 quick-plan，标记为 skipped（不伪造审批记录）
+  if (specFile) {
+    state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
+  } else {
+    state.review_status.user_spec_review = buildUserSpecReview('skipped', 'execute', 'system-recovery')
+    state.review_status.user_spec_review.requires_degradation_ack = true
+    state.review_status.user_spec_review.acknowledged_degradation_at = null
+    state.review_status.user_spec_review.acknowledged_degradation_by = null
+    state.review_status.user_spec_review.acknowledged_degradation_source = null
+  }
   state.project_root = root
   state.initial_head_commit = detectGitHead(root)
   writeState(statePath, state)
@@ -117,6 +129,9 @@ function cmdInit(projectId = null, projectRoot = null) {
     first_task: inferred.current_task_id,
     workflow_status: inferred.workflow_status,
     progress: inferred.progress,
+    // 当 plan 存在但无 spec 时（如来自 /quick-plan），提示调用方引导升级
+    upgrade_required: !specFile,
+    spec_review_status: specFile ? 'approved' : 'skipped',
   }
 }
 
@@ -267,7 +282,7 @@ function main() {
       const mode = option(args, '--mode')
       const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
       const normalizedMode = mode || (intent && EXECUTION_MODE_ALIASES[intent]) || intent
-      result = buildExecuteEntry(command, intent, normalizedMode, root)
+      result = buildExecuteEntry(command, intent, normalizedMode, root, { force: args.includes('--force') })
     } else if (command === 'next') {
       result = cmdNext(pid, projectRoot)
     } else if (command === 'plan' || command === 'start') {

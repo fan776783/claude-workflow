@@ -1317,6 +1317,32 @@ test('workflow helper migration coverage', async (t) => {
     assert.deepEqual(state.progress.blocked, ['T1'])
   })
 
+  await t.test('workflow init self-heal does not bind an unrelated spec to quick-plan recovery', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-init-unrelated-spec-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+
+    const planPath = path.join(root, '.claude', 'plans', 'recovery.md')
+    const unrelatedSpecPath = path.join(root, '.claude', 'specs', 'other.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.mkdirSync(path.dirname(unrelatedSpecPath), { recursive: true })
+    fs.writeFileSync(planPath, PLAN_FIXTURE)
+    fs.writeFileSync(unrelatedSpecPath, '# Unrelated Spec\n')
+
+    const initResult = runNode(cliScript, ['init'], { cwd: root, env: extraEnv })
+    assert.equal(initResult.status, 0, initResult.stderr)
+    const initPayload = JSON.parse(initResult.stdout)
+    assert.equal(initPayload.initialized, true)
+    assert.equal(initPayload.spec_file, null)
+    assert.equal(initPayload.upgrade_required, true)
+    assert.equal(initPayload.spec_review_status, 'skipped')
+
+    const state = JSON.parse(fs.readFileSync(workflowStatePath(home, 'proj-test'), 'utf8'))
+    assert.equal(state.spec_file, null)
+    assert.equal(state.review_status.user_spec_review.status, 'skipped')
+    assert.equal(state.review_status.user_spec_review.requires_degradation_ack, true)
+  })
+
   await t.test('legacy canonical state path arguments still work for helper CLIs', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-legacy-'))
     const [extraEnv, home] = makeCliEnv(root)
@@ -1405,6 +1431,81 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.can_resume, false)
       assert.equal(result.reason, 'user_spec_review_required')
       assert.match(result.message, /Phase 1\.1/)
+    })
+  })
+
+  await t.test('buildExecuteEntry blocks degraded quick-plan execution until user confirms downgrade', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-skipped-spec-gate-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.spec_file = null
+      state.review_status = {
+        user_spec_review: {
+          status: 'skipped',
+          review_mode: 'human_gate',
+          reviewed_at: '2026-04-11T00:00:00.000Z',
+          reviewer: 'system-recovery',
+          next_action: 'execute',
+          requires_degradation_ack: true,
+          acknowledged_degradation_at: null,
+          acknowledged_degradation_by: null,
+          acknowledged_degradation_source: null,
+        },
+      }
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'none')
+      assert.equal(result.can_resume, false)
+      assert.equal(result.reason, 'spec_upgrade_required')
+      assert.match(result.message, /execute --force/)
+    })
+  })
+
+  await t.test('buildExecuteEntry --force persists degraded execution acknowledgement', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-skipped-spec-force-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.spec_file = null
+      state.review_status = {
+        user_spec_review: {
+          status: 'skipped',
+          review_mode: 'human_gate',
+          reviewed_at: '2026-04-11T00:00:00.000Z',
+          reviewer: 'system-recovery',
+          next_action: 'execute',
+          requires_degradation_ack: true,
+          acknowledged_degradation_at: null,
+          acknowledged_degradation_by: null,
+          acknowledged_degradation_source: null,
+        },
+      }
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root, { force: true })
+      assert.equal(result.entry_action, 'execute')
+      assert.equal(result.can_resume, true)
+      assert.equal(result.degraded_execution_acknowledged, true)
+
+      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      assert.equal(persisted.review_status.user_spec_review.status, 'skipped')
+      assert.equal(Boolean(persisted.review_status.user_spec_review.acknowledged_degradation_at), true)
+      assert.equal(persisted.review_status.user_spec_review.requires_degradation_ack, false)
+      assert.equal(persisted.git_status.user_acknowledged_degradation, true)
     })
   })
 

@@ -22,7 +22,7 @@ const {
   taskToDict,
   updateTaskStatusInMarkdown,
 } = require('./task_parser')
-const { ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+const { acknowledgeSkippedSpecReview, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
 
 function loadProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -63,12 +63,19 @@ const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
 const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
 const EXECUTE_ENTRY_STATUSES = new Set(['planned', 'running', 'paused', 'failed', 'blocked'])
 
-function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
+function buildExecuteEntry(command, intent, explicitMode, projectRoot, options = {}) {
+  const { force = false } = options
   const config = loadProjectConfig(projectRoot)
   const projectId = extractProjectId(config) || detectProjectId(String(projectRoot))
   const context = loadExecutionContext(projectId, String(projectRoot))
-  const state = !context.error ? context.state : null
-  const gateViolation = state ? getSpecReviewGateViolation(state) : null
+  let state = !context.error ? context.state : null
+  let gateViolation = state ? getSpecReviewGateViolation(state) : null
+
+  if (state && gateViolation && gateViolation.code === 'spec_upgrade_required' && force && context.state_path) {
+    state = acknowledgeSkippedSpecReview(state, 'user', 'execute --force')
+    writeState(context.state_path, state)
+    gateViolation = getSpecReviewGateViolation(state)
+  }
 
   if (command === 'execute') {
     if (!state) {
@@ -90,7 +97,9 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
         state_status: state ? state.status : null,
         can_resume: false,
         reason: gateViolation.code,
-        message: 'Spec 尚未通过 Phase 1.1 用户审查，不能进入执行阶段。请先完成显式批准。',
+        message: gateViolation.code === 'spec_upgrade_required'
+          ? gateViolation.message
+          : 'Spec 尚未通过 Phase 1.1 用户审查，不能进入执行阶段。请先完成显式批准。',
       }
     }
     if (!EXECUTE_ENTRY_STATUSES.has(state.status)) {
@@ -119,6 +128,9 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
       can_resume: Boolean(state),
       reason: 'explicit_execute',
     }
+    if (force && state?.review_status?.user_spec_review?.status === 'skipped') {
+      result.degraded_execution_acknowledged = true
+    }
     if (intent && !explicitMode && resolvedMode === (preferredMode || 'continuous') && !VALID_EXECUTION_MODES.has(intent)) {
       result.warning = `unrecognized_intent:${intent}`
     }
@@ -143,7 +155,9 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot) {
         state_status: state.status,
         can_resume: false,
         reason: gateViolation.code,
-        message: 'Spec 尚未通过 Phase 1.1 用户审查，不能继续执行。请先完成显式批准。',
+        message: gateViolation.code === 'spec_upgrade_required'
+          ? gateViolation.message
+          : 'Spec 尚未通过 Phase 1.1 用户审查，不能继续执行。请先完成显式批准。',
       }
     }
     const status = state.status

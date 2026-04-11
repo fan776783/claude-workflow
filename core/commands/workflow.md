@@ -114,6 +114,8 @@ examples:
 - `/workflow plan` 默认结束于 `spec_review`，不会直接开始执行
 - `/workflow spec-review --choice "Spec 正确，生成 Plan"` 会把已批准的 `spec.md` 继续推进到 `planned`
 - 规划完成后不会自动进入 execute；如需开始执行必须显式使用 `/workflow execute`
+- team runtime 的 spec/plan 是独立的简化版产物，不共享 workflow runtime 状态；两套 runtime 之间不存在自动同步机制
+- `/quick-plan` 产出的 plan 可通过 `/workflow execute` 自愈进入状态机，但因缺少 spec 会触发 `upgrade_required` 降级确认
 
 ---
 

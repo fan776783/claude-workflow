@@ -24,4 +24,4 @@ argument-hint: <需求描述 | path/to/requirement.md>
 
 - `/quick-plan` 只生成轻量 `plan.md`，不进入 workflow 状态机。
 - 如果 `/quick-plan` 过程中发现任务复杂度升到 XL 级，应切换到 `/workflow plan`。
-- 如果用户接受 `/quick-plan` 生成的计划，并希望按 workflow 执行，可继续使用 `/workflow execute`。
+- 如果用户接受 `/quick-plan` 生成的计划，并希望按 workflow 执行，建议先 `/workflow plan` 升级为完整工作流（含 spec + 状态机）。直接 `/workflow execute` 会因缺少 spec 而要求确认降级。

@@ -32,6 +32,21 @@ description: "team 重型运行时入口 - 承接 /team start|execute|status|arc
 
 它当前**不会自动等价于**完整 `workflow-planning` 生命周期；`workflow-planning` 仍是 `/workflow plan` 的权威规划入口。
 
+### 与 workflow-planning 的关系
+
+> ⚠️ team 专用 spec/plan 是**简化版规划产物**，不等同于 `/workflow plan` 的完整 8 步管线。
+> 以下 workflow-planning 的治理措施在 team planning 中**不适用**：
+> - UX 设计审批 (Step 4)
+> - 需求讨论 (Step 3)
+> - Spec Self-Review / Plan Self-Review
+> - PRD Coverage Drift Check
+>
+> 如果 team 的规划需求升级到需要完整 spec 治理，应先拆分为独立的 `/workflow plan` 任务，
+> 再将规划产物导入 team runtime。
+>
+> ⚠️ team spec/plan 的 task 格式必须与 workflow 的 `WorkflowTaskV2` 兼容，
+> 以确保 `workflow-executing` 和 `workflow-reviewing` 可正常消费。
+
 阅读：
 - [`../workflow-planning/SKILL.md`](../workflow-planning/SKILL.md)
 - [`../../specs/team-runtime/overview.md`](../../specs/team-runtime/overview.md)

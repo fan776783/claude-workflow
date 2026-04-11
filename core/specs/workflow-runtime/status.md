@@ -1,5 +1,8 @@
 # workflow status - 查看工作流状态 (v4.0)
 
+> ⚠️ **DEPRECATED**：权威版本已迁移至 [`../../skills/workflow-ops/SKILL.md`](../../skills/workflow-ops/SKILL.md)（Action 1: status）。本文件保留仅供向后兼容参考，不再更新。
+
+
 读取 `workflow-state.json` + `plan.md`，生成进度报告。
 
 > `workflow-state.json` 只允许位于 `~/.claude/workflows/{projectId}/workflow-state.json`；项目目录 `.claude/` 不得承载运行时状态文件。

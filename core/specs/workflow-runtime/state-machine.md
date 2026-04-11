@@ -1,6 +1,9 @@
 # 工作流状态机 (v6.0)
 
+> 📌 **Canonical Source**：本文件是工作流状态机的**统一规范**。Skills 的 SKILL.md 引用本文件定义的状态和转换；CLI 实现本文件的状态逻辑。不与 skills 文档重复，不标记弃用。
+
 > 状态的读写由 CLI 脚本消化。AI 通过 `workflow_cli.js` 操作状态，不直接读写 `workflow-state.json`。
+
 
 ## 状态定义
 
@@ -168,3 +171,13 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
 | 执行质量关卡 | `quality_gates[taskId]` | `workflow-reviewing` skill 自动触发 |
 
 > `execution_reviews` 为旧版字段（只读兼容）。新写入只使用 `quality_gates`。归一化读取：`node utils/workflow/state_manager.js review-result --task-id <id>`。
+
+### user_spec_review 状态值
+
+| 值 | 含义 | 来源 |
+|------|------|------|
+| `pending` | 等待用户审批 | CLI `start` 默认值 |
+| `approved` | 用户审批通过 | `spec-review --choice` 或 `system-recovery`（自愈且 spec 存在） |
+| `skipped` | 无 spec 路径的自愈恢复 | `system-recovery`（自愈但无 spec，如来自 `/quick-plan`） |
+
+> `skipped` 不阻塞执行（`getSpecReviewGateViolation` 视同 `approved`），但记录了该 plan 未经过完整 spec 审批管线。

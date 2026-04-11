@@ -1,5 +1,8 @@
 # workflow archive - 归档工作流 (v3.0)
 
+> ⚠️ **DEPRECATED**：权威版本已迁移至 [`../../skills/workflow-ops/SKILL.md`](../../skills/workflow-ops/SKILL.md)（Action 2: archive）。本文件中的 TypeScript 伪代码逻辑已在 `lifecycle_cmds.js` 的 `cmdArchive()` 中实现。本文件保留仅供向后兼容参考，不再更新。
+
+
 归档已完成的工作流；若存在 delta 变更记录，则将 `changes/` 目录移动到 `archive/`。
 
 ## 快速导航

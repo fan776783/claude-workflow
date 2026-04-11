@@ -26,3 +26,9 @@
 - [ ] `intent.md` 已写入变更目录
 - [ ] `review-status.json` 已写入变更目录
 - [ ] 以上文件在状态变更前完成写入（先审计后生效）
+
+## Spec-Normative 一致性
+
+- [ ] 新增/修改任务涉及的需求是否已在 spec.md 中定义
+- [ ] 若涉及 spec 层面语义（范围/架构/验收标准），spec.md 是否已先行更新
+- [ ] plan 中的 `spec_ref` 字段是否指向有效的 spec 章节

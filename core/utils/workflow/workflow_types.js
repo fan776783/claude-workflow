@@ -169,7 +169,28 @@ function getUserSpecReview(state) {
 }
 
 function isUserSpecReviewApproved(state) {
-  return getUserSpecReview(state).status === 'approved'
+  const review = getUserSpecReview(state)
+  return review.status === 'approved' || (review.status === 'skipped' && Boolean(review.acknowledged_degradation_at))
+}
+
+function acknowledgeSkippedSpecReview(state, reviewer = 'user', source = 'execute --force') {
+  const normalized = ensureStateDefaults(state)
+  const review = normalized.review_status.user_spec_review || (normalized.review_status.user_spec_review = {
+    status: 'pending',
+    review_mode: 'human_gate',
+    reviewed_at: null,
+    reviewer: 'user',
+    next_action: null,
+  })
+  if (review.status !== 'skipped') return normalized
+  const acknowledgedAt = isoNow()
+  review.acknowledged_degradation_at = acknowledgedAt
+  review.acknowledged_degradation_by = reviewer
+  review.acknowledged_degradation_source = source
+  review.requires_degradation_ack = false
+  normalized.git_status.user_acknowledged_degradation = true
+  normalized.updated_at = acknowledgedAt
+  return normalized
 }
 
 function getSpecReviewGateViolation(state) {
@@ -177,6 +198,15 @@ function getSpecReviewGateViolation(state) {
   if (!POST_SPEC_REVIEW_STATUSES.has(normalized.status)) return null
   const review = normalized.review_status.user_spec_review || {}
   if (review.status === 'approved') return null
+  if (review.status === 'skipped') {
+    if (review.acknowledged_degradation_at) return null
+    return {
+      code: 'spec_upgrade_required',
+      status: normalized.status,
+      review_status: 'skipped',
+      message: '当前 workflow 由无 spec 的 plan 自愈恢复，执行前需先升级到 /workflow plan，或显式使用 /workflow execute --force 确认降级。',
+    }
+  }
   return {
     code: 'user_spec_review_required',
     status: normalized.status,
@@ -232,6 +262,7 @@ module.exports = {
   nextChangeId,
   getUserSpecReview,
   isUserSpecReviewApproved,
+  acknowledgeSkippedSpecReview,
   getSpecReviewGateViolation,
 }
 
