@@ -157,7 +157,7 @@ function main() {
 
   const currentTaskId = (state.current_tasks || [])[0]
   if (!currentTaskId) {
-    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 当前没有 active task，禁止派发执行型 Task。请先通过 `/workflow execute` 解析下一步任务。')))
+    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 当前没有 active task，禁止派发执行型 Task。请先通过 `/workflow-execute` 解析下一步任务。')))
     return
   }
 

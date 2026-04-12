@@ -2,23 +2,23 @@
 
 ## 目标
 
-统一 `/workflow execute`、`/workflow execute 继续` 与裸自然语言“继续”的入口语义，避免不同文档对后续执行范围产生冲突理解。
+统一 `/workflow-execute`、`/workflow-execute 继续` 与裸自然语言“继续”的入口语义，避免不同文档对后续执行范围产生冲突理解。
 
 ## 单一规则
 
 ### 1. 显式命令入口
 
-- `/workflow execute`：显式进入执行器，默认使用 `continuous` 模式。
-- `/workflow execute --phase`：显式进入执行器，使用 `phase` 模式。
-- `/workflow execute --retry`：进入 retry 流程。
-- `/workflow execute --skip`：进入 skip 流程。
+- `/workflow-execute`：显式进入执行器，默认使用 `continuous` 模式。
+- `/workflow-execute --phase`：显式进入执行器，使用 `phase` 模式。
+- `/workflow-execute --retry`：进入 retry 流程。
+- `/workflow-execute --skip`：进入 skip 流程。
 
 ### 2. 命令内自然语言意图
 
-- `/workflow execute 继续` / `/workflow execute 连续` → `continuous`
-- `/workflow execute 下一阶段` / `/workflow execute 单阶段` → `phase`
-- `/workflow execute 重试` → `retry`
-- `/workflow execute 跳过` → `skip`
+- `/workflow-execute 继续` / `/workflow-execute 连续` → `continuous`
+- `/workflow-execute 下一阶段` / `/workflow-execute 单阶段` → `phase`
+- `/workflow-execute 重试` → `retry`
+- `/workflow-execute 跳过` → `skip`
 - 未识别的自然语言意图：不得静默覆盖已知偏好；应返回 warning，并回退到 `execution_mode`（若存在）或 `continuous`
 
 ### 3. 裸自然语言“继续”
@@ -31,15 +31,15 @@
 
 若不满足上述条件，禁止猜测进入执行器，应提示用户：
 
-- `/workflow status` 查看当前状态
-- `/workflow execute` 显式恢复执行
+- `/workflow-ops status` 查看当前状态
+- `/workflow-execute` 显式恢复执行
 
 ## 恢复后的共享执行路径
 
 无论入口来自：
 
-- `/workflow execute`
-- `/workflow execute 继续`
+- `/workflow-execute`
+- `/workflow-execute 继续`
 - 裸自然语言“继续”（满足恢复条件时）
 
 都必须先进入同一个 execute resolver，再执行以下顺序：

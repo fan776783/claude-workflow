@@ -3,7 +3,7 @@
 const { spawnSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
-const { writeState } = require('./state_manager')
+const { readState, writeState, completeWorkflow } = require('./state_manager')
 const { getWorkflowStatePath, getWorkflowsDir } = require('./path_utils')
 const {
   cmdComplete,
@@ -194,7 +194,7 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
       const finishedCount = (progress.completed || []).length + (progress.skipped || []).length
       const totalTasks = tasksContent ? countTasks(tasksContent) : 0
       if (totalTasks > 0 && finishedCount >= totalTasks) {
-        state.status = 'completed'
+        state.status = 'review_pending'
         state.completed_at = new Date().toISOString()
       }
     }
@@ -226,6 +226,49 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
   }
   if (journalResult) result.journal = journalResult
   return result
+}
+
+function cmdReviewAdvance(outcome, failedTaskIds = null, projectId = null, projectRoot = null) {
+  const [state, statePath, tasksContent] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流' }
+  if (state.status !== 'review_pending') {
+    return { error: `当前状态为 ${state.status}，不是 review_pending。只有 review_pending 状态才能推进审查结果。`, state_status: state.status }
+  }
+
+  if (outcome === 'passed') {
+    const totalTasks = tasksContent ? countTasks(tasksContent) : 0
+    const summary = completeWorkflow(state, statePath, totalTasks)
+    return {
+      review_advanced: true,
+      outcome: 'passed',
+      workflow_status: 'completed',
+      summary,
+    }
+  }
+
+  if (outcome === 'failed') {
+    const tasks = failedTaskIds || []
+    state.status = 'running'
+    state.completed_at = null
+    const progress = state.progress || (state.progress = {})
+    const failedList = progress.failed || (progress.failed = [])
+    for (const taskId of tasks) {
+      if (!failedList.includes(taskId)) failedList.push(taskId)
+      // 从 completed 列表中移除，还原为可重执行状态
+      progress.completed = (progress.completed || []).filter((id) => id !== taskId)
+    }
+    if (tasks.length) state.current_tasks = [tasks[0]]
+    writeState(statePath, state)
+    return {
+      review_advanced: true,
+      outcome: 'failed',
+      workflow_status: 'running',
+      failed_tasks: tasks,
+      current_task: state.current_tasks[0] || null,
+    }
+  }
+
+  return { error: `未知的审查结果: ${outcome}。支持 passed 或 failed。` }
 }
 
 function cmdContext(projectId = null, projectRoot = null) {
@@ -355,7 +398,13 @@ function main() {
     } else if (command === 'unblock') {
       result = cmdUnblock(args[0], pid, projectRoot)
     } else if (command === 'advance') {
-      result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot)
+      if (args.includes('--review-passed')) {
+        result = cmdReviewAdvance('passed', null, pid, projectRoot)
+      } else if (args.includes('--review-failed')) {
+        result = cmdReviewAdvance('failed', splitCsv(option(args, '--failed-tasks', '')), pid, projectRoot)
+      } else {
+        result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot)
+      }
     } else if (command === 'context') {
       result = cmdContext(pid, projectRoot)
     } else if (command === 'status') {
@@ -405,6 +454,7 @@ module.exports = {
   cmdAdvance,
   cmdContext,
   cmdInit,
+  cmdReviewAdvance,
 }
 
 if (require.main === module) main()

@@ -1,6 +1,6 @@
 # Preflight 预检模块
 
-> 从 workflow-plan 提取的共享基础设施预检。可被 `/workflow plan`、`/quick-plan` 等命令复用。
+> 从 workflow-plan 提取的共享基础设施预检。可被 `/workflow-plan`、`/quick-plan` 等命令复用。
 
 ## 预检流程
 
@@ -36,7 +36,10 @@
 - **存在且有效** → 加载配置，使用 `project.id`
 - **存在但 id 无效** → 提示用户重新执行 `/scan`
 - **不存在** → 自动生成最小配置：
-  - `project.id`：基于 `cwd` 路径的 MD5 哈希前 12 位
+  - `project.id`：必须通过 CLI 计算，禁止手动 shell 命令（如 `echo | md5sum`）拼接。CLI 内部对路径执行 `path.resolve()` + `.toLowerCase()` 后再取 MD5 前 12 位，手动计算极易因路径规范化差异产生不一致。自动生成最小配置时使用：
+    ```bash
+    node -e "const {stableProjectId}=require('./core/utils/team/planning-support');console.log(stableProjectId(process.cwd()))"
+    ```
   - `project.name`：当前目录名
   - `tech`：全部标记为 `unknown`
   - `_scanMode`：标记为 `auto-healed`
@@ -50,7 +53,7 @@
 
 检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未归档的工作流。
 
-> 此步骤仅在 `/workflow plan` 中执行，`/quick-plan` 等轻量命令跳过。
+> 此步骤仅在 `/workflow-plan` 中执行，`/quick-plan` 等轻量命令跳过。
 
 **决策树**：
 
@@ -62,18 +65,18 @@
 └─ 存在 → 读取 status 字段
    │
    ├─ status: completed
-   │   → 提示用户先归档：`/workflow archive`
+   │   → 提示用户先归档：`/workflow-ops archive`
    │   → 归档完成后自动继续
    │
    ├─ status: running / paused
    │   → 提示用户选择：
-   │     a) 恢复当前工作流：`/workflow execute`
-   │     b) 归档并新建：`/workflow archive` + 继续
+   │     a) 恢复当前工作流：`/workflow-execute`
+   │     b) 归档并新建：`/workflow-ops archive` + 继续
    │     c) 强制覆盖（需 --force）
    │
    ├─ status: failed / blocked
    │   → 提示用户选择：
-   │     a) 重试：`/workflow execute --retry`
+   │     a) 重试：`/workflow-execute --retry`
    │     b) 归档并新建
    │
    └─ status: archived

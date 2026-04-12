@@ -1,6 +1,6 @@
 # @justinfan/agent-workflow
 
-以 `workflow` command 入口 + 模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
+以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
 
 它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Cursor、Codex、Gemini CLI、Antigravity、Droid 等多种 AI 编码工具。
 
@@ -10,24 +10,21 @@
 
 ### Workflow 主线
 
-`/workflow` 是统一 command 入口，路由到 5 个专项 workflow skills：
+Workflow 主线由 5 个专项 skills 直接驱动：
 
-| 命令 | 路由到 | 说明 |
-|------|--------|------|
-| `/workflow plan` | `workflow-plan` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review` |
-| `/workflow spec-review` | `workflow-plan` | 用户审查 Spec 后生成 Plan，状态进入 `planned` |
-| `/workflow execute` | `workflow-execute` | 治理决策、任务执行、验证、审查与状态推进 |
-| `/workflow delta` | `workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
-| `/workflow status` | `workflow-ops` | 查看当前进度、阻塞点与下一步建议 |
-| `/workflow archive` | `workflow-ops` | 归档已完成工作流 |
-
-> `start` 是 `plan` 的向后兼容别名。
+| 命令 | 说明 |
+|------|------|
+| `/workflow-plan` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan |
+| `/workflow-execute` | 治理决策、任务执行、验证、审查与状态推进 |
+| `/workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
+| `/workflow-ops status` | 查看当前进度、阻塞点与下一步建议 |
+| `/workflow-ops archive` | 归档已完成工作流 |
 
 `workflow-review`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
 
 ### Public Commands
 
-除了 `/workflow` 主线外，仓库还会安装手动 command 入口：
+除了 workflow 主线 skills 外，仓库还会安装手动 command 入口：
 
 | 命令 | 类型 | 说明 |
 |------|------|------|
@@ -50,7 +47,7 @@
 
 关键边界：
 - `/team` 只会在用户**显式输入** `/team ...` 时启用
-- `/workflow`、`/quick-plan`、自然语言模糊请求、Broad Request Detection 与 `dispatching-parallel-agents` 都**不会自动切换**到 team mode
+- `/workflow-*` skills、`/quick-plan`、自然语言模糊请求、Broad Request Detection 与 `dispatching-parallel-agents` 都**不会自动切换**到 team mode
 - 普通 workflow/session hook 只读取 workflow runtime，不继承 `team-state.json`、`team_id`、`team_name`、`worker_roster`、`dispatch_batches` 或 `team_review` 等 team context
 - `/team archive` 负责逻辑归档；`/team cleanup` 负责物理清理已归档的 team runtime 目录，并保留 repo 内 spec/plan 工件
 - `dispatching-parallel-agents` 只作为 `team-exec` 内部可复用的规则来源（独立性检查 / 边界分组 / 冲突降级），不负责 team 生命周期
@@ -78,19 +75,17 @@
 
 ## workflow 的当前模型
 
-当前 `workflow` 采用"**command 入口 + 5 个专项 workflow skills + 共享运行时**"的模块化结构。
+当前 `workflow` 采用"**5 个专项 workflow skills + 共享运行时**"的模块化结构。
 
 ### 系统分层架构
 
-整个 workflow 系统分为 **5 层**，从上到下依次是：
+整个 workflow 系统分为 **4 层**，从上到下依次是：
 
 ```
 +-----------------------------------------------------------------+
 |                          用户层                                   |
-|  /workflow plan | execute | delta | status | archive              |
-+-----------------------------------------------------------------+
-|                       命令路由层                                   |
-|  commands/workflow.md  ->  路由到对应 Skill                       |
+|  /workflow-plan | /workflow-execute | /workflow-delta             |
+|  /workflow-ops status | /workflow-ops archive                     |
 +-----------------------------------------------------------------+
 |                  Skill 层 (行动指南)                               |
 |  workflow-plan | workflow-execute | workflow-review               |
@@ -122,7 +117,7 @@
 ```
 
 **职责分离**：
-- **Skill 层**：自然语言行动指南，AI 的操作手册，不含可执行代码
+- **Skill 层**：自然语言行动指南，AI 的操作手册，不含可执行代码；用户直接调用 skill
 - **CLI 层**：确定性状态管理，所有状态读写通过 CLI，AI 不直接操作 JSON
 - **Hook 层**：运行时守门人，上下文注入 + 治理检查，不写主状态
 
@@ -130,14 +125,13 @@
 
 ```text
 core/
-+-- commands/workflow.md          # 统一 command 入口（路由层）
 +-- commands/team.md              # 独立 /team command 入口
 +-- skills/
-|   +-- workflow-plan/            # /workflow plan + spec-review
-|   +-- workflow-execute/         # /workflow execute
+|   +-- workflow-plan/            # /workflow-plan + spec-review
+|   +-- workflow-execute/         # /workflow-execute
 |   +-- workflow-review/          # 两阶段审查（execute 内部触发）
-|   +-- workflow-delta/           # /workflow delta
-|   +-- workflow-ops/             # /workflow status + archive
+|   +-- workflow-delta/           # /workflow-delta
+|   +-- workflow-ops/             # /workflow-ops status + archive
 |   +-- team/                     # /team 显式入口路由
 |   +-- team-workflow/            # /team start|execute|status|archive runtime
 +-- specs/
@@ -221,9 +215,9 @@ npm run sync -- -a claude-code
 
 ```bash
 /scan
-/workflow plan "需求描述"
-/workflow spec-review --choice "Spec 正确，生成 Plan"
-/workflow execute
+/workflow-plan "需求描述"
+/workflow-plan spec-review --choice "Spec 正确，生成 Plan"
+/workflow-execute
 ```
 
 如果你要从一开始就以团队编排方式推进多边界任务，可显式改用：
@@ -284,7 +278,7 @@ npm run sync -- -y
 #### 职责边界
 
 hooks **负责**：注入 workflow 上下文、在状态非法 / 上下文缺失时阻断、串行化 worktree 创建  
-hooks **不负责**：决定 planning / execute / delta / archive 的阶段流转、替代 `/workflow execute` 的 shared resolver、创建第二套状态机
+hooks **不负责**：决定 planning / execute / delta / archive 的阶段流转、替代 `/workflow-execute` 的 shared resolver、创建第二套状态机
 
 #### 故障排查
 
@@ -298,26 +292,26 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 ## 直接调用 Workflow Skills
 
-每个 `/workflow` 子命令直接路由到对应的 workflow skill：
+每个 workflow skill 可直接调用：
 
 #### `workflow-plan`（规划 Skill）
 
 ```bash
-/workflow plan "需求描述"
-/workflow plan docs/prd.md
-/workflow plan --no-discuss docs/prd.md
-/workflow spec-review --choice "Spec 正确，生成 Plan"
+/workflow-plan "需求描述"
+/workflow-plan docs/prd.md
+/workflow-plan --no-discuss docs/prd.md
+/workflow-plan spec-review --choice "Spec 正确，生成 Plan"
 ```
 
-- `plan`：启动规划流程，生成 `spec.md` 并停在 `spec_review`（`start` 为别名）
+- 启动规划流程，生成 `spec.md` 并停在 `spec_review`
 - `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
 
 #### `workflow-execute`（执行 Skill）
 
 ```bash
-/workflow execute
-/workflow execute --retry
-/workflow execute --skip
+/workflow-execute
+/workflow-execute --retry
+/workflow-execute --skip
 ```
 
 - 按 `plan.md` 推进执行，并经过验证与审查
@@ -325,9 +319,9 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 #### `workflow-delta`（增量变更 Skill）
 
 ```bash
-/workflow delta
-/workflow delta docs/prd-v2.md
-/workflow delta "新增导出功能，支持 CSV"
+/workflow-delta
+/workflow-delta docs/prd-v2.md
+/workflow-delta "新增导出功能，支持 CSV"
 ```
 
 - 处理 PRD / API / 需求增量变更
@@ -335,9 +329,9 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 #### `workflow-ops`（运行时操作 Skill）
 
 ```bash
-/workflow status
-/workflow status --detail
-/workflow archive
+/workflow-ops status
+/workflow-ops status --detail
+/workflow-ops archive
 ```
 
 - `status`：查看当前状态、进度与下一步建议
@@ -356,20 +350,20 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> spec_review : /workflow plan
+    idle --> spec_review : /workflow-plan
     spec_review --> spec_review : 用户要求修改 Spec
     spec_review --> idle : 用户拒绝/拆分范围
     spec_review --> planning : spec-review 通过
     planning --> planned : Plan 生成完成
-    planned --> running : /workflow execute
+    planned --> running : /workflow-execute
     running --> paused : 暂停 / 预算暂停
     running --> blocked : 遇到阻塞任务
     running --> failed : 任务失败
     running --> completed : 所有任务完成
-    paused --> running : /workflow execute
-    blocked --> running : /workflow unblock
+    paused --> running : /workflow-execute
+    blocked --> running : /workflow-execute unblock
     failed --> running : --retry / --skip
-    completed --> archived : /workflow archive
+    completed --> archived : /workflow-ops archive
     archived --> [*]
 ```
 
@@ -380,7 +374,7 @@ stateDiagram-v2
 ```mermaid
 flowchart TD
     A["准备项目"] --> B["/scan 生成项目配置"]
-    B --> C["/workflow plan 输入需求"]
+    B --> C["/workflow-plan 输入需求"]
     C --> D["代码分析 + Git 检查"]
     D --> E{"是否需要澄清需求"}
     E -->|是| F["需求讨论"]
@@ -390,11 +384,11 @@ flowchart TD
     G -->|否| I["Spec 生成 + Self-Review"]
     H --> I
     I --> J["🛑 spec_review 等待用户确认"]
-    J --> K["/workflow spec-review"]
+    J --> K["/workflow-plan spec-review"]
     K --> L["Plan 生成 + Self-Review"]
     L --> M["🛑 planned 等待执行"]
 
-    M --> N["/workflow execute"]
+    M --> N["/workflow-execute"]
     N --> O["ContextGovernor 治理决策"]
     O --> P["执行任务动作"]
     P --> Q["Post-Execution Pipeline（验证 → 自审查 → 更新 → 审查）"]
@@ -402,7 +396,7 @@ flowchart TD
     R -->|继续| O
     R -->|暂停| S["等待下次 execute"]
     R -->|handoff| T["生成 continuation artifact"]
-    R -->|完成| U["/workflow archive"]
+    R -->|完成| U["/workflow-ops archive"]
 ```
 
 ---
@@ -480,7 +474,6 @@ flowchart TD
 - `docs/worktree-hooks.md`（WorktreeCreate / WorktreeRemove 串行化与清理）
 - `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) guardrails）
 - `Claude-Code-工作流体系指南.md`
-- `core/commands/workflow.md`（统一 command 入口）
 - `core/commands/team.md`（独立 team command 入口）
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`

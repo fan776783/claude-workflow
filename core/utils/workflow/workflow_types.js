@@ -204,7 +204,7 @@ function getSpecReviewGateViolation(state) {
       code: 'spec_upgrade_required',
       status: normalized.status,
       review_status: 'skipped',
-      message: '当前 workflow 由无 spec 的 plan 自愈恢复，执行前需先升级到 /workflow plan，或显式使用 /workflow execute --force 确认降级。',
+      message: '当前 workflow 由无 spec 的 plan 自愈恢复，执行前需先升级到 /workflow-plan，或显式使用 /workflow-execute --force 确认降级。',
     }
   }
   return {

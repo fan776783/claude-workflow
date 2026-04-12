@@ -86,13 +86,13 @@ CLI 自动创建 workflow-state.json 并初始化所有必需字段。
 
 **反模式**：命令名与 skill 职责不匹配
 ```
-/workflow start  → 但这个 skill 做的是"规划"不是"开始执行"
+/workflow-plan   → 但旧名 /workflow start 容易误解为"开始执行"
 ```
 
 **正模式**：命令名精确反映 skill 职责
 ```
-/workflow plan   → 明确表示这是规划阶段
-/workflow execute → 明确表示这是执行阶段
+/workflow-plan    → 明确表示这是规划阶段
+/workflow-execute → 明确表示这是执行阶段
 ```
 
 ### 原则 5：集中化治理
@@ -186,7 +186,7 @@ phase-2-plan-generation.md → No-TBD HARD-GATE
 |------|------|
 | `state-machine.md` 350→165 行 | JSON schema → CLI 操作指南 |
 | `preflight.md` 221→80 行 | 删除全部伪代码 |
-| `/workflow start` → `/workflow plan` | 命令语义对齐（`start` 保留为别名） |
+| `/workflow start` → `/workflow-plan` | 命令语义对齐（`start` 保留为别名） |
 
 ---
 

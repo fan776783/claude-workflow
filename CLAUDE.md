@@ -45,10 +45,10 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 │   └── release.sh           # Release automation
 └── core/                    # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
-    │   ├── workflow-plan/ # Planning entry for /workflow start
-    │   ├── workflow-execute/ # Execution entry for /workflow execute
+    │   ├── workflow-plan/ # Planning entry for /workflow-plan
+    │   ├── workflow-execute/ # Execution entry for /workflow-execute
     │   ├── workflow-review/ # Review protocol entry for workflow quality gates
-    │   ├── workflow-delta/  # Delta entry for /workflow delta
+    │   ├── workflow-delta/  # Delta entry for /workflow-delta
     │   ├── team/            # Explicit /team entry skill (routing only)
     │   ├── team-workflow/   # Heavy runtime contract for /team start|execute|status|archive
     │   ├── scan/            # Project scanning
@@ -104,22 +104,18 @@ The package includes the following skills (all portable across AI coding tools):
 
 **Core Workflow:**
 
-- `/workflow` - Public workflow command entrypoint for command-capable agents (stable `/workflow start|execute|delta|status|archive` surface exposed from `core/commands/workflow.md` and backed by specialized workflow skills plus shared runtime docs)
-  - `start` - Routed to `workflow-plan`
-  - `execute` - Routed to `workflow-execute`
-  - `delta` - Routed to `workflow-delta`
-  - `status` - Still served from shared workflow runtime docs
-  - `archive` - Still served from shared workflow runtime docs
+- `/workflow-plan` - Planning skill (analysis → discussion → UX gate → Spec → Plan)
+- `/workflow-execute` - Execution skill (continuation governance + validation + quality gates + implementation report)
+- `/workflow-delta` - Delta skill (PRD/API/requirement changes)
+- `/workflow-ops status` - View current progress, blockers, and next-step suggestions
+- `/workflow-ops archive` - Archive completed workflows
 - `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md`, with the `team` entry skill plus `team-workflow` runtime skill backed by `core/specs/team-runtime/` docs)
   - `start` - Bootstraps team-specific planning/runtime artifacts
   - `execute` - Runs team-exec → team-verify / team-fix loop
   - `status` - Served from shared team runtime docs
   - `archive` - Served from shared team runtime docs
-- `workflow-plan` - Planning skill for `/workflow start` (analysis → discussion → UX gate → Spec → Plan)
-- `workflow-execute` - Execution skill for `/workflow execute` (continuation governance + validation + quality gates + implementation report)
 - `workflow-review` - Review skill used by workflow quality gates (spec compliance + code quality)
-- `workflow-delta` - Delta skill for `/workflow delta` (PRD/API/requirement changes)
-- `team` - `/team` command entry skill for explicit routing/boundary semantics only; never auto-triggered by `/workflow`, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
+- `team` - `/team` command entry skill for explicit routing/boundary semantics only; never auto-triggered by `/workflow-*` skills, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
 - `team-workflow` - Heavy team runtime skill for explicit `/team start|execute|status|archive`, owning phase/state contracts while preserving the same public `/team` command surface
 
 **Planning:**

@@ -10,7 +10,7 @@
 >
 > **Claude Code worktree guardrail**：即使**没有显式触发** `/dispatching-parallel-agents`，也不要在同一仓库里同时启动多个 `isolation: "worktree"` 的并行子 agent。只读搜索 / 分析 / 审查任务优先不使用 worktree；若多个子 agent 都需要写隔离，必须先串行准备 worktree（或串行启动），再并行执行实际任务，避免触发 Git `.git/config.lock` 竞争。
 
-> **/team mode guardrail**：`/team` 仅作为显式团队编排入口存在。不要因为检测到 2+ 独立任务、Broad Request Detection、`/workflow execute`、`/quick-plan` 或自然语言宽泛请求而自动切入 team mode；`dispatching-parallel-agents` 只能作为 `team-exec` 内部批次能力或普通 workflow execute 的并行优化，不能替代 `team-workflow` 定义的 team runtime。非显式 `/team` / `team-workflow` 路径必须把 inherited `team` / `team_name` / `team_id` 视为脏上下文并忽略，不得恢复或透传 active team runtime。
+> **/team mode guardrail**：`/team` 仅作为显式团队编排入口存在。不要因为检测到 2+ 独立任务、Broad Request Detection、`/workflow-execute`、`/quick-plan` 或自然语言宽泛请求而自动切入 team mode；`dispatching-parallel-agents` 只能作为 `team-exec` 内部批次能力或普通 workflow execute 的并行优化，不能替代 `team-workflow` 定义的 team runtime。非显式 `/team` / `team-workflow` 路径必须把 inherited `team` / `team_name` / `team_id` 视为脏上下文并忽略，不得恢复或透传 active team runtime。
 
 ---
 

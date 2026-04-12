@@ -79,7 +79,7 @@ function validateScriptReferences(docContents, existingScriptNames) {
 }
 
 function validateWorkflowDocContracts(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames) {
-  const commandDocs = [overviewDocContent, ...(otherDocContents || [])]
+  const commandDocs = [...(overviewDocContent ? [overviewDocContent] : []), ...(otherDocContents || [])]
   const documentedCommands = unique(commandDocs.flatMap((content) => extractDocumentedWorkflowCommands(content)))
   const commandContract = validateCommandContract(cliContent, documentedCommands)
   const specTemplateContract = validateSpecTemplate(specTemplateContent)
@@ -129,12 +129,13 @@ function main() {
   }
   if (command === 'workflow-contracts') {
     const cliFile = args[args.indexOf('--cli') + 1]
-    const overviewFile = args[args.indexOf('--overview') + 1]
+    const overviewIdx = args.indexOf('--overview')
+    const overviewContent = overviewIdx >= 0 ? readText(args[overviewIdx + 1]) : ''
     const specTemplateFile = args[args.indexOf('--spec-template') + 1]
     const planTemplateFile = args[args.indexOf('--plan-template') + 1]
     const docs = parseRepeatedOption(args, '--doc')
     const scripts = parseRepeatedOption(args, '--script')
-    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), readText(overviewFile), readText(specTemplateFile), readText(planTemplateFile), docs.map(readText), scripts))}\n`)
+    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), overviewContent, readText(specTemplateFile), readText(planTemplateFile), docs.map(readText), scripts))}\n`)
     return
   }
   process.stderr.write('Usage: node doc_contracts.js <cli-commands|doc-commands|spec-template|plan-template|workflow-contracts> ...\n')

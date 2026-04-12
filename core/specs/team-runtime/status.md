@@ -1,3 +1,6 @@
+> ⚠️ 本文档的权威内容已整合至 [`team-workflow/SKILL.md`](../../skills/team-workflow/SKILL.md) Action 4: Status / Archive / Cleanup Contract。
+> 本文件仅作为引用桩保留，防止交叉引用死链。如需修改请编辑 SKILL.md。
+
 # `/team status`
 
 `/team status` 用于查看当前 team runtime 的聚合状态。
@@ -13,7 +16,7 @@
 
 ## 边界
 
-- 只读取 team runtime，不替代普通 `/workflow status`
+- 只读取 team runtime，不替代普通 `/workflow-ops status`
 - 只有显式 `/team` command surface 才允许在缺少 `teamId` 时自动定位 active team runtime；普通 workflow/session 不消费该能力
 - 若不存在 team state，应明确提示用户尚未启动 `/team start`
 - 状态报告中应明确展示显式触发治理：`explicit_invocation_only = true`、`auto_trigger_allowed = false`、`parallel_dispatch_mode = internal-team-only`

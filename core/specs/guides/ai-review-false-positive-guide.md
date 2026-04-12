@@ -90,7 +90,7 @@
 2. 标记误报原因（属于哪种模式）
 3. 仅将验证通过的发现计入最终结果
 
-### `/workflow execute --retry`
+### `/workflow-execute --retry`
 
 在调试失败任务时：
 1. 检查失败原因是否来自 AI 审查

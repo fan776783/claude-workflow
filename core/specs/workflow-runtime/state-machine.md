@@ -17,7 +17,8 @@
 | `paused` | 暂停等待用户操作 |
 | `blocked` | 等待外部依赖 |
 | `failed` | 任务失败，需要处理 |
-| `completed` | 所有任务完成 |
+| `review_pending` | 所有任务执行完毕，等待显式审查 |
+| `completed` | 审查通过，所有任务完成 |
 | `archived` | 工作流已归档 |
 
 ## 状态转换
@@ -31,7 +32,9 @@ planned → running           workflow execute
 running → paused            暂停 / 预算暂停
 running → blocked           遇到阻塞任务
 running → failed            任务失败
-running → completed         所有任务完成
+running → review_pending    所有任务完成，进入审查等待
+review_pending → completed  /workflow-review 审查通过
+review_pending → running    审查发现问题，需要修复
 paused → running            workflow execute (resume)
 blocked → running           workflow unblock <dependency>
 failed → running            workflow execute --retry / --skip
@@ -166,9 +169,9 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
 
 | 关卡 | 状态字段 | 管理方式 |
 |------|---------|---------|
-| 用户 Spec 审查 | `review_status.user_spec_review` | `workflow spec-review --choice` |
+| 用户 Spec 审查 | `review_status.user_spec_review` | `/workflow-plan` spec-review 阶段 |
 | Plan Review | `review_status.plan_review` | 执行引擎自动触发 |
-| 执行质量关卡 | `quality_gates[taskId]` | `workflow-review` skill 自动触发 |
+| 执行质量关卡 | `quality_gates[taskId]` | `/workflow-review` 独立步骤（execute 完成后手动触发） |
 
 > `execution_reviews` 为旧版字段（只读兼容）。新写入只使用 `quality_gates`。归一化读取：`node utils/workflow/state_manager.js review-result --task-id <id>`。
 

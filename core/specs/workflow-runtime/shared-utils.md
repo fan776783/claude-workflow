@@ -128,10 +128,10 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 - `workflow-state.json` 只能位于 `~/.claude/workflows/{projectId}/workflow-state.json`
 - 项目目录 `.claude/` 仅承载项目配置与 spec/plan 等工件，禁止作为 runtime state 存储位置
 - 统一状态操作优先使用 `workflow_cli.js`，底层 `state_manager.js` 不接受项目本地 state path
-- "继续"与 `/workflow execute` 的共享入口解析已收敛到 `utils/workflow/workflow_cli.js`，但仅适用于 execution-phase resume，不包含 planning human gate
+- "继续"与 `/workflow-execute` 的共享入口解析已收敛到 `utils/workflow/workflow_cli.js`，但仅适用于 execution-phase resume，不包含 planning human gate
 - 任务解析只使用 V2 模型，不再维护旧格式映射
 - 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
 - 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent
 - workflow hooks 只承担 runtime guardrails：上下文注入、前置条件校验与 worktree/并发安全
 - workflow hooks 不得私自决定 planning / execute / delta / archive 的阶段流转；主流程唯一入口仍是 command + skill + state machine
-- `SessionStart` / `PreToolUse(Task)` hooks 只能提示或阻断，不得绕过 `/workflow execute` shared resolver、写入主状态或另造第二套状态机
+- `SessionStart` / `PreToolUse(Task)` hooks 只能提示或阻断，不得绕过 `/workflow-execute` shared resolver、写入主状态或另造第二套状态机

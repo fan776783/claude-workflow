@@ -1,10 +1,13 @@
+> ⚠️ 本文档的权威内容已整合至 [`team-workflow/SKILL.md`](../../skills/team-workflow/SKILL.md) Action 4: Status / Archive / Cleanup Contract。
+> 本文件仅作为引用桩保留，防止交叉引用死链。如需修改请编辑 SKILL.md。
+
 # `/team archive` / `/team cleanup`
 
 `/team archive` 与 `/team cleanup` 分别承担 team runtime 的逻辑归档与物理清理职责。
 
 ## 归档原则
 
-- 不改变普通 `/workflow archive` 的现有语义
+- 不改变普通 `/workflow-ops archive` 的现有语义
 - `/team archive` 只把 team runtime 标记为 `archived` 终态，不删除 runtime 目录
 - `/team cleanup` 只清理已归档的 team runtime 目录，不删除 repo 内 `spec.md` / `plan.md` 与共享 workflow artifacts
 - 保留 `spec.md` / `plan.md` 与共享 workflow artifacts 的可追溯性

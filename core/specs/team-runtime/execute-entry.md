@@ -1,3 +1,6 @@
+> ⚠️ 本文档的权威内容已整合至 [`team-workflow/SKILL.md`](../../skills/team-workflow/SKILL.md) Action 2: Execute Contract。
+> 本文件仅作为引用桩保留，防止交叉引用死链。如需修改请编辑 SKILL.md。
+
 # `/team execute` 入口
 
 `/team execute` 不是重写执行器，而是在已 bootstrap 的 team runtime 上推进 team lifecycle；shared workflow helpers 仅作为内部实现积木。
@@ -99,7 +102,7 @@
 - team runtime 自己负责多实例编排、边界任务板与阶段推进
 - `dispatching-parallel-agents` 只作为规则来源：独立性检查、边界分组、冲突降级
 - `ContextGovernor` 返回 `continue-parallel-boundaries` 时，只能解释为当前 `team-exec` 的执行建议
-- 在普通 `/workflow execute` 中，`parallel-boundaries` 仍只是 workflow 执行路径优化，不等于 team mode
+- 在普通 `/workflow-execute` 中，`parallel-boundaries` 仍只是 workflow 执行路径优化，不等于 team mode
 - 不得把 `parallel-boundaries` 或普通 workflow 信号，解释为 team runtime 合法推进依据
 
 ## 复用优先级

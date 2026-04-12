@@ -86,7 +86,7 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
         state_status: null,
         can_resume: false,
         reason: 'no_active_workflow',
-        message: '未发现活动工作流，请先执行 /workflow plan 创建规划。',
+        message: '未发现活动工作流，请先执行 /workflow-plan 创建规划。',
       }
     }
     if (gateViolation) {
@@ -104,10 +104,10 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     }
     if (!EXECUTE_ENTRY_STATUSES.has(state.status)) {
       const message = state.status === 'spec_review'
-        ? 'Spec 正在等待用户确认，请先完成 User Spec Review 并生成 Plan，再执行 /workflow execute。'
+        ? 'Spec 正在等待用户确认，请先完成 User Spec Review 并生成 Plan，再执行 /workflow-execute。'
         : state.status === 'planning'
           ? 'Plan 仍在生成或审查中，请先完成规划流程后再执行。'
-          : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow status 查看详情。`
+          : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow-ops status 查看详情。`
       return {
         entry_action: 'none',
         resolved_mode: null,
@@ -145,7 +145,7 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
         state_status: null,
         can_resume: false,
         reason: 'no_active_workflow',
-        message: '未发现活动工作流，请先执行 /workflow status 或 /workflow execute。',
+        message: '未发现活动工作流，请先执行 /workflow-ops status 或 /workflow-execute。',
       }
     }
     if (gateViolation) {
@@ -163,8 +163,8 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     const status = state.status
     if (!new Set(['running', 'paused', 'failed', 'blocked']).has(status)) {
       const message = ['planned', 'planning'].includes(status)
-        ? '规划已完成但尚未开始执行，请显式使用 /workflow execute 开始执行。'
-        : `当前状态 ${status} 不支持直接恢复，请使用 /workflow status 查看详情。`
+        ? '规划已完成但尚未开始执行，请显式使用 /workflow-execute 开始执行。'
+        : `当前状态 ${status} 不支持直接恢复，请使用 /workflow-ops status 查看详情。`
       return {
         entry_action: 'none',
         project_id: projectId,
@@ -365,7 +365,7 @@ function updateAfterTaskCompletion(state, tasksContent) {
     normalizedState.status = 'running'
   } else {
     normalizedState.current_tasks = []
-    normalizedState.status = 'completed'
+    normalizedState.status = 'review_pending'
   }
   return normalizedState
 }
@@ -404,7 +404,7 @@ function markTaskSkipped(statePath, tasksPath, tasksContent, taskId) {
     state.status = 'running'
   } else {
     state.current_tasks = []
-    state.status = 'completed'
+    state.status = 'review_pending'
   }
   writeState(statePath, state)
   return { skipped: true, task_id: taskId, next_task_id: nextTaskId, workflow_status: state.status }

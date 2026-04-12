@@ -166,6 +166,107 @@ function buildExecuteSummary(state, board) {
   }
 }
 
+/**
+ * 检查是否允许进入目标阶段，返回结构化的门禁结果
+ * @param {string} targetPhase - 目标阶段
+ * @param {object} state - team 状态对象
+ * @param {object[]} board - 任务面板
+ * @returns {object} { ok: boolean, reason?: string }
+ */
+function canEnterPhase(targetPhase, state = {}, board = []) {
+  if (!VALID_PHASES.has(targetPhase)) {
+    return { ok: false, reason: `invalid_phase: ${targetPhase}` }
+  }
+  if (TERMINAL_PHASES.has(targetPhase)) {
+    return { ok: false, reason: 'target_is_terminal' }
+  }
+
+  const boardValidation = validateBoard(board)
+
+  if (targetPhase === 'team-exec') {
+    if (!boardValidation.ok) return { ok: false, reason: 'empty_board' }
+    if (!hasWritableWorker(state.worker_roster)) return { ok: false, reason: 'no_writable_worker' }
+    const planningItems = board.filter((item) => item.phase === 'planning')
+    const activePlanningStatuses = new Set(['pending', 'in_progress', 'blocked'])
+    if (planningItems.some((item) => activePlanningStatuses.has(item.status || 'pending'))) {
+      return { ok: false, reason: 'planning_not_complete' }
+    }
+    return { ok: true }
+  }
+
+  if (targetPhase === 'team-verify') {
+    if (!boardValidation.ok) return { ok: false, reason: 'empty_board' }
+    const activeStatuses = new Set(['pending', 'in_progress'])
+    const implementItems = board.filter((item) => item.phase === 'implement')
+    if (implementItems.some((item) => activeStatuses.has(item.status || 'pending'))) {
+      return { ok: false, reason: 'active_boundaries' }
+    }
+    if (board.some((item) => item.status === 'failed')) {
+      return { ok: false, reason: 'has_failed_boundaries' }
+    }
+    return { ok: true }
+  }
+
+  if (targetPhase === 'team-fix') {
+    const failedBoundaries = board.filter((item) => item.status === 'failed')
+    if (failedBoundaries.length === 0) {
+      return { ok: false, reason: 'no_failed_boundaries' }
+    }
+    return { ok: true }
+  }
+
+  if (targetPhase === 'team-plan') {
+    return { ok: true }
+  }
+
+  return { ok: false, reason: `unhandled_phase: ${targetPhase}` }
+}
+
+/**
+ * 根据当前 board 状态返回下一个 phase 转换的原因
+ * @param {object[]} board - 任务面板
+ * @param {string} currentPhase - 当前阶段
+ * @returns {object} { next_phase: string, reason: string }
+ */
+function getPhaseTransitionReason(board, currentPhase = 'team-plan') {
+  if (TERMINAL_PHASES.has(currentPhase)) {
+    return { next_phase: currentPhase, reason: 'terminal_phase' }
+  }
+  if (!VALID_PHASES.has(currentPhase)) {
+    return { next_phase: 'failed', reason: `invalid_phase: ${currentPhase}` }
+  }
+
+  const items = Array.isArray(board) ? board : []
+  const byPhase = (phase) => items.filter((item) => item.phase === phase)
+  const activeStatuses = new Set(['pending', 'in_progress', 'blocked'])
+  const hasActive = (phase) => byPhase(phase).some((item) => activeStatuses.has(item.status || 'pending'))
+  const hasFailed = (phase) => byPhase(phase).some((item) => item.status === 'failed')
+
+  if (currentPhase === 'team-plan') {
+    if (hasActive('planning')) return { next_phase: 'team-plan', reason: 'planning_in_progress' }
+    return { next_phase: 'team-exec', reason: 'planning_completed' }
+  }
+
+  if (currentPhase === 'team-exec') {
+    if (hasFailed('implement')) return { next_phase: 'team-fix', reason: 'implement_failures_detected' }
+    if (hasActive('implement')) return { next_phase: 'team-exec', reason: 'implement_in_progress' }
+    return { next_phase: 'team-verify', reason: 'all_boundaries_completed' }
+  }
+
+  if (currentPhase === 'team-verify') {
+    if (hasFailed('review')) return { next_phase: 'team-fix', reason: 'review_failures_detected' }
+    return { next_phase: 'completed', reason: 'verification_passed' }
+  }
+
+  if (currentPhase === 'team-fix') {
+    if (hasActive('fix')) return { next_phase: 'team-fix', reason: 'fix_in_progress' }
+    if (hasFailed('fix')) return { next_phase: 'failed', reason: 'fix_attempts_exhausted' }
+    return { next_phase: 'team-verify', reason: 'fixes_completed' }
+  }
+
+  return { next_phase: 'failed', reason: `unhandled_phase: ${currentPhase}` }
+}
+
 module.exports = {
   VALID_PHASES,
   VALID_BOARD_STATUSES,
@@ -176,4 +277,6 @@ module.exports = {
   validateReviewState,
   inferTeamPhase,
   buildExecuteSummary,
+  canEnterPhase,
+  getPhaseTransitionReason,
 }

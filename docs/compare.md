@@ -170,7 +170,7 @@ flowchart LR
 
 ## 7. 关键判断依据（精简）
 
-- **`agent-workflow`**：`README.md`、`Claude-Code-工作流体系指南.md`、`core/commands/workflow.md`、`core/commands/team.md`、`core/commands/quick-plan.md`、`lib/agents.js`、`lib/installer.js`
+- **`agent-workflow`**：`README.md`、`Claude-Code-工作流体系指南.md`、`core/commands/team.md`、`core/commands/quick-plan.md`、`lib/agents.js`、`lib/installer.js`
 - **`everything-claude-code`**：`README.md`、`CLAUDE.md`、`package.json`、`scripts/ecc.js`、`scripts/install-plan.js`、`scripts/install-apply.js`
 - **`superpowers`**：`README.md`、`CLAUDE.md`
 - **`Trellis`**：`README.md`、`packages/cli/package.json`

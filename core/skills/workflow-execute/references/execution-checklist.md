@@ -15,11 +15,12 @@
 - [ ] 验证失败 → 修复后重新验证，不得跳过
 - [ ] ⚠️ 验证必须在 plan/state 更新之前完成（Verification Iron Law）
 
-### 2. 自审查 & 规格合规检查（建议性，不阻塞）
+### 2. 自审查 & 规格合规检查（强制输出）
 
 - [ ] 对 `create_file` / `edit_file` 类型任务执行自审查（建议性）
 - [ ] 对有 `acceptance_criteria` 的任务执行规格合规检查（只读）
-- [ ] 以上均为建议性，不阻塞后续步骤
+- [ ] 以上检查内容均为建议性，不阻塞后续步骤
+- [ ] **必须输出执行证据**（复制模板填充）：`自审查：X/Y 项通过` 或 `自审查：已跳过（{原因}）`。静默省略即为管线违规
 
 ### 3. Plan 更新（Plan Checkpoint）
 
@@ -29,12 +30,7 @@
 - [ ] **保存文件**
 - [ ] ⚠️ 必须逐 task 更新，禁止最后批量回写
 
-### 3→4. Checkpoint 原子性守卫
-
-- [ ] 若 Step 3 成功但 Step 4 失败：回滚 plan.md 中该 task 的状态标记
-- [ ] 恢复启动时检测 plan.md 与 state.json 的一致性（以 state.json 为权威）
-
-### 4. 状态文件更新（State Update）
+### 4. 状态文件更新（State Update — HARD-GATE #4）
 
 - [ ] 读取 `~/.claude/workflows/{projectId}/workflow-state.json`
 - [ ] 将当前 task ID 添加到 `progress.completed` 数组
@@ -42,27 +38,23 @@
 - [ ] 更新 `updated_at` 为当前时间
 - [ ] **保存文件**
 
-### 5. 审查（Review — 条件执行）
+### 3→4. Checkpoint 输出（强制）
 
-满足以下**任一条件**时执行审查：
+- [ ] 步骤 3 和 4 完成后，必须输出 checkpoint 行（复制模板填充）：
+  ```
+  ✅ {TaskId} checkpoint：plan.md ✓ state.json ✓（completed: [{已完成列表}], current: [{当前列表}]）
+  ```
+- [ ] 如果无法输出此行，说明未实际更新文件 — 立即补做
+- [ ] ⚠️ 步骤 3 成功但步骤 4 失败时：回滚 plan.md 中该 task 的状态标记
 
-| 条件 | 审查级别 | 操作 |
-|------|---------|------|
-| 当前 task 的 `actions` 含 `quality_review` | **完整两阶段审查** | 执行 Spec 合规 + 代码质量审查（参见 `../../workflow-review/SKILL.md` Step 2-3） |
-| 自上次审查以来已连续完成 **3 个** 常规 task | **轻量合规检查** | 读取 spec 对应章节，检查最近 3 个 task 的实现是否覆盖 spec 需求 |
-| 当前 task 是 plan 中的**最后一个** task | **全量完成审查** | 检查所有 spec 需求是否被完整实现 |
-
-不满足以上任何条件时，跳过审查，直接进入下一步。
-
-### 6. Journal 记录（跨 Session 记忆 — 条件执行）
+### 5. Journal 记录（跨 Session 记忆 — 条件执行）
 
 满足以下**任一条件**时记录会话进展：
 
 | 条件 | 记录内容 |
 |------|----------|
-| 质量关卡审查完成后 | 已完成任务 + 审查结果 + 关键决策 |
 | ContextGovernor 决定暂停时 | 已完成任务 + 暂停原因 + 下一步计划 |
-| 工作流完成时 | 全部任务摘要 + 最终产物 |
+| 所有 task 完成（进入 review_pending）时 | 全部任务摘要 + 最终产物 |
 
 - [ ] 调用 `node ../../../utils/workflow/workflow_cli.js journal add --title "..." --tasks-completed "..." --summary "..." --decisions "..." --next-steps "..."`
 - [ ] 确认 journal 记录包含：已完成任务 ID、关键决策、遇到的问题、Next Steps
@@ -77,14 +69,18 @@
 - ❌ **跳过验证直接标记 completed** — 必须有验证证据
 - ❌ **先更新 plan/state 再验证** — 验证必须在状态更新之前（Iron Law）
 - ❌ **跳过状态文件更新** — 即使快速执行也必须更新
-- ❌ **在质量关卡 task 后跳过审查** — quality_review action 强制触发审查
 - ❌ **使用过时验证结果** — 必须使用本次运行的新鲜结果
 - ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + plan/state 更新管线
+- ❌ **覆盖其他工作流的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
+- ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 plan.md / state.json。每个 task 完成后必须立即输出 checkpoint 行
+- ❌ **绕过 review_pending** — 所有 task 完成后不得直接标记 completed，必须先设为 `review_pending` 并提示用户执行 `/workflow-review`
 
 ---
 
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②自审查/合规检查 → ③更新 plan.md → ④更新 state.json → ⑤审查（条件） → ⑥Journal 记录（条件） → 下一 Task
+Task 完成 → ①验证 → ②自审查（输出证据） → ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
+所有 Task 完成 → 生成实施报告 → 设 review_pending → 提示 /workflow-review
 ```
+

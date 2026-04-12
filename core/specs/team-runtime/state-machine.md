@@ -208,3 +208,29 @@ team-plan -> team-exec -> team-verify -> team-fix -> team-verify
 - `team_phase` 与 `/workflow` 的普通执行状态必须区分，避免把 `parallel-boundaries` 误判成 team lifecycle
 - “推荐 schema” 不得弱化 `/team execute` 的最小必填要求
 - 只有需要共享任务板、直接队友通信、自主认领时才应进入 `/team`；独立分析或单次并行继续走普通 Agent / 并行分派
+
+## 与 workflow 状态机的语义对应
+
+> 两套状态机不是一一映射关系，而是语义层面的对应。team 的 phase 粒度更粗，
+> 部分 workflow 内部状态在 team 中不存在独立表达。
+
+| team phase | 语义等价的 workflow 阶段 | 差异说明 |
+|-----------|------------------------|----------|
+| `team-plan` | `planning` | team 的简化规划，无 `idle`/`spec_review` 独立阶段 |
+| `team-exec` | `running` | 执行阶段语义一致 |
+| `team-verify` | (无直接等价) | workflow 的审查内嵌在 `running` phase 的 `quality_review` task 中，team 独立为 phase |
+| `team-fix` | `failed` + `--retry` | 修复子循环 |
+| `completed` | `completed` | 语义一致 |
+| `failed` | `failed` | 语义一致 |
+| `archived` | `archived` | 语义一致 |
+
+### 治理信号复用
+
+team-execute 阶段复用以下 workflow 治理机制（轻量化）：
+- **Phase 边界判断**：`inferTeamPhase()` 承担 phase 转换决策（不引入完整 ContextGovernor）
+- **Post-Execution Pipeline**：boundary 完成后的验证 → 更新 board → 更新 state 流程
+- **Quality Review CLI**：team-verify 可复用 `quality_review.js` 的 pass/fail 写入逻辑
+
+> ContextGovernor 的 budget backstop 不复用到 team 层。
+> 理由：orchestrator 自身 context 消耗较轻，boundary 执行由 sub-agent 完成，
+> sub-agent 有独立的 context budget。

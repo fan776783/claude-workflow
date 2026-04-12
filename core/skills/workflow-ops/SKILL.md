@@ -1,11 +1,11 @@
 ---
 name: workflow-ops
-description: "/workflow status 和 /workflow archive 入口。运行时状态查看与工作流归档。"
+description: "/workflow-ops status 和 /workflow-ops archive 入口。运行时状态查看与工作流归档。"
 ---
 
 # workflow-ops
 
-> 本 skill 是 `/workflow status` 和 `/workflow archive` 的完整行动指南。
+> 本 skill 是 `/workflow-ops status` 和 `/workflow-ops archive` 的完整行动指南。
 
 <HARD-GATE>
 两条不可违反的规则：
@@ -39,7 +39,7 @@ node core/utils/workflow/workflow_cli.js status
 ```
 
 **错误情况**：
-- `error: '没有活跃的工作流'` → 检查是否有项目配置（可能需要 `/scan`），或提示用 `/workflow plan` 启动新工作流
+- `error: '没有活跃的工作流'` → 检查是否有项目配置（可能需要 `/scan`），或提示用 `/workflow-plan` 启动新工作流
 
 #### Step 2: 获取补充上下文（条件）
 
@@ -137,17 +137,18 @@ node core/utils/workflow/workflow_cli.js context
 
 | 当前状态 | 下一步提示 |
 |---------|-----------| 
-| `spec_review` | 审查 `spec.md` 后执行 `/workflow spec-review --choice "<结论>"` |
+| `spec_review` | 审查 `spec.md` 后确认 Spec 审批 |
 | `planning` | 内部瞬时阶段；如长时间停留应检查 Plan 生成流程 |
-| `planned` | 审查 Spec 和 Plan 后执行 `/workflow execute` |
-| `running` | 继续执行 `/workflow execute` |
-| `paused` | 根据暂停原因处理后 `/workflow execute` |
-| `blocked` | 使用 `/workflow unblock <dep>` 解除依赖 |
-| `failed` | 修复后 `/workflow execute --retry` 或 `--skip` |
-| `completed` | 🎉 工作流已完成，可执行 `/workflow archive` |
-| `archived` | 需要新需求请 `/workflow plan` |
+| `planned` | 审查 Spec 和 Plan 后执行 `/workflow-execute` |
+| `running` | 继续执行 `/workflow-execute` |
+| `paused` | 根据暂停原因处理后 `/workflow-execute` |
+| `blocked` | 使用 `node workflow_cli.js unblock <dep>` 解除依赖 |
+| `failed` | 修复后 `/workflow-execute --retry` 或 `--skip` |
+| `review_pending` | 执行 `/workflow-review` 进行全量完成审查 |
+| `completed` | 🎉 工作流已完成，可执行 `/workflow-ops archive` |
+| `archived` | 需要新需求请 `/workflow-plan` |
 
-> ⚠️ `/workflow status` 只读取 workflow runtime；若用户使用的是 `/team`，应转而查看 `/team status`，不得把 team runtime 混入 workflow status。
+> ⚠️ `/workflow-ops status` 只读取 workflow runtime；若用户使用的是 `/team`，应转而查看 `/team status`，不得把 team runtime 混入 workflow status。
 
 ---
 
@@ -187,7 +188,7 @@ CLI 自动完成：
 
 | 错误 | 含义 | 建议 |
 |------|------|------|
-| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先执行 `/scan` 和 `/workflow plan` |
+| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先执行 `/scan` 和 `/workflow-plan` |
 | `只有 completed 状态的工作流可以归档` | 当前状态不是 `completed` | 显示当前 `state_status`，提示先完成工作流 |
 
 #### Step 2: 展示归档结果
@@ -219,10 +220,10 @@ CLI 自动完成：
 ```
 🎉 工作流已归档，可以开始新的任务了！
 
-/workflow plan "新功能描述"
+/workflow-plan "新功能描述"
 ```
 
-> ⚠️ `/workflow archive` 只归档 workflow runtime；team 相关归档应使用 `/team archive`。
+> ⚠️ `/workflow-ops archive` 只归档 workflow runtime；team 相关归档应使用 `/team archive`。
 
 ---
 
@@ -248,9 +249,9 @@ node core/utils/workflow/workflow_cli.js archive --summary
 |-------|------|------|
 | `workflow-plan` | 规划流程 | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
 | `workflow-execute` | 任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
-| `workflow-review` | 质量关卡审查 | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
+| `workflow-review` | 全量完成审查（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-delta` | 增量变更 | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |
 
 > CLI 入口：`core/utils/workflow/workflow_cli.js`
 >
-> Command 入口：[`../../commands/workflow.md`](../../commands/workflow.md)
+> 运行时资源参见 [`../../specs/workflow-runtime/state-machine.md`](../../specs/workflow-runtime/state-machine.md)

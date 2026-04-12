@@ -21,7 +21,7 @@
 | 关注点 | 负责 Skill | 说明 |
 |--------|-----------|------|
 | 业务逻辑 + 数据流 | `/workflow` | 功能实现，使用组件库默认样式 |
-| API 接口 | `/workflow delta` | 统一处理 API 同步和变更 |
+| API 接口 | `/workflow-delta` | 统一处理 API 同步和变更 |
 | 视觉还原 + 验证 | `/figma-ui` | **独立流程**，负责设计上下文获取、资源分诊、语义化命名、Visual Review 与交付决策 |
 
 ```text
@@ -38,7 +38,7 @@ workflow（功能）  ──▶  figma-ui（视觉资源分诊 + 还原 + 验证
 
 | 类型 | 来源 | 入口 |
 |------|------|------|
-| `api_spec` | YApi / ytt | `/workflow delta` |
+| `api_spec` | YApi / ytt | `/workflow-delta` |
 
 > **注意**：`design_spec` 已移除。设计稿还原通过独立的 `/figma-ui` skill 处理。
 
@@ -58,10 +58,10 @@ YApi 平台 ──▶ ytt.config.ts ──▶ pnpm ytt ──▶ autogen/*.ts
 
 ```bash
 # 同步全部 API（执行 ytt）
-/workflow delta
+/workflow-delta
 
 # 指定 API 文件（跳过生成，直接解析）
-/workflow delta packages/api/lib/autogen/teamApi.ts
+/workflow-delta packages/api/lib/autogen/teamApi.ts
 ```
 
 ### 处理流程

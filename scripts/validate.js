@@ -211,13 +211,11 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
  * @returns {Promise<void>}
  */
 async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
-  const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
   const runtimeRefsDir = path.join(packageRoot, 'specs', 'workflow-runtime');
   const runtimeTemplatesDir = path.join(packageRoot, 'specs', 'workflow-templates');
   const runtimeScriptsDir = path.join(packageRoot, 'utils', 'workflow');
   const workflowHooksDir = path.join(packageRoot, 'hooks');
   const guardPaths = [
-    [workflowCommandFile, 'workflow command 入口'],
     [runtimeRefsDir, 'workflow-runtime references'],
     [runtimeTemplatesDir, 'workflow-templates'],
     [runtimeScriptsDir, 'workflow utils/scripts'],
@@ -250,7 +248,6 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   }
 
   const cliFile = path.join(scriptsDir, 'workflow_cli.js');
-  const overviewFile = workflowCommandFile;
   const planTemplateFile = path.join(runtimeTemplatesDir, 'plan-template.md');
   const specTemplateFile = path.join(runtimeTemplatesDir, 'spec-template.md');
   const referencesDir = runtimeRefsDir;
@@ -311,8 +308,6 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     'workflow-contracts',
     '--cli',
     cliFile,
-    '--overview',
-    overviewFile,
     '--spec-template',
     specTemplateFile,
     '--plan-template',
@@ -401,7 +396,6 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
  */
 async function validateTeamContracts(repoRoot, packageRoot, errors) {
   const teamCommandFile = path.join(packageRoot, 'commands', 'team.md');
-  const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
   const teamEntrySkillFile = path.join(packageRoot, 'skills', 'team', 'SKILL.md');
   const teamRuntimeSkillFile = path.join(packageRoot, 'skills', 'team-workflow', 'SKILL.md');
   const teamSpecsDir = path.join(packageRoot, 'specs', 'team-runtime');
@@ -414,7 +408,6 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
   const usesSplitRuntimeSkill = teamCommandContent.includes('../skills/team-workflow/SKILL.md');
   const guardPaths = [
     [teamCommandFile, 'team command 入口'],
-    [workflowCommandFile, 'workflow command 入口'],
     [teamEntrySkillFile, 'team entry skill 入口'],
     [teamSpecsDir, 'team-runtime references'],
     [teamUtilsDir, 'team utils/scripts'],
@@ -455,8 +448,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
     ...teamRuntimeSkillDocs,
   ];
 
-  const [workflowCommandContent, teamEntrySkillContent, teamRuntimeSkillContent, readmeContent, claudeContent, coreClaudeContent] = await Promise.all([
-    fs.readFile(workflowCommandFile, 'utf8'),
+  const [teamEntrySkillContent, teamRuntimeSkillContent, readmeContent, claudeContent, coreClaudeContent] = await Promise.all([
     fs.readFile(teamEntrySkillFile, 'utf8'),
     usesSplitRuntimeSkill ? fs.readFile(teamRuntimeSkillFile, 'utf8') : Promise.resolve(''),
     fs.readFile(path.join(repoRoot, 'README.md'), 'utf8'),
@@ -468,13 +460,6 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
   for (const marker of commandMarkers) {
     if (!teamCommandContent.includes(marker)) {
       errors.push(`team command 缺少边界声明: ${marker}`);
-    }
-  }
-
-  const workflowMarkers = ['/team', '/workflow', '不会自动升级为 team mode', '不得继承 team runtime'];
-  for (const marker of workflowMarkers) {
-    if (!workflowCommandContent.includes(marker)) {
-      errors.push(`workflow command 缺少 /team 边界声明: ${marker}`);
     }
   }
 

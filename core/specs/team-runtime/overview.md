@@ -2,7 +2,7 @@
 
 `/team` 为本仓库提供**独立且显式**的团队编排模式。
 
-它不是对 `/workflow execute` 的自动升级，也不是 `dispatching-parallel-agents` 的别名；而是在现有 workflow planning / executing / reviewing / runtime helpers 之上，增加一层 team orchestration。
+它不是对 `/workflow-execute` 的自动升级，也不是 `dispatching-parallel-agents` 的别名；而是在现有 workflow planning / executing / reviewing / runtime helpers 之上，增加一层 team orchestration。
 
 ## 显式入口约束
 
