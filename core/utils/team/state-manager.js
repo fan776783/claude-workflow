@@ -1,3 +1,5 @@
+/** Team 状态管理器 —— 负责 team-state.json 的读写、路径校验、状态初始化、worker 名册规范化和活跃状态检测 */
+
 const crypto = require('crypto')
 const fs = require('fs')
 const os = require('os')
@@ -7,30 +9,64 @@ const TEAM_STATE_FILENAME = 'team-state.json'
 const TEAM_ID_REGEX = /^[a-zA-Z0-9_-]+$/
 const VALID_WORKER_STATUSES = new Set(['idle', 'ready', 'claimed', 'running', 'blocked', 'verifying', 'completed', 'failed', 'offline'])
 
+/**
+ * 返回当前时间的 ISO 格式字符串
+ * @returns {string} ISO 时间戳
+ */
 function isoNow() {
   return new Date().toISOString()
 }
 
+/**
+ * 校验 team ID 格式是否合法（仅允许字母、数字、下划线、连字符）
+ * @param {string} teamId - team ID
+ * @returns {boolean} 合法时返回 true
+ */
 function validateTeamId(teamId) {
   return Boolean(teamId && TEAM_ID_REGEX.test(teamId))
 }
 
+/**
+ * 获取指定项目的 teams 根目录路径
+ * @param {string} projectId - 项目 ID
+ * @returns {string|null} teams 目录路径，ID 非法时返回 null
+ */
 function getTeamsProjectDir(projectId) {
   if (!TEAM_ID_REGEX.test(projectId || '')) return null
   return path.join(os.homedir(), '.claude', 'workflows', projectId, 'teams')
 }
 
+/**
+ * 获取指定 team 的目录路径
+ * @param {string} projectId - 项目 ID
+ * @param {string} teamId - team ID
+ * @returns {string|null} team 目录路径，参数非法时返回 null
+ */
 function getTeamDir(projectId, teamId) {
   const root = getTeamsProjectDir(projectId)
   if (!root || !validateTeamId(teamId)) return null
   return path.join(root, teamId)
 }
 
+/**
+ * 获取 team-state.json 的完整路径
+ * @param {string} projectId - 项目 ID
+ * @param {string} teamId - team ID
+ * @returns {string|null} 状态文件路径
+ */
 function getTeamStatePath(projectId, teamId) {
   const teamDir = getTeamDir(projectId, teamId)
   return teamDir ? path.join(teamDir, TEAM_STATE_FILENAME) : null
 }
 
+/**
+ * 断言状态文件路径符合规范目录结构，防止路径穿越
+ * @param {string} statePath - 状态文件路径
+ * @param {string} projectId - 预期的项目 ID
+ * @param {string} teamId - 预期的 team ID
+ * @returns {string} 解析后的绝对路径
+ * @throws {Error} 路径不符合规范时抛出异常
+ */
 function assertCanonicalTeamStatePath(statePath, projectId, teamId) {
   const resolved = path.resolve(statePath)
   const workflowsRoot = path.resolve(path.join(os.homedir(), '.claude', 'workflows'))
@@ -54,6 +90,11 @@ function assertCanonicalTeamStatePath(statePath, projectId, teamId) {
   return resolved
 }
 
+/**
+ * 返回指定角色可认领的阶段列表
+ * @param {string} role - 角色名
+ * @returns {string[]} 可认领的阶段名称列表
+ */
 function claimablePhasesForRole(role) {
   if (role === 'orchestrator') return ['planning', 'implement', 'review', 'fix']
   if (role === 'planner') return ['planning']
@@ -62,17 +103,33 @@ function claimablePhasesForRole(role) {
   return []
 }
 
+/**
+ * 返回指定角色的默认 profile 引用
+ * @param {string} role - 角色名
+ * @returns {object|null} profile 引用对象
+ */
 function defaultProfileRefForRole(role) {
   if (role === 'planner') return { phase: 'plan_generation', role: 'planner', profile: 'plan-planner', source: 'workflow-role-profiles' }
   if (role === 'reviewer') return { phase: 'quality_review_stage2', role: 'reviewer', profile: 'review-reviewer', source: 'workflow-role-profiles' }
   return null
 }
 
+/**
+ * 规范化 worker 角色名，默认为 implementer
+ * @param {string} role - 原始角色名
+ * @returns {string} 规范化后的角色名
+ */
 function normalizeWorkerRole(role = '') {
   const normalized = String(role || '').trim().toLowerCase()
   return normalized || 'implementer'
 }
 
+/**
+ * 规范化 worker 状态值，将非法值映射为合理默认值
+ * @param {string} status - 原始状态
+ * @param {string} role - worker 角色
+ * @returns {string} 规范化后的状态
+ */
 function normalizeWorkerStatus(status = '', role = 'implementer') {
   const normalized = String(status || '').trim().toLowerCase()
   if (VALID_WORKER_STATUSES.has(normalized)) return normalized
@@ -80,6 +137,12 @@ function normalizeWorkerStatus(status = '', role = 'implementer') {
   return role === 'orchestrator' ? 'running' : 'idle'
 }
 
+/**
+ * 规范化 profile 引用，支持对象、字符串和 null 输入
+ * @param {object|string|null} profileRef - 原始 profile 引用
+ * @param {string} role - worker 角色
+ * @returns {object|null} 规范化后的 profile 引用对象
+ */
 function normalizeProfileRef(profileRef, role) {
   if (profileRef && typeof profileRef === 'object') return profileRef
   if (typeof profileRef === 'string' && profileRef.trim()) {
@@ -88,12 +151,24 @@ function normalizeProfileRef(profileRef, role) {
   return defaultProfileRefForRole(role)
 }
 
+/**
+ * 规范化 worker ID，无有效 ID 时按角色和索引生成
+ * @param {object} worker - worker 对象
+ * @param {number} index - 在名册中的索引
+ * @param {string} role - worker 角色
+ * @returns {string} worker ID
+ */
 function normalizeWorkerId(worker = {}, index = 0, role = 'implementer') {
   if (worker.worker_id && typeof worker.worker_id === 'string') return worker.worker_id
   const fallbackIndex = role === 'orchestrator' ? 1 : index + 1
   return `${role}-${fallbackIndex}`
 }
 
+/**
+ * 规范化整个 worker 名册，补全每个 worker 的角色、状态、权限等字段
+ * @param {object[]} roster - 原始 worker 名册
+ * @returns {object[]} 规范化后的 worker 名册
+ */
 function normalizeWorkerRoster(roster = []) {
   if (!Array.isArray(roster)) return []
   return roster.map((worker, index) => {
@@ -113,6 +188,12 @@ function normalizeWorkerRoster(roster = []) {
   })
 }
 
+/**
+ * 规范化边界认领映射，补全每个边界的认领状态和 profile 引用
+ * @param {object} boundaryClaims - 原始边界认领映射
+ * @param {object[]} roster - worker 名册
+ * @returns {object} 规范化后的边界认领映射
+ */
 function normalizeBoundaryClaims(boundaryClaims = {}, roster = []) {
   const claims = {}
   const rosterByRole = new Map(roster.map((worker) => [worker.role, worker.worker_id]))
@@ -143,6 +224,11 @@ function normalizeBoundaryClaims(boundaryClaims = {}, roster = []) {
   return claims
 }
 
+/**
+ * 为 team 状态对象填充所有必要的默认值，规范化嵌套结构
+ * @param {object} state - 原始状态对象
+ * @returns {object} 补全默认值后的状态对象
+ */
 function ensureTeamStateDefaults(state) {
   const seeded = {
     status: 'planning',
@@ -194,6 +280,11 @@ function ensureTeamStateDefaults(state) {
   }
 }
 
+/**
+ * 验证激活来源是否为合法的显式 team 命令
+ * @param {object} activation - 激活来源对象
+ * @returns {boolean} 合法时返回 true
+ */
 function validateActivationSource(activation) {
   if (!activation || typeof activation !== 'object') return false
   const mode = activation.mode || ''
@@ -203,11 +294,29 @@ function validateActivationSource(activation) {
     && activation.auto_trigger_allowed === false
 }
 
+/**
+ * 检查值是否为保留的 team 标识符（none / null / undefined）
+ * @param {string} value - 待检查的值
+ * @returns {boolean} 是保留标识符时返回 true
+ */
 function isReservedTeamIdentifier(value) {
   const normalized = String(value || '').trim().toLowerCase()
   return normalized === 'none' || normalized === 'null' || normalized === 'undefined'
 }
 
+/**
+ * 构建最小化的 team 状态对象，包含必要的初始字段
+ * @param {object} params - 参数对象
+ * @param {string} params.projectId - 项目 ID
+ * @param {string} params.teamId - team ID
+ * @param {string} params.teamName - team 名称
+ * @param {string} params.projectRoot - 项目根目录
+ * @param {string} params.specFile - spec 文件路径
+ * @param {string} params.planFile - plan 文件路径
+ * @param {string} params.teamTasksFile - 任务面板文件路径
+ * @param {object} params.activation - 激活来源
+ * @returns {object} 初始化后的 team 状态对象
+ */
 function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specFile, planFile, teamTasksFile, activation } = {}) {
   const now = isoNow()
   return ensureTeamStateDefaults({
@@ -227,11 +336,25 @@ function buildMinimumTeamState({ projectId, teamId, teamName, projectRoot, specF
   })
 }
 
+/**
+ * 读取并解析 team 状态文件，自动补全默认值
+ * @param {string} statePath - 状态文件路径
+ * @param {string} projectId - 项目 ID
+ * @param {string} teamId - team ID
+ * @returns {object} 解析后的 team 状态对象
+ */
 function readTeamState(statePath, projectId, teamId) {
   const resolved = assertCanonicalTeamStatePath(statePath, projectId, teamId)
   return ensureTeamStateDefaults(JSON.parse(fs.readFileSync(resolved, 'utf8')))
 }
 
+/**
+ * 将 team 状态写入文件，使用临时文件 + rename 保证原子性
+ * @param {string} statePath - 状态文件路径
+ * @param {object} state - team 状态对象
+ * @param {string} projectId - 项目 ID
+ * @param {string} teamId - team ID
+ */
 function writeTeamState(statePath, state, projectId, teamId) {
   const resolved = assertCanonicalTeamStatePath(statePath, projectId || state.project_id, teamId || state.team_id)
   const payload = ensureTeamStateDefaults(state)
@@ -242,6 +365,11 @@ function writeTeamState(statePath, state, projectId, teamId) {
   fs.renameSync(tmpPath, resolved)
 }
 
+/**
+ * 检测指定项目下是否存在未归档的活跃 team 状态
+ * @param {string} projectId - 项目 ID
+ * @returns {string|null} 活跃状态文件路径，不存在时返回 null
+ */
 function detectActiveTeamState(projectId) {
   const root = getTeamsProjectDir(projectId)
   if (!root || !fs.existsSync(root)) return null
@@ -256,6 +384,13 @@ function detectActiveTeamState(projectId) {
   return null
 }
 
+/**
+ * 检测指定项目下最近更新的 team 状态文件
+ * @param {string} projectId - 项目 ID
+ * @param {object} options - 选项
+ * @param {boolean} options.includeArchived - 是否包含已归档状态，默认 true
+ * @returns {string|null} 最近更新的状态文件路径，不存在时返回 null
+ */
 function detectLatestTeamState(projectId, { includeArchived = true } = {}) {
   const root = getTeamsProjectDir(projectId)
   if (!root || !fs.existsSync(root)) return null

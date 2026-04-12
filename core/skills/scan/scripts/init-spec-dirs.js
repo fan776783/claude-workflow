@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/** 规范目录初始化 —— 根据项目技术栈自动创建分层规范目录和索引文件 */
+
 const fs = require('fs')
 const path = require('path')
 
@@ -73,6 +75,11 @@ const STACK_LAYERS = {
   flutter: ['frontend', 'shared'],
 }
 
+/**
+ * 根据项目配置中的框架和语言信息推断需要的规范层级（frontend/backend/shared）
+ * @param {object} projectConfig - 项目配置对象，含 frameworks 和 languages
+ * @returns {string[]} 排序后的层级名称列表
+ */
 function detectLayers(projectConfig = {}) {
   const layers = new Set()
   const frameworks = Array.isArray(projectConfig.frameworks) ? projectConfig.frameworks : []
@@ -100,6 +107,13 @@ function detectLayers(projectConfig = {}) {
   return [...layers].sort()
 }
 
+/**
+ * 在项目中初始化规范目录结构，为每个层级创建 index.md 和根索引
+ * @param {string} projectRoot - 项目根目录
+ * @param {string[]|null} layers - 指定层级列表，不传则自动检测
+ * @param {boolean} force - 是否覆盖已有文件
+ * @returns {object} 创建结果，含 created、skipped 和 layers
+ */
 function initSpecDirs(projectRoot, layers = null, force = false) {
   const specsDir = path.join(projectRoot, '.claude', 'specs')
   const result = { created: [], skipped: [], layers: [] }

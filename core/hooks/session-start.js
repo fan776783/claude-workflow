@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** @file SessionStart Hook — 会话启动时注入项目配置、工作流状态和护栏提示 */
 
 const fs = require('fs')
 const path = require('path')
@@ -6,10 +7,20 @@ const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
 const { getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { getWorkflowRuntime, getThinkingGuides } = require('../utils/workflow/task_runtime')
 
+/**
+ * 判断是否应跳过 hook（非交互模式时跳过）
+ * @returns {boolean}
+ */
 function shouldSkip() {
   return process.env.CLAUDE_NON_INTERACTIVE === '1'
 }
 
+/**
+ * 安全读取文件内容
+ * @param {string} targetPath - 文件路径
+ * @param {string} [fallback=''] - 读取失败时的默认值
+ * @returns {string} 文件内容或默认值
+ */
 function readFile(targetPath, fallback = '') {
   try {
     return fs.readFileSync(targetPath, 'utf8')
@@ -18,6 +29,11 @@ function readFile(targetPath, fallback = '') {
   }
 }
 
+/**
+ * 查找并解析项目配置文件（.claude/config/project-config.json）
+ * @param {string} projectRoot - 项目根目录
+ * @returns {object|null} 配置对象，不存在或解析失败返回 null
+ */
 function findProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
   if (!fs.existsSync(configPath)) return null
@@ -28,6 +44,11 @@ function findProjectConfig(projectRoot) {
   }
 }
 
+/**
+ * 递归收集 .claude/specs/ 下所有 index.md 的内容摘要
+ * @param {string} projectRoot - 项目根目录
+ * @returns {string} 拼接后的 spec 索引内容
+ */
 function collectSpecIndices(projectRoot) {
   const specsDir = path.join(projectRoot, '.claude', 'specs')
   if (!fs.existsSync(specsDir) || !fs.statSync(specsDir).isDirectory()) return ''
@@ -48,6 +69,11 @@ function collectSpecIndices(projectRoot) {
   return indices.join('\n\n')
 }
 
+/**
+ * 根据当前 workflow 状态判断下一步操作提示
+ * @param {object|null} state - workflow 状态对象
+ * @returns {string} 面向用户的下一步操作建议
+ */
 function determineNextAction(state) {
   if (!state) return '没有活跃的工作流。使用 `/workflow plan` 开始新任务。'
   const gateViolation = getSpecReviewGateViolation(state)
@@ -69,6 +95,11 @@ function determineNextAction(state) {
   return `当前状态: ${status}。使用 /workflow status 查看详情。`
 }
 
+/**
+ * 根据当前 workflow 状态生成护栏提示，防止越界操作
+ * @param {object|null} state - workflow 状态对象
+ * @returns {string} 护栏规则描述
+ */
 function determineGuardrail(state) {
   if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行；普通会话不得继承或恢复任何 team context。'
   const gateViolation = getSpecReviewGateViolation(state)
@@ -84,10 +115,17 @@ function determineGuardrail(state) {
   return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门；非 `/team` 路径必须忽略 team runtime。'
 }
 
+/**
+ * 生成 team 模式护栏提示，防止普通会话误读 team runtime
+ * @returns {string} team 护栏规则描述
+ */
 function determineTeamGuardrail() {
   return 'Guardrail：普通 session / workflow 只读取 workflow runtime，不继承 team runtime 的 team_id、team_name、worker_roster、dispatch_batches 或 review 状态；只有显式 `/team start|execute|status|archive|cleanup` 才允许读取 team-state.json。`/team cleanup` 还必须显式提供 teamId。'
 }
 
+/**
+ * SessionStart hook 主流程：读取项目配置和 workflow 状态，输出上下文与护栏信息
+ */
 function main() {
   if (shouldSkip()) return
   const projectRoot = process.cwd()

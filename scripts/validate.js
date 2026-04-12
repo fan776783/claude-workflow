@@ -7,6 +7,13 @@ const { spawnSync } = require('child_process');
 const { validateTeamContracts: validateTeamDocContracts } = require('../core/utils/team/doc-contracts.js');
 const { validateWorkflowDocContracts } = require('../core/utils/workflow/doc_contracts.js');
 
+/**
+ * 以子进程方式运行 Node.js 脚本并返回结果
+ * @param {string[]} args - 传给 node 的参数列表
+ * @param {object} [options] - 选项
+ * @param {boolean} [options.parseJson=true] - 是否将 stdout 解析为 JSON
+ * @returns {{ ok: boolean, data?: any, error?: string, stdout?: string, stderr?: string }}
+ */
 function runNodeValidation(args, options = {}) {
   const { parseJson = true } = options;
   const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
@@ -30,6 +37,11 @@ function runNodeValidation(args, options = {}) {
   }
 }
 
+/**
+ * 对一组 JS 文件执行 Node.js 语法检查（--check）
+ * @param {string[]} files - 要检查的文件路径列表
+ * @returns {{ ok: boolean, error?: string }}
+ */
 function runNodeSyntaxValidation(files) {
   for (const file of files) {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
@@ -46,6 +58,12 @@ function runNodeSyntaxValidation(files) {
   return { ok: true };
 }
 
+/**
+ * 递归收集目录下满足条件的文件
+ * @param {string} rootDir - 起始目录
+ * @param {(fullPath: string, name: string) => boolean} predicate - 文件过滤函数
+ * @returns {Promise<string[]>} 匹配的文件路径列表
+ */
 async function collectFiles(rootDir, predicate) {
   const files = [];
   if (!(await fs.pathExists(rootDir))) {
@@ -66,10 +84,22 @@ async function collectFiles(rootDir, predicate) {
   return files;
 }
 
+/**
+ * 递归收集目录下所有 Markdown 文件
+ * @param {string} rootDir - 起始目录
+ * @returns {Promise<string[]>} .md 文件路径列表
+ */
 async function collectMarkdownFiles(rootDir) {
   return collectFiles(rootDir, (_, name) => name.endsWith('.md'));
 }
 
+/**
+ * 校验文档中的路径引用是否合法（禁止旧路径、检查相对链接有效性等）
+ * @param {string} repoRoot - 仓库根目录
+ * @param {string} packageRoot - core/ 包根目录
+ * @param {string[]} errors - 错误收集数组（就地追加）
+ * @returns {Promise<void>}
+ */
 async function validatePathReferences(repoRoot, packageRoot, errors) {
   const pathContractChecks = [
     {
@@ -173,6 +203,13 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
   }
 }
 
+/**
+ * 校验 workflow 相关契约：必要文件存在性、脚本语法、模板标记、文档引用一致性
+ * @param {string} repoRoot - 仓库根目录
+ * @param {string} packageRoot - core/ 包根目录
+ * @param {string[]} errors - 错误收集数组（就地追加）
+ * @returns {Promise<void>}
+ */
 async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
   const runtimeRefsDir = path.join(packageRoot, 'specs', 'workflow-runtime');
@@ -355,6 +392,13 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   }
 }
 
+/**
+ * 校验 team 相关契约：命令入口、运行时文档、脚本完整性、边界声明
+ * @param {string} repoRoot - 仓库根目录
+ * @param {string} packageRoot - core/ 包根目录
+ * @param {string[]} errors - 错误收集数组（就地追加）
+ * @returns {Promise<void>}
+ */
 async function validateTeamContracts(repoRoot, packageRoot, errors) {
   const teamCommandFile = path.join(packageRoot, 'commands', 'team.md');
   const workflowCommandFile = path.join(packageRoot, 'commands', 'workflow.md');
@@ -504,6 +548,10 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
   }
 }
 
+/**
+ * 发布前验证主流程：检查目录结构、workflow/team 契约、路径引用
+ * @returns {Promise<void>}
+ */
 async function validate() {
   const repoRoot = path.join(__dirname, '..');
   const templatesDir = path.join(repoRoot, 'templates');

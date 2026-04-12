@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 
+/** 并行分派结果收集器 —— 负责冲突检测、聚合验证和分组结果汇总 */
+
 const { spawnSync } = require('child_process')
 const { readRegistry, writeRegistry, getGroupStatus } = require('./agent_registry')
 
+/**
+ * 检测 agent 对应 worktree 的当前分支名
+ * @param {object} agent - agent 条目（需含 worktree_path）
+ * @returns {string|null} 分支名，无法检测时返回 null
+ */
 function detectBranchForAgent(agent) {
   const worktreePath = agent.worktree_path
   if (!worktreePath) return null
@@ -19,6 +26,12 @@ function detectBranchForAgent(agent) {
   return branch
 }
 
+/**
+ * 使用 git merge-tree 检查指定分支与 HEAD 的合并兼容性
+ * @param {string} root - 仓库根目录
+ * @param {string} branch - 待检查的分支名
+ * @returns {object} 包含 ok（是否无冲突）、stderr、stdout
+ */
 function checkMergeCompatibility(root, branch) {
   const result = spawnSync('git', ['merge-tree', '--write-tree', '--quiet', 'HEAD', branch], {
     cwd: root,
@@ -33,6 +46,12 @@ function checkMergeCompatibility(root, branch) {
   }
 }
 
+/**
+ * 检测指定分组中已完成 agent 的合并冲突，有冲突时标记 group 并建议顺序降级
+ * @param {string} groupId - 分组 ID
+ * @param {string|null} projectRoot - 项目根目录
+ * @returns {object} 冲突检测结果，含 has_conflicts、conflicts 列表和建议
+ */
 function detectMergeConflicts(groupId, projectRoot = null) {
   const root = projectRoot || process.cwd()
   const registry = readRegistry(root)
@@ -80,6 +99,13 @@ function detectMergeConflicts(groupId, projectRoot = null) {
   }
 }
 
+/**
+ * 在指定目录下依次执行验证命令，收集每条命令的通过状态和输出
+ * @param {string[]} commands - 待执行的 shell 命令列表
+ * @param {string|null} cwd - 工作目录
+ * @param {number} timeout - 单条命令超时秒数
+ * @returns {object[]} 每条命令的执行结果（含 passed、exit_code、output）
+ */
 function runAggregateVerification(commands, cwd = null, timeout = 120) {
   const root = cwd || process.cwd()
   const results = []
@@ -115,6 +141,13 @@ function runAggregateVerification(commands, cwd = null, timeout = 120) {
   return results
 }
 
+/**
+ * 汇总指定分组的执行结果：统计完成/失败/运行中数量，检测冲突，运行验证命令
+ * @param {string} groupId - 分组 ID
+ * @param {string[]|null} verificationCommands - 聚合验证命令列表
+ * @param {string|null} projectRoot - 项目根目录
+ * @returns {object} 汇总结果，含状态、冲突信息、验证结果和建议
+ */
 function collectGroupResults(groupId, verificationCommands = null, projectRoot = null) {
   const root = projectRoot || process.cwd()
   const groupStatus = getGroupStatus(groupId, root)

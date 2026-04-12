@@ -247,7 +247,7 @@ node core/utils/workflow/verification.js create \
 
 CLI 会同时返回证据对象和 `validation` 结果；只有 `validation.valid === true` 时，才能进入后续 checkpoint。
 
-> `SessionStart` / `PreToolUse(Task)` 为默认 base hooks；`PostToolUse` 质量关卡 hook 为可选 strict hook。它们只读取 CLI/runtime 结果并决定提示或阻断，不负责写入主状态或生成验证 evidence。
+> `SessionStart` / `PreToolUse(Task)` hooks 只读取 CLI/runtime 结果并决定提示或阻断，不负责写入主状态或生成验证 evidence。
 
 ### ③→④ Checkpoint 原子性
 

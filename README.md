@@ -154,18 +154,15 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 # 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/settings.json
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
 
-# 可选：为 Claude Code 注册 strict workflow hook（PostToolUse 质量关卡；SessionStart / PreToolUse(Task) 默认注册）
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --workflow-hooks -y
+
 
 # 从源码仓库同步
 npm run sync -- -a claude-code,cursor
 npm run sync -- --project
-npm run sync -- --workflow-hooks -y
 npm run sync -- -y
 
 # 本地开发调试：直接把受管目录链接到当前仓库 core/
 npm run link -- -a claude-code
-npm run link -- --workflow-hooks -a claude-code
 
 # 结束调试后恢复标准 canonical 模式
 npm run sync -- -a claude-code
@@ -187,51 +184,119 @@ npm run sync -- -a claude-code
 /team execute
 ```
 
-### Hook Guardrails
+### Hook 流程控制
 
-Claude Code 下当前有两类 hooks：
+工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails** 和 **worktree 并发安全**。hooks 不替代 command + skill 驱动的状态机，而是在其外围提供自动化的上下文注入、执行门控和资源管理。
 
-- **worktree hooks**：默认随全局 `sync` 自动注入，用于 `WorktreeCreate` / `WorktreeRemove` 的串行化和清理
-- **workflow base hooks**：默认随全局 `sync` 自动注入，用于 `SessionStart`、`PreToolUse(Task)` 的运行时 guardrails
-- **workflow strict hooks**：需显式使用 `sync --workflow-hooks` 或 `link --workflow-hooks` 启用；当前对应 `PostToolUse` 质量关卡 hook
+当前共 **4 个 hook 脚本**，按职责分为两类：
 
-workflow hooks 的职责边界：
-- 注入 active workflow、next action、当前 task、验证命令与质量关卡上下文
-- 在状态非法、上下文缺失或质量关卡未通过时阻断继续
-- 不替代 `/workflow execute` 的 shared resolver，不决定 planning / execute / delta / archive 的阶段流转
+| 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
+|------|-----------|------|----------|------|
+| **Worktree Hooks** | `WorktreeCreate` | `worktree-serialize.js` | ✅ 随 `sync` 自动注入 | 串行化 worktree 创建，防止并行竞争 `.git/config.lock` |
+| | `WorktreeRemove` | `worktree-cleanup.js` | ✅ 随 `sync` 自动注入 | 清理孤立 worktree 引用、回收托管目录、释放串行锁 |
+| **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文、next action 与 guardrail |
+| | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | Task 派发前检查 workflow 状态并注入任务上下文 |
+
+#### 各 Hook 运行时行为
+
+- **`SessionStart`**：会话启动时读取项目配置和 workflow 状态，注入当前进度、next action 提示、guardrail 规则和 team 隔离边界
+- **`PreToolUse(Task)`**：在 Task 派发前做 5 重检查（workflow 存在 → spec_review 门控 → status 合法 → active task → 文件齐全），通过后将当前 task block、verification commands、spec context 注入到 Task description 前缀
+- **`WorktreeCreate`**：通过 `mkdir` 原子锁串行化 `git worktree add`；锁 10 秒自动过期，30 秒总超时强制放行
+- **`WorktreeRemove`**：执行 `git worktree prune`，回收 `.claude/worktrees/` 下孤立目录，释放串行化锁
+
+#### 启用方式
+
+```bash
+# 默认注入 worktree + workflow hooks
+npm run sync -- -y
+```
+
+手动配置到 `~/.claude/settings.json`（路径必须用 `$HOME`，不能用 `~`）：
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/session-start.js\"" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Task", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/pre-execute-inject.js\"" }] }
+    ],
+    "WorktreeCreate": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\"" }] }
+    ],
+    "WorktreeRemove": [
+      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\"" }] }
+    ]
+  }
+}
+```
+
+#### 职责边界
+
+hooks **负责**：注入 workflow 上下文、在状态非法 / 上下文缺失时阻断、串行化 worktree 创建  
+hooks **不负责**：决定 planning / execute / delta / archive 的阶段流转、替代 `/workflow execute` 的 shared resolver、创建第二套状态机
+
+#### 故障排查
+
+```bash
+cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
+rm -rf $(git rev-parse --git-common-dir)/worktree-serialize.lock  # 清理残留锁
+git worktree list && git worktree prune              # 检查 worktree 状态
+```
 
 ---
 
-## workflow 主线命令
+## 直接调用 Workflow Skills
+
+每个 `/workflow` 子命令直接路由到对应的 workflow skill：
+
+#### `workflow-plan`（规划 Skill）
 
 ```bash
 /workflow plan "需求描述"
 /workflow plan docs/prd.md
 /workflow plan --no-discuss docs/prd.md
 /workflow spec-review --choice "Spec 正确，生成 Plan"
-
-/workflow execute
-/workflow execute --retry
-/workflow execute --skip
-
-/workflow status
-/workflow status --detail
-
-/workflow delta
-/workflow delta docs/prd-v2.md
-/workflow delta "新增导出功能，支持 CSV"
-
-/workflow archive
 ```
-
-含义如下：
 
 - `plan`：启动规划流程，生成 `spec.md` 并停在 `spec_review`（`start` 为别名）
 - `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
-- `execute`：按 `plan.md` 推进执行，并经过验证与审查
+
+#### `workflow-execute`（执行 Skill）
+
+```bash
+/workflow execute
+/workflow execute --retry
+/workflow execute --skip
+```
+
+- 按 `plan.md` 推进执行，并经过验证与审查
+
+#### `workflow-delta`（增量变更 Skill）
+
+```bash
+/workflow delta
+/workflow delta docs/prd-v2.md
+/workflow delta "新增导出功能，支持 CSV"
+```
+
+- 处理 PRD / API / 需求增量变更
+
+#### `workflow-ops`（运行时操作 Skill）
+
+```bash
+/workflow status
+/workflow status --detail
+/workflow archive
+```
+
 - `status`：查看当前状态、进度与下一步建议
-- `delta`：处理 PRD / API / 需求增量变更
 - `archive`：归档已完成工作流
+
+#### `workflow-review`（两阶段审查 Skill）
+
+- 由 `workflow-execute` 在质量关卡处内部触发，不直接暴露为命令
 
 ---
 
@@ -316,7 +381,7 @@ flowchart TD
 如需查看更完整说明，可参考：
 
 - `docs/worktree-hooks.md`（WorktreeCreate / WorktreeRemove 串行化与清理）
-- `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) / PostToolUse guardrails）
+- `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) guardrails）
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/workflow.md`（统一 command 入口）
 - `core/commands/team.md`（独立 team command 入口）

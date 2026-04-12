@@ -1,3 +1,6 @@
+/**
+ * @file 团队生命周期管理 - 提供 team start/execute/status/archive/cleanup 的核心实现
+ */
 const fs = require('fs')
 const path = require('path')
 
@@ -28,14 +31,32 @@ const { buildTaskBoardMarkdown, buildTeamTaskBoard, readTaskBoard, summarizeTask
 const { buildTeamStatus } = require('./status-renderer')
 const { loadTeamTemplates, renderTemplate } = require('./templates')
 
+/**
+ * 解析并返回项目根目录的绝对路径
+ * @param {string} projectRoot - 项目根目录路径，为空时使用 cwd
+ * @returns {string} 绝对路径
+ */
 function detectProjectRoot(projectRoot) {
   return path.resolve(projectRoot || process.cwd())
 }
 
+/**
+ * 将字符串转换为 URL 安全的 slug 格式，最长 48 字符
+ * @param {string} value - 原始字符串
+ * @returns {string} slug 化后的字符串
+ */
 function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'team-run'
 }
 
+/**
+ * 校验调用来源是否为显式的 team 入口（team-command 或 team-workflow）
+ * @param {Object} options - 校验选项
+ * @param {string} options.invocationSource - 调用来源标识
+ * @param {boolean} options.allowActiveFallback - 是否允许在缺少 teamId 时回退到活跃 team
+ * @param {string} options.teamId - 团队 ID
+ * @returns {{ok: boolean, error?: string, invalid_fields?: string[], next_action?: string}}
+ */
 function assertExplicitTeamInvocation({ invocationSource, allowActiveFallback = false, teamId } = {}) {
   const explicitSources = new Set(['team-command', 'team-workflow'])
   if (!explicitSources.has(invocationSource || '')) {
@@ -59,6 +80,15 @@ function assertExplicitTeamInvocation({ invocationSource, allowActiveFallback = 
   return { ok: true }
 }
 
+/**
+ * 解析团队状态文件路径，包含显式入口校验和保留标识符检查
+ * @param {Object} options - 解析选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.teamId - 团队 ID
+ * @param {string} options.invocationSource - 调用来源
+ * @param {boolean} options.allowActiveFallback - 是否允许回退到活跃 team
+ * @returns {{ok: boolean, statePath?: string, error?: string}}
+ */
 function resolveTeamStatePath({ projectId, teamId, invocationSource, allowActiveFallback = false } = {}) {
   const explicitGate = assertExplicitTeamInvocation({ invocationSource, allowActiveFallback, teamId })
   if (!explicitGate.ok) return explicitGate
@@ -76,6 +106,14 @@ function resolveTeamStatePath({ projectId, teamId, invocationSource, allowActive
   return { ok: true, statePath: detectActiveTeamState(projectId) }
 }
 
+/**
+ * 解析 cleanup 命令的团队状态文件路径，要求必须显式指定 teamId
+ * @param {Object} options - 解析选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.teamId - 团队 ID（必填）
+ * @param {string} options.invocationSource - 调用来源
+ * @returns {{ok: boolean, statePath?: string, error?: string}}
+ */
 function resolveCleanupStatePath({ projectId, teamId, invocationSource } = {}) {
   if (!teamId) {
     return {
@@ -106,6 +144,11 @@ function resolveCleanupStatePath({ projectId, teamId, invocationSource } = {}) {
   return { ok: true, statePath: getTeamStatePath(projectId, teamId) }
 }
 
+/**
+ * 校验已解析的团队状态是否包含保留哨兵值或缺少合法激活来源
+ * @param {Object} state - 团队运行时状态对象
+ * @returns {{ok: boolean, error?: string, invalid_fields?: string[], next_action?: string}}
+ */
 function validateResolvedTeamState(state) {
   if (isReservedTeamIdentifier(state?.team_id) || isReservedTeamIdentifier(state?.team_name)) {
     return {
@@ -126,6 +169,19 @@ function validateResolvedTeamState(state) {
   return { ok: true }
 }
 
+/**
+ * 校验 team start 产出的全部工件是否完整有效
+ * @param {Object} params - 校验参数
+ * @param {string} params.specPath - Spec 文件路径
+ * @param {string} params.planPath - Plan 文件路径
+ * @param {string} params.teamTasksPath - 团队任务 Markdown 路径
+ * @param {string} params.statePath - 状态文件路径
+ * @param {string} params.taskBoardPath - 任务看板 JSON 路径
+ * @param {Object[]} params.board - 看板数组
+ * @param {Object} params.dispatchMetadata - 分派元数据
+ * @param {Object} params.state - 团队状态对象
+ * @returns {{ok: boolean, missing_artifacts: string[], invalid_fields: string[]}}
+ */
 function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, taskBoardPath, board, dispatchMetadata, state }) {
   const missingArtifacts = []
   const invalidFields = []
@@ -147,6 +203,18 @@ function validateStartArtifacts({ specPath, planPath, teamTasksPath, statePath, 
   }
 }
 
+/**
+ * 执行 /team start 命令：初始化团队运行时，生成 spec、plan、任务看板等工件
+ * @param {string} requirement - 需求文本或需求文件路径
+ * @param {Object} options - 启动选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.projectRoot - 项目根目录
+ * @param {boolean} options.force - 是否强制覆盖已有 runtime
+ * @param {boolean} options.noDiscuss - 是否跳过讨论阶段
+ * @param {string} options.teamName - 团队名称
+ * @param {string} options.invocationSource - 调用来源
+ * @returns {Object} 启动结果，包含 team_id、状态路径、任务摘要等
+ */
 function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDiscuss = false, teamName, invocationSource = 'team-command' } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
@@ -314,6 +382,12 @@ function cmdTeamStart(requirement, { projectId, projectRoot, force = false, noDi
   }
 }
 
+/**
+ * 校验 execute 命令的前置条件：状态字段完整性、工件存在性、阶段合法性
+ * @param {Object} state - 团队运行时状态
+ * @param {Object[]} board - 任务看板数组
+ * @returns {{ok: boolean, missing_artifacts: string[], invalid_fields: string[]}}
+ */
 function validateExecutePreconditions(state, board) {
   const missingArtifacts = []
   const invalidFields = []
@@ -360,6 +434,12 @@ function validateExecutePreconditions(state, board) {
   }
 }
 
+/**
+ * 校验 archive 命令的前置条件：阶段是否允许归档、审查状态是否通过
+ * @param {Object} state - 团队运行时状态
+ * @param {Object[]} board - 任务看板数组
+ * @returns {{ok: boolean, error?: string, team_phase: string}}
+ */
 function validateArchivePreconditions(state, board) {
   const phase = inferTeamPhase(board, state.team_phase || 'team-plan', { state })
   const reviewCheck = validateReviewState(state, board)
@@ -383,6 +463,16 @@ function validateArchivePreconditions(state, board) {
   return { ok: true, team_phase: phase }
 }
 
+/**
+ * 执行 /team execute 命令：推进团队运行时阶段，根据看板状态自动切换 plan/exec/verify/fix 阶段
+ * @param {Object} options - 执行选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.projectRoot - 项目根目录
+ * @param {string} options.teamId - 团队 ID
+ * @param {string} options.invocationSource - 调用来源
+ * @param {boolean} options.allowActiveFallback - 是否允许回退到活跃 team
+ * @returns {Object} 执行结果，包含阶段推进信息和执行摘要
+ */
 function cmdTeamExecute({ projectId, projectRoot, teamId, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
@@ -502,6 +592,16 @@ function cmdTeamExecute({ projectId, projectRoot, teamId, invocationSource, allo
   }
 }
 
+/**
+ * 执行 /team status 命令：读取并返回团队运行时的完整状态快照
+ * @param {Object} options - 状态查询选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.projectRoot - 项目根目录
+ * @param {string} options.teamId - 团队 ID
+ * @param {string} options.invocationSource - 调用来源
+ * @param {boolean} options.allowActiveFallback - 是否允许回退到活跃 team
+ * @returns {Object} 团队状态快照
+ */
 function cmdTeamStatus({ projectId, projectRoot, teamId, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
@@ -531,6 +631,17 @@ function cmdTeamStatus({ projectId, projectRoot, teamId, invocationSource, allow
   return buildTeamStatus(state, board)
 }
 
+/**
+ * 执行 /team archive 命令：将团队运行时标记为已归档，可选生成归档摘要
+ * @param {Object} options - 归档选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.projectRoot - 项目根目录
+ * @param {string} options.teamId - 团队 ID
+ * @param {boolean} options.summary - 是否生成归档摘要
+ * @param {string} options.invocationSource - 调用来源
+ * @param {boolean} options.allowActiveFallback - 是否允许回退到活跃 team
+ * @returns {Object} 归档结果
+ */
 function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false, invocationSource, allowActiveFallback = false } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)
@@ -575,6 +686,15 @@ function cmdTeamArchive({ projectId, projectRoot, teamId, summary = false, invoc
   return { archived: true, project_id: resolvedProjectId, team_id: state.team_id, state_path: statePath, team_phase: state.team_phase }
 }
 
+/**
+ * 执行 /team cleanup 命令：删除已归档团队的运行时目录，保留 spec 和 plan 工件
+ * @param {Object} options - 清理选项
+ * @param {string} options.projectId - 项目 ID
+ * @param {string} options.projectRoot - 项目根目录
+ * @param {string} options.teamId - 团队 ID（必填）
+ * @param {string} options.invocationSource - 调用来源
+ * @returns {Object} 清理结果，包含已删除目录和保留的工件路径
+ */
 function cmdTeamCleanup({ projectId, projectRoot, teamId, invocationSource } = {}) {
   const root = detectProjectRoot(projectRoot)
   const resolvedProjectId = projectId || stableProjectId(root)

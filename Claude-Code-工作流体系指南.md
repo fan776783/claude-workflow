@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v13.0.0  
-**最后更新**：2026-04-11  
+**文档版本**：v13.1.0  
+**最后更新**：2026-04-12  
 **适用仓库**：`@justinfan/agent-workflow`
 
 ---
@@ -21,8 +21,9 @@
 - [9. 运行中的辅助命令](#9-运行中的辅助命令)
 - [10. 工作流产物与状态文件](#10-工作流产物与状态文件)
 - [11. Skills 体系总览](#11-skills-体系总览)
-- [12. 推荐使用方式](#12-推荐使用方式)
-- [13. 常见问题](#13-常见问题)
+- [12. Hooks 流程控制](#12-hooks-流程控制)
+- [13. 推荐使用方式](#13-推荐使用方式)
+- [14. 常见问题](#14-常见问题)
 - [附录：命令速查](#附录命令速查)
 
 ---
@@ -185,7 +186,11 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - **CLI-driven state**：所有状态变更通过 CLI 完成，不直接读写 `workflow-state.json`
 - **Recoverable workflow**：状态保存在磁盘上，允许中断恢复和增量更新
 
-### 3.4 workflow 的核心命令
+### 3.4 直接调用 Workflow Skills
+
+每个 `/workflow` 子命令直接路由到对应的 workflow skill。以下按 skill 列出调用方式：
+
+#### `workflow-plan`（规划 Skill）
 
 ```bash
 /workflow plan "需求描述"
@@ -193,22 +198,52 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 /workflow plan --no-discuss docs/prd.md
 /workflow plan -f "覆盖已有流程"
 /workflow spec-review --choice "Spec 正确，生成 Plan"
+```
 
+- `plan`：启动规划流程，生成 `spec.md` 并停在 `spec_review`（`start` 为别名）
+- `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
+- 详见 `core/skills/workflow-plan/SKILL.md`
+
+#### `workflow-execute`（执行 Skill）
+
+```bash
 /workflow execute
 /workflow execute --phase
 /workflow execute --retry
 /workflow execute --skip
+```
 
-/workflow status
-/workflow status --detail
+- 按 `plan.md` 推进执行，经过 ContextGovernor 治理、验证与两阶段审查
+- 详见 `core/skills/workflow-execute/SKILL.md`
 
+#### `workflow-delta`（增量变更 Skill）
+
+```bash
 /workflow delta
 /workflow delta docs/prd-v2.md
 /workflow delta "新增导出功能，支持 CSV"
 /workflow delta packages/api/teamApi.ts
+```
 
+- 处理 PRD / API / 需求增量变更的影响分析与同步
+- 详见 `core/skills/workflow-delta/SKILL.md`
+
+#### `workflow-ops`（运行时操作 Skill）
+
+```bash
+/workflow status
+/workflow status --detail
 /workflow archive
 ```
+
+- `status`：查看当前进度、阻塞点与下一步建议
+- `archive`：归档已完成工作流
+- 详见 `core/skills/workflow-ops/SKILL.md`
+
+#### `workflow-review`（两阶段审查 Skill）
+
+- 由 `workflow-execute` 在质量关卡处内部触发，不直接暴露为命令
+- 详见 `core/skills/workflow-review/SKILL.md`
 
 ### 3.5 什么时候优先使用 workflow
 
@@ -942,9 +977,216 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ---
 
-## 12. 推荐使用方式
+## 12. Hooks 流程控制
 
-### 12.1 标准主线
+工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails** 和 **worktree 并发安全**。hooks 不替代 `/workflow` command 和 skill 驱动的状态机，而是在其外围提供自动化的上下文注入、执行门控和资源管理。
+
+### 12.1 Hook 分类
+
+当前共 **4 个 hook 脚本**，按职责分为两类：
+
+| 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
+|------|-----------|------|----------|------|
+| **Worktree Hooks** | `WorktreeCreate` | `worktree-serialize.js` | ✅ 随 `sync` 自动注入 | 串行化 `git worktree add`，防止并行竞争 `.git/config.lock` |
+| | `WorktreeRemove` | `worktree-cleanup.js` | ✅ 随 `sync` 自动注入 | 清理孤立 worktree 引用、回收托管目录、释放串行锁 |
+| **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文与 guardrail |
+| | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | 在 Task 派发前检查状态并注入任务上下文 |
+
+### 12.2 Hook 在流程中的位置
+
+```mermaid
+flowchart TD
+    subgraph SessionLevel["会话级"]
+        S1["Claude Code 会话启动"] --> S2["SessionStart hook"]
+        S2 --> S3["注入 workflow 上下文 + guardrail"]
+    end
+
+    subgraph TaskLevel["任务级"]
+        T1["AI 准备派发 Task"] --> T2["PreToolUse hook"]
+        T2 --> T3{"状态检查"}
+        T3 -->|"通过"| T4["注入 task 上下文 → 放行"]
+        T3 -->|"阻断"| T5["返回 continue: false"]
+        T4 --> T6["Task 执行"]
+    end
+
+    subgraph WorktreeLevel["Worktree 级"]
+        W1["创建 Worktree"] --> W2["WorktreeCreate hook"]
+        W2 --> W3["获取排他锁 → 放行"]
+        W4["删除 Worktree"] --> W5["WorktreeRemove hook"]
+        W5 --> W6["prune + 回收 + 释放锁"]
+    end
+```
+
+### 12.3 各 Hook 详解
+
+#### 12.3.1 `SessionStart` — 会话上下文注入
+
+**触发时机**：每次 Claude Code 会话启动时自动执行（非交互模式 `CLAUDE_NON_INTERACTIVE=1` 时跳过）。
+
+**行为**：
+
+1. 读取项目配置（`project-config.json`），获取项目 ID、名称、技术栈
+2. 读取 workflow 运行时状态（`workflow-state.json`），获取当前进度
+3. 根据当前状态生成 **next action** 提示（如 "使用 `/workflow execute` 开始执行"）
+4. 根据当前状态生成 **guardrail** 规则（如 "此状态只允许显式 `/workflow execute`"）
+5. 注入 team guardrail（阻止普通会话继承 team runtime）
+6. 注入项目 spec index 和 thinking guides 引用
+
+**输出形式**：将 XML 结构化文本写入 stdout，Claude Code 自动拼接到会话上下文。
+
+**关键设计**：
+- hook 只提供提示和守门，不做阶段流转
+- 每种 workflow 状态都有对应的 guardrail 规则，防止 AI 在无指令情况下自行推进
+
+#### 12.3.2 `PreToolUse(Task)` — 执行前门控 + 上下文注入
+
+**触发时机**：AI 每次准备调用 `Task` 工具（即派发子任务）时触发。
+
+**行为**：
+
+1. 检查是否存在活跃的 workflow
+   - 无 workflow → 放行（普通 Task 不受限制）
+2. 检查 `spec_review` 门控
+   - User Spec Review 未 approved → **阻断**
+3. 检查 `state.status`
+   - 只有 `running` / `paused` 允许继续
+   - 其他状态 → **阻断**
+4. 检查是否有 active task
+   - 无 `current_tasks[0]` → **阻断**
+5. 检查 `spec_file` / `plan_file` 是否齐全
+   - 缺失 → **阻断**
+6. 检查是否透传了禁止的 team 字段
+   - 非 `/team` 路径不允许携带 `team_id` 等字段 → **阻断**
+7. 构建注入上下文：当前 task block、verification commands、spec context、quality gate state、thinking guides
+8. 将上下文拼接到 `tool_input.description` 前缀 → **放行**
+
+**阻断时输出**：`{ "continue": false, "reason": "..." }`
+
+**放行时输出**：`{ "continue": true, "tool_input": { "description": "<injected-context>\n\n---\n\n<original-description>" } }`
+
+
+#### 12.3.3 `WorktreeCreate` — 串行化 worktree 创建
+
+**触发时机**：Claude Code 创建新 worktree 前触发。
+
+**行为**：
+
+1. 获取 git common dir（主仓库 `.git` 目录）
+2. 尝试通过 `mkdir` 原子操作获取排他锁（`<git-common-dir>/worktree-serialize.lock/`）
+3. 若锁已被持有：
+   - 检查是否过期（10 秒自动过期）
+   - 检查持锁进程是否存活（同机器 PID 检测）
+   - 可清理则清理后重试；否则指数退避等待
+4. 30 秒总超时后强制放行
+5. 获取锁后**不主动释放**——锁通过自动过期机制释放，确保 hook 退出后 `git worktree add` 执行期间其他请求仍被串行化
+
+#### 12.3.4 `WorktreeRemove` — worktree 清理
+
+**触发时机**：Claude Code 删除 worktree 时触发。
+
+**行为**：
+
+1. 执行 `git worktree prune`，清理孤立 worktree 引用
+2. 扫描 `.claude/worktrees/` 目录，回收未被 Git 注册的孤立目录
+3. 释放串行化锁目录，加速后续 worktree 创建
+4. 始终返回 `{ "continue": true }`，绝不阻断
+
+### 12.4 启用与配置
+
+#### 自动启用（推荐）
+
+Worktree hooks 和 Workflow hooks 在全局 `sync` 时默认注入：
+
+```bash
+npm run sync          # 默认注入 worktree + workflow hooks
+npm run sync -- -y    # 同上，跳过确认
+```
+
+#### 手动配置
+
+在 `~/.claude/settings.json` 中添加：
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/session-start.js\""
+        }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/pre-execute-inject.js\""
+        }]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\""
+        }]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\""
+        }]
+      }
+    ]
+  }
+}
+```
+
+> **注意**：路径必须使用 `$HOME` 或绝对路径，不能使用 `~`（`~` 在双引号内不被 Shell 展开）。
+
+### 12.5 职责边界
+
+Hooks **负责**：
+
+- 注入 workflow 状态、当前 task、验证命令、关键约束信息
+- 在状态非法、上下文不完整时阻断继续
+- 串行化 worktree 创建，回收孤立目录
+
+Hooks **不负责**：
+
+- 决定 planning / execute / delta / archive 的阶段流转（由 command + skill 决定）
+- 替代 `/workflow execute` 的 shared resolver
+- 创建第二套状态机
+- 直接把失败解释成 retry / skip / archive
+
+### 12.6 故障排查
+
+```bash
+# 检查 hook 是否已注册
+cat ~/.claude/settings.json | jq '.hooks'
+
+# 清理残留 worktree 锁
+rm -rf $(git rev-parse --git-common-dir)/worktree-serialize.lock
+
+# 检查 worktree 状态
+git worktree list
+git worktree prune
+```
+
+常见诊断日志：
+- `[workflow-hook] 未发现活动 workflow，跳过上下文注入。` — 无活动工作流，hook 正常跳过
+- `[workflow-hook] 已注入任务上下文 (N 字符)` — 成功注入上下文
+- `[worktree-serialize] 获取锁超时(30000ms)，强制放行` — worktree 锁超时
+
+---
+
+## 13. 推荐使用方式
+
+### 13.1 标准主线
 
 ```bash
 /scan
@@ -956,7 +1198,7 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 /workflow status
 ```
 
-### 12.2 简单到中等复杂度任务
+### 13.2 简单到中等复杂度任务
 
 如果当前任务不需要完整的 spec / 状态机，而是希望快速形成可执行计划，可以先使用：
 
@@ -966,19 +1208,19 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 确认计划后，再决定是直接实施，还是切换到 `/workflow execute`（会触发自愈进入状态机）或 `/workflow plan`（升级为完整工作流）。
 
-### 12.3 长 PRD / 高约束需求
+### 13.3 长 PRD / 高约束需求
 
 优先把需求放进 `/workflow plan docs/prd.md`，让系统先做代码分析、需求讨论和 Spec 审查，再开始执行。
 
-### 12.4 UI / 前端需求
+### 13.4 UI / 前端需求
 
 如果需求涉及页面、导航、交互或首次体验，建议走 `workflow plan`，因为它会触发 UX 设计审批；落地后可结合 `/figma-ui` 完成设计稿还原。
 
-### 12.5 变更驱动迭代
+### 13.5 变更驱动迭代
 
 已有工作流发生需求更新、PRD 更新或 API 变更时，不建议直接手改 `plan.md`，而是优先使用 `/workflow delta` 保持状态和工件一致。
 
-### 12.6 显式团队编排
+### 13.6 显式团队编排
 
 当同一需求需要拆成多个上下文边界，并希望使用 team runtime 统一治理时，显式使用：
 
@@ -990,45 +1232,45 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ---
 
-## 13. 常见问题
+## 14. 常见问题
 
-### 13.1 为什么现在 `plan` 默认停在 `spec_review`，而不是直接生成 Plan？
+### 14.1 为什么现在 `plan` 默认停在 `spec_review`，而不是直接生成 Plan？
 
 因为当前版本把 Spec 审查作为显式用户主权确认点。`/workflow plan` 生成 `spec.md` 后停在 `spec_review`，等待用户通过 `/workflow spec-review --choice` 确认后才生成 `plan.md`。这样用户可以在规划的每个阶段都有明确的审查窗口。
 
-### 13.2 `start` 和 `plan` 有什么区别？
+### 14.2 `start` 和 `plan` 有什么区别？
 
 没有区别。`start` 是 `plan` 的向后兼容别名，功能完全相同。
 
-### 13.3 为什么现在强调 `spec.md + plan.md`，而不是更多中间文档？
+### 14.3 为什么现在强调 `spec.md + plan.md`，而不是更多中间文档？
 
 因为当前版本更强调缩短规划链路，把需求、设计、约束和验收集中到单一 `spec.md`，再把落地步骤集中到 `plan.md`，减少信息衰减和跨文档漂移。
 
-### 13.4 为什么 `execute` 不只是简单地跑下一个任务？
+### 14.4 为什么 `execute` 不只是简单地跑下一个任务？
 
 因为执行阶段除了任务本身，还要考虑验证、审查、上下文预算、治理边界和 handoff 时机，所以需要 `ContextGovernor` 先做决策。
 
-### 13.5 UX 设计审批什么时候会出现？
+### 14.5 UX 设计审批什么时候会出现？
 
 仅在检测到前端 / GUI 相关需求时触发。纯后端/CLI 项目自动跳过。
 
-### 13.6 为什么必须先 `/scan`？
+### 14.6 为什么必须先 `/scan`？
 
 因为 `workflow` 依赖项目配置识别项目 ID、工作流目录和上下文信息；没有项目配置会影响状态持久化和后续 skill 协作。不过当前版本支持项目配置自愈，缺失时会自动生成最小配置。
 
-### 13.7 什么时候需要 `dispatching-parallel-agents`？
+### 14.7 什么时候需要 `dispatching-parallel-agents`？
 
 当执行阶段存在同阶段 2+ 可证明独立任务，并且平台支持子 Agent 时，应优先按该 skill 的规则做并行分派，而不是在主会话里顺序硬跑。
 
-### 13.8 workflow 为什么从单一 skill 拆分为 5 个子 skill？
+### 14.8 workflow 为什么从单一 skill 拆分为 5 个子 skill？
 
 为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用。当前 5 个 skill 分别是：`workflow-plan`、`workflow-execute`、`workflow-review`、`workflow-delta`、`workflow-ops`。
 
-### 13.9 `collaborating-with-codex` 何时被使用？
+### 14.9 `collaborating-with-codex` 何时被使用？
 
 该 skill 是 Codex 协作的基础设施层，被 `fix-bug`、`diff-review --deep`、`workflow-review` 等多个 skill 内部引用，用于只读候选分析、审查与其他委派任务。
 
-### 13.10 什么是声明式 Skill 架构？
+### 14.10 什么是声明式 Skill 架构？
 
 每个 workflow skill 现在采用统一的声明式架构：HARD-GATE（不可违反的铁律）+ Checklist（按序执行的行动清单）+ CLI 接管（所有状态变更由 CLI 完成）。这消除了旧版 TypeScript 伪代码规格文件，减少 AI 在运行时的注意力漂移。
 
@@ -1112,3 +1354,5 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 - `core/skills/team-workflow/SKILL.md`
 - `core/specs/workflow-runtime/state-machine.md`
 - `core/specs/team-runtime/overview.md`
+- `docs/workflow-hooks.md`（Workflow Hook Guardrails 详细文档）
+- `docs/worktree-hooks.md`（Worktree 串行化 Hook 详细文档）

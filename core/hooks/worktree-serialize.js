@@ -158,6 +158,10 @@ function cleanupLock(lockDir) {
 // 主逻辑
 // ============================================
 
+/**
+ * 串行化主流程：读取 hook 输入 → 获取锁（带超时和退避重试）→ 放行
+ * @returns {Promise<void>}
+ */
 async function main() {
   // 1. 读取 stdin（hook input）
   let hookInput = {};

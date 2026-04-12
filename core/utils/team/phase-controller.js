@@ -1,8 +1,15 @@
+/** Team 阶段控制器 —— 负责任务面板校验、阶段推断、审查状态验证和执行摘要构建 */
+
 const TERMINAL_PHASES = new Set(['completed', 'failed', 'archived'])
 const VALID_PHASES = new Set(['team-plan', 'team-exec', 'team-verify', 'team-fix', 'completed', 'failed', 'archived'])
 const VALID_BOARD_STATUSES = new Set(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped'])
 const VALID_LIFECYCLE_STATES = new Set(['pending', 'claimed', 'in_progress', 'awaiting_verify', 'verified', 'failed', 'blocked', 'skipped'])
 
+/**
+ * 校验任务面板的结构完整性：检查 ID 唯一性、状态和生命周期合法性
+ * @param {object[]} board - 任务面板数组
+ * @returns {object} 校验结果，含 ok 和可能的 error
+ */
 function validateBoard(board) {
   if (!Array.isArray(board) || board.length === 0) {
     return { ok: false, error: 'team task board is empty' }
@@ -33,16 +40,33 @@ function validateBoard(board) {
   return { ok: true }
 }
 
+/**
+ * 检查 worker 名册中是否存在可写入的 worker
+ * @param {object[]} workerRoster - worker 名册
+ * @returns {boolean} 存在可写 worker 时返回 true
+ */
 function hasWritableWorker(workerRoster = []) {
   return Array.isArray(workerRoster) && workerRoster.some((worker) => worker?.writable === true)
 }
 
+/**
+ * 根据阶段名称返回对应的可认领角色
+ * @param {string} phase - 阶段名称
+ * @returns {string} 角色名（planner / reviewer / implementer）
+ */
 function claimableRoleForPhase(phase = '') {
   if (phase === 'planning') return 'planner'
   if (phase === 'review') return 'reviewer'
   return 'implementer'
 }
 
+/**
+ * 根据任务面板状态和当前阶段推断下一个 team 阶段
+ * @param {object[]} board - 任务面板
+ * @param {string} currentPhase - 当前阶段
+ * @param {object} options - 可选参数，含 state
+ * @returns {string} 推断出的阶段名称
+ */
 function inferTeamPhase(board, currentPhase = 'team-plan', options = {}) {
   if (TERMINAL_PHASES.has(currentPhase)) return currentPhase
   if (!VALID_PHASES.has(currentPhase)) return 'failed'
@@ -73,6 +97,12 @@ function inferTeamPhase(board, currentPhase = 'team-plan', options = {}) {
   return 'team-verify'
 }
 
+/**
+ * 验证审查状态，判断是否可以完成、需要修复或继续执行
+ * @param {object} state - team 状态对象
+ * @param {object[]} board - 任务面板
+ * @returns {object} 验证结果，含 ok、decision 和 failed_boundaries
+ */
 function validateReviewState(state = {}, board = []) {
   const review = state.team_review || {}
   const failedBoundaries = Array.isArray(board) ? board.filter((item) => item.status === 'failed').map((item) => item.id) : []
@@ -100,6 +130,12 @@ function validateReviewState(state = {}, board = []) {
   return { ok: true, decision: 'team-exec', failed_boundaries: [] }
 }
 
+/**
+ * 构建执行摘要：推断阶段、计算待处理/失败边界、确定下一步操作
+ * @param {object} state - team 状态对象
+ * @param {object[]} board - 任务面板
+ * @returns {object} 执行摘要，含 team_phase、next_action、pending/failed_boundaries 等
+ */
 function buildExecuteSummary(state, board) {
   const boardValidation = validateBoard(board)
   const teamPhase = inferTeamPhase(board, state.team_phase || 'team-plan', { state })

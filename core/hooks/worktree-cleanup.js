@@ -28,6 +28,11 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+/**
+ * 将路径规范化为绝对路径
+ * @param {string} targetPath - 待规范化的路径
+ * @returns {string} 规范化后的绝对路径
+ */
 function normalizePath(targetPath) {
   return path.resolve(targetPath);
 }
@@ -148,8 +153,10 @@ function pruneWorktrees() {
   }
 }
 
+/**
+ * 清理主流程：读取 hook 输入 → 清理孤立引用 → 回收托管目录 → 释放锁 → 输出结果
+ */
 function main() {
-  // 1. 读取 stdin（hook input）
   try {
     const raw = fs.readFileSync(0, 'utf8');
     if (raw.trim()) {

@@ -1,10 +1,18 @@
 #!/usr/bin/env node
+/** @file PreToolUse(Task) Hook — 在 Task 工具调用前注入 workflow 上下文并执行治理检查 */
 
 const fs = require('fs')
 const path = require('path')
 const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides } = require('../utils/workflow/task_runtime')
 const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
+/**
+ * 从 Markdown 内容中提取指定标题下的段落
+ * @param {string} content - Markdown 文本
+ * @param {string} heading - 要提取的标题文本
+ * @param {number} [maxChars=2000] - 最大返回字符数
+ * @returns {string} 提取的段落内容
+ */
 function extractSection(content, heading, maxChars = 2000) {
   const pattern = new RegExp(`^(#{1,4})\\s+${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n\\1\\s|$)`, 'm')
   const match = String(content || '').match(pattern)
@@ -13,10 +21,19 @@ function extractSection(content, heading, maxChars = 2000) {
   return section.length > maxChars ? section.slice(0, maxChars) : section
 }
 
+/**
+ * 获取当前 workflow 运行时信息
+ * @returns {object} workflow 运行时对象
+ */
 function findWorkflowState() {
   return getWorkflowRuntime(process.cwd())
 }
 
+/**
+ * 构建当前任务的上下文片段（任务描述、验证命令、spec、质量关卡状态等）
+ * @param {object} runtime - workflow 运行时对象
+ * @returns {string} 拼接后的上下文 XML 片段
+ */
 function buildTaskContext(runtime) {
   const parts = []
   const state = runtime?.state
@@ -53,6 +70,12 @@ function buildTaskContext(runtime) {
   return parts.join('\n\n')
 }
 
+/**
+ * 构建放行结果对象
+ * @param {string|null} [message=null] - 附加消息
+ * @param {object|null} [patchedToolInput=null] - 修改后的工具输入（用于注入上下文）
+ * @returns {{ continue: true, message?: string, tool_input?: object }} 放行结果
+ */
 function buildAllowResult(message = null, patchedToolInput = null) {
   const result = { continue: true }
   if (message) result.message = message
@@ -64,10 +87,20 @@ function buildAllowResult(message = null, patchedToolInput = null) {
   return result
 }
 
+/**
+ * 构建阻止结果对象
+ * @param {string} reason - 阻止原因
+ * @returns {{ continue: false, reason: string }} 阻止结果
+ */
 function buildBlockResult(reason) {
   return { continue: false, reason }
 }
 
+/**
+ * 从工具输入中移除禁止的 team 相关字段
+ * @param {object} toolInput - 原始工具输入
+ * @returns {{ sanitizedToolInput: object, removedFields: string[] }} 清理后的输入和被移除的字段名
+ */
 function stripForbiddenTeamFields(toolInput) {
   const forbiddenTeamFields = ['team', 'team_name', 'team_id', 'teamId']
   const sanitizedToolInput = { ...toolInput }
@@ -76,6 +109,9 @@ function stripForbiddenTeamFields(toolInput) {
   return { sanitizedToolInput, removedFields }
 }
 
+/**
+ * PreToolUse(Task) hook 主流程：读取 hook 输入 → 治理检查 → 注入任务上下文 → 输出结果
+ */
 function main() {
   let hookInput = {}
   try {

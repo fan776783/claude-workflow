@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/** 并行分派执行器 —— 负责任务上下文构建、worktree 需求判断和批量分派 */
+
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
@@ -17,6 +19,13 @@ const WRITE_TERMS = new Set([
   'add', 'remove', 'replace', 'change',
 ])
 
+/**
+ * 为单个任务构建最小化的执行上下文文本，包含步骤、文件、约束、验收项等
+ * @param {object} task - 任务对象
+ * @param {string} projectRoot - 项目根目录
+ * @param {string} specContent - 相关规范内容（可选）
+ * @returns {string} 格式化的上下文文本
+ */
 function buildMinimalContext(task, projectRoot, specContent = '') {
   const parts = []
   parts.push(`# 任务: ${task.id || '?'} - ${task.name || ''}`)
@@ -79,6 +88,11 @@ function buildMinimalContext(task, projectRoot, specContent = '') {
   return parts.join('\n')
 }
 
+/**
+ * 将任务的名称、步骤、验收项、验证命令等拼接为小写文本，用于意图分析
+ * @param {object} task - 任务对象
+ * @returns {string} 拼接后的小写文本
+ */
 function collectTaskText(task) {
   const parts = [String(task.name || '')]
   for (const step of task.steps || []) {
@@ -90,11 +104,21 @@ function collectTaskText(task) {
   return parts.join(' ').toLowerCase()
 }
 
+/**
+ * 判断任务的 files 字段是否为空（无 create/modify/test 文件）
+ * @param {object} task - 任务对象
+ * @returns {boolean} 文件列表为空时返回 true
+ */
 function taskFilesEmpty(task) {
   const files = task.files || {}
   return ['create', 'modify', 'test'].every((key) => !files[key] || files[key].length === 0)
 }
 
+/**
+ * 根据任务的文件目标和文本意图判断是否需要 worktree 隔离
+ * @param {object} task - 任务对象
+ * @returns {boolean} 需要 worktree 时返回 true
+ */
 function requiresWorktree(task) {
   if (!taskFilesEmpty(task)) return true
   const text = collectTaskText(task)
@@ -108,12 +132,27 @@ function requiresWorktree(task) {
   return true
 }
 
+/**
+ * 生成 worktree 配置决策的说明文本
+ * @param {object} task - 任务对象
+ * @param {boolean} needsWorktree - 是否需要 worktree
+ * @returns {string} 配置决策说明
+ */
 function provisioningNote(task, needsWorktree) {
   if (!needsWorktree) return 'read-only task detected; skipping worktree provisioning'
   if (taskFilesEmpty(task)) return 'task intent ambiguous; defaulting to worktree isolation'
   return 'task declares file targets; provisioning worktree'
 }
 
+/**
+ * 批量分派一组任务：串行创建 worktree、注册 agent、构建上下文，返回分派清单
+ * @param {object[]} tasks - 任务列表
+ * @param {string|null} groupId - 分组 ID，不传则自动生成
+ * @param {string} platform - 运行平台
+ * @param {boolean} useWorktree - 是否启用 worktree 隔离
+ * @param {string|null} projectRoot - 项目根目录
+ * @returns {object} 分派结果，含 manifests 列表或 error
+ */
 function dispatchGroup(tasks, groupId = null, platform = 'claude-code', useWorktree = false, projectRoot = null) {
   const root = projectRoot || process.cwd()
   const gid = groupId || `group-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`

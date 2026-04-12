@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** @file npm postinstall 钩子，自动检测已安装的 Agent 并同步工作流模板 */
 
 const path = require('path');
 const os = require('os');
@@ -26,6 +27,11 @@ const LEGACY_SKIP_ENV = 'CLAUDE_WORKFLOW_SKIP_POSTINSTALL';
 const AGENTS_ENV = 'AGENT_WORKFLOW_AGENTS';
 const LEGACY_AGENTS_ENV = 'CLAUDE_WORKFLOW_AGENTS';
 
+/**
+ * 检测指定命令是否可用
+ * @param {string} command - 要检测的命令名
+ * @returns {boolean} 命令是否存在且可执行
+ */
 function hasCommand(command) {
   const result = spawnSync(command, ['--version'], {
     stdio: 'ignore',
@@ -34,10 +40,18 @@ function hasCommand(command) {
   return !result.error && result.status === 0;
 }
 
+/**
+ * 检测系统中可用的 Python 命令
+ * @returns {string|null} 可用的 Python 命令名（python3/python/py），未找到返回 null
+ */
 function detectPythonCommand() {
   return ['python3', 'python', 'py'].find(hasCommand) || null;
 }
 
+/**
+ * 收集运行时依赖的警告信息（Python、Codex CLI 等）
+ * @returns {{ warnings: string[], pythonCommand: string|null }} 警告列表和检测到的 Python 命令
+ */
 function collectRuntimeWarnings() {
   const warnings = [];
   const pythonCommand = detectPythonCommand();
@@ -53,6 +67,10 @@ function collectRuntimeWarnings() {
   return { warnings, pythonCommand };
 }
 
+/**
+ * postinstall 主流程：检测 Agent、处理版本升级/降级、安装模板并写入元信息
+ * @returns {Promise<void>}
+ */
 async function main() {
   const skipPostinstall = process.env[SKIP_ENV] === '1' || process.env[LEGACY_SKIP_ENV] === '1';
   if (skipPostinstall) {

@@ -30,7 +30,7 @@ const teamStateManager = require(path.join(repoRoot, 'core', 'utils', 'team', 's
 const teamCliScript = path.join(repoRoot, 'core', 'utils', 'team', 'team-cli.js')
 const sessionStartHook = path.join(repoRoot, 'core', 'hooks', 'session-start.js')
 const preExecuteHook = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
-const qualityGateHook = path.join(repoRoot, 'core', 'hooks', 'quality-gate-loop.js')
+
 
 const PLAN_FIXTURE = `## T1: 第一个任务
 - **阶段**: implement
@@ -1073,26 +1073,7 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(teamContextBlockedPayload.continue, false)
       assert.match(teamContextBlockedPayload.reason, /禁止透传 team 上下文字段/)
 
-      const gateFail = runHook(qualityGateHook, {}, { cwd: root, env: { HOME: home } })
-      const gateFailPayload = JSON.parse(gateFail.stdout)
-      assert.equal(gateFailPayload.continue, false)
-      assert.match(gateFailPayload.reason, /quality_gates\.T1/)
 
-      const runningStatePassed = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      runningStatePassed.quality_gates = {
-        T1: {
-          overall_passed: true,
-          last_decision: 'pass',
-          stage1: { passed: true, attempts: 1 },
-          stage2: { passed: true, attempts: 1 },
-        },
-      }
-      fs.writeFileSync(statePath, JSON.stringify(runningStatePassed, null, 2))
-
-      const gatePass = runHook(qualityGateHook, {}, { cwd: root, env: { HOME: home } })
-      const gatePassPayload = JSON.parse(gatePass.stdout)
-      assert.equal(gatePassPayload.continue, true)
-      assert.match(gatePassPayload.reason, /所有验证与质量关卡均通过/)
     })
   })
 
@@ -1226,7 +1207,7 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('installer registers workflow base hooks by default and strict hook explicitly', async () => {
+  await t.test('installer registers workflow hooks by default', async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-installer-'))
     const settingsPath = path.join(tmpRoot, 'settings.json')
     const hooksDir = path.join(repoRoot, 'core', 'hooks')
@@ -1234,17 +1215,11 @@ test('workflow helper migration coverage', async (t) => {
     const injected = await installer.ensureWorkflowHooks(settingsPath, hooksDir)
     assert.equal(injected.injected, true)
     assert.deepEqual(injected.events.sort(), ['PreToolUse', 'SessionStart'])
-    assert.equal(injected.base.injected, true)
-    assert.equal(injected.strict.injected, false)
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
     assert.ok(Array.isArray(settings.hooks.SessionStart))
     assert.equal(settings.hooks.PreToolUse[0].matcher, 'Task')
-
-    const explicitStrict = await installer.ensureWorkflowHooks(settingsPath, hooksDir, { enableStrict: true })
-    assert.equal(explicitStrict.strict.injected, true)
-    const updatedSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
-    assert.match(updatedSettings.hooks.PostToolUse[0].hooks[0].command, /quality-gate-loop\.js/)
+    assert.equal(settings.hooks.PostToolUse, undefined)
   })
 
   await t.test('interactive hook status descriptions respect project-level installs and optional hooks', () => {
@@ -1254,13 +1229,13 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(interactiveInstaller.describeHookStatus({ complete: true }), '已注册')
   })
 
-  await t.test('sync and link CLI expose workflow hook option in help output', () => {
+  await t.test('sync and link CLI do not expose workflow-hooks option in help output', () => {
     const syncHelp = runNode(path.join(repoRoot, 'bin', 'agent-workflow.js'), ['sync', '--help'], { cwd: repoRoot })
     const linkHelp = runNode(path.join(repoRoot, 'bin', 'agent-workflow.js'), ['link', '--help'], { cwd: repoRoot })
     assert.equal(syncHelp.status, 0)
     assert.equal(linkHelp.status, 0)
-    assert.match(syncHelp.stdout, /--workflow-hooks/)
-    assert.match(linkHelp.stdout, /--workflow-hooks/)
+    assert.doesNotMatch(syncHelp.stdout, /--workflow-hooks/)
+    assert.doesNotMatch(linkHelp.stdout, /--workflow-hooks/)
   })
 
   await t.test('workflow CLI honors spec review branch and helper CLIs keep structured error contracts', () => {

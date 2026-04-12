@@ -1,29 +1,58 @@
+/** Team 规划产物构建 —— 负责从 plan 内容生成 team 任务面板、边界认领、分派元数据和 Markdown 输出 */
+
 const { parseTasksV2 } = require('../workflow/task_parser')
 
+/**
+ * 将任务 ID 从 T 前缀格式转换为 B 前缀的边界 ID
+ * @param {string} taskId - 原始任务 ID
+ * @param {number} index - 任务在列表中的索引
+ * @returns {string} 边界 ID（如 B1、B2）
+ */
 function normalizeBoundaryId(taskId = '', index = 0) {
   const match = String(taskId).match(/^T(\d+)$/)
   if (match) return `B${match[1]}`
   return `B${index + 1}`
 }
 
+/**
+ * 规范化依赖列表，过滤无效值并映射 ID
+ * @param {string[]} depends - 原始依赖 ID 列表
+ * @param {Map<string,string>} idMap - 原始 ID 到边界 ID 的映射
+ * @returns {string[]} 规范化后的依赖列表
+ */
 function normalizeDepends(depends = [], idMap = new Map()) {
   return (depends || [])
     .filter((item) => item && item !== '无' && item.toLowerCase?.() !== 'none')
     .map((item) => idMap.get(item) || item)
 }
 
+/**
+ * 根据阶段名称返回对应角色
+ * @param {string} phase - 阶段名称
+ * @returns {string} 角色名（planner / reviewer / implementer）
+ */
 function roleForPhase(phase = '') {
   if (phase === 'planning') return 'planner'
   if (phase === 'review') return 'reviewer'
   return 'implementer'
 }
 
+/**
+ * 根据角色返回默认的 profile 引用配置
+ * @param {string} role - 角色名
+ * @returns {object|null} profile 引用对象，无匹配时返回 null
+ */
 function defaultProfileRef(role = '') {
   if (role === 'planner') return { phase: 'plan_generation', role: 'planner', profile: 'plan-planner', source: 'workflow-role-profiles' }
   if (role === 'reviewer') return { phase: 'quality_review_stage2', role: 'reviewer', profile: 'review-reviewer', source: 'workflow-role-profiles' }
   return null
 }
 
+/**
+ * 为任务列表构建边界认领映射，每个边界初始为 unclaimed 状态
+ * @param {object[]} tasks - 任务列表
+ * @returns {object} 以任务 ID 为键的认领映射
+ */
 function buildBoundaryClaims(tasks = []) {
   return Object.fromEntries(tasks.map((task) => {
     const assignedRole = roleForPhase(task.phase)
@@ -42,6 +71,11 @@ function buildBoundaryClaims(tasks = []) {
   }))
 }
 
+/**
+ * 构建分派元数据，描述每个边界的阶段、角色和分派策略
+ * @param {object[]} tasks - 任务列表
+ * @returns {object} 分派元数据，含 mode、granularity 和 boundaries
+ */
 function buildDispatchMetadata(tasks = []) {
   return {
     mode: 'internal-team-orchestrator',
@@ -58,6 +92,10 @@ function buildDispatchMetadata(tasks = []) {
   }
 }
 
+/**
+ * 构建静态的 team 默认任务列表（规划→验证→分派→审查→修复）
+ * @returns {object[]} 5 个默认边界任务
+ */
 function buildStaticTeamTasks() {
   return [
     {
@@ -118,6 +156,11 @@ function buildStaticTeamTasks() {
   ]
 }
 
+/**
+ * 规范化阶段名称为合法值
+ * @param {string} phase - 原始阶段名
+ * @returns {string} 规范化后的阶段名（planning / review / fix / implement）
+ */
 function normalizeTaskPhase(phase = '') {
   const value = String(phase || '').toLowerCase()
   if (value === 'planning') return 'planning'
@@ -126,6 +169,11 @@ function normalizeTaskPhase(phase = '') {
   return 'implement'
 }
 
+/**
+ * 从 plan Markdown 内容解析并构建 team 任务列表，无法解析时回退到静态任务
+ * @param {string} planContent - plan 文件的 Markdown 内容
+ * @returns {object[]} team 任务列表
+ */
 function buildTeamTasksFromPlan(planContent = '') {
   const workflowTasks = parseTasksV2(planContent)
   if (!Array.isArray(workflowTasks) || workflowTasks.length === 0) return buildStaticTeamTasks()
@@ -156,10 +204,21 @@ function buildTeamTasksFromPlan(planContent = '') {
   }))
 }
 
+/**
+ * 构建 team 任务列表（buildTeamTasksFromPlan 的别名）
+ * @param {string} planContent - plan 文件的 Markdown 内容
+ * @returns {object[]} team 任务列表
+ */
 function buildTeamTasks(planContent = '') {
   return buildTeamTasksFromPlan(planContent)
 }
 
+/**
+ * 将单个 team 任务转换为 workflow plan 格式的 Markdown 文本
+ * @param {object} task - team 任务对象
+ * @param {number} index - 任务索引
+ * @returns {string} Markdown 格式的任务描述
+ */
 function toWorkflowPlanTask(task = {}, index = 0) {
   const taskId = task.source_task_id || `T${index + 1}`
   const title = task.name || `Boundary ${index + 1}`
@@ -184,6 +243,11 @@ function toWorkflowPlanTask(task = {}, index = 0) {
 ${steps}`
 }
 
+/**
+ * 将任务列表批量转换为 Markdown 格式的 plan 文本
+ * @param {object[]} tasks - team 任务列表
+ * @returns {string} 拼接后的 Markdown 文本
+ */
 function buildPlanTasksMarkdown(tasks = buildStaticTeamTasks()) {
   return tasks.map((task, index) => toWorkflowPlanTask(task, index)).join('\n\n')
 }

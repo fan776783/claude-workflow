@@ -1,10 +1,16 @@
 #!/usr/bin/env node
+/** @file 需求追溯工具 - 需求 ID 提取、占位符检测、Plan/Spec 追溯校验、执行覆盖率统计 */
 
 const fs = require('fs')
 
 const REQUIREMENT_ID_REGEX = /R-\d{3}/g
 const PLACEHOLDER_REGEX = /\b(?:TBD|TODO|待补充|待确认|similar to Task)\b/gi
 
+/**
+ * 从文本中提取去重的需求 ID 列表（格式 R-NNN）
+ * @param {string} text - 待搜索的文本
+ * @returns {Array<string>} 去重后的需求 ID 列表
+ */
 function extractRequirementIds(text) {
   const seen = []
   for (const requirementId of String(text || '').match(REQUIREMENT_ID_REGEX) || []) {
@@ -13,10 +19,20 @@ function extractRequirementIds(text) {
   return seen
 }
 
+/**
+ * 从文本中查找占位符标记（TBD、TODO、待补充等）
+ * @param {string} text - 待搜索的文本
+ * @returns {Array<string>} 去重排序后的占位符列表
+ */
 function findPlaceholders(text) {
   return [...new Set((String(text || '').match(PLACEHOLDER_REGEX) || []).map((item) => item))].sort()
 }
 
+/**
+ * 将任务列表转换为追溯记录格式
+ * @param {Array<Object>} tasks - 任务对象列表
+ * @returns {Array<Object>} 追溯记录列表，每项包含 id、name、spec_ref、requirement_ids、files、step_count
+ */
 function tasksToTrace(tasks) {
   return (tasks || []).map((task) => ({
     id: task.id,
