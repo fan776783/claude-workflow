@@ -16,8 +16,9 @@ function readFile(targetPath, fallback = '') {
 function readJson(targetPath, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(targetPath, 'utf8'))
-  } catch {
-    return fallback
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return fallback
+    return { __parse_error: true, path: targetPath, message: err instanceof Error ? err.message : String(err) }
   }
 }
 
@@ -48,8 +49,11 @@ function getWorkflowRuntime(projectRoot = process.cwd()) {
 
   const workflowDir = getWorkflowsDir(projectId)
   const statePath = workflowDir ? path.join(workflowDir, 'workflow-state.json') : null
-  const state = statePath && fs.existsSync(statePath) ? readJson(statePath) : null
-  const tasksPath = state ? resolveRuntimeRelativePath(workflowDir, state.tasks_file || '') : null
+  const rawState = statePath && fs.existsSync(statePath) ? readJson(statePath) : null
+  const parseError = rawState && rawState.__parse_error
+  const state = parseError ? null : rawState
+  const planFileRef = state ? (state.plan_file || state.tasks_file || '') : ''
+  const tasksPath = planFileRef ? (path.isAbsolute(planFileRef) ? planFileRef : path.join(root, planFileRef)) : null
   const tasksContent = tasksPath && fs.existsSync(tasksPath) ? readFile(tasksPath) : ''
   const currentTaskId = (state?.current_tasks || [])[0] || null
   const currentTask = currentTaskId && tasksContent ? findTaskById(tasksContent, currentTaskId) : null
@@ -61,6 +65,7 @@ function getWorkflowRuntime(projectRoot = process.cwd()) {
     workflowDir,
     statePath,
     state,
+    stateParseError: parseError ? rawState.message : null,
     tasksPath,
     tasksContent,
     currentTaskId,

@@ -884,6 +884,15 @@ function detectDeltaTrigger(source, projectRoot) {
 
 // --- Delta 子命令 ---
 
+const VALID_CHANGE_ID_PATTERN = /^CHG-\d{3,}$/
+
+function validateChangeId(changeId) {
+  if (!changeId || !VALID_CHANGE_ID_PATTERN.test(changeId)) {
+    return { error: `非法 change-id: ${changeId}。格式须为 CHG-NNN` }
+  }
+  return null
+}
+
 function resolveActiveDelta(projectId, projectRoot) {
   const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
   if (!resolvedProjectId || !workflowDir || !statePath || !state) return [null, null, null, null, null, { error: '没有活跃的工作流' }]
@@ -928,6 +937,8 @@ function cmdDeltaImpact(changeId, tasksAdded, tasksModified, tasksRemoved, riskL
   if (err) return err
 
   if (!changeId) return { error: '缺少 --change-id' }
+  const changeIdErr = validateChangeId(changeId)
+  if (changeIdErr) return changeIdErr
   const changeDir = path.join(workflowDir, 'changes', changeId)
   const deltaPath = path.join(changeDir, 'delta.json')
   if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }
@@ -958,6 +969,8 @@ function cmdDeltaApply(changeId, projectId = null, projectRoot = null) {
   if (err) return err
 
   if (!changeId) return { error: '缺少 --change-id' }
+  const changeIdErr = validateChangeId(changeId)
+  if (changeIdErr) return changeIdErr
   const changeDir = path.join(workflowDir, 'changes', changeId)
   const deltaPath = path.join(changeDir, 'delta.json')
   if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }
@@ -1018,6 +1031,8 @@ function cmdDeltaFail(changeId, errorMessage, projectId = null, projectRoot = nu
   if (err) return err
 
   if (!changeId) return { error: '缺少 --change-id' }
+  const changeIdErr = validateChangeId(changeId)
+  if (changeIdErr) return changeIdErr
   const changeDir = path.join(workflowDir, 'changes', changeId)
   const deltaPath = path.join(changeDir, 'delta.json')
   if (!fs.existsSync(deltaPath)) return { error: `变更记录不存在: ${changeId}` }

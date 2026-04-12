@@ -62,7 +62,7 @@ function inferSpecRelativeFromPlan(planRelative, projectRoot) {
   return null
 }
 
-function cmdInit(projectId = null, projectRoot = null) {
+function cmdInit(projectId = null, projectRoot = null, planPath = null) {
   const root = detectProjectRoot(projectRoot)
   const pid = projectId || detectProjectId(root)
   if (!pid) return { error: '无法检测项目 ID，请使用 --project-id 指定' }
@@ -72,6 +72,38 @@ function cmdInit(projectId = null, projectRoot = null) {
   if (fs.existsSync(statePath)) {
     const existing = ensureStateDefaults(JSON.parse(fs.readFileSync(statePath, 'utf8')))
     return { initialized: false, reason: 'state_exists', project_id: pid, state_status: existing.status }
+  }
+
+  // 如果显式指定了 plan 路径，直接使用
+  if (planPath) {
+    const explicitPlan = path.isAbsolute(planPath) ? planPath : path.join(root, planPath)
+    if (!fs.existsSync(explicitPlan)) return { error: `指定的 plan 文件不存在: ${planPath}` }
+    const tasksContent = fs.readFileSync(explicitPlan, 'utf8')
+    const tasks = parseTasksV2(tasksContent)
+    if (!tasks.length) return { error: '无法从指定的 plan 文件解析任务' }
+    const inferred = summarizeTaskProgress(tasks)
+    const planRelative = path.relative(root, explicitPlan).replace(/\\/g, '/')
+    const specFile = inferSpecRelativeFromPlan(planRelative, root)
+    const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
+    const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
+    state.progress = inferred.progress
+    if (specFile) {
+      state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
+    } else {
+      state.review_status.user_spec_review = buildUserSpecReview('skipped', 'execute', 'system-recovery')
+      state.review_status.user_spec_review.requires_degradation_ack = true
+      state.review_status.user_spec_review.acknowledged_degradation_at = null
+      state.review_status.user_spec_review.acknowledged_degradation_by = null
+      state.review_status.user_spec_review.acknowledged_degradation_source = null
+    }
+    state.project_root = root
+    state.initial_head_commit = detectGitHead(root)
+    writeState(statePath, state)
+    return {
+      initialized: true, project_id: pid, state_path: statePath, plan_file: planRelative,
+      spec_file: specFile, first_task: inferred.current_task_id, workflow_status: inferred.workflow_status,
+      progress: inferred.progress, upgrade_required: !specFile, spec_review_status: specFile ? 'approved' : 'skipped',
+    }
   }
 
   // 不能用 resolveStateAndTasks——它要求 state 文件已存在。直接扫描当前支持的 plan 产物路径。
@@ -88,9 +120,21 @@ function cmdInit(projectId = null, projectRoot = null) {
     }
   }
 
-  const [tasksPath] = planCandidates
+  const uniqueCandidates = planCandidates
     .filter((candidate, index, list) => list.indexOf(candidate) === index)
     .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)
+
+  if (uniqueCandidates.length > 1) {
+    return {
+      error: '发现多个 plan 候选文件，无法自动选择。请使用 --plan 指定具体文件',
+      detected_plans: uniqueCandidates.map((p) => ({
+        path: path.relative(root, p).replace(/\\/g, '/'),
+        mtime: fs.statSync(p).mtime.toISOString(),
+      })),
+    }
+  }
+
+  const [tasksPath] = uniqueCandidates
 
   const tasksContent = tasksPath ? fs.readFileSync(tasksPath, 'utf8') : null
   if (!tasksContent) return { error: '未找到 plan.md，无法推导首个任务' }
@@ -325,7 +369,7 @@ function main() {
     } else if (command === 'budget') {
       result = cmdContextBudget(pid, projectRoot)
     } else if (command === 'init') {
-      result = cmdInit(pid, projectRoot)
+      result = cmdInit(pid, projectRoot, option(args, '--plan'))
     } else if (command === 'journal') {
       const journalCommand = args.shift()
       const resolvedPid = pid || detectProjectId(projectRoot)

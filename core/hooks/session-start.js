@@ -85,6 +85,7 @@ function determineNextAction(state) {
 
   if (status === 'idle') return '使用 `/workflow plan` 开始新的工作流。'
   if (status === 'planned') return '规划已完成。使用 `/workflow execute` 开始执行；不要重新进入规划。'
+  if (status === 'planning') return 'Plan 正在生成中。如果长时间停留在此状态，可能需要重新运行 `/workflow plan`。'
   if (status === 'spec_review') return 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。'
   if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow execute 继续。`
   if (status === 'paused') return '工作流已暂停。请处理暂停原因后使用 `/workflow execute` 恢复执行。'
@@ -106,6 +107,7 @@ function determineGuardrail(state) {
   if (gateViolation) return 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。'
   const status = state.status || 'idle'
   if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow execute` 进入执行器；禁止自动继续或重新规划，也不得混入 team context。'
+  if (status === 'planning') return 'Guardrail：Plan 生成中，禁止派发执行型 Task 或进入 execute 路径；如长时间停留请重新 `/workflow plan`。'
   if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现，也不得切换到 team 语义。'
   if (status === 'running' || status === 'paused') return 'Guardrail：恢复执行必须经过 `/workflow execute` 的 shared resolver，不得绕过治理与质量关卡；普通 workflow 会话忽略 team runtime。'
   if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务，也不得继承 team context。'
@@ -137,6 +139,7 @@ function main() {
   const projectName = project.name || config.projectName || path.basename(projectRoot)
   const runtime = getWorkflowRuntime(projectRoot)
   const state = projectId && runtime.projectId === projectId ? runtime.state : null
+  const stateParseError = runtime.stateParseError || null
   const specs = collectSpecIndices(projectRoot)
 
   const parts = []
@@ -151,12 +154,18 @@ function main() {
   }
   parts.push('</project-info>')
 
+  if (stateParseError) {
+    parts.push('<workflow-warning>')
+    parts.push(`workflow 状态文件解析失败: ${stateParseError}。请检查 workflow-state.json 是否损坏。`)
+    parts.push('</workflow-warning>')
+  }
+
   if (state) {
     parts.push('<active-workflow>')
     parts.push(`状态: ${state.status || 'unknown'}`)
     const progress = state.progress || {}
     const completed = progress.completed || []
-    const tasksFile = state.tasks_file || ''
+    const tasksFile = state.plan_file || state.tasks_file || ''
     parts.push(`已完成: ${completed.length} 任务${tasksFile ? ` (任务文件: ${tasksFile})` : ''}`)
     const current = state.current_tasks || []
     if (current.length) parts.push(`当前任务: ${current.join(', ')}`)

@@ -48,13 +48,55 @@ function writeState(statePath, state, projectId) {
   const payload = normalizeForWrite(state)
   payload.updated_at = isoNow()
   fs.mkdirSync(path.dirname(resolvedPath), { recursive: true })
-  const tmpPath = `${resolvedPath}.${process.pid}.${crypto.randomUUID()}.tmp`
+  const lockPath = `${resolvedPath}.lock`
   try {
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2))
-    fs.renameSync(tmpPath, resolvedPath)
-  } catch (error) {
-    if (fs.existsSync(tmpPath)) fs.rmSync(tmpPath, { force: true })
-    throw error
+    fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' })
+  } catch (lockErr) {
+    if (lockErr && lockErr.code === 'EEXIST') {
+      let stale = false
+      try {
+        const lockContent = fs.readFileSync(lockPath, 'utf8').trim()
+        const lockPid = Number(lockContent)
+        if (lockPid && lockPid !== process.pid) {
+          try {
+            process.kill(lockPid, 0)
+            // Process exists — check if lock is old (>30s = likely abandoned)
+            const lockAge = Date.now() - fs.statSync(lockPath).mtimeMs
+            stale = lockAge > 30000
+          } catch (killErr) {
+            // ESRCH = no such process (Unix), EPERM on Windows may mean process exists
+            stale = killErr && killErr.code === 'ESRCH'
+            if (!stale) {
+              // On Windows, fall back to age-based detection
+              const lockAge = Date.now() - fs.statSync(lockPath).mtimeMs
+              stale = lockAge > 30000
+            }
+          }
+        } else {
+          stale = true
+        }
+      } catch { stale = true }
+      if (stale) {
+        fs.rmSync(lockPath, { force: true })
+        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' })
+      } else {
+        throw new Error(`workflow state is locked by another process (${lockPath})`)
+      }
+    } else {
+      throw lockErr
+    }
+  }
+  try {
+    const tmpPath = `${resolvedPath}.${process.pid}.${crypto.randomUUID()}.tmp`
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2))
+      fs.renameSync(tmpPath, resolvedPath)
+    } catch (error) {
+      if (fs.existsSync(tmpPath)) fs.rmSync(tmpPath, { force: true })
+      throw error
+    }
+  } finally {
+    fs.rmSync(lockPath, { force: true })
   }
 }
 

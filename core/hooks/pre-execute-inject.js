@@ -117,7 +117,10 @@ function main() {
   try {
     const raw = fs.readFileSync(0, 'utf8')
     hookInput = raw.trim() ? JSON.parse(raw) : {}
-  } catch {}
+  } catch {
+    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] Hook 输入解析失败，治理阻断。')))
+    return
+  }
 
   if (hookInput.tool_name !== 'Task') {
     process.stdout.write(JSON.stringify(buildAllowResult()))
@@ -129,6 +132,10 @@ function main() {
   const runtime = findWorkflowState()
   const state = runtime?.state
   if (!state) {
+    if (runtime?.stateParseError) {
+      process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] workflow 状态文件解析失败 (${runtime.stateParseError})，治理阻断。请检查 ${runtime.statePath || 'workflow-state.json'} 是否损坏。`)))
+      return
+    }
     const message = inheritedTeamFields.length
       ? `[workflow-hook] 未发现活动 workflow，已忽略 team 上下文字段: ${inheritedTeamFields.join(', ')}。`
       : '[workflow-hook] 未发现活动 workflow，跳过上下文注入。'
@@ -179,6 +186,6 @@ function main() {
 try {
   main()
 } catch (error) {
-  process.stdout.write(JSON.stringify(buildAllowResult()))
+  process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] Hook 内部异常，治理阻断: ${error instanceof Error ? error.message : String(error)}`)))
   process.exitCode = 0
 }

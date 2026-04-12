@@ -15,7 +15,28 @@
       "Bash(node -e *)",
       "Bash(node -e \"require\\(''./core/utils/workflow/dependency_checker.js''\\)\")",
       "Bash(node -e \"require\\(''./core/utils/workflow/plan_delta.js''\\)\")",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(node -e \"require\\(''./core/hooks/pre-execute-inject.js''\\)\")",
+      "Bash(echo \"--- pre-execute: $?\")",
+      "Bash(node -e \"require\\(''./core/utils/workflow/task_runtime''\\)\")",
+      "Bash(echo \"--- task_runtime: $?\")",
+      "Bash(node -e \"require\\(''./core/utils/workflow/lifecycle_cmds''\\)\")",
+      "Bash(echo \"--- lifecycle_cmds: $?\")",
+      "Bash(node -e \"require\\(''./core/utils/workflow/task_manager''\\)\")",
+      "Bash(echo \"--- task_manager: $?\")",
+      "Bash(node -e \"require\\(''./core/utils/workflow/state_manager''\\)\")",
+      "Bash(echo \"--- state_manager: $?\")",
+      "Bash(node -e \"require\\(''./core/utils/workflow/workflow_cli''\\)\")",
+      "Bash(echo \"--- workflow_cli: $?\")",
+      "Bash(node -e \"require\\(''./core/hooks/session-start.js''\\)\")",
+      "Bash(echo \"--- session-start: $?\")",
+      "Bash(node -e \"require\\(''''./core/hooks/pre-execute-inject.js''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/utils/workflow/task_runtime''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/utils/workflow/lifecycle_cmds''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/utils/workflow/task_manager''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/utils/workflow/state_manager''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/utils/workflow/workflow_cli''''\\)\")",
+      "Bash(node -e \"require\\(''''./core/hooks/session-start.js''''\\)\")"
     ]
   }
 }

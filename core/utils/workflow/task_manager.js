@@ -80,7 +80,7 @@ function resolveStateAndTasks(projectId = null, projectRoot = null) {
   if (!statePath || !fs.existsSync(statePath)) return [null, null, null, null]
   const state = readState(statePath, pid)
   const resolvedProjectRoot = detectProjectRoot(projectRoot || state.project_root)
-  const artifactPath = resolvePlanArtifactPath(resolvedProjectRoot, state.plan_file || '')
+  const artifactPath = resolvePlanArtifactPath(resolvedProjectRoot, state.plan_file || state.tasks_file || '')
   if (!artifactPath || !fs.existsSync(artifactPath)) return [state, statePath, null, null]
   return [state, statePath, fs.readFileSync(artifactPath, 'utf8'), artifactPath]
 }
@@ -188,6 +188,8 @@ function cmdNext(projectId = null, projectRoot = null) {
 function cmdComplete(taskId, projectId = null, projectRoot = null) {
   const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
   if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
+  if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记完成` }
   fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'completed'))
   const progress = state.progress || (state.progress = {})
   const completed = progress.completed || (progress.completed = [])
@@ -208,6 +210,8 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
 function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
   const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
   if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
+  if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记失败` }
   fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'failed'))
   state.status = 'failed'
   state.failure_reason = reason
