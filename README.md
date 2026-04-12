@@ -15,12 +15,11 @@ Workflow 主线由 5 个专项 skills 直接驱动：
 | 命令 | 说明 |
 |------|------|
 | `/workflow-plan` | 代码分析、需求讨论、UX 设计审批、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan |
-| `/workflow-execute` | 治理决策、任务执行、验证、审查与状态推进 |
+| `/workflow-execute` | 治理决策、任务执行、验证与状态推进；所有 task 完成后状态设为 `review_pending` |
+| `/workflow-review` | 全量完成审查（execute 完成后独立执行），审查通过后标记 `completed` |
 | `/workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
 | `/workflow-ops status` | 查看当前进度、阻塞点与下一步建议 |
 | `/workflow-ops archive` | 归档已完成工作流 |
-
-`workflow-review`（两阶段审查协议）由 execute 内部在质量关卡处触发，不直接暴露为命令。
 
 ### Public Commands
 
@@ -84,8 +83,8 @@ Workflow 主线由 5 个专项 skills 直接驱动：
 ```
 +-----------------------------------------------------------------+
 |                          用户层                                   |
-|  /workflow-plan | /workflow-execute | /workflow-delta             |
-|  /workflow-ops status | /workflow-ops archive                     |
+|  /workflow-plan | /workflow-execute | /workflow-review            |
+|  /workflow-delta | /workflow-ops status | /workflow-ops archive   |
 +-----------------------------------------------------------------+
 |                  Skill 层 (行动指南)                               |
 |  workflow-plan | workflow-execute | workflow-review               |
@@ -314,7 +313,8 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 /workflow-execute --skip
 ```
 
-- 按 `plan.md` 推进执行，并经过验证与审查
+- 按 `plan.md` 推进执行，经过 ContextGovernor 治理与验证
+- 所有 task 完成后状态设为 `review_pending`，提示用户执行 `/workflow-review`
 
 #### `workflow-delta`（增量变更 Skill）
 
@@ -337,15 +337,21 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 - `status`：查看当前状态、进度与下一步建议
 - `archive`：归档已完成工作流
 
-#### `workflow-review`（两阶段审查 Skill）
+#### `workflow-review`（全量完成审查 Skill）
 
-- 由 `workflow-execute` 在质量关卡处内部触发，不直接暴露为命令
+```bash
+/workflow-review
+```
+
+- `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
+- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查
+- 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`
 
 ---
 
 ## 状态机全景
 
-工作流有 **10 个状态**，每个状态都有对应的 Hook 护栏规则：
+工作流有 **11 个状态**，每个状态都有对应的 Hook 护栏规则：
 
 ```mermaid
 stateDiagram-v2
@@ -359,9 +365,11 @@ stateDiagram-v2
     running --> paused : 暂停 / 预算暂停
     running --> blocked : 遇到阻塞任务
     running --> failed : 任务失败
-    running --> completed : 所有任务完成
+    running --> review_pending : 所有任务完成
+    review_pending --> completed : /workflow-review 审查通过
+    review_pending --> running : 审查发现问题，需要修复
     paused --> running : /workflow-execute
-    blocked --> running : /workflow-execute unblock
+    blocked --> running : unblock
     failed --> running : --retry / --skip
     completed --> archived : /workflow-ops archive
     archived --> [*]
@@ -391,12 +399,17 @@ flowchart TD
     M --> N["/workflow-execute"]
     N --> O["ContextGovernor 治理决策"]
     O --> P["执行任务动作"]
-    P --> Q["Post-Execution Pipeline（验证 → 自审查 → 更新 → 审查）"]
+    P --> Q["Post-Execution Pipeline（验证 → 自审查 → 更新）"]
     Q --> R{"继续 / 暂停 / handoff / 完成"}
     R -->|继续| O
     R -->|暂停| S["等待下次 execute"]
     R -->|handoff| T["生成 continuation artifact"]
-    R -->|完成| U["/workflow-ops archive"]
+    R -->|完成| U["🛑 review_pending"]
+    U --> V["/workflow-review"]
+    V --> W{"Stage 1 + Stage 2 审查"}
+    W -->|通过| X["状态 → completed"]
+    W -->|失败| Y["状态 → running，修复后重审"]
+    X --> Z["/workflow-ops archive"]
 ```
 
 ---
