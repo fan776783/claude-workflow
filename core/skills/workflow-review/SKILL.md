@@ -66,7 +66,14 @@ node core/utils/workflow/workflow_cli.js status
 
 ## Step 2: Stage 1 — 规格合规审查
 
-**执行者**：当前模型（确定性检查，无外部调用）。
+**执行者**：优先使用 `Task` 工具分派独立子 Agent；不支持 `Task` 时降级为当前会话内角色切换。
+
+**平台判定**：
+- 支持 `Task` 工具 → 分派子 Agent，传入 spec 路径 + 变更文件列表 + 审查 prompt
+- 不支持 `Task` 工具 → 降级模式（见下方）
+
+> 🔑 子 Agent 优先的理由：审查者与实现者应在不同上下文中工作，避免执行阶段的残留记忆影响审查独立性。
+> 降级模式下的角色切换标记（`━━━`）是最低隔离保证，但不能消除同会话的 context 交叉污染。
 
 **审查标准**：
 
@@ -144,7 +151,7 @@ node core/utils/workflow/workflow_cli.js status
 
 **前置条件**：Stage 1 必须通过。
 
-**执行者**：平台感知的子 Agent。CLI 自动处理 reviewer profile 解析（`state.context_injection.execution.quality_review_stage2`），无需手动构造。
+**执行者**：优先使用 `Task` 工具分派独立子 Agent（单 reviewer）。CLI 自动处理 reviewer profile 解析（`state.context_injection.execution.quality_review_stage2`），无需手动构造。不支持 `Task` 时降级为当前会话内角色切换。
 
 通过 `Task` 工具分派审查子 Agent，审查清单参见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md)。
 
@@ -195,6 +202,31 @@ node core/utils/workflow/quality_review.js fail <taskId> \
 node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId>
 ```
 
+> ⚠️ **HARD-GATE #3 强制执行**：必须输出以下 checkpoint 行证明已通过 CLI 写入：
+> ```
+> 📝 Review recorded: quality_review.js pass {taskId} → overall_passed={true|false}
+> ```
+> 若上方 CLI 调用失败（如缺少 base-commit），则必须尝试以下降级路径：
+> ```bash
+> # 降级：当 base-commit 不可用时
+> node core/utils/workflow/quality_review.js pass <taskId> \
+>   --base-commit HEAD --current-commit HEAD \
+>   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
+>   --stage1-attempts 1 --stage2-attempts 1 \
+>   --project-id <projectId>
+> ```
+> 降级仍失败 → 在 checkpoint 行标注 `(CLI unavailable, manual write)` 并记录原因。
+
+### 审查模式标注
+
+记录结果前，先标注本次执行模式：
+```
+📋 Review mode: subagent | degraded-inline
+```
+
+- `subagent`：Stage 1 和/或 Stage 2 通过 `Task` 工具分派了独立子 Agent
+- `degraded-inline`：两个 Stage 均在当前会话内执行（角色切换模式）
+
 ### 预算遥测
 
 每次审查未通过后输出：`审查预算：attempt ${current}/${max}，剩余 ${remaining} 次`
@@ -219,6 +251,14 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId
 # 更新 state.status 为 completed
 node core/utils/workflow/workflow_cli.js advance --review-passed
 ```
+
+> ⚠️ **禁止绕过此 CLI 命令直接写 state.json**。
+> `advance --review-passed` 内部调用 `completeWorkflow()`，会同时：
+> - 设置 `status: "completed"` + `completed_at`
+> - 生成完成摘要
+>
+> 若 CLI 不可用（极端情况），手动写入必须同时设置 `status`、`completed_at` 两个字段，
+> 并在输出中标注 `(manual advance, CLI unavailable)`。
 
 输出：
 ```
@@ -260,6 +300,8 @@ node core/utils/workflow/workflow_cli.js advance --review-failed --failed-tasks 
 - 跳过审查因为"改动很简单"
 - diff 窗口为空但仍标记通过
 - 在非 `review_pending` 状态下执行审查
+- 绕过 `quality_review.js` CLI 直接写入 quality_gates JSON
+- 绕过 `workflow_cli.js advance` 直接写入 state.json 的 status
 
 ---
 
