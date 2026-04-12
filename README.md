@@ -78,27 +78,76 @@
 
 ## workflow 的当前模型
 
-当前 `workflow` 采用"**command 入口 + 5 个专项 workflow skills + 共享运行时**"的模块化结构：
+当前 `workflow` 采用"**command 入口 + 5 个专项 workflow skills + 共享运行时**"的模块化结构。
+
+### 系统分层架构
+
+整个 workflow 系统分为 **5 层**，从上到下依次是：
+
+```
++-----------------------------------------------------------------+
+|                          用户层                                   |
+|  /workflow plan | execute | delta | status | archive              |
++-----------------------------------------------------------------+
+|                       命令路由层                                   |
+|  commands/workflow.md  ->  路由到对应 Skill                       |
++-----------------------------------------------------------------+
+|                  Skill 层 (行动指南)                               |
+|  workflow-plan | workflow-execute | workflow-review               |
+|  workflow-delta | workflow-ops                                    |
+|  自然语言 SKILL.md, 不含可执行代码                                 |
++-----------------------------------------------------------------+
+|                 Runtime 层 (CLI 工具链)                            |
+|  workflow_cli.js        统一命令入口 (17 个子命令)                  |
+|  execution_sequencer.js 执行治理 (ContextGovernor)                |
+|  state_manager.js       状态读写                                  |
+|  task_parser.js         Plan 解析                                 |
+|  quality_review.js      质量关卡                                  |
+|  verification.js        验证证据                                  |
++-----------------------------------------------------------------+
+|                  Hooks 层 (运行时守门)                             |
+|  session-start.js       会话启动上下文注入 + guardrail             |
+|  pre-execute-inject.js  Task 派发前门控 + 任务上下文注入           |
+|  worktree-serialize.js  worktree 创建串行化                       |
+|  worktree-cleanup.js    worktree 清理与锁释放                     |
++-----------------------------------------------------------------+
+                            | 读写
++-----------------------------------------------------------------+
+|                        数据层                                     |
+|  项目目录:                        用户目录:                        |
+|  .claude/specs/*.md               ~/.claude/workflows/{id}/       |
+|  .claude/plans/*.md                 workflow-state.json            |
+|  .claude/config/project-config.json                               |
++-----------------------------------------------------------------+
+```
+
+**职责分离**：
+- **Skill 层**：自然语言行动指南，AI 的操作手册，不含可执行代码
+- **CLI 层**：确定性状态管理，所有状态读写通过 CLI，AI 不直接操作 JSON
+- **Hook 层**：运行时守门人，上下文注入 + 治理检查，不写主状态
+
+### 目录结构
 
 ```text
 core/
-├── commands/workflow.md          # 统一 command 入口（路由层）
-├── commands/team.md              # 独立 /team command 入口
-├── skills/
-│   ├── workflow-plan/        # /workflow plan + spec-review
-│   ├── workflow-execute/       # /workflow execute
-│   ├── workflow-review/       # 两阶段审查（execute 内部触发）
-│   ├── workflow-delta/           # /workflow delta
-│   ├── workflow-ops/             # /workflow status + archive
-│   ├── team/                     # /team 显式入口路由
-│   ├── team-workflow/            # /team start|execute|status|archive runtime
-├── specs/
-│   ├── workflow-runtime/         # 状态机、共享工具、外部依赖语义
-│   ├── workflow-templates/       # spec / plan 模板
-│   └── team-runtime/             # team 状态机与共享运行时文档
-└── utils/
-    ├── workflow/                  # workflow_cli.js、execution_sequencer.js 等
-    └── team/                      # team runtime 脚本
++-- commands/workflow.md          # 统一 command 入口（路由层）
++-- commands/team.md              # 独立 /team command 入口
++-- skills/
+|   +-- workflow-plan/            # /workflow plan + spec-review
+|   +-- workflow-execute/         # /workflow execute
+|   +-- workflow-review/          # 两阶段审查（execute 内部触发）
+|   +-- workflow-delta/           # /workflow delta
+|   +-- workflow-ops/             # /workflow status + archive
+|   +-- team/                     # /team 显式入口路由
+|   +-- team-workflow/            # /team start|execute|status|archive runtime
++-- specs/
+|   +-- workflow-runtime/         # 状态机、共享工具、外部依赖语义
+|   +-- workflow-templates/       # spec / plan 模板
+|   +-- team-runtime/             # team 状态机与共享运行时文档
++-- hooks/                        # 4 个 runtime hook 脚本
++-- utils/
+    +-- workflow/                  # workflow_cli.js、execution_sequencer.js 等
+    +-- team/                      # team runtime 脚本
 ```
 
 ### 声明式 Skill 架构
@@ -300,6 +349,32 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 ---
 
+## 状态机全景
+
+工作流有 **10 个状态**，每个状态都有对应的 Hook 护栏规则：
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle
+    idle --> spec_review : /workflow plan
+    spec_review --> spec_review : 用户要求修改 Spec
+    spec_review --> idle : 用户拒绝/拆分范围
+    spec_review --> planning : spec-review 通过
+    planning --> planned : Plan 生成完成
+    planned --> running : /workflow execute
+    running --> paused : 暂停 / 预算暂停
+    running --> blocked : 遇到阻塞任务
+    running --> failed : 任务失败
+    running --> completed : 所有任务完成
+    paused --> running : /workflow execute
+    blocked --> running : /workflow unblock
+    failed --> running : --retry / --skip
+    completed --> archived : /workflow archive
+    archived --> [*]
+```
+
+---
+
 ## 当前核心流程图
 
 ```mermaid
@@ -328,6 +403,28 @@ flowchart TD
     R -->|暂停| S["等待下次 execute"]
     R -->|handoff| T["生成 continuation artifact"]
     R -->|完成| U["/workflow archive"]
+```
+
+---
+
+## 数据流拓扑
+
+工作流产物按**是否可提交 Git** 分为两个位置：
+
+```text
+项目目录（可提交 Git）                   用户目录（运行时状态，不污染项目）
+.claude/                                 ~/.claude/workflows/{projectId}/
++-- config/                              +-- workflow-state.json
+|   +-- project-config.json              +-- analysis-result.json
++-- specs/                               +-- discussion-artifact.json
+|   +-- {name}.md          <- Spec       +-- ux-design-artifact.json
++-- plans/                               +-- prd-spec-coverage.json
+|   +-- {name}.md          <- Plan       +-- changes/CHG-XXX/
++-- reports/                             |   +-- delta.json
+    +-- {name}-report.md   <- 实施报告   |   +-- intent.md
+                                         |   +-- review-status.json
+                                         +-- archive/
+                                         +-- journal/
 ```
 
 ---

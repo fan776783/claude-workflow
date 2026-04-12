@@ -132,6 +132,53 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 `/workflow` 是整个体系的**统一 command 入口**，负责保持命令面稳定，并把规划、执行、审查、增量变更路由到专项 workflow skills。
 
+### 3.0 系统分层架构
+
+整个 workflow 系统分为 **5 层**，每层有明确的职责边界：
+
+```
++-----------------------------------------------------------------+
+|                          用户层                                   |
+|  /workflow plan | execute | delta | status | archive              |
++-----------------------------------------------------------------+
+|                       命令路由层                                   |
+|  commands/workflow.md  ->  路由到对应 Skill                       |
++-----------------------------------------------------------------+
+|                  Skill 层 (行动指南)                               |
+|  workflow-plan | workflow-execute | workflow-review               |
+|  workflow-delta | workflow-ops                                    |
+|  自然语言 SKILL.md, 不含可执行代码                                 |
++-----------------------------------------------------------------+
+|                 Runtime 层 (CLI 工具链)                            |
+|  workflow_cli.js        统一命令入口 (17 个子命令)                  |
+|  execution_sequencer.js 执行治理 (ContextGovernor)                |
+|  state_manager.js       状态读写                                  |
+|  task_parser.js         Plan 解析                                 |
+|  quality_review.js      质量关卡                                  |
+|  verification.js        验证证据                                  |
+|  journal.js             会话日志                                  |
++-----------------------------------------------------------------+
+|                  Hooks 层 (运行时守门)                             |
+|  session-start.js       会话启动上下文注入 + guardrail             |
+|  pre-execute-inject.js  Task 派发前门控 + 任务上下文注入           |
+|  worktree-serialize.js  worktree 创建串行化                       |
+|  worktree-cleanup.js    worktree 清理与锁释放                     |
++-----------------------------------------------------------------+
+                            | 读写
++-----------------------------------------------------------------+
+|                        数据层                                     |
+|  项目目录:                        用户目录:                        |
+|  .claude/specs/*.md               ~/.claude/workflows/{id}/       |
+|  .claude/plans/*.md                 workflow-state.json            |
+|  .claude/config/project-config.json                               |
++-----------------------------------------------------------------+
+```
+
+**职责分离**：
+- **Skill 层**：自然语言行动指南，AI 的操作手册，不含可执行代码
+- **CLI 层**：确定性状态管理，所有状态读写通过 CLI，AI 不直接操作 JSON
+- **Hook 层**：运行时守门人，上下文注入 + 治理检查，不写主状态
+
 当前 workflow 已模块化拆分为 **command 入口 + 5 个专项 workflow skills + 共享运行时**：
 
 | 模块 | 路径 | 职责 |
@@ -304,6 +351,41 @@ flowchart TD
 6. 质量关卡任务通过两阶段审查控制风险：先看是否符合 Spec，再看代码质量
 7. 工作流状态持久化在磁盘中，允许暂停、恢复、增量变更与归档
 8. 所有状态变更通过 CLI 完成，不直接读写 JSON
+
+### 4.2 数据流拓扑
+
+工作流产物按**是否可提交 Git** 分为两个位置：
+
+```text
+项目目录（可提交 Git）                   用户目录（运行时状态，不污染项目）
+.claude/                                 ~/.claude/workflows/{projectId}/
++-- config/                              +-- workflow-state.json
+|   +-- project-config.json              +-- analysis-result.json
++-- specs/                               +-- discussion-artifact.json
+|   +-- {name}.md          <- Spec       +-- ux-design-artifact.json
++-- plans/                               +-- prd-spec-coverage.json
+|   +-- {name}.md          <- Plan       +-- changes/CHG-XXX/
++-- reports/                             |   +-- delta.json
+    +-- {name}-report.md   <- 实施报告   |   +-- intent.md
+                                         |   +-- review-status.json
+                                         +-- archive/
+                                         +-- journal/
+```
+
+各阶段产出的对应关系：
+
+| 阶段 | 项目目录产物 | 用户目录产物 |
+|------|-------------|-------------|
+| `/scan` | `project-config.json` | - |
+| `/workflow plan` Step 2 | - | `analysis-result.json` |
+| `/workflow plan` Step 3 | - | `discussion-artifact.json` |
+| `/workflow plan` Step 4 | - | `ux-design-artifact.json` |
+| `/workflow plan` Step 5 | `specs/{name}.md` | `prd-spec-coverage.json` |
+| `/workflow spec-review` | `plans/{name}.md` | `workflow-state.json` 更新 |
+| `/workflow execute` | 源代码变更 | `workflow-state.json` 持续更新 |
+| `/workflow delta` | `specs/plans` 增量更新 | `changes/CHG-XXX/` |
+| 工作流完成 | `reports/{name}-report.md` | 状态 -> `completed` |
+| `/workflow archive` | - | `changes/` -> `archive/` |
 
 ---
 
@@ -656,10 +738,26 @@ stateDiagram-v2
 当 `workflow-state.json` 因会话丢失需要重建时：
 
 - CLI `init` 命令根据 spec 文件存在性推断审批状态
-  - 有 spec → `user_spec_review` 恢复为 `approved`（reviewer: `system-recovery`）
-  - 无 spec（如来自 `/quick-plan`） → `user_spec_review` 标记为 `skipped`
+  - 有 spec -> `user_spec_review` 恢复为 `approved`（reviewer: `system-recovery`）
+  - 无 spec（如来自 `/quick-plan`） -> `user_spec_review` 标记为 `skipped`
 - 此路径由 `system-recovery` reviewer 标记，不等同于用户主权审批
 - `/quick-plan` 产出的 plan 可通过 `/workflow execute` 自愈进入状态机，但会触发 `upgrade_required` 降级确认
+
+### 6.8 CLI 工具链速查
+
+状态机的所有读写操作通过 `core/utils/workflow/` 下的 CLI 脚本完成：
+
+| 脚本 | 职责 | 关键命令 |
+|------|------|----------|
+| `workflow_cli.js` | 统一 CLI 入口（17 个子命令） | `plan`, `execute`, `status`, `delta`, `archive`, `advance` 等 |
+| `execution_sequencer.js` | 执行治理（ContextGovernor） | `decide`, `apply-decision`, `retry`, `retry-reset`, `skip` |
+| `state_manager.js` | 状态文件读写 | `writeState`, `readState` |
+| `task_manager.js` | 任务管理与进度统计 | `cmdNext`, `cmdComplete`, `cmdStatus`, `cmdProgress` |
+| `task_parser.js` | Plan 文档解析 | `parseTasksV2`, `summarizeTaskProgress` |
+| `quality_review.js` | 质量关卡管理 | `pass`, `fail`, `read`, `budget` |
+| `verification.js` | 验证证据管理 | `info`, `create` |
+| `lifecycle_cmds.js` | 生命周期命令 | `cmdPlan`, `cmdSpecReview`, `cmdArchive`, `cmdDelta*`, `cmdUnblock` |
+| `journal.js` | 会话日志 | `add`, `list`, `search`, `get` |
 
 ---
 
