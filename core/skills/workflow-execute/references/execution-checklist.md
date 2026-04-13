@@ -56,7 +56,7 @@
 | ContextGovernor 决定暂停时 | 已完成任务 + 暂停原因 + 下一步计划 |
 | 所有 task 完成（进入 review_pending）时 | 全部任务摘要 + 最终产物 |
 
-- [ ] 调用 `node ../../../utils/workflow/workflow_cli.js journal add --title "..." --tasks-completed "..." --summary "..." --decisions "..." --next-steps "..."`
+- [ ] 调用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --title "..." --tasks-completed "..." --summary "..." --decisions "..." --next-steps "..."`
 - [ ] 确认 journal 记录包含：已完成任务 ID、关键决策、遇到的问题、Next Steps
 
 不满足以上条件时，跳过 journal 记录。

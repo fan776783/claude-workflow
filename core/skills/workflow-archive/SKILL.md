@@ -3,6 +3,11 @@ name: workflow-archive
 description: "/workflow-archive 入口。归档已完成的工作流。"
 ---
 
+<PATH-CONVENTION>
+所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
+该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。
+</PATH-CONVENTION>
+
 # workflow-archive
 
 > 本 skill 是 `/workflow-archive` 的完整行动指南。
@@ -31,10 +36,10 @@ CLI archive → 展示结果 → 下一步建议
 
 ```bash
 # 基本归档
-node core/utils/workflow/workflow_cli.js archive
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
 
 # 带摘要报告的归档
-node core/utils/workflow/workflow_cli.js archive --summary
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
 ```
 
 CLI 自动完成：
@@ -91,8 +96,8 @@ CLI 自动完成：
 
 ```bash
 # 归档
-node core/utils/workflow/workflow_cli.js archive
-node core/utils/workflow/workflow_cli.js archive --summary
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
 ```
 
 ## 协同 Skills
@@ -105,6 +110,6 @@ node core/utils/workflow/workflow_cli.js archive --summary
 | `workflow-delta` | 增量变更 | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |
 | `workflow-status` | 状态查看 | [`../workflow-status/SKILL.md`](../workflow-status/SKILL.md) |
 
-> CLI 入口：`core/utils/workflow/workflow_cli.js`
+> CLI 入口：`~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js`
 >
 > 运行时资源参见 [`../../specs/workflow-runtime/state-machine.md`](../../specs/workflow-runtime/state-machine.md)

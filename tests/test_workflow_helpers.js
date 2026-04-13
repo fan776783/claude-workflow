@@ -506,10 +506,12 @@ test('workflow helper migration coverage', async (t) => {
     withHome(home, () => {
       const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.tasks_file = 'tasks.md'
+      state.plan_file = '.claude/plans/tasks.md'
       fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
 
-      createWorkflowPlan(home, 'proj-test', 'tasks.md', [
+      const planPath = path.join(projectRoot, '.claude', 'plans', 'tasks.md')
+      fs.mkdirSync(path.dirname(planPath), { recursive: true })
+      fs.writeFileSync(planPath, [
         '## T1: 执行任务',
         '- **阶段**: implement',
         '- **Spec 参考**: §1',
@@ -956,7 +958,7 @@ test('workflow helper migration coverage', async (t) => {
 
       const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
       assert.equal(sessionResult.status, 0)
-      assert.match(sessionResult.stdout, /显式 `\/workflow execute`|显式 \/workflow execute/)
+      assert.match(sessionResult.stdout, /显式 `\/workflow-execute`|显式 \/workflow-execute/)
       assert.match(sessionResult.stdout, /team-guardrail/)
       assert.doesNotMatch(sessionResult.stdout, /TEAM-ONLY:none/)
       assert.doesNotMatch(sessionResult.stdout, /项目: none/)
@@ -994,18 +996,20 @@ test('workflow helper migration coverage', async (t) => {
     withHome(home, () => {
       const statePath = createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
       const plannedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      plannedState.tasks_file = 'tasks.md'
+      plannedState.plan_file = '.claude/plans/tasks.md'
       plannedState.requirement_baseline = { summary_path: '.claude/analysis/baseline.md' }
       fs.mkdirSync(path.join(root, '.claude', 'analysis'), { recursive: true })
       fs.writeFileSync(path.join(root, '.claude', 'analysis', 'baseline.md'), '## 关键约束\nA\n\n## 必须保留\nB\n')
       fs.writeFileSync(statePath, JSON.stringify(plannedState, null, 2))
-      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1: 执行任务\n- **actions**: edit_file, quality_review\n- **验证命令**: node -e "process.exit(0)"\n')
+      const planPath = path.join(root, '.claude', 'plans', 'tasks.md')
+      fs.mkdirSync(path.dirname(planPath), { recursive: true })
+      fs.writeFileSync(planPath, '## T1: 执行任务\n- **actions**: edit_file, quality_review\n- **验证命令**: node -e "process.exit(0)"\n')
 
       const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
       assert.equal(sessionResult.status, 0)
       assert.match(sessionResult.stdout, /workflow-guardrail/)
       assert.match(sessionResult.stdout, /team-guardrail/)
-      assert.match(sessionResult.stdout, /不能直接进入实现|显式 `\/workflow execute`|显式 \/workflow execute/)
+      assert.match(sessionResult.stdout, /不能直接进入实现|显式 `\/workflow-execute`|显式 \/workflow-execute/)
 
       const blockedTask = runHook(preExecuteHook, {
         tool_name: 'Task',
@@ -1229,13 +1233,61 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(interactiveInstaller.describeHookStatus({ complete: true }), '已注册')
   })
 
-  await t.test('sync and link CLI do not expose workflow-hooks option in help output', () => {
+  await t.test('sync and link CLI expose project-level installation options', () => {
     const syncHelp = runNode(path.join(repoRoot, 'bin', 'agent-workflow.js'), ['sync', '--help'], { cwd: repoRoot })
     const linkHelp = runNode(path.join(repoRoot, 'bin', 'agent-workflow.js'), ['link', '--help'], { cwd: repoRoot })
     assert.equal(syncHelp.status, 0)
     assert.equal(linkHelp.status, 0)
     assert.doesNotMatch(syncHelp.stdout, /--workflow-hooks/)
     assert.doesNotMatch(linkHelp.stdout, /--workflow-hooks/)
+    assert.match(syncHelp.stdout, /--project/)
+    assert.match(linkHelp.stdout, /--project/)
+  })
+
+  await t.test('sync supports project-level installs and rewrites workflow CLI paths to the project canonical dir', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-project-sync-'))
+    const projectRoot = path.join(root, 'project')
+    fs.mkdirSync(projectRoot, { recursive: true })
+    const [extraEnv] = makeCliEnv(root)
+
+    const result = runNode(
+      path.join(repoRoot, 'bin', 'agent-workflow.js'),
+      ['sync', '--project', '-a', 'claude-code'],
+      { cwd: projectRoot, env: extraEnv }
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    assert.match(result.stdout, /作用域: 项目级/)
+
+    const canonicalDir = path.join(projectRoot, '.agents', 'agent-workflow')
+    const skillPath = path.join(canonicalDir, 'core', 'skills', 'workflow-status', 'SKILL.md')
+    const skillContent = fs.readFileSync(skillPath, 'utf8').replace(/\\/g, '/')
+    const expectedCliPath = path.join(canonicalDir, 'core', 'utils', 'workflow', 'workflow_cli.js').replace(/\\/g, '/')
+
+    assert.ok(fs.existsSync(path.join(canonicalDir, 'core', 'utils', 'workflow', 'workflow_cli.js')))
+    assert.ok(skillContent.includes(expectedCliPath))
+  })
+
+  await t.test('link keeps fixed workflow CLI paths available in repo-link mode', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-link-canonical-'))
+    const [extraEnv, home] = makeCliEnv(root)
+
+    const result = runNode(
+      path.join(repoRoot, 'bin', 'agent-workflow.js'),
+      ['link', '-a', 'claude-code'],
+      { cwd: repoRoot, env: extraEnv }
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const canonicalDir = path.join(home, '.agents', 'agent-workflow')
+    const canonicalCli = path.join(canonicalDir, 'core', 'utils', 'workflow', 'workflow_cli.js')
+    const skillPath = path.join(home, '.claude', 'skills', 'workflow-execute')
+    const skillContent = fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf8').replace(/\\/g, '/')
+
+    assert.ok(fs.existsSync(canonicalCli))
+    assert.ok(fs.lstatSync(skillPath).isSymbolicLink())
+    assert.ok(skillContent.includes(canonicalCli.replace(/\\/g, '/')))
   })
 
   await t.test('workflow CLI honors spec review branch and helper CLIs keep structured error contracts', () => {
@@ -1410,7 +1462,7 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.entry_action, 'none')
       assert.equal(result.can_resume, false)
       assert.equal(result.reason, 'status_not_resumable')
-      assert.match(result.message, /显式使用 \/workflow execute/)
+      assert.match(result.message, /显式使用 \/workflow-execute/)
     })
   })
 

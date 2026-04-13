@@ -43,7 +43,7 @@
 
 ## CLI 自动管理的工件
 
-以下工件由 `node utils/workflow/workflow_cli.js start` 自动创建，AI **不需要手动构造 JSON**。
+以下工件由 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js start` 自动创建，AI **不需要手动构造 JSON**。
 
 ### discussion-artifact.json
 

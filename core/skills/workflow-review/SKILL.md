@@ -3,6 +3,11 @@ name: workflow-review
 description: "workflow-review 入口。独立的全量完成审查步骤 — execute 完成后手动执行 /workflow-review 触发。"
 ---
 
+<PATH-CONVENTION>
+所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
+该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。
+</PATH-CONVENTION>
+
 # workflow-review
 
 > 本 skill 是 workflow 全量完成审查的完整行动指南。在 `workflow-execute` 完成所有 task 后，工作流进入 `review_pending` 状态，用户通过 `/workflow-review` 手动触发本 skill。
@@ -50,7 +55,7 @@ description: "workflow-review 入口。独立的全量完成审查步骤 — exe
 ### 0.2 状态校验
 
 ```bash
-node core/utils/workflow/workflow_cli.js --project-id {projectId} status
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {projectId} status
 ```
 
 | 检查项 | 预期 | 不满足时处理 |
@@ -69,7 +74,7 @@ node core/utils/workflow/workflow_cli.js --project-id {projectId} status
 ### Diff 窗口基线
 
 - 首次审查：从 `state.initial_head_commit` 开始
-- 查询基线：`node core/utils/workflow/quality_review.js budget`
+- 查询基线：`node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js budget`
 
 ---
 
@@ -176,21 +181,21 @@ node core/utils/workflow/workflow_cli.js --project-id {projectId} status
 
 ```bash
 # 审查通过
-node core/utils/workflow/quality_review.js pass <taskId> \
+node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass <taskId> \
   --project-id {projectId} \
   --base-commit <baseCommit> --current-commit <currentCommit> \
   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
   --stage1-attempts <n> --stage2-attempts <n>
 
 # 审查未通过
-node core/utils/workflow/quality_review.js fail <taskId> \
+node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail <taskId> \
   --project-id {projectId} \
   --failed-stage <stage1|stage2|stage1_recheck> \
   --base-commit <baseCommit> --total-attempts <n> \
   --last-result-json '<json>'
 
 # 查询审查结果
-node core/utils/workflow/quality_review.js read <taskId> --project-id {projectId}
+node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId> --project-id {projectId}
 ```
 
 > ⚠️ **HARD-GATE #3 强制执行**：必须输出以下 checkpoint 行证明已通过 CLI 写入：
@@ -200,7 +205,7 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id {projectId
 > 若上方 CLI 调用失败（如缺少 base-commit），则必须尝试以下降级路径：
 > ```bash
 > # 降级：当 base-commit 不可用时
-> node core/utils/workflow/quality_review.js pass <taskId> \
+> node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass <taskId> \
 >   --project-id {projectId} \
 >   --base-commit HEAD --current-commit HEAD \
 >   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
@@ -240,7 +245,7 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id {projectId
 
 ```bash
 # 更新 state.status 为 completed
-node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-passed
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-passed
 ```
 
 > ⚠️ **禁止绕过此 CLI 命令直接写 state.json**。
@@ -262,7 +267,7 @@ node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --revi
 
 ```bash
 # 回退 state.status 为 running，标记失败的 task
-node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-failed --failed-tasks "T3,T5"
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-failed --failed-tasks "T3,T5"
 ```
 
 输出：
@@ -303,7 +308,7 @@ node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --revi
 |------|------|
 | 执行引擎 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
 | 并行分派（平台路由） | [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) |
-| CLI 入口 | `core/utils/workflow/quality_review.js` |
+| CLI 入口 | `~/.agents/agent-workflow/core/utils/workflow/quality_review.js` |
 
 ## 推荐入口顺序
 

@@ -10,7 +10,7 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 ## 执行铁律
 
 - 未完成模式判定、review subject 解析和共享规范加载前，不得输出 findings 或 verdict。
-- 除非显式传入 `--quick`，默认进入 Deep 模式；Deep 路径必须调用 Codex，不能省略为当前模型自审。
+- 除非显式传入 `--deep`，默认进入 Quick 模式；Deep 路径必须调用 Codex，不能省略为当前模型自审。
 - 未完成 verification 与 impact analysis 前，不得给出最终 P0/P1，也不得输出 `INCORRECT`。
 - 报告输出后默认停止；只有用户明确确认要修复并输入 `fix`，才允许进入 Review Loop。
 - `--quick` 与 `--deep` 同时出现时，视为冲突参数，必须停下并要求用户二选一。
@@ -20,7 +20,7 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 进入 skill 后先完成以下步骤：
 
 1. 解析 `$ARGUMENTS`，确定是否为本地 diff、branch diff、staged diff 或 PR 审查
-2. 解析审查模式：`--quick` / `Deep(默认或 --deep)`
+2. 解析审查模式：`Quick(默认或 --quick)` / `--deep`
 3. 读取共享规范：`specs/impact-analysis.md` 与 `specs/report-schema.md`
 4. 再按模式读取 `quick-mode.md`、`deep-mode.md` 或 `pr-mode.md`
 
@@ -32,7 +32,7 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 
 | 参数                 | 说明                                |
 | -------------------- | ----------------------------------- |
-| (无)                 | 审查 `git diff HEAD`，Deep 模式     |
+| (无)                 | 审查 `git diff HEAD`，Quick 模式    |
 | `--quick`            | Quick 模式（Claude 单模型）         |
 | `--staged`           | 仅审查已暂存变更                    |
 | `--branch <base>`    | 审查相对 base 分支的变更            |
@@ -45,8 +45,8 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 
 - **同时包含 `--quick` 与 `--deep`**：停止执行，要求用户明确选择一种模式
 - **包含 `--pr`**：读取 [references/pr-mode.md](references/pr-mode.md) 并执行 PR 审查流程。PR 模式默认走 Deep；`--pr 42 --quick` 才切到 Quick PR
-- **包含 `--quick`（无 `--pr`）**：读取 [references/quick-mode.md](references/quick-mode.md) 并严格执行其流程
-- **其他（默认 Deep 模式）**：读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其流程。默认模式与显式 `--deep` 等价
+- **包含 `--deep`（无 `--pr`）**：读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其流程
+- **其他（默认 Quick 模式）**：读取 [references/quick-mode.md](references/quick-mode.md) 并严格执行其流程。默认模式与显式 `--quick` 等价
 
 **⚠️ 关键约束**：Deep 模式下，如果没有按 `collaborating-with-codex` skill 执行 Codex 调用，则审查流程不合规。不得以任何理由省略外部模型调用步骤。
 

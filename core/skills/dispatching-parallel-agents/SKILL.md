@@ -274,7 +274,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 ```bash
 # 1. 解析并行组（使用 workflow 的 dependency_checker）
-node ../../utils/workflow/dependency_checker.js parallel --tasks-file tasks.json --completed T1,T2
+node ~/.agents/agent-workflow/core/utils/workflow/dependency_checker.js parallel --tasks-file tasks.json --completed T1,T2
 
 # 2. 分派
 node scripts/dispatch_runner.js dispatch --tasks-json tasks.json --task-ids T3,T4 --group-id batch1
