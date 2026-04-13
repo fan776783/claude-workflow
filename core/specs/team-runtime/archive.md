@@ -7,7 +7,7 @@
 
 ## 归档原则
 
-- 不改变普通 `/workflow-ops archive` 的现有语义
+- 不改变普通 `/workflow-archive` 的现有语义
 - `/team archive` 只把 team runtime 标记为 `archived` 终态，不删除 runtime 目录
 - `/team cleanup` 只清理已归档的 team runtime 目录，不删除 repo 内 `spec.md` / `plan.md` 与共享 workflow artifacts
 - 保留 `spec.md` / `plan.md` 与共享 workflow artifacts 的可追溯性

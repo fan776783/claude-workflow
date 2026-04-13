@@ -49,6 +49,8 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-execute/ # Execution entry for /workflow-execute
     │   ├── workflow-review/ # Review protocol entry for workflow quality gates
     │   ├── workflow-delta/  # Delta entry for /workflow-delta
+    │   ├── workflow-status/ # Status entry for /workflow-status
+    │   ├── workflow-archive/ # Archive entry for /workflow-archive
     │   ├── team/            # Explicit /team entry skill (routing only)
     │   ├── team-workflow/   # Heavy runtime contract for /team start|execute|status|archive
     │   ├── scan/            # Project scanning
@@ -107,8 +109,8 @@ The package includes the following skills (all portable across AI coding tools):
 - `/workflow-plan` - Planning skill (analysis → discussion → UX gate → Spec → Plan)
 - `/workflow-execute` - Execution skill (continuation governance + validation + quality gates + implementation report)
 - `/workflow-delta` - Delta skill (PRD/API/requirement changes)
-- `/workflow-ops status` - View current progress, blockers, and next-step suggestions
-- `/workflow-ops archive` - Archive completed workflows
+- `/workflow-status` - View current progress, blockers, and next-step suggestions
+- `/workflow-archive` - Archive completed workflows
 - `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md`, with the `team` entry skill plus `team-workflow` runtime skill backed by `core/specs/team-runtime/` docs)
   - `start` - Bootstraps team-specific planning/runtime artifacts
   - `execute` - Runs team-exec → team-verify / team-fix loop

@@ -542,7 +542,7 @@ paused → running (resume)
 blocked → running (unblock)
 failed → running (retry)
 failed → running (skip → 下一任务)
-completed → archived (/workflow-ops archive 执行)
+completed → archived (/workflow-archive 执行)
 ```
 
 ## 任务依赖自动分类规则

@@ -46,9 +46,9 @@
 /workflow-plan spec-review --choice "Spec 正确，生成 Plan"
 /workflow-execute
 /workflow-review
-/workflow-ops status
+/workflow-status
 /workflow-delta
-/workflow-ops archive
+/workflow-archive
 ```
 
 其中：
@@ -56,9 +56,9 @@
 - `workflow-plan` 负责从需求进入规划，生成 `spec.md` 后停在 `spec_review`；`spec-review` 通过后生成 `plan.md` 进入 `planned`
 - `workflow-execute` 负责按 plan 推进执行和验证，所有 task 完成后状态设为 `review_pending`
 - `workflow-review` 负责全量完成审查（execute 完成后独立执行），审查通过后标记 `completed`
-- `workflow-ops status` 负责查看当前进度、阻塞点和下一步建议
+- `workflow-status` 负责查看当前进度、阻塞点和下一步建议
 - `workflow-delta` 负责处理需求变更、PRD 更新和 API 变更
-- `workflow-ops archive` 负责在完成后归档工作流
+- `workflow-archive` 负责在完成后归档工作流
 
 一句话概括：`workflow` 负责主线，其他 skill 负责专项增强。
 
@@ -130,7 +130,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 ## 3. workflow command 总览
 
-各 workflow skill 直接作为命令入口，用户通过 `/workflow-plan`、`/workflow-execute`、`/workflow-review`、`/workflow-delta`、`/workflow-ops` 调用对应职责。不再经过统一命令路由层。
+各 workflow skill 直接作为命令入口，用户通过 `/workflow-plan`、`/workflow-execute`、`/workflow-review`、`/workflow-delta`、`/workflow-status`、`/workflow-archive` 调用对应职责。不再经过统一命令路由层。
 
 ### 3.0 系统分层架构
 
@@ -140,11 +140,11 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 +-----------------------------------------------------------------+
 |                          用户层                                   |
 |  /workflow-plan | /workflow-execute | /workflow-review            |
-|  /workflow-delta | /workflow-ops status | /workflow-ops archive   |
+|  /workflow-delta | /workflow-status | /workflow-archive           |
 +-----------------------------------------------------------------+
 |                  Skill 层 (行动指南)                               |
 |  workflow-plan | workflow-execute | workflow-review               |
-|  workflow-delta | workflow-ops                                    |
+|  workflow-delta | workflow-status | workflow-archive              |
 |  自然语言 SKILL.md, 不含可执行代码                                 |
 +-----------------------------------------------------------------+
 |                 Runtime 层 (CLI 工具链)                            |
@@ -177,7 +177,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - **CLI 层**：确定性状态管理，所有状态读写通过 CLI，AI 不直接操作 JSON
 - **Hook 层**：运行时守门人，上下文注入 + 治理检查，不写主状态
 
-当前 workflow 已模块化拆分为 **5 个专项 workflow skills + 共享运行时**，每个 skill 直接作为命令入口：
+当前 workflow 已模块化拆分为 **6 个专项 workflow skills + 共享运行时**，每个 skill 直接作为命令入口：
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
@@ -185,7 +185,8 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 | `workflow-execute` | `core/skills/workflow-execute/` | `/workflow-execute` 执行阶段 |
 | `workflow-review` | `core/skills/workflow-review/` | `/workflow-review` 全量完成审查（execute 完成后独立执行） |
 | `workflow-delta` | `core/skills/workflow-delta/` | `/workflow-delta` 增量变更 |
-| `workflow-ops` | `core/skills/workflow-ops/` | `/workflow-ops status` + `/workflow-ops archive` 运行时操作 |
+| `workflow-status` | `core/skills/workflow-status/` | `/workflow-status` 运行时状态查看 |
+| `workflow-archive` | `core/skills/workflow-archive/` | `/workflow-archive` 工作流归档 |
 | 共享运行时 | `core/specs/workflow-runtime/` | 状态机、共享工具、外部依赖语义等 |
 | 共享模板 | `core/specs/workflow-templates/` | spec / plan 模板 |
 | 共享 CLI | `core/utils/workflow/` | `workflow_cli.js`、`execution_sequencer.js`、`quality_review.js` 等 |
@@ -273,17 +274,25 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 - 处理 PRD / API / 需求增量变更的影响分析与同步
 - 详见 `core/skills/workflow-delta/SKILL.md`
 
-#### `workflow-ops`（运行时操作 Skill）
+#### `workflow-status`（状态查看 Skill）
 
 ```bash
-/workflow-ops status
-/workflow-ops status --detail
-/workflow-ops archive
+/workflow-status
+/workflow-status --detail
 ```
 
-- `status`：查看当前进度、阻塞点与下一步建议
-- `archive`：归档已完成工作流
-- 详见 `core/skills/workflow-ops/SKILL.md`
+- 查看当前进度、阻塞点与下一步建议
+- 详见 `core/skills/workflow-status/SKILL.md`
+
+#### `workflow-archive`（归档 Skill）
+
+```bash
+/workflow-archive
+/workflow-archive --summary
+```
+
+- 归档已完成工作流
+- 详见 `core/skills/workflow-archive/SKILL.md`
 
 #### `workflow-review`（全量完成审查 Skill）
 
@@ -343,7 +352,7 @@ flowchart TD
     V --> W{"Stage 1 + Stage 2 审查"}
     W -->|通过| X["状态 → completed"]
     W -->|失败| Y["状态 → running，修复后重审"]
-    X --> Z["/workflow-ops archive"]
+    X --> Z["/workflow-archive"]
 ```
 
 ### 4.1 这条主线的关键特点
@@ -391,7 +400,7 @@ flowchart TD
 | `/workflow-execute` | 源代码变更 | `workflow-state.json` 持续更新 |
 | `/workflow-delta` | `specs/plans` 增量更新 | `changes/CHG-XXX/` |
 | 工作流完成 | `reports/{name}-report.md` | 状态 -> `completed` |
-| `/workflow-ops archive` | - | `changes/` -> `archive/` |
+| `/workflow-archive` | - | `changes/` -> `archive/` |
 
 ---
 
@@ -633,7 +642,7 @@ flowchart TD
     Step6 --> Step7
 ```
 
-### 5.5 workflow-ops（状态与归档）
+### 5.5 workflow-status / workflow-archive（状态与归档）
 
 ```mermaid
 flowchart TD
@@ -705,7 +714,7 @@ stateDiagram-v2
 
     failed --> running : /workflow-execute\n--retry / --skip
 
-    completed --> archived : /workflow-ops archive
+    completed --> archived : /workflow-archive
 
     archived --> [*]
 ```
@@ -966,16 +975,16 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ## 9. 运行中的辅助命令
 
-### 9.1 `/workflow-ops status`
+### 9.1 `/workflow-status`
 
-用于查看当前状态、进度、阻塞点和下一步建议。由 `workflow-ops` skill 处理。
+用于查看当前状态、进度、阻塞点和下一步建议。由 `workflow-status` skill 处理。
 
 常用形式：
 
 ```bash
-/workflow-ops status             # 简洁模式
-/workflow-ops status --detail    # 详细模式
-/workflow-ops status --json      # JSON 模式
+/workflow-status             # 简洁模式
+/workflow-status --detail    # 详细模式
+/workflow-status --json      # JSON 模式
 ```
 
 ### 9.2 `/workflow-delta`
@@ -991,9 +1000,9 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 `delta` 会先做影响分析，再生成变更摘要，等待用户确认后再更新 `spec.md` / `plan.md`（sync 模式自动应用，跳过确认）。
 
-### 9.3 `/workflow-ops archive`
+### 9.3 `/workflow-archive`
 
-当任务全部完成并审查通过后，由 `workflow-ops` skill 处理。归档当前工作流，并保留历史状态和变更记录。
+当任务全部完成并审查通过后，由 `workflow-archive` skill 处理。归档当前工作流，并保留历史状态和变更记录。
 
 ### 9.4 `/workflow-review`
 
@@ -1076,7 +1085,8 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 | `workflow-execute` | `/workflow-execute` | 执行阶段：治理、验证、状态推进，完成后设为 `review_pending` |
 | `workflow-review` | `/workflow-review`（独立执行） | 全量完成审查：Spec 合规 + 代码质量两阶段 |
 | `workflow-delta` | `/workflow-delta` | 增量变更：需求 / PRD / API 变更的影响分析与同步 |
-| `workflow-ops` | `/workflow-ops status` + `/workflow-ops archive` | 运行时状态查看与工作流归档 |
+| `workflow-status` | `/workflow-status` | 运行时状态查看 |
+| `workflow-archive` | `/workflow-archive` | 工作流归档 |
 | `team` | `/team start` 入口层 | 显式 team mode 的入口契约、边界与路由关系 |
 | `team-workflow` | `/team execute|status|archive` 及 start runtime | team phase/state contract、verify / fix loop 与运行时语义 |
 
@@ -1325,7 +1335,7 @@ git worktree prune
 # 审查 plan.md
 /workflow-execute
 /workflow-review
-/workflow-ops status
+/workflow-status
 ```
 
 ### 13.2 简单到中等复杂度任务
@@ -1392,9 +1402,9 @@ git worktree prune
 
 当执行阶段存在同阶段 2+ 可证明独立任务，并且平台支持子 Agent 时，应优先按该 skill 的规则做并行分派，而不是在主会话里顺序硬跑。
 
-### 14.8 workflow 为什么从单一 skill 拆分为 5 个子 skill？
+### 14.8 workflow 为什么从单一 skill 拆分为 6 个子 skill？
 
-为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用。当前 5 个 skill 分别是：`workflow-plan`、`workflow-execute`、`workflow-review`、`workflow-delta`、`workflow-ops`。
+为了降低单文件复杂度、实现渐进式加载，并让各阶段职责边界更清晰。拆分后每个 skill 只需加载自身阶段的规格文件，共享资源通过 `workflow-runtime` 复用。当前 6 个 skill 分别是：`workflow-plan`、`workflow-execute`、`workflow-review`、`workflow-delta`、`workflow-status`、`workflow-archive`。
 
 ### 14.9 `collaborating-with-codex` 何时被使用？
 
@@ -1430,8 +1440,8 @@ git worktree prune
 /workflow-review
 
 # 状态
-/workflow-ops status
-/workflow-ops status --detail
+/workflow-status
+/workflow-status --detail
 
 # 增量变更
 /workflow-delta
@@ -1440,7 +1450,7 @@ git worktree prune
 /workflow-delta packages/api/teamApi.ts
 
 # 归档
-/workflow-ops archive
+/workflow-archive
 
 # team
 /team "需求描述"
@@ -1478,7 +1488,8 @@ git worktree prune
 - `core/skills/workflow-execute/SKILL.md`
 - `core/skills/workflow-review/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
-- `core/skills/workflow-ops/SKILL.md`
+- `core/skills/workflow-status/SKILL.md`
+- `core/skills/workflow-archive/SKILL.md`
 - `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`

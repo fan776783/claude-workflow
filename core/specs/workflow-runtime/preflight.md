@@ -65,13 +65,13 @@
 └─ 存在 → 读取 status 字段
    │
    ├─ status: completed
-   │   → 提示用户先归档：`/workflow-ops archive`
+   │   → 提示用户先归档：`/workflow-archive`
    │   → 归档完成后自动继续
    │
    ├─ status: running / paused
    │   → 提示用户选择：
    │     a) 恢复当前工作流：`/workflow-execute`
-   │     b) 归档并新建：`/workflow-ops archive` + 继续
+   │     b) 归档并新建：`/workflow-archive` + 继续
    │     c) 强制覆盖（需 --force）
    │
    ├─ status: failed / blocked

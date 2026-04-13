@@ -66,14 +66,16 @@ node core/utils/workflow/workflow_cli.js status
 
 ## Step 2: Stage 1 — 规格合规审查
 
-**执行者**：优先使用 `Task` 工具分派独立子 Agent；不支持 `Task` 时降级为当前会话内角色切换。
+**执行者**：当前模型（主任务直接执行，不分派子 Agent）。
 
-**平台判定**：
-- 支持 `Task` 工具 → 分派子 Agent，传入 spec 路径 + 变更文件列表 + 审查 prompt
-- 不支持 `Task` 工具 → 降级模式（见下方）
+> 🔑 Stage 1 是结构化对照检查（spec 条目 → 代码实现），属于客观事实验证，不需要子 Agent 的隔离开销。
+> 本 skill 作为独立入口（`/workflow-review`），与 execute 阶段天然隔离，已满足审查独立性要求。
+> Stage 2（主观代码质量判断）仍通过子 Agent 执行，确保深度审查的独立视角。
 
-> 🔑 子 Agent 优先的理由：审查者与实现者应在不同上下文中工作，避免执行阶段的残留记忆影响审查独立性。
-> 降级模式下的角色切换标记（`━━━`）是最低隔离保证，但不能消除同会话的 context 交叉污染。
+**独立验证规则**（补偿非子 Agent 执行的隔离损失）：
+- **禁止引用 execute 阶段的记忆**：不得使用"我之前实现了 X"作为验证依据
+- **强制读取源文件**：每个 spec 需求必须通过 `view_file` / `grep` 独立读取对应代码文件验证
+- **逐条输出证据**：每个需求的验证结论必须附带具体文件路径和行号
 
 **审查标准**：
 
@@ -98,30 +100,17 @@ node core/utils/workflow/workflow_cli.js status
 - 超出 spec 且无价值 = 建议删除
 - 风格偏好 = 不标记
 
-### 子 Agent Prompt（Stage 1）
+### 执行流程
 
-使用 `Task` 工具（或降级模式）分派审查：
+1. 读取 spec 全文 + 所有 plan task 定义
+2. 获取变更文件列表（`git diff --name-only {baseCommit}..HEAD`）
+3. 逐条检查每个 spec 需求：
+   - 通过 `view_file` 读取对应实现代码
+   - 验证：需求覆盖、行为匹配、约束遵循、验收对齐
+4. 检查范围控制（是否有超出 spec 的额外实现）
+5. 输出结果：
 
-```markdown
-你是一个 Spec 合规性审查员。你的唯一任务是验证实现代码是否匹配 spec 需求。
-
-## 输入
-**Spec 文件路径**: {specPath}
-**本次改动范围**: {changedFiles 或 git diff}
-**所有 Plan Tasks**: {allTasks}
-
-## 校准规则
-只标记会在实际使用中造成问题的偏差：
-- 不匹配 spec = 必须修复
-- 超出 spec 但有价值 = 标记为建议（不阻塞）
-- 风格偏好 = 不标记
-
-预期 false-positive 率 ~35%。对每个 finding 验证：
-1. 是否真的和 spec 不一致（检查实际代码）
-2. 是否是信任边界混淆（内部数据当外部输入检查）
-3. 是否忽略了代码注释中的设计意图
-
-## 输出
+```
 **Status:** Compliant | Issues Found
 **Issues (if any):**
 - [文件:行号]: [偏差描述] — [为什么和 spec 不一致] — [建议修复方式]
@@ -133,17 +122,6 @@ node core/utils/workflow/workflow_cli.js status
 ### 审查未通过
 
 修复 → 重新审查。每次尝试消耗 1 次共享预算（总计 4 次）。
-
-### 降级执行（不支持子 Agent）
-
-当平台不支持子 Agent 时，在当前会话中执行：
-1. 输出分隔符：`━━━ 切换角色：Spec 合规审查员 ━━━`
-2. 读取 spec 全文 + 所有 task 变更文件
-3. 逐条检查：需求覆盖、行为匹配、约束遵循、验收对齐
-4. 输出 Status + Issues + Coverage
-5. 输出分隔符：`━━━ 退出 Spec 合规审查员角色 ━━━`
-
-> ⚠️ 降级模式不得跳过审查。角色切换标记是强制的，用于审计追溯。
 
 ---
 
@@ -221,11 +199,11 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId
 
 记录结果前，先标注本次执行模式：
 ```
-📋 Review mode: subagent | degraded-inline
+📋 Review mode: hybrid | degraded-inline
 ```
 
-- `subagent`：Stage 1 和/或 Stage 2 通过 `Task` 工具分派了独立子 Agent
-- `degraded-inline`：两个 Stage 均在当前会话内执行（角色切换模式）
+- `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认模式）
+- `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
 
 ### 预算遥测
 
@@ -263,7 +241,7 @@ node core/utils/workflow/workflow_cli.js advance --review-passed
 输出：
 ```
 ✅ 全量完成审查通过。工作流已标记为 completed。
-可执行 /workflow-ops archive 归档工作流。
+可执行 /workflow-archive 归档工作流。
 ```
 
 ### 审查失败
@@ -316,5 +294,5 @@ node core/utils/workflow/workflow_cli.js advance --review-failed --failed-tasks 
 ## 推荐入口顺序
 
 ```
-/workflow-plan → /workflow-execute → /workflow-review → /workflow-ops archive
+/workflow-plan → /workflow-execute → /workflow-review → /workflow-archive
 ```

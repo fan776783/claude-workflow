@@ -91,9 +91,9 @@ function determineNextAction(state) {
   if (status === 'paused') return '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。'
   if (status === 'failed') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
   if (status === 'blocked') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
-  if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow-ops archive 归档，不要继续执行。`
+  if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow-archive 归档，不要继续执行。`
   if (status === 'archived') return '工作流已归档。使用 `/workflow-plan` 开始新任务。'
-  return `当前状态: ${status}。使用 /workflow-ops status 查看详情。`
+  return `当前状态: ${status}。使用 /workflow-status 查看详情。`
 }
 
 /**

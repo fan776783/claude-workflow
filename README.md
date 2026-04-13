@@ -10,7 +10,7 @@
 
 ### Workflow 主线
 
-Workflow 主线由 5 个专项 skills 直接驱动：
+Workflow 主线由 6 个专项 skills 直接驱动：
 
 | 命令 | 说明 |
 |------|------|
@@ -18,8 +18,8 @@ Workflow 主线由 5 个专项 skills 直接驱动：
 | `/workflow-execute` | 治理决策、任务执行、验证与状态推进；所有 task 完成后状态设为 `review_pending` |
 | `/workflow-review` | 全量完成审查（execute 完成后独立执行），审查通过后标记 `completed` |
 | `/workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
-| `/workflow-ops status` | 查看当前进度、阻塞点与下一步建议 |
-| `/workflow-ops archive` | 归档已完成工作流 |
+| `/workflow-status` | 查看当前进度、阻塞点与下一步建议 |
+| `/workflow-archive` | 归档已完成工作流 |
 
 ### Public Commands
 
@@ -84,11 +84,11 @@ Workflow 主线由 5 个专项 skills 直接驱动：
 +-----------------------------------------------------------------+
 |                          用户层                                   |
 |  /workflow-plan | /workflow-execute | /workflow-review            |
-|  /workflow-delta | /workflow-ops status | /workflow-ops archive   |
+|  /workflow-delta | /workflow-status | /workflow-archive           |
 +-----------------------------------------------------------------+
 |                  Skill 层 (行动指南)                               |
 |  workflow-plan | workflow-execute | workflow-review               |
-|  workflow-delta | workflow-ops                                    |
+|  workflow-delta | workflow-status | workflow-archive              |
 |  自然语言 SKILL.md, 不含可执行代码                                 |
 +-----------------------------------------------------------------+
 |                 Runtime 层 (CLI 工具链)                            |
@@ -130,7 +130,8 @@ core/
 |   +-- workflow-execute/         # /workflow-execute
 |   +-- workflow-review/          # 两阶段审查（execute 内部触发）
 |   +-- workflow-delta/           # /workflow-delta
-|   +-- workflow-ops/             # /workflow-ops status + archive
+|   +-- workflow-status/          # /workflow-status
+|   +-- workflow-archive/         # /workflow-archive
 |   +-- team/                     # /team 显式入口路由
 |   +-- team-workflow/            # /team start|execute|status|archive runtime
 +-- specs/
@@ -326,16 +327,23 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 - 处理 PRD / API / 需求增量变更
 
-#### `workflow-ops`（运行时操作 Skill）
+#### `workflow-status`（状态查看 Skill）
 
 ```bash
-/workflow-ops status
-/workflow-ops status --detail
-/workflow-ops archive
+/workflow-status
+/workflow-status --detail
 ```
 
-- `status`：查看当前状态、进度与下一步建议
-- `archive`：归档已完成工作流
+- 查看当前状态、进度与下一步建议
+
+#### `workflow-archive`（归档 Skill）
+
+```bash
+/workflow-archive
+/workflow-archive --summary
+```
+
+- 归档已完成工作流
 
 #### `workflow-review`（全量完成审查 Skill）
 
@@ -371,7 +379,7 @@ stateDiagram-v2
     paused --> running : /workflow-execute
     blocked --> running : unblock
     failed --> running : --retry / --skip
-    completed --> archived : /workflow-ops archive
+    completed --> archived : /workflow-archive
     archived --> [*]
 ```
 
@@ -409,7 +417,7 @@ flowchart TD
     V --> W{"Stage 1 + Stage 2 审查"}
     W -->|通过| X["状态 → completed"]
     W -->|失败| Y["状态 → running，修复后重审"]
-    X --> Z["/workflow-ops archive"]
+    X --> Z["/workflow-archive"]
 ```
 
 ---
@@ -495,7 +503,8 @@ flowchart TD
 - `core/skills/workflow-execute/SKILL.md`
 - `core/skills/workflow-review/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
-- `core/skills/workflow-ops/SKILL.md`
+- `core/skills/workflow-status/SKILL.md`
+- `core/skills/workflow-archive/SKILL.md`
 - `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`

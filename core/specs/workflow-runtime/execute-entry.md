@@ -31,7 +31,7 @@
 
 若不满足上述条件，禁止猜测进入执行器，应提示用户：
 
-- `/workflow-ops status` 查看当前状态
+- `/workflow-status` 查看当前状态
 - `/workflow-execute` 显式恢复执行
 
 ## 恢复后的共享执行路径

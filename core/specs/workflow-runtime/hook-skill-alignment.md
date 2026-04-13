@@ -15,7 +15,8 @@
 | `workflow-execute` | 恢复执行器、推进任务、触发验证与审查 | `SessionStart`、`PreToolUse(Task)` |
 | `workflow-review` | 两阶段审查与 `quality_gates.*` 写入 | 无专属 hook；质量关卡由 skill 指令驱动 |
 | `workflow-delta` | 增量变更分析与 apply | 无专属 hook |
-| `workflow-ops` | `status` / `archive` 运行时操作 | 无专属 hook |
+| `workflow-status` | `status` 运行时状态查看 | 无专属 hook |
+| `workflow-archive` | `archive` 工作流归档 | 无专属 hook |
 | `dispatching-parallel-agents` | 并行执行规则来源 | 间接依赖 `WorktreeCreate` / `WorktreeRemove` |
 | `team-workflow` | team runtime | 普通 workflow hooks 必须忽略 team runtime |
 
