@@ -38,10 +38,19 @@ description: "workflow-review 入口。独立的全量完成审查步骤 — exe
 
 ## Step 0: 前置检查
 
-**必须首先执行**。校验工作流是否处于可审查状态。
+**必须首先执行**。校验工作流是否处于可审查状态，并提取后续步骤所需的 `projectId`。
+
+### 0.1 提取 projectId
+
+从 `workflow-state.json` 的 `project_id` 字段提取，**后续所有 CLI 命令必须显式传入 `--project-id {projectId}`**。
+
+> ⚠️ **禁止依赖 `process.cwd()` 自动检测**：`/workflow-review` 的执行环境 cwd 可能不在目标项目根目录下，
+> 导致 `detectProjectIdFromRoot()` 返回 null → CLI 调用失败 → 触发手动降级写入。
+
+### 0.2 状态校验
 
 ```bash
-node core/utils/workflow/workflow_cli.js status
+node core/utils/workflow/workflow_cli.js --project-id {projectId} status
 ```
 
 | 检查项 | 预期 | 不满足时处理 |
@@ -159,25 +168,29 @@ node core/utils/workflow/workflow_cli.js status
 
 ## Step 4: 记录审查结果
 
-**所有审查结果通过 CLI 写入 state**，不得手动构造 JSON：
+**所有审查结果通过 CLI 写入 state**，不得手动构造 JSON。
+
+> [!CAUTION]
+> **`--project-id` 是必填参数**。值来自 Step 0.1 提取的 `{projectId}`。
+> 不传此参数时 CLI 会回退到 `detectProjectIdFromRoot(process.cwd())`，而 review 的执行 cwd 往往不在目标项目下，**这是导致 "CLI 工具不可用" 降级的首要原因**。
 
 ```bash
 # 审查通过
 node core/utils/workflow/quality_review.js pass <taskId> \
+  --project-id {projectId} \
   --base-commit <baseCommit> --current-commit <currentCommit> \
   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
-  --stage1-attempts <n> --stage2-attempts <n> \
-  --project-id <projectId>
+  --stage1-attempts <n> --stage2-attempts <n>
 
 # 审查未通过
 node core/utils/workflow/quality_review.js fail <taskId> \
+  --project-id {projectId} \
   --failed-stage <stage1|stage2|stage1_recheck> \
   --base-commit <baseCommit> --total-attempts <n> \
-  --last-result-json '<json>' \
-  --project-id <projectId>
+  --last-result-json '<json>'
 
 # 查询审查结果
-node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId>
+node core/utils/workflow/quality_review.js read <taskId> --project-id {projectId}
 ```
 
 > ⚠️ **HARD-GATE #3 强制执行**：必须输出以下 checkpoint 行证明已通过 CLI 写入：
@@ -188,10 +201,10 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId
 > ```bash
 > # 降级：当 base-commit 不可用时
 > node core/utils/workflow/quality_review.js pass <taskId> \
+>   --project-id {projectId} \
 >   --base-commit HEAD --current-commit HEAD \
 >   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
->   --stage1-attempts 1 --stage2-attempts 1 \
->   --project-id <projectId>
+>   --stage1-attempts 1 --stage2-attempts 1
 > ```
 > 降级仍失败 → 在 checkpoint 行标注 `(CLI unavailable, manual write)` 并记录原因。
 
@@ -227,7 +240,7 @@ node core/utils/workflow/quality_review.js read <taskId> --project-id <projectId
 
 ```bash
 # 更新 state.status 为 completed
-node core/utils/workflow/workflow_cli.js advance --review-passed
+node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-passed
 ```
 
 > ⚠️ **禁止绕过此 CLI 命令直接写 state.json**。
@@ -235,6 +248,7 @@ node core/utils/workflow/workflow_cli.js advance --review-passed
 > - 设置 `status: "completed"` + `completed_at`
 > - 生成完成摘要
 >
+> `--project-id {projectId}` 必须传入（来自 Step 0.1）。
 > 若 CLI 不可用（极端情况），手动写入必须同时设置 `status`、`completed_at` 两个字段，
 > 并在输出中标注 `(manual advance, CLI unavailable)`。
 
@@ -248,7 +262,7 @@ node core/utils/workflow/workflow_cli.js advance --review-passed
 
 ```bash
 # 回退 state.status 为 running，标记失败的 task
-node core/utils/workflow/workflow_cli.js advance --review-failed --failed-tasks "T3,T5"
+node core/utils/workflow/workflow_cli.js --project-id {projectId} advance --review-failed --failed-tasks "T3,T5"
 ```
 
 输出：
