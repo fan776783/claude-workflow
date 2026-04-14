@@ -10,7 +10,7 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 ## 执行铁律
 
 - 未完成模式判定、review subject 解析和共享规范加载前，不得输出 findings 或 verdict。
-- 除非显式传入 `--deep`，默认进入 Quick 模式；Deep 路径必须调用 Codex，不能省略为当前模型自审。
+- 除非显式传入 `--deep`，默认进入 Quick 模式；Deep 路径必须实际执行 `collaborating-with-codex` 桥接脚本调用 Codex，不能以任何理由（包括"环境不可用""Codex 未安装""未检测到 Codex"）在未尝试调用的情况下降级为当前模型自审。
 - 未完成 verification 与 impact analysis 前，不得给出最终 P0/P1，也不得输出 `INCORRECT`。
 - 报告输出后默认停止；只有用户明确确认要修复并输入 `fix`，才允许进入 Review Loop。
 - `--quick` 与 `--deep` 同时出现时，视为冲突参数，必须停下并要求用户二选一。
@@ -48,7 +48,7 @@ description: "Use when asked to review a diff, review a pull request, or do a pr
 - **包含 `--deep`（无 `--pr`）**：读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其流程
 - **其他（默认 Quick 模式）**：读取 [references/quick-mode.md](references/quick-mode.md) 并严格执行其流程。默认模式与显式 `--quick` 等价
 
-**⚠️ 关键约束**：Deep 模式下，如果没有按 `collaborating-with-codex` skill 执行 Codex 调用，则审查流程不合规。不得以任何理由省略外部模型调用步骤。
+**⚠️ 关键约束**：Deep 模式下，必须实际执行 `collaborating-with-codex` 桥接脚本发起 Codex 调用。未执行脚本就判定"Codex 不可用"并降级，属于流程违规。"Codex 不可用"仅在脚本实际执行并返回错误后才能成立。
 
 ## 共享审查管线（Quick / Deep 共用）
 
