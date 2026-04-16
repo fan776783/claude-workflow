@@ -4,7 +4,7 @@
 
 ## 何时读取
 
-- `diff-review` 的 Quick / Deep / PR 模式在 Severity Calibration 后、Report Synthesis 前
+- `diff-review` 在 Severity Calibration 后、Report Synthesis 前
 
 ## 执行条件
 
