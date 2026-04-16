@@ -4,14 +4,15 @@ Visual Review 的详细审查标准。
 
 ## 目录
 
-- [视觉还原度 (60%)](#视觉还原度-60)
-- [可访问性 (25%)](#可访问性-25)
-- [代码质量 (15%)](#代码质量-15)
+- [视觉还原度](#视觉还原度)
+- [可访问性](#可访问性)
+- [代码质量](#代码质量)
 - [常见问题模式](#常见问题模式)
+- [交付门控](#交付门控)
 
 ---
 
-## 视觉还原度 (60%)
+## 视觉还原度
 
 ### 间距 (Spacing)
 
@@ -98,18 +99,18 @@ font-size: 1.25rem;  /* 可能不是 20px */
 
 ---
 
-## 可访问性 (25%)
+## 可访问性
 
 ### 语义标签
 
 ```html
 <!-- ✅ 正确 -->
-<button type="button" @click="close">关闭</button>
+<button type="button" onclick="close()">关闭</button>
 <nav>导航</nav>
 <main>主内容</main>
 
 <!-- ❌ 错误 -->
-<div @click="close">关闭</div>
+<div onclick="close()">关闭</div>
 <div class="nav">导航</div>
 ```
 
@@ -118,7 +119,7 @@ font-size: 1.25rem;  /* 可能不是 20px */
 ```html
 <!-- 图标按钮必须有 aria-label -->
 <button aria-label="关闭弹窗">
-  <icon name="close" />
+  <svg>...</svg>
 </button>
 
 <!-- 表单元素关联 label -->
@@ -128,14 +129,14 @@ font-size: 1.25rem;  /* 可能不是 20px */
 
 ### 键盘支持
 
-```typescript
-// 可聚焦元素支持 Enter/Space
-<div
-  role="button"
-  tabindex="0"
-  @keydown.enter="handleClick"
-  @keydown.space="handleClick"
->
+可交互元素应支持键盘操作：
+- 可聚焦元素添加 `tabindex="0"`
+- 支持 Enter / Space 触发操作
+- 使用正确的 `role` 属性
+
+```html
+<!-- 非按钮元素需要补充键盘支持 -->
+<div role="button" tabindex="0">可点击区域</div>
 ```
 
 ### 对比度
@@ -148,7 +149,7 @@ font-size: 1.25rem;  /* 可能不是 20px */
 
 ---
 
-## 代码质量 (15%)
+## 代码质量
 
 ### 组件结构
 
@@ -160,28 +161,24 @@ font-size: 1.25rem;  /* 可能不是 20px */
 
 ### 样式隔离
 
-```vue
-<!-- ✅ scoped 样式 -->
-<style scoped lang="postcss">
-.dialog { ... }
-</style>
+避免全局样式污染，根据项目框架选择合适的隔离方案：
 
-<!-- ❌ 全局样式污染 -->
-<style>
-.dialog { ... }
-</style>
-```
+| 方案 | 适用场景 | 示例 |
+|------|----------|------|
+| Scoped styles | Vue SFC | `<style scoped>` |
+| CSS Modules | React / Vue / 通用 | `import styles from './Button.module.css'` |
+| BEM 命名 | 无框架约束时 | `.block__element--modifier` |
 
 ### 命名规范
 
-```typescript
+```javascript
 // ✅ 语义化命名
 const handleClose = () => {};
-const isDialogVisible = ref(false);
+const isDialogVisible = false;
 
 // ❌ 模糊命名
 const fn = () => {};
-const flag = ref(false);
+const flag = false;
 ```
 
 ---
@@ -202,7 +199,7 @@ background: #1a1a1a;  /* 设计稿是 #1d1d25 */
 
 ```html
 <!-- 缺少语义标签 -->
-<div class="btn" @click="submit">提交</div>
+<div class="btn" onclick="submit()">提交</div>
 <!-- 应该是 -->
 <button type="submit">提交</button>
 ```
@@ -212,7 +209,7 @@ background: #1a1a1a;  /* 设计稿是 #1d1d25 */
 → 应回退到父节点重导出单张资源。
 ```
 
-### P1 级（应该修复）
+### P1 级（应修复）
 
 ```css
 /* 间距偏差 */
@@ -225,9 +222,9 @@ font-weight: 600;  /* 设计稿是 700 */
 
 ```html
 <!-- 缺少 aria-label -->
-<button><icon name="close" /></button>
+<button><svg>...</svg></button>
 <!-- 应该是 -->
-<button aria-label="关闭"><icon name="close" /></button>
+<button aria-label="关闭"><svg>...</svg></button>
 ```
 
 ```text
@@ -237,7 +234,7 @@ font-weight: 600;  /* 设计稿是 700 */
 
 ### P2 级（建议修复）
 
-```typescript
+```javascript
 // 命名不规范
 const d = new Date();
 // 应该是
@@ -256,19 +253,14 @@ margin: 0;
 
 ---
 
-## 评分计算
+## 交付门控
 
-```text
-overall = visualFidelity * 0.6 + accessibility * 0.25 + codeQuality * 0.15
+审查完成后，按问题清单中最高严重程度决定交付：
 
-示例：
-visualFidelity: 90
-accessibility: 80
-codeQuality: 85
+| 条件 | 决策 |
+|------|------|
+| 无 P0 问题 | ✅ 可交付 |
+| 仅剩 P1 问题 | ⚠️ 可交付，摘要中列出未修复的 P1 |
+| 仍有 P0 问题 | ❌ 不可交付，进入修复循环或请求用户指导 |
 
-overall = 90 * 0.6 + 80 * 0.25 + 85 * 0.15
-        = 54 + 20 + 12.75
-        = 86.75 ≈ 87
-```
-
-**交付门控**：`visualFidelity ≥ 90`（核心指标）
+修复循环最多 3 轮，每轮优先处理 P0，再处理 P1。超过 3 轮仍有 P0 时停止推进。

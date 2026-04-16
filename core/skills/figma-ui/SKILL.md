@@ -1,6 +1,6 @@
 ---
 name: figma-ui
-description: "Implements UI from a Figma node. Use when given a Figma URL, asked to restore a design draft, or asked to turn a Figma frame into production code."
+description: "Implements UI from a Figma node with 1:1 visual fidelity. Use when given a Figma URL, asked to implement/restore a design, turn a Figma frame into production code, build components matching Figma specs, or when user says things like '还原设计稿', '照着 Figma 写', 'convert this design to code'. For Figma canvas operations (create/edit/delete nodes), switch to figma-use skill."
 ---
 # Figma UI 实现工作流
 
@@ -9,40 +9,36 @@ description: "Implements UI from a Figma node. Use when given a Figma URL, asked
 
 ---
 
-## 执行铁律
-- 未完成 Phase A 并产出 `ElementManifest`、`AssetPlan`、`newlyDownloadedFiles` 之前，不得开始编码。
-- `AssetPlan` 中只要存在 `refetch-parent`，就必须先回退到父节点重取资源，不得继续实现。
-- 未完成 Visual Review 并拿到结构化审查结果前，不得宣称完成、通过或可交付。
-- `visualFidelity < 90` 时，不得按“已完成”收口；优先修复，再重新审查。
-- 修复循环最多 3 轮；超过 3 轮仍未过线时，停止推进并请求用户判断。
-- `figma-ui` 默认由当前模型直接实现与审查，不调用外部模型代写 UI。
+## Skill Boundaries
+
+- 本 skill 的交付物是**用户仓库中的代码**。当 Figma URL 或设计稿被要求转为组件、页面或模块代码时使用。
+- 如需在 Figma 画布上创建 / 编辑 / 删除节点，切换到 `figma-use` skill。
+- 如需从代码或描述生成完整页面设计稿，切换到 `figma-generate-design` skill。
+- 如需生成 Code Connect 映射，切换到 `figma-code-connect` skill。
+- 如需生成 design system 规则（CLAUDE.md / AGENTS.md），切换到 `figma-create-design-system-rules` skill。
 
 ---
 
-## Entry Gate
-进入本 skill 后，先完成下面 4 件事，再进入 Phase A：
-1. 解析 Figma URL 或确认当前选中节点，拿到 `nodeId`
-2. 解析 `assetsDir`
-3. 创建当前任务临时目录 `assetsDir/.figma-ui/tmp/${taskId}`
-4. 准备 `get_design_context` 所需参数，尤其是 `dirForAssetWrites`
+## Core Rules
 
-在 Entry Gate 完成前，禁止发生以下行为：
-- 直接开始写组件或样式
-- 提前决定正式资源目录结构
-- 直接引用旧资源或其他目录下的现成文件
-- 跳过 `dirForAssetWrites` 去裸调 MCP
+每条规则附带理由，帮助在边界情况下自行判断。
+
+- **先分诊再编码**：`get_design_context` 返回后先完成 Asset Triage，再写组件。跳过这步容易把临时 hash 文件名带进正式目录，后续无法追溯来源。
+- **refetch-parent 阻断**：AssetPlan 中存在 `refetch-parent` 时必须先回退重取。直接用子图层拼接复合图形会导致 CSS 定位脆弱、维护困难。
+- **promote-only 到正式目录**：正式资源目录只接收 AssetPlan 中 `promote` 的资源。防止临时文件和 hash 文件名污染项目资源。
+- **视觉优先**：尽量精确还原设计稿，不做主观"优化"。当项目令牌与 Figma 值冲突时，优先使用项目令牌保持一致性，但微调间距/尺寸来维持视觉还原度。
+- **assetsDir + dirForAssetWrites 必传**：调用 `get_design_context` 前必须准备好。缺少这个参数会导致资源下载到不可预期的位置。
+- **审查后交付**：未完成 Visual Review 不宣称完成。自检是发现间距/颜色偏差的最后一道关卡。
+- **P0 问题阻断交付**：审查后仍有 P0 问题时不按"已完成"收口。P0 表示布局错位或颜色明显偏差，用户一眼能看出来。
+- **修复上限 3 轮**：超过 3 轮仍有 P0 时停止推进并请求用户判断。避免无限循环消耗 token。
+- **当前模型直接实现**：不调用外部模型代写 UI。保持实现与审查的一致性。
 
 ---
 
-## 关键门禁
-| 约束 | 要求 |
-|------|------|
-| **assetsDir 必传** | 调用 `get_design_context` 前必须先获取 |
-| **Asset Triage 前置** | `get_design_context` 之后先分诊资源，再开始编码 |
-| **视觉优先** | 像素级还原设计稿，不做"优化" |
-| **截图按需** | `figma-ui` 不主动把 `get_screenshot` 作为常规主流程 |
-| **Visual Review** | 验证阶段必须执行视觉审查，不可跳过 |
-| **还原度门控** | `visualFidelity ≥ 90` 才能交付 |
+## Prerequisites
+- Figma MCP server 已连接并可访问
+- 用户提供 Figma URL（格式 `https://figma.com/design/:fileKey/:fileName?node-id=1-2`），或使用 Figma 桌面端当前选中节点
+- 项目有现成的设计系统或组件库（推荐，非必须）
 
 参考文档：
 - [figma-tools.md](references/figma-tools.md) - MCP 工具速查
@@ -52,50 +48,48 @@ description: "Implements UI from a Figma node. Use when given a Figma URL, asked
 ---
 
 ## Phase A: 设计获取 + 资源分诊
-### 输入
-- Figma URL 或当前选中节点
-- `assetsDir`
-- 当前任务 `taskId`
 
 ### 目标
-把“这次设计实际下载了什么资源、哪些资源可以进入实现、哪些资源必须回退重取”在编码前全部定清楚。没有完成这个阶段时，不得进入 Phase B。
+把"这次设计实际下载了什么资源、哪些可以进入实现、哪些必须回退重取"在编码前全部定清楚。
 
 ### A.1 解析 URL
 从 `https://figma.com/design/:fileKey/:fileName?node-id=1-2` 提取：
-- `nodeId`: `node-id` 参数（`1-2` 在 MCP 调用时转为 `1:2`）
+- `fileKey`: `/design/` 之后的路径段
+- `nodeId`: `node-id` 查询参数（`1-2` 在 MCP 调用时转为 `1:2`）
 
-无 URL 时使用 Figma 桌面端当前选中节点。
+无 URL 时使用 Figma 桌面端当前选中节点（桌面端 MCP 自动使用当前打开文件，无需 `fileKey`）。
+
+示例：
+- URL: `https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15`
+- fileKey: `kL9xQn2VwM8pYrTb4ZcHjF`
+- nodeId: `42-15`（MCP 调用时用 `42:15`）
 
 ### A.2 获取 assetsDir
-```typescript
-// 1. 尝试读取缓存
-const uiConfig = await readJson('.claude/config/ui-config.json');
-if (uiConfig?.assetsDir) return uiConfig.assetsDir;
-
-// 2. 缓存未命中 → 使用默认值或询问用户
-return 'public/images';
-```
+检查 `.claude/config/ui-config.json` 中的 `assetsDir` 字段。未找到则默认 `public/images` 或询问用户。
 
 ### A.3 调用 Figma MCP
-```typescript
-const taskAssetsDir = `${assetsDir}/.figma-ui/tmp/${taskId}`;
-await Bash({ command: `mkdir -p "${taskAssetsDir}"` });
+1. 创建任务临时目录 `${assetsDir}/.figma-ui/tmp/${taskId}`
+2. 记录目录中已有的文件列表
+3. 调用 MCP：
+   ```
+   get_design_context(fileKey, nodeId, dirForAssetWrites: taskAssetsDir)
+   ```
+4. 再次列出目录文件，与步骤 2 的列表做差集，得到 `newlyDownloadedFiles`
 
-const beforeFiles = await listFiles(taskAssetsDir);
-const designContext = await mcp__figma-mcp__get_design_context({
-  nodeId,
-  dirForAssetWrites: taskAssetsDir,
-});
-const afterFiles = await listFiles(taskAssetsDir);
-const newlyDownloadedFiles = diffFiles(beforeFiles, afterFiles);
+目录职责：`assetsDir/.figma-ui/tmp/${taskId}` 是当前任务的原始下载与分诊工作区。
 
-// ⚠️ 不主动调用 get_screenshot
-// 如需截图，仅作为人工排查或本地比对的辅助手段
+**如果返回为空或被截断**（节点过于复杂）：
+1. 调用 `get_metadata(fileKey, nodeId)` 获取节点结构概览
+2. 从 metadata 中识别关键子节点
+3. 按子节点分别调用 `get_design_context`
+
+### A.4 获取视觉参考
 ```
-目录职责：
-- `assetsDir/.figma-ui/tmp/${taskId}`：当前任务的原始下载与分诊工作区
+get_screenshot(fileKey, nodeId)
+```
+截图作为整个实现过程中的视觉基准，用于 Phase B 编码对照和 Phase C 验证比对。
 
-### A.4 提取 ElementManifest
+### A.5 提取 ElementManifest
 遍历 `designContext`，按类型分类：
 
 | 类型 | 优先级 | 说明 |
@@ -107,34 +101,27 @@ const newlyDownloadedFiles = diffFiles(beforeFiles, afterFiles);
 
 输出：`ElementManifest` 作为覆盖率 checklist。
 
-### A.5 执行 Asset Triage
-在编码前完成资源判断，避免把“是否需要资源”“如何命名”“哪些文件应清理”拖到流程末尾。
-```typescript
-const assetMapping = newlyDownloadedFiles.map(file => ({
-  originalFile: file,
-  decision: 'pending',
-  sourceNode: nodeId,
-  sourceLayer: inferLayerName(file),
-}));
-```
-分诊目标：
-1. 明确本次 `get_design_context` 实际下载了哪些文件
-2. 判断哪些资源真的需要保留
-3. 先完成分组和命名，再开始编码
-4. 明确哪些文件属于当前任务、哪些可在收口时删除
+### A.6 执行 Asset Triage
+为每个新下载的文件标记初始状态 `pending`，结合文件名和来源节点推断其语义角色。
 
-### A.6 产出 AssetPlan
-`AssetPlan` 至少包含：
+### A.7 产出 AssetPlan
+
+**核心字段**（每个资源必须有）：
+
+| 字段 | 说明 |
+|------|------|
+| `originalFile` | 本次下载的原始文件名 |
+| `decision` | `inline` / `promote` / `discard` / `refetch-parent` |
+| `targetName` | 语义化文件名（仅 `promote` 需要） |
+| `targetDir` | 目标目录，位于 `assetsDir` 下（仅 `promote` 需要） |
+
+**可选字段**（复杂页面推荐补充）：
 
 | 字段 | 说明 |
 |------|------|
 | `sourceNode` | 来源节点 ID |
 | `sourceLayer` | 来源图层 / 语义元素 |
-| `originalFile` | 本次下载的原始文件名 |
-| `decision` | `inline` / `promote` / `discard` / `refetch-parent` |
 | `group` | 资源分组，如 `hero` / `empty-state` / `icon` |
-| `targetName` | 进入正式目录前的语义化文件名 |
-| `targetDir` | 目标目录（位于 `assetsDir` 下） |
 
 决策矩阵：
 
@@ -145,12 +132,16 @@ const assetMapping = newlyDownloadedFiles.map(file => ({
 | 明显无用或重复下载 | `discard` | 仅视为本次任务临时文件 |
 | 疑似错误粒度的子图层导出 | `refetch-parent` | 停止编码，先导出父节点 |
 
-命名原则：
-- 先语义化，再编码引用
-- 避免把 hash 文件名直接带入正式目录
-- 推荐模式：`{feature}-{role}.{ext}`
+命名原则：先语义化再编码引用，避免把 hash 文件名直接带入正式目录。推荐模式：`{feature}-{role}.{ext}`。
 
-### A.7 复合图形识别（前置强制检查）
+> ⚠️ 还没完成 AssetPlan 就开始写组件，是最常见的流程偏离。资源决策拖到后面处理时，hash 文件名很可能已经散落在代码各处。
+
+资源处理规则：
+- Figma MCP 返回的 `localhost` URL 直接使用，不转换
+- 不引入新的图标包，所有资源来自 Figma
+- 有 `localhost` 源时不使用占位符
+
+### A.8 复合图形识别
 当导出资源包含多个叠加图层时，说明误提取了子节点，应在进入编码前获取父节点作为完整图片。
 
 识别特征：
@@ -175,34 +166,34 @@ const assetMapping = newlyDownloadedFiles.map(file => ({
 ❌ 错误：分别引用 3 个 SVG 并用 CSS 定位叠加
 ```
 
-### 必需产物
-- `ElementManifest`
-- `AssetPlan`
-- `newlyDownloadedFiles`
-- `assetMapping`
-
-### Phase A 禁止项
-- 还没完成 `AssetPlan` 就开始写组件
-- 把 hash 文件名直接当正式资源名
-- 遇到复合图形还继续按子图层拼接实现
-- 用“先做页面后面再整理资源”的方式跳过分诊
-
-### Phase A 放行条件
-只有同时满足以下条件，才允许进入 Phase B：
-- `ElementManifest` 已生成，且 P0 / P1 元素已可用于后续覆盖率检查
-- `newlyDownloadedFiles` 已锁定为“本次任务实际下载文件”
-- `AssetPlan` 中每个下载文件都有明确决策：`inline` / `promote` / `discard` / `refetch-parent`
-- 不存在未处理的 `refetch-parent`
+> ⚠️ 遇到复合图形时继续按子图层拼接是第二常见的偏离。拼接出来的结果在不同屏幕尺寸下容易错位。
 
 ---
 
 ## Phase B: 编码
-**⚠️ 不调用外部模型，当前模型直接编码**
 
 ### 输入
-- Phase A 的 `ElementManifest`
-- Phase A 的 `AssetPlan`
-- 已完成分诊的设计上下文
+- Phase A 的 `ElementManifest`、`AssetPlan`、设计上下文、截图
+
+### 项目适配原则
+Figma MCP 输出通常是 React + Tailwind 格式，需转换为项目实际的框架和约定：
+- 将 Tailwind 工具类替换为项目偏好的样式方案或设计令牌
+- 复用项目现有组件（按钮、输入框、排版、图标包装器），不重复造轮子
+- 使用项目的颜色体系、字体规范和间距令牌
+- 遵循项目的路由、状态管理和数据获取模式
+
+### 设计系统集成
+| 场景 | 策略 |
+|------|------|
+| 项目组件完全匹配设计 | 直接复用 |
+| 项目组件大致匹配，需微调 | 扩展现有组件，添加变体 |
+| 需要大量覆盖样式 | 新建组件（避免样式冲突） |
+| 项目无对应组件 | 按项目设计系统规范新建 |
+
+设计令牌映射：
+- 优先将 Figma 变量映射到项目已有的设计令牌
+- 当项目令牌与 Figma 值冲突时，优先使用项目令牌，但微调间距/尺寸以保持视觉一致
+- 无法映射时保留 Figma 原值 + CSS 变量 fallback
 
 ### 编码规范
 | 规范 | 说明 |
@@ -212,21 +203,32 @@ const assetMapping = newlyDownloadedFiles.map(file => ({
 | **最小包装** | 避免不必要的组件包装层 |
 | **Mock 数据** | 使用设计稿原文，跳过 i18n |
 
+代码质量的详细检查标准见 [visual-review.md](references/visual-review.md#代码质量)。
+
 ### 样式策略
-```css
-/* ✅ 推荐：保留原值 + fallback */
-background: var(--fill-light-02, rgba(194, 204, 241, 0.08));
-border-radius: 16px;
-padding: 32px 24px 24px;
+优先使用 Tailwind 工具类，保留 Figma 原始值。在 class 定义中使用 `@apply` 复用 Tailwind 类：
+```html
+<!-- ✅ 推荐：Tailwind 工具类 + Figma 原值 -->
+<div class="bg-[rgba(194,204,241,0.08)] rounded-2xl pt-8 px-6 pb-6">
 
-/* ❌ 避免：强制映射到可能不准确的 Token */
-background: var(--fills-light-8);  /* 映射可能有偏差 */
+<!-- ✅ 有项目令牌时优先使用 -->
+<div class="bg-fill-light-02 rounded-2xl pt-8 px-6 pb-6">
+
+<!-- ❌ 避免：硬编码近似值 -->
+<div class="bg-gray-900/10 rounded-xl p-6">
 ```
+```css
+/* ✅ 在 class 定义中用 @apply 复用 Tailwind */
+.card-container {
+  @apply bg-[rgba(194,204,241,0.08)] rounded-2xl pt-8 px-6 pb-6;
+}
 
-### 组件复用判断
-```text
-现有组件完全匹配设计 → 复用
-需要大量覆盖样式 → 新建（避免样式冲突）
+/* ❌ 避免：脱离 Tailwind 手写原始 CSS */
+.card-container {
+  background: rgba(194, 204, 241, 0.08);
+  border-radius: 16px;
+  padding: 32px 24px 24px;
+}
 ```
 
 ### 资源消费约束
@@ -234,120 +236,55 @@ background: var(--fills-light-8);  /* 映射可能有偏差 */
 1. `AssetPlan.decision = inline`：直接用代码表达
 2. `AssetPlan.decision = promote`：引用已分组、已命名的计划资源
 
-不要在编码阶段再做这些事：
-- 临时决定是否保留某个下载文件
-- 直接引用 hash 文件名作为正式资源名
-- 从 `.figma-ui/tmp/${taskId}` 之外的目录“借用”资源
-- 带着 `refetch-parent` 状态的资源继续编码
+不要在编码阶段临时决定资源去留、直接引用 hash 文件名或从任务目录外"借用"资源。
 
 ### 编码收口
-编码完成后，只提升 `AssetPlan.decision = promote` 的资源到正式目录。
-```typescript
-for (const asset of assetPlan.filter(a => a.decision === 'promote')) {
-  const targetDir = resolveUnder(assetsDir, asset.targetDir);
-  await ensureDir(targetDir);
-  await moveFile(
-    `${taskAssetsDir}/${asset.originalFile}`,
-    `${targetDir}/${asset.targetName}`
-  );
-}
-```
-收口规则：
-- 最终目录只接收 `AssetPlan` 中明确登记的资源
-- `discard` 与未纳入计划的本次下载文件，仍视为当前任务临时文件
-- 清理应围绕“本次下载文件 + AssetPlan”执行，不再依赖后置 `usedAssets` 猜测
-
-### Phase B 放行条件
-只有同时满足以下条件，才允许进入 Phase C：
-- P0 / P1 元素已经在实现中出现，可进入覆盖率检查
-- 正式资源目录只接收 `promote` 资源
-- 临时目录中未被提升的文件仍保持任务态，不混入正式交付目录
-- 实现中没有遗留 hash 文件名、未闭合资源决策或 `refetch-parent` 残留状态
+编码完成后，只提升 `promote` 资源到正式目录：
+1. 遍历 AssetPlan 中 `decision = promote` 的条目
+2. 在 `assetsDir` 下创建 `targetDir`
+3. 将 `originalFile` 移动并重命名为 `targetName`
 
 ---
 
-## Phase C: 验证 + 修复（核心价值）
+## Phase C: 验证 + 修复
 ### 输入
 - Phase B 的最终实现代码
-- `ElementManifest`
-- `AssetPlan`
-- `get_design_context` 返回的结构化设计信息
+- `ElementManifest`、`AssetPlan`、设计上下文、截图
 
 ### C.1 覆盖率检查
-对照 `ElementManifest`，确保 P0/P1 元素 100% 实现。
-```typescript
-const missing = elementManifest.elements.filter(
-  e => e.priority !== 'P2' && e.status === 'pending'
-);
-if (missing.length > 0) {
-  // 返回 Phase B 补充实现
-}
-```
+对照 `ElementManifest`，确保 P0/P1 元素已实现。有遗漏则返回 Phase B 补充。
 
-### C.2 Visual Review（⛔ 必须执行）
-当前模型按以下 JSON 格式自行审查 UI 实现与设计稿的视觉一致性。
+### C.2 Visual Review
+对照设计数据和截图，审查实现与设计稿的视觉一致性。
 
-审查内容：
-- 设计参考：`get_design_context` 返回的结构化设计信息
-- 实现代码：组件代码
+输出**问题清单**，按严重程度分级：
 
-返回 JSON：
-```json
-{
-  "visualFidelity": {
-    "score": "0-100",
-    "issues": [
-      {
-        "element": "元素名称",
-        "category": "spacing|color|typography|layout|border|shadow",
-        "expected": "设计稿值",
-        "actual": "实现值",
-        "severity": "P0|P1|P2",
-        "suggestion": "修复建议"
-      }
-    ]
-  },
-  "accessibility": {
-    "score": "0-100",
-    "issues": []
-  },
-  "codeQuality": {
-    "score": "0-100",
-    "issues": []
-  },
-  "overall": "0-100"
-}
-```
+| 严重程度 | 含义 | 交付影响 |
+|----------|------|----------|
+| **P0** | 布局错位、颜色明显偏差、关键元素缺失 | **必须修复才能交付** |
+| **P1** | 间距微调（2-8px）、字体细节、透明度偏差 | 应修复，不阻塞交付 |
+| **P2** | 装饰细节、可简化的样式、命名规范 | 建议修复 |
 
-审查重点（按权重排序）：
-1. 视觉还原度 (60%)：间距、颜色、字体、布局、边框、阴影
-2. 可访问性 (25%)：语义标签、ARIA、键盘支持
-3. 代码质量 (15%)：结构清晰、样式隔离
+每个问题包含：元素名称、问题类别（spacing / color / typography / layout / border / shadow / accessibility）、设计稿值、实现值、修复建议。
+
+审查重点：
+1. 视觉还原度：间距、颜色、字体、布局、边框、阴影
+2. 可访问性：语义标签、ARIA、键盘支持
+3. 代码质量：结构清晰、样式隔离
 
 ### C.3 修复循环
 ```text
-visualFidelity < 90 → 修复视觉问题（优先）
-accessibility < 70 → 修复可访问性
-最多 3 轮，超过请求用户指导
+有 P0 问题 → 必须修复
+有 P1 问题 → 应修复（每轮优先处理 P0，再处理 P1）
+最多 3 轮，超过则请求用户指导
 ```
-修复优先级：
-1. P0 视觉问题（布局错位、颜色明显偏差）
-2. P1 视觉问题（间距微调、字体细节）
-3. P0 可访问性（缺少语义标签）
-4. 其他问题
 
 ### C.4 交付决策
 | 条件 | 决策 |
 |------|------|
-| `visualFidelity ≥ 90` | ✅ 通过 |
-| `visualFidelity ≥ 80` | ⚠️ 需人工审查 |
-| `visualFidelity < 80` | ❌ 请求指导 |
-
-### Phase C 禁止项
-- 只凭“看起来差不多”就跳过结构化审查
-- `visualFidelity < 90` 仍按“已完成”收口
-- 审查结果缺少问题列表，却直接进入交付摘要
-- 审查未执行完，就先声明通过
+| 无 P0 问题 | ✅ 可交付 |
+| 仅剩 P1 问题 | ⚠️ 可交付，摘要中列出未修复的 P1 |
+| 仍有 P0 问题 | ❌ 不可交付，请求用户指导 |
 
 ### C.5 交付摘要
 ```text
@@ -359,66 +296,90 @@ accessibility < 70 → 修复可访问性
 │ 资源目录     │ public/images/xxx/                         │
 │ AssetPlan    │ promote: N / inline: N / discard: N       │
 ├──────────────┼────────────────────────────────────────────┤
-│ Visual Review│ visualFidelity: XX/100                     │
-│ Accessibility│ XX/100                                     │
-│ Overall      │ XX/100                                     │
+│ 审查结果     │ P0: 0 / P1: N / P2: N                    │
+│ 未修复 P1    │ （如有，逐条列出）                         │
 ├──────────────┼────────────────────────────────────────────┤
 │ 临时目录     │ ✅ 当前任务临时资源已收口                  │
 └──────────────┴────────────────────────────────────────────┘
 ```
 
-### Phase C 放行条件
-只有同时满足以下条件，才允许给出“通过 / 已完成 / 可交付”结论：
-- 覆盖率检查已完成，P0 / P1 元素无遗漏
-- Visual Review 已输出结构化 JSON
-- `visualFidelity ≥ 90`
-- 若曾进入修复循环，当前轮次已重新审查并得到最新结果
+---
 
-### C.6 可选：人工截图排查
-当 Visual Review 仍无法解释问题时，可选地手工获取截图做人工比对，但这不是独立 skill，也不属于常规交付路径。
-```text
-可选场景：
-- 需要人工核对复杂阴影、渐变、模糊效果
-- 需要在本地对比实现页面与设计稿截图
-- 需要进一步确认某个元素是否应该保留为资源
-```
-说明：
-- `figma-ui` 默认交付路径到 Visual Review / 修复循环即结束
-- 如需截图，`get_screenshot` 仅作为排查辅助手段
+## Examples
+
+### 示例 1：实现按钮组件
+
+用户提供：`https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15`
+
+执行流程：
+1. 解析 URL → fileKey=`kL9xQn2VwM8pYrTb4ZcHjF`, nodeId=`42-15`
+2. `get_design_context(fileKey, nodeId, dirForAssetWrites)` 获取按钮设计数据
+3. `get_screenshot(fileKey, nodeId)` 获取视觉参考
+4. 从 assets endpoint 下载按钮图标（如有）
+5. 检查项目是否有现成按钮组件 → 有则扩展变体，无则按项目规范新建
+6. 将 Figma 颜色映射到项目设计令牌（如 `primary-500`、`primary-hover`）
+7. 对照截图验证 padding、border-radius、字体
+
+结果：按钮组件与 Figma 设计一致，已集成到项目设计系统。
+
+### 示例 2：实现 Dashboard 页面
+
+用户提供：`https://figma.com/design/pR8mNv5KqXzGwY2JtCfL4D/Dashboard?node-id=10-5`
+
+执行流程：
+1. 解析 URL → fileKey=`pR8mNv5KqXzGwY2JtCfL4D`, nodeId=`10-5`
+2. `get_metadata(fileKey, nodeId)` 获取页面结构概览
+3. 识别主要区块（header、sidebar、content area、cards）及其子节点 ID
+4. 按区块分别 `get_design_context` + Asset Triage
+5. `get_screenshot(fileKey, nodeId)` 获取整页截图
+6. 下载所有资源（logo、图标、图表），完成 AssetPlan
+7. 使用项目布局原语搭建结构，尽量复用现有组件
+8. 验证响应式行为，对照截图逐项检查
+
+结果：完整 Dashboard 页面，资源已分诊收口，视觉审查通过。
+
+---
+
+## Best Practices
+
+### 先获取上下文，再动手
+不要基于假设实现。始终先调用 `get_design_context` 和 `get_screenshot`，拿到设计数据和视觉基准后再编码。
+
+### 边做边验证
+实现过程中频繁对照截图验证，不要等到最后才发现偏差。
+
+### 复用优先于新建
+编码前检查项目是否已有匹配的组件。跨代码库的一致性比精确复制 Figma 更重要。
+
+### 设计系统优先
+当 Figma 设计与项目设计系统有冲突时，优先遵循项目设计系统的模式。
+
+### 记录偏差
+如果因可访问性或技术约束必须偏离设计稿，在代码注释中说明原因。
 
 ---
 
 ## Red Flags
-如果出现下面这些念头，说明正在偏离流程，应立即回到对应阶段：
-- “先把页面写出来，AssetPlan 后面再补。” → 回到 Phase A
-- “这个复合图形先用几个 SVG 拼一下。” → 回到 Phase A，执行 `refetch-parent`
-- “先引用 hash 文件名，最后再统一改。” → 回到 Phase A 或 Phase B 资源命名步骤
-- “目测已经很像了，不必正式做 Visual Review。” → 回到 Phase C
-- “先说完成，回头再补审查结果。” → 回到 Phase C
-- “这次赶时间，先把低于 90 的版本交掉。” → 停在 Phase C，按门控处理
+如果出现下面这些念头，说明正在偏离流程：
+- "先把页面写出来，AssetPlan 后面再补。" → 回到 Phase A
+- "这个复合图形先用几个 SVG 拼一下。" → 回到 Phase A，执行 `refetch-parent`
+- "先引用 hash 文件名，最后再统一改。" → 回到资源命名步骤
+- "目测已经很像了，不必做审查。" → 回到 Phase C
+- "先说完成，回头再补审查结果。" → 回到 Phase C
 
 ---
 
 ## Exit Criteria
-满足以下条件后，才允许把任务表述为“已完成”或“可交付”：
-- `ElementManifest`、`AssetPlan`、`newlyDownloadedFiles` 都已产出并用于实现
+满足以下条件后，才允许把任务表述为"已完成"或"可交付"：
+- 已完成视觉审查，无 P0 问题
+- 若曾进入修复循环，修复后已重新审查并以最新结果判定
 - 不存在未解决的 `refetch-parent`
 - 正式资源目录只包含 `promote` 资源
-- 已完成结构化 Visual Review
-- `visualFidelity ≥ 90`
-- 已给出交付摘要，说明资源收口与审查结果
-
-任何一项不满足，都只能报告当前状态，不能使用完成态措辞。
+- 已给出交付摘要
 
 ---
 
 ## 降级方案
-### 审查不可用时
-当前模型按相同 JSON 格式自行审查，交付摘要注明：
-```text
-Visual Review: visualFidelity: XX/100
-```
-
 ### 复杂页面
 对于复杂页面（多个独立区块），可分块实现：
 1. `get_metadata` 获取结构概览
@@ -426,30 +387,38 @@ Visual Review: visualFidelity: XX/100
 3. 各区块独立执行 Asset Triage
 4. 分块编码 + 分块验证
 
+### 设计偏差处理
+当项目设计令牌与 Figma 值不一致时：
+- 优先使用项目令牌保持一致性
+- 微调间距和尺寸以保持视觉还原度
+- 在代码注释中记录偏差原因
+
 ---
 
 ## 快速参考
-### MCP 必传参数
-| 工具 | 必传参数 |
-|------|----------|
-| `get_design_context` | `nodeId`, `dirForAssetWrites` |
-| `get_screenshot` | `nodeId`（不属于常规主流程，仅在人工排查时按需使用） |
-| `get_metadata` | `nodeId` |
+### MCP 参数
+| 工具 | 必传参数 | 说明 |
+|------|----------|------|
+| `get_design_context` | `nodeId`, `dirForAssetWrites`; 远程 MCP 加传 `fileKey` | 获取结构化设计数据 + 下载资源 |
+| `get_screenshot` | `nodeId`; 远程 MCP 加传 `fileKey` | 获取视觉参考截图 |
+| `get_metadata` | `nodeId`; 远程 MCP 加传 `fileKey` | 获取节点结构概览（用于分块获取） |
 
 ### 流程图
 ```text
 Phase A: 设计获取 + 资源分诊
     │
-    ├─ 解析 URL → nodeId
-    ├─ 获取 assetsDir
-    ├─ get_design_context（不主动 get_screenshot）
-    ├─ 提取 ElementManifest
-    ├─ file-list-diff → newlyDownloadedFiles
-    ├─ Asset Triage → AssetPlan / assetMapping
-    └─ 必要时 refetch parent
+    ├─ A.1 解析 URL → fileKey + nodeId
+    ├─ A.2 获取 assetsDir
+    ├─ A.3 get_design_context（含资源下载）
+    ├─ A.4 get_screenshot（视觉参考基准）
+    ├─ A.5 提取 ElementManifest
+    ├─ A.6 Asset Triage
+    ├─ A.7 产出 AssetPlan
+    └─ A.8 复合图形识别（必要时 refetch parent）
     │
 Phase B: 编码
     │
+    ├─ 项目适配（框架 + 设计系统 + 令牌映射）
     ├─ 遵循编码规范
     ├─ 保留 Figma 原始值
     ├─ 只消费 inline / promote 资源
@@ -458,11 +427,18 @@ Phase B: 编码
 Phase C: 验证 + 修复
     │
     ├─ 覆盖率检查
-    ├─ Visual Review ← 核心价值
+    ├─ Visual Review（对照截图 + 设计数据）
     ├─ 修复循环（最多 3 轮）
-    ├─ 交付决策 + 摘要
-    └─ [可选] 人工截图排查
+    └─ 交付决策 + 摘要
 ```
 
 ### 故障排查
 见 [troubleshooting.md](references/troubleshooting.md)
+
+---
+
+## Additional Resources
+
+- [Figma MCP Server Documentation](https://developers.figma.com/docs/figma-mcp-server/)
+- [Figma MCP Server Tools and Prompts](https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/)
+- [Figma Variables and Design Tokens](https://help.figma.com/hc/en-us/articles/15339657135383-Guide-to-variables-in-Figma)
