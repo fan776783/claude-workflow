@@ -47,3 +47,21 @@
 
 ## 是否确认按以上 FixUnit 编排开始修复？(Y/N)
 ```
+
+## 5. Phase 5 Task 树预览
+
+确认前同时向用户展示 Task 依赖结构，便于理解执行顺序：
+
+```markdown
+## 修复执行计划（Task 树）
+
+Layer 0（立即并行执行）：
+- Task: fix:FU-001（主缺陷: p003，涉及: src/auth/）
+- Task: fix:FU-003（主缺陷: p007，涉及: src/api/）
+
+Layer 1（Layer 0 完成后执行）：
+- Task: fix:FU-002（主缺陷: p004，blockedBy: FU-001，涉及: src/session/）
+
+并行组: Layer 0（FU-001 + FU-003 并行，affected_scope 无交集）
+串行组: Layer 1（FU-002 等待 Layer 0 全部完成后执行）
+```
