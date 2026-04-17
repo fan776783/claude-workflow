@@ -219,6 +219,48 @@ function updatePlanReviewRecord(state, details = {}) {
   return reviewStatus.plan_review
 }
 
+function updateCodexSpecReview(state, details = {}) {
+  const normalized = normalizeStateInPlace(state)
+  const reviewStatus = normalized.review_status || (normalized.review_status = {})
+  reviewStatus.codex_spec_review = {
+    status: details.status || 'pending',
+    review_mode: 'machine_loop',
+    reviewed_at: details.reviewed_at || null,
+    reviewer: 'codex',
+    trigger_reason: details.trigger_reason || null,
+    provider_mode: 'task_readonly',
+    attempt: details.attempt || 0,
+    max_attempts: details.max_attempts || 1,
+    issues: details.issues || [],
+    issues_found: details.issues_found || 0,
+    codex_status: details.codex_status || null,
+    session_id: details.session_id || null,
+    timing_ms: details.timing_ms || null,
+  }
+  return reviewStatus.codex_spec_review
+}
+
+function updateCodexPlanReview(state, details = {}) {
+  const normalized = normalizeStateInPlace(state)
+  const reviewStatus = normalized.review_status || (normalized.review_status = {})
+  reviewStatus.codex_plan_review = {
+    status: details.status || 'pending',
+    review_mode: 'machine_loop',
+    reviewed_at: details.reviewed_at || null,
+    reviewer: 'codex',
+    trigger_reason: details.trigger_reason || null,
+    provider_mode: 'task_readonly',
+    attempt: details.attempt || 0,
+    max_attempts: details.max_attempts || 2,
+    issues: details.issues || [],
+    issues_found: details.issues_found || 0,
+    codex_status: details.codex_status || null,
+    session_id: details.session_id || null,
+    timing_ms: details.timing_ms || null,
+  }
+  return reviewStatus.codex_plan_review
+}
+
 function completeWorkflow(state, statePath, totalTasks) {
   state.status = 'completed'
   state.current_tasks = []
@@ -462,6 +504,8 @@ module.exports = {
   updateUserSpecReview,
   updateContextInjection,
   updatePlanReviewRecord,
+  updateCodexSpecReview,
+  updateCodexPlanReview,
   completeWorkflow,
   handleTaskError,
   recordContextUsage,

@@ -19,9 +19,11 @@
 | 节点 | 类型 | 产物 sink |
 |------|------|-----------|
 | Phase 1.2 Spec / Traceability Review | `MachineReviewLoop` | `state.review_status.spec_review` + `state.review_status.traceability_review` |
+| Phase 1.2.5 Codex Spec Review | `MachineReviewLoop`（conditional, advisory-to-human） | `state.review_status.codex_spec_review` |
 | Phase 1.4 User Spec Review | `HumanGovernanceGate` | `state.review_status.user_spec_review` |
 | Phase 1.5 Intent Review | `ConditionalHumanGate` | `state.review_status.intent_review` |
 | Phase 2.5 Plan Review | `MachineReviewLoop` | `state.review_status.plan_review` |
+| Phase 2.5.5 Codex Plan Review | `MachineReviewLoop`（conditional, bounded-autofix） | `state.review_status.codex_plan_review` |
 | execute / `quality_review` | `MachineReviewLoop` 的 execution adapter | `state.quality_gates[task.id]` |
 
 ## 设计原则

@@ -48,6 +48,8 @@ const MINIMUM_CONTEXT_INJECTION = {
   planning: {
     plan_generation: { role: 'planner', profile: null },
     plan_review: { role: 'reviewer', profile: null },
+    codex_spec_review: { triggered: false },
+    codex_plan_review: { triggered: false },
   },
   execution: {
     quality_review_stage2: { role: 'reviewer', profile: null },
@@ -101,6 +103,8 @@ function ensureStateDefaults(state) {
 
   if (!normalized.ux_design) normalized.ux_design = { completed: false, artifact_path: null, flowchart_scenarios: 0, page_count: 0, approved_at: null }
   if (!normalized.review_status.user_spec_review) normalized.review_status.user_spec_review = { status: 'pending', review_mode: 'human_gate', reviewed_at: null, reviewer: 'user', next_action: null }
+  if (!normalized.review_status.codex_spec_review) normalized.review_status.codex_spec_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 1, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
+  if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
   if (!normalized.created_at) normalized.created_at = normalized.updated_at || isoNow()
   if (!normalized.updated_at) normalized.updated_at = isoNow()

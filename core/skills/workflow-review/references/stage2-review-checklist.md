@@ -51,3 +51,31 @@
 **Recommendations (advisory, do not block approval):**
 - [Minor 级别建议]
 ```
+
+## dual_reviewer 模式：统一 Finding 结构
+
+当 Stage 2 以 `dual_reviewer` 模式运行时（Codex + sub-Agent 并行），两侧的审查结果须归一化为以下结构后再合并判定：
+
+```json
+{
+  "id": "F-01",
+  "source": "codex | subagent | both",
+  "file": "path/to/file.ts",
+  "line_start": 10,
+  "line_end": 24,
+  "severity": "critical | important | minor",
+  "category": "logic | security | performance | architecture | test | style",
+  "description": "...",
+  "suggestion": "...",
+  "verification": {
+    "status": "verified | partially_verified | rejected",
+    "notes": "..."
+  }
+}
+```
+
+**合并规则**：
+- 相同 file + line range（重叠 ≥50%）+ 相同 category → 合并为 `source: "both"`
+- 任一来源有 verified Critical/Important → 最终判定为 Issues Found
+- `partially_verified` 不能作为 Critical/Important 的依据
+- Codex 候选必须经过 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE 验证流程

@@ -18,6 +18,8 @@ const {
   markDependencyUnblocked,
   readState,
   recordDeltaChange,
+  updateCodexPlanReview,
+  updateCodexSpecReview,
   updateContextInjection,
   updateDiscussionRecord,
   updatePlanReviewRecord,
@@ -37,6 +39,8 @@ const {
   estimateGapCount,
   mapSpecReviewChoice,
   needsWorkspaceDetection,
+  shouldRunCodexPlanReview,
+  shouldRunCodexSpecReview,
   shouldRunDiscussion,
   shouldRunUxDesignGate,
   validateUxArtifact,
@@ -666,18 +670,29 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   state.requirement_text = requirementText
   updateDiscussionRecord(state, discussionPath, (discussionArtifact.clarifications || []).length, !discussionRequired)
 
+  const codexSpecResult = shouldRunCodexSpecReview(specContent, roleSignals)
+  const codexPlanResult = shouldRunCodexPlanReview(planContent || '', specContent, roleSignals)
   updateContextInjection(state, {
     schema_version: '1',
     signals: roleSignals,
     planning: {
       plan_generation: { role: planProfile.role, profile: planProfile.profile },
       plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+      codex_spec_review: { triggered: codexSpecResult.run, reason: codexSpecResult.reason },
+      codex_plan_review: { triggered: codexPlanResult.run, reason: codexPlanResult.reason },
     },
     execution: {
       quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
     },
     artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
   })
+  const existingSpecReview = (state.review_status || {}).codex_spec_review || {}
+  if (!existingSpecReview.status || existingSpecReview.status === 'pending' || existingSpecReview.status === 'skipped') {
+    updateCodexSpecReview(state, { status: codexSpecResult.run ? 'pending' : 'skipped', trigger_reason: codexSpecResult.reason })
+  }
+  if (shouldGeneratePlan) {
+    updateCodexPlanReview(state, { status: codexPlanResult.run ? 'pending' : 'skipped', trigger_reason: codexPlanResult.reason })
+  }
   if (shouldGeneratePlan) {
     updatePlanReviewRecord(state, {
       status: 'pending',
@@ -836,18 +851,27 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   normalizedState.requirement_source = requirementSource
   normalizedState.requirement_text = requirementText
   normalizedState.current_tasks = [parsedTasks[0].id]
+  const codexSpecTrigger = shouldRunCodexSpecReview(specContent, roleSignals)
+  const codexPlanTrigger = shouldRunCodexPlanReview(planContent, specContent, roleSignals)
   updateContextInjection(normalizedState, {
     schema_version: '1',
     signals: roleSignals,
     planning: {
       plan_generation: { role: planProfile.role, profile: planProfile.profile },
       plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+      codex_spec_review: { triggered: codexSpecTrigger.run, reason: codexSpecTrigger.reason },
+      codex_plan_review: { triggered: codexPlanTrigger.run, reason: codexPlanTrigger.reason },
     },
     execution: {
       quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
     },
     artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
   })
+  const existingSpecCodexReview = (normalizedState.review_status || {}).codex_spec_review || {}
+  if (!existingSpecCodexReview.status || existingSpecCodexReview.status === 'pending' || existingSpecCodexReview.status === 'skipped') {
+    updateCodexSpecReview(normalizedState, { status: codexSpecTrigger.run ? 'pending' : 'skipped', trigger_reason: codexSpecTrigger.reason })
+  }
+  updateCodexPlanReview(normalizedState, { status: codexPlanTrigger.run ? 'pending' : 'skipped', trigger_reason: codexPlanTrigger.reason })
   updatePlanReviewRecord(normalizedState, {
     status: 'pending',
     review_mode: 'machine_loop',

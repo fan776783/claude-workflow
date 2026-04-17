@@ -143,11 +143,48 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 **前置条件**：Stage 1 必须通过。
 
+### 审查模式路由
+
+根据 `state.context_injection.signals` 选择审查模式：
+
+| 条件 | 模式 | 说明 |
+|------|------|------|
+| `signals.security \|\| signals.backend_heavy \|\| signals.data` | `dual_reviewer` | Codex + sub-Agent 并行审查 |
+| 其他 | `single_reviewer` | 现有 sub-Agent 单路径（不变） |
+
+### single_reviewer 模式（默认，不变）
+
 **执行者**：优先使用 `Task` 工具分派独立子 Agent（单 reviewer）。CLI 自动处理 reviewer profile 解析（`state.context_injection.execution.quality_review_stage2`），无需手动构造。不支持 `Task` 时降级为当前会话内角色切换。
 
 通过 `Task` 工具分派审查子 Agent，审查清单参见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md)。
 
 子 Agent 的平台路由遵循 `../dispatching-parallel-agents/SKILL.md` 的平台检测规则，但 Stage 2 走的是**单 reviewer 子 agent 路径**，不使用并行分派。
+
+### dual_reviewer 模式（Codex 增强）
+
+当信号匹配时，Codex 与 sub-Agent 并行审查后合并结果。
+
+**执行流程**：
+
+1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`
+2. **后台启动 Codex**（`--adversarial-review "working-tree"`）：
+   ```bash
+   node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex-bridge.mjs \
+     --adversarial-review "working-tree" \
+     --cd "{projectRoot}" \
+     --prompt "Focus on: logic correctness, edge cases, error handling, security vulnerabilities, performance issues, concurrency, changed contracts and downstream impact. If claiming impact, specify exact code paths and callers."
+   ```
+3. **同时 dispatch sub-Agent**（现有 Task 工具路径，不变）
+4. **Join barrier**：两者都完成后才进入合并。超时策略：Codex 超过 5 分钟未返回 → 降级为 single_reviewer 结果。
+5. **结果合并**：
+   - 归一化为统一 finding 结构（见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md) § 统一 Finding 结构）
+   - 去重（相同 file + line range + issue category）
+   - 对 Codex 候选执行 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE
+   - 任一 reviewer 有 verified Critical/Important → Stage 2 fail
+   - 一方 approve + 另一方有 verified blocker → blocker 优先
+6. **降级**：Codex 失败/超时 → 仅使用 sub-Agent 结果 + 标注 `(Codex degraded)`
+
+**预算影响**：Codex 调用本身不消耗 Stage 2 retry 预算。合并后的最终判定算 1 次 attempt。
 
 ### 判定
 
@@ -217,10 +254,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 
 记录结果前，先标注本次执行模式：
 ```
-📋 Review mode: hybrid | degraded-inline
+📋 Review mode: hybrid | dual-reviewer | degraded-inline
 ```
 
-- `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认模式）
+- `hybrid`：Stage 1 在主任务内执行，Stage 2 通过 sub-Agent 分派（默认 single_reviewer）
+- `dual-reviewer`：Stage 2 通过 Codex + sub-Agent 并行审查后合并结果
 - `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
 
 ### 预算遥测

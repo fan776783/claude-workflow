@@ -151,6 +151,43 @@ function mapSpecReviewChoice(choice) {
   }[choice] || { status: 'pending', next_action: null, workflow_status: 'spec_review' }
 }
 
+/**
+ * 判断是否需要执行 Codex Spec 审查（advisory-to-human）
+ * @param {string} specContent - Spec 文档内容
+ * @param {Object} [signals={}] - deriveRoleSignals 输出的结构化信号
+ * @returns {{ run: boolean, reason: string|null }} 是否触发及触发原因
+ */
+function shouldRunCodexSpecReview(specContent, signals = {}) {
+  if (signals.security) return { run: true, reason: 'signal:security' }
+  if (signals.backend_heavy) return { run: true, reason: 'signal:backend_heavy' }
+  if (signals.data) return { run: true, reason: 'signal:data' }
+  const SUPPLEMENT_REGEX = /migration|transaction|concurrency|rate.?limit/i
+  if (SUPPLEMENT_REGEX.test(String(specContent || ''))) {
+    const match = String(specContent || '').match(SUPPLEMENT_REGEX)
+    return { run: true, reason: `regex:${match[0].toLowerCase()}` }
+  }
+  return { run: false, reason: null }
+}
+
+/**
+ * 判断是否需要执行 Codex Plan 审查（bounded-autofix）
+ * @param {string} planContent - Plan 文档内容
+ * @param {string} specContent - Spec 文档内容（备用）
+ * @param {Object} [signals={}] - deriveRoleSignals 输出的结构化信号
+ * @returns {{ run: boolean, reason: string|null }} 是否触发及触发原因
+ */
+function shouldRunCodexPlanReview(planContent, specContent, signals = {}) {
+  if (signals.security) return { run: true, reason: 'signal:security' }
+  if (signals.backend_heavy) return { run: true, reason: 'signal:backend_heavy' }
+  if (signals.data) return { run: true, reason: 'signal:data' }
+  const SUPPLEMENT_REGEX = /migration|transaction|rollback|queue|worker|cron|webhook|oauth|jwt|rbac/i
+  if (SUPPLEMENT_REGEX.test(String(planContent || ''))) {
+    const match = String(planContent || '').match(SUPPLEMENT_REGEX)
+    return { run: true, reason: `regex:${match[0].toLowerCase()}` }
+  }
+  return { run: false, reason: null }
+}
+
 function main() {
   const args = [...process.argv.slice(2)]
   const command = args.shift()
@@ -182,7 +219,22 @@ function main() {
     process.stdout.write(`${JSON.stringify(mapSpecReviewChoice(args.shift()))}\n`)
     return
   }
-  process.stderr.write('Usage: node planning_gates.js <discussion|ux-gate|workspaces|spec-review-choice> ...\n')
+  if (command === 'codex-spec-review') {
+    const content = args.shift() || ''
+    const signalsIndex = args.indexOf('--signals-json')
+    const signals = signalsIndex >= 0 ? JSON.parse(args[signalsIndex + 1]) : {}
+    process.stdout.write(`${JSON.stringify(shouldRunCodexSpecReview(content, signals))}\n`)
+    return
+  }
+  if (command === 'codex-plan-review') {
+    const planContent = args.shift() || ''
+    const specContent = args.shift() || ''
+    const signalsIndex = args.indexOf('--signals-json')
+    const signals = signalsIndex >= 0 ? JSON.parse(args[signalsIndex + 1]) : {}
+    process.stdout.write(`${JSON.stringify(shouldRunCodexPlanReview(planContent, specContent, signals))}\n`)
+    return
+  }
+  process.stderr.write('Usage: node planning_gates.js <discussion|ux-gate|workspaces|spec-review-choice|codex-spec-review|codex-plan-review> ...\n')
   process.exitCode = 1
 }
 
@@ -197,6 +249,8 @@ module.exports = {
   buildSpecReviewSummary,
   mapSpecReviewChoice,
   deriveRoleSignals,
+  shouldRunCodexSpecReview,
+  shouldRunCodexPlanReview,
 }
 
 if (require.main === module) main()
