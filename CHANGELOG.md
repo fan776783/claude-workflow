@@ -9,7 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **项目知识库体系（`.claude/knowledge/`）**：引入 4 个 knowledge 命令与同名 skills，沉淀项目级 code-spec、约定、禁用模式与机读规则
+  - `/knowledge-bootstrap`：基于 `project-config.json` 的 `tech.frameworks` 生成 `frontend/` / `backend/` / `guides/` 骨架与 `local.md`，幂等
+  - `/knowledge-update`：交互式按 6 类片段模板（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）写入 code-spec 或 guide，可选追加 `## Machine-checkable Rules`
+  - `/knowledge-check`：扫描 diff 命中机读规则，退出码 0 compliant / 2 blocking / 1 CLI 错误
+  - `/knowledge-review`：只读审查过期、冲突、覆盖率与 canonical 模板升级，输出报告到 `.claude/reports/`
+  - 新增运行时脚本 `core/utils/workflow/knowledge_bootstrap.js` 与 `knowledge_compliance.js`，含 `globToRegex` / blocking severity / `applies_to` 支持
+  - 新增模板库 `core/specs/knowledge-templates/`（code-spec / guide / guideline / index / layer-index / local）
+  - 配套测试 `tests/test_knowledge_bootstrap.js`、`test_knowledge_compliance.js`、`test_knowledge_compliance_gate.js`
+- **workflow-plan 接入 knowledge（advisory）**：Step 1.5 读取 `.claude/knowledge/` 汇总 Constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载；未初始化且未 skip 时输出 advisory 提示，不阻塞
+- **workflow-review 硬卡口**：Stage 1 Step 0 调用 `knowledge_compliance.js check`；blocking 违规直接 `Issues Found` 并消耗 1 次共享预算；CLI 异常按违规处理（不得 fail-open）；需显式绕过时使用 `quality_review.js pass --skip-knowledge-compliance`
+- **`/scan` Part 5 Knowledge 初始化检查**：首次扫描时引导 `/knowledge-bootstrap`，或写入 `knowledge.bootstrapStatus = skipped`；已有 knowledge 时输出 filled/draft 摘要
+- **并行批次执行与集成 worktree**：新增 `batch_orchestrator.js`（config / select-batch / dispatchReadonlyBatch）与 `merge_strategist.js`（create-integration / merge-integration / discard-integration / finalMergeToMain）
+  - 只读批次不 provision worktree，产物落到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/`
+  - 写文件批次先串行 provision worktree，再并行启动子 Agent，合流到集成 worktree 中跑 stage2 审查；失败则丢弃集成 worktree，任务回 `pending`
+  - 含 `git_commit` / `quality_review` action 的任务被排除出并行批次
+  - 状态机扩展 `parallel_execution`、`parallel_groups[]`、`task_runtime.dispatch_mode`、`BatchQualityGateResult`（`scope: 'batch'`）等字段，详见 `core/specs/workflow/state-machine.md`
+- **`/session-review` skill**：审查当前会话内本模型产生的改动（基于 Edit/Write/NotebookEdit 记录），压缩 / `/clear` 检测命中即硬停，不回退到 git diff；Codex prompt 显式限定范围；共享 `diff-review` 的 Layer C-H 管线
+- **workflow-plan Codex Spec/Plan Review 节点**：Step 5.5 Codex Spec Review（条件，advisory）与 Step 7.5 Codex Plan Review（条件，bounded-autofix）
+- **工作流辅助助手**：`core/utils/workflow/` 新增若干辅助函数及 `tests/test_workflow_helpers.js`
+
 ### Changed
+
+- **workflow-review 两阶段审查接入 knowledge compliance**：Stage 1 增加 Step 0 预检，`Project Knowledge Consistency` 成为 blocking 维度；其他 knowledge 维度仍为 advisory
+- **`workflow-execute` 并行判定入口迁至 `batch_orchestrator`**：`dispatching-parallel-agents` 仅负责底层分派；`buildExecuteEntry()` 在活跃批次上下文下返回 `result.batch`，skill 必须以 `dispatching-parallel-agents` 为入口
+- **Hooks 协议更新**：`session-start.js` 注入项目 knowledge 摘要（`<project-knowledge>` 段）；`pre-execute-inject.js` 沿用禁止继承 team 字段的校验
+
+### Changed（以下为此前已登记内容）
 
 - **figma-ui 资源分诊前移**：将 figma-ui 的资源处理从“编码后按 `usedAssets` 收口”重构为“编码前 Asset Triage + AssetPlan”
   - `get_design_context` 后新增 `file-list-diff` / `newlyDownloadedFiles` / `assetMapping` 语义，显式限定当前任务下载资源范围

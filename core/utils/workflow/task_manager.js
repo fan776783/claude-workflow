@@ -200,6 +200,33 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
 }
 
 /**
+ * 批量将多个任务标记为已完成
+ * @param {string[]} taskIds - 任务 ID 数组
+ * @param {string|null} [projectId=null]
+ * @param {string|null} [projectRoot=null]
+ * @returns {Object} 操作结果
+ */
+function cmdCompleteBatch(taskIds, projectId = null, projectRoot = null) {
+  const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const allTasks = parseTasksV2(tasksContent)
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]))
+  const missing = (taskIds || []).filter((id) => !taskMap.has(id))
+  if (missing.length) return { error: `任务不存在于 plan 中：${missing.join(', ')}` }
+  let updatedContent = tasksContent
+  const progress = state.progress || (state.progress = {})
+  const completed = progress.completed || (progress.completed = [])
+  for (const taskId of taskIds) {
+    updatedContent = updateTaskStatusInMarkdown(updatedContent, taskId, 'completed')
+    addUnique(completed, taskId)
+    if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
+  }
+  fs.writeFileSync(tasksPath, updatedContent)
+  writeState(statePath, state)
+  return { completed: true, task_ids: [...taskIds] }
+}
+
+/**
  * 将指定任务标记为失败
  * @param {string} taskId - 任务 ID
  * @param {string} reason - 失败原因
@@ -367,6 +394,7 @@ module.exports = {
   cmdList,
   cmdNext,
   cmdComplete,
+  cmdCompleteBatch,
   cmdFail,
   cmdDeps,
   cmdParallel,

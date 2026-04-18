@@ -206,10 +206,13 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 
 ### 并行执行
 
-仅在平台支持且能证明同阶段任务彼此独立时启用。调用统一 CLI 检测：
-```bash
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js parallel
-```
+仅在平台支持且能证明同阶段任务彼此独立时启用。核心门槛：
+
+- `batch_orchestrator.js config` 返回 `enabled: false` 或 `maxConcurrency <= 1` → 跳过并行
+- 含 `git_commit` 或 `quality_review` action 的任务**禁止**编入并行批次（写共享状态会产生真正竞争）
+- 分派层面复用 `dispatching-parallel-agents` skill；只读批次不 provision worktree，写文件批次串行 provision 后再并行启动 subagent
+
+批次判定、只读 / 写文件两种分派路径的详细 CLI 与返回字段，见 [`references/parallel-dispatch.md`](references/parallel-dispatch.md)。分派内部的平台检测、结果回收、冲突降级由 `../dispatching-parallel-agents/SKILL.md` 负责。
 
 ---
 
@@ -226,6 +229,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js parallel
 ```
 Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 state.json → ⑤Journal（条件） → 下一 Task
 ```
+
+> Knowledge 沉淀已从执行阶段移除。如在本次实现中发现值得沉淀的内容，完成工作流后使用 `/knowledge-update` 显式捕获；违规检查由 `workflow-review` Stage 1 的 `/knowledge-check` 硬卡口负责。
 
 | 步骤 | 名称 | 关键规则 |
 |------|------|----------|

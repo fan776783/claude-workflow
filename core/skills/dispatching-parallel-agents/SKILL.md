@@ -273,15 +273,39 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 ### 典型工作流
 
 ```bash
-# 1. 解析并行组（使用 workflow 的 dependency_checker）
+# 1. 检查并行配置和可并行组
+node ~/.agents/agent-workflow/core/utils/workflow/batch_orchestrator.js config --project-root .
+node ~/.agents/agent-workflow/core/utils/workflow/batch_orchestrator.js select-batch \
+  --tasks-file plan.md --state-file state.json --max-concurrency 2
+
+# 2. 解析并行组（底层，上层由 batch_orchestrator 调用）
 node ~/.agents/agent-workflow/core/utils/workflow/dependency_checker.js parallel --tasks-file tasks.json --completed T1,T2
 
-# 2. 分派
+# 3. 分派
 node scripts/dispatch_runner.js dispatch --tasks-json tasks.json --task-ids T3,T4 --group-id batch1
 
-# 3. （AI 使用 Task/spawn_agent 启动子 agent）
+# 4. （AI 使用 Task/spawn_agent 启动子 agent）
 
-# 4. 回收结果
+# 5. 回收结果
 node scripts/result_collector.js collect --group-id batch1 --verify "npm test"
 ```
+
+### 集成 worktree 合流（writable batch）
+
+```bash
+# 创建集成 worktree
+node ~/.agents/agent-workflow/core/utils/workflow/merge_strategist.js create-integration --batch-id B-0001
+
+# 合流后 stage2 审查通过 → 合入主分支
+node ~/.agents/agent-workflow/core/utils/workflow/merge_strategist.js merge-integration --batch-id B-0001
+
+# stage2 审查失败 → 丢弃集成 worktree
+node ~/.agents/agent-workflow/core/utils/workflow/merge_strategist.js discard-integration --batch-id B-0001
+```
+
+### workflow-execute 中的入口约束
+
+当 `buildExecuteEntry()` 返回 `result.batch` 对象时，表示当前处于活跃并行批次上下文。
+此时 workflow-execute skill 必须以本 skill（`dispatching-parallel-agents`）作为并行分派入口，
+而非在 execute skill 内部直接创建 worktree 或启动子 agent。`batch.dispatch_skill` 字段标识了应使用的 skill 名称。
 

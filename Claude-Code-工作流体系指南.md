@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v14.0.0  
-**最后更新**：2026-04-12  
+**文档版本**：v15.0.0  
+**最后更新**：2026-04-18  
 **适用仓库**：`@justinfan/agent-workflow`
 
 ---
@@ -18,6 +18,8 @@
 - [6. 状态机](#6-状态机)
 - [7. `/workflow-plan` 规划流程详解](#7-workflow-plan-规划流程详解)
 - [8. `/workflow-execute` 执行流程详解](#8-workflow-execute-执行流程详解)
+- [8A. Knowledge 硬卡口与命令链](#8a-knowledge-硬卡口与命令链)
+- [8B. `/session-review` 与 `/diff-review`](#8b-session-review-与-diff-review)
 - [9. 运行中的辅助命令](#9-运行中的辅助命令)
 - [10. 工作流产物与状态文件](#10-工作流产物与状态文件)
 - [11. Skills 体系总览](#11-skills-体系总览)
@@ -148,13 +150,17 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 |  自然语言 SKILL.md, 不含可执行代码                                 |
 +-----------------------------------------------------------------+
 |                 Runtime 层 (CLI 工具链)                            |
-|  workflow_cli.js        统一命令入口 (17 个子命令)                  |
+|  workflow_cli.js        统一命令入口                              |
 |  execution_sequencer.js 执行治理 (ContextGovernor)                |
 |  state_manager.js       状态读写                                  |
 |  task_parser.js         Plan 解析                                 |
 |  quality_review.js      质量关卡                                  |
 |  verification.js        验证证据                                  |
 |  journal.js             会话日志                                  |
+|  batch_orchestrator.js  并行批次编排（config / select-batch）      |
+|  merge_strategist.js    集成 worktree 创建 / 合流 / 丢弃           |
+|  knowledge_bootstrap.js Knowledge 骨架生成                        |
+|  knowledge_compliance.js 机读规则硬卡口检查                       |
 +-----------------------------------------------------------------+
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
@@ -773,7 +779,7 @@ stateDiagram-v2
 
 | 脚本 | 职责 | 关键命令 |
 |------|------|----------|
-| `workflow_cli.js` | 统一 CLI 入口（17 个子命令） | `plan`, `execute`, `status`, `delta`, `archive`, `advance` 等 |
+| `workflow_cli.js` | 统一 CLI 入口 | `plan`, `execute`, `status`, `delta`, `archive`, `advance` 等 |
 | `execution_sequencer.js` | 执行治理（ContextGovernor） | `decide`, `apply-decision`, `retry`, `retry-reset`, `skip` |
 | `state_manager.js` | 状态文件读写 | `writeState`, `readState` |
 | `task_manager.js` | 任务管理与进度统计 | `cmdNext`, `cmdComplete`, `cmdStatus`, `cmdProgress` |
@@ -782,6 +788,10 @@ stateDiagram-v2
 | `verification.js` | 验证证据管理 | `info`, `create` |
 | `lifecycle_cmds.js` | 生命周期命令 | `cmdPlan`, `cmdSpecReview`, `cmdArchive`, `cmdDelta*`, `cmdUnblock` |
 | `journal.js` | 会话日志 | `add`, `list`, `search`, `get` |
+| `batch_orchestrator.js` | 并行批次编排 | `config`, `select-batch`, `dispatchReadonlyBatch` |
+| `merge_strategist.js` | 集成 worktree 合流 | `create-integration`, `merge-integration`, `discard-integration` |
+| `knowledge_bootstrap.js` | Knowledge 骨架生成 | `init`, `status`, `skip` |
+| `knowledge_compliance.js` | 机读规则硬卡口 | `check`（退出码 0 / 2） |
 
 ---
 
@@ -971,6 +981,80 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 用户随后执行 `/workflow-review`，触发全量完成审查（Spec 合规 + 代码质量）。审查通过后状态推进到 `completed`；审查失败则回退到 `running` 继续修复。
 
+### 8.9 并行批次与集成 worktree
+
+当同阶段存在 2+ 独立任务、且平台支持子 Agent 时，`workflow-execute` 经过 `batch_orchestrator.js` 选出可并行批次，再委托 `dispatching-parallel-agents` 落地。
+
+批次判定关键约束：
+
+- `batch_orchestrator config`：返回 `enabled` / `maxConcurrency` / `platform`，任一门槛不满足 → 走单任务串行
+- `batch_orchestrator select-batch`：返回 `batch_viable` / `filtered` / `batch` / `groupId`；`batch_viable: false` 时不进入并行
+- 含 `git_commit` / `quality_review` action 的任务被 `filtered` 排除，不得进入并行批次
+
+两类批次：
+
+- **只读批次**（analysis / review）：不 provision worktree，子 Agent 产物写到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/{taskId}.json`；任一子 Agent 失败 → 降级为串行分析
+- **写文件批次**：先串行 provision worktree + registerAgent，再并行启动子 Agent；各子 Agent 完成后合流到集成 worktree（由 `merge_strategist.js` 管理），在集成 worktree 中跑 stage2 审查，通过才 `finalMergeToMain`；失败则 `discardIntegrationWorktree` 丢弃集成 worktree，任务回 `pending`
+
+状态字段扩展（详见 `core/specs/workflow/state-machine.md`）：
+
+- `parallel_execution`：全局配置（`enabled` / `max_concurrency` / `current_batch`）
+- `parallel_groups[].status`：`running` / `completed` / `failed` / `fallback_serial` / `partial` / `rolledback`
+- `task_runtime.dispatch_mode`：`inline` / `subagent` / `worktree`
+- `quality_gates.{batchId}` 使用 `BatchQualityGateResult`，带 `scope: 'batch'` 和 per-task stage1 统计
+
+---
+
+## 8A. Knowledge 硬卡口与命令链
+
+从本版本起，`.claude/knowledge/` 作为项目级规范沉淀目录正式接入 workflow。
+
+### 目录结构
+
+```
+.claude/knowledge/
+├── index.md                # 根索引 + 更新记录
+├── local.md                # 本项目模板基线 + Changelog
+├── frontend/               # 前端 code-spec + Machine-checkable Rules
+├── backend/                # 后端 code-spec + Machine-checkable Rules
+└── guides/                 # 思考清单，不参与硬卡口
+```
+
+### 命令链职责分工
+
+| 命令 | 角色 |
+|------|------|
+| `/scan` Part 5 | 首次扫描时引导 `/knowledge-bootstrap` 或写 `bootstrapStatus=skipped` |
+| `/knowledge-bootstrap` | 基于 `project-config.json` 的 `tech.frameworks` 生成骨架，幂等 |
+| `/knowledge-update` | 按 6 类片段模板（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）写入 |
+| `/knowledge-check` | 对 diff 跑 `## Machine-checkable Rules`；退出码 0 compliant / 2 blocking 违规 / 1 CLI 错误 |
+| `/knowledge-review` | 只读审查过期、冲突、覆盖率与模板升级，输出报告 |
+
+### 在 workflow 中的接入点
+
+- **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/knowledge/` 目录汇总 Constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
+- **`workflow-review` Stage 1 Step 0（硬卡口）**：调用 `knowledge_compliance.js check`
+  - 退出码 0 → 继续
+  - 退出码 2 → 直接 `Issues Found`，列出 violations（文件:行号 + `knowledge_source` + `message`），消耗 1 次共享预算
+  - 退出码 1（CLI 异常）→ 按违规处理，不得静默放行；确需绕过须 `quality_review.js pass --skip-knowledge-compliance` 并在实施报告中记录原因
+  - 无 knowledge / 无机读规则 → 恒 compliant，对新项目零摩擦
+- **机读规则语法**：`id` / `severity` / `kind` / `pattern` / `applies_to` / `message`；支持 `forbid` / `require` / `warn`；`guides/`、`local.md`、`index.md` 不参与
+
+---
+
+## 8B. `/session-review` 与 `/diff-review`
+
+两者都用于代码审查，审查范围来源不同：
+
+| 维度 | `/diff-review` | `/session-review` |
+|------|----------------|-------------------|
+| 变更集来源 | `git diff`（working tree / staged / branch） | 当前会话里本模型的 Edit / Write / NotebookEdit 记录 |
+| 上游合并 / 脏文件 | 可能一起进入范围 | 显式排除，只审本轮改动 |
+| Compaction / `/clear` | 不敏感 | 硬停：检测到压缩或清空立即中止，不回退到 git |
+| 手工列文件 | `/diff-review <file1> <file2>` | 不支持，保持单一路径 |
+
+共享管线：Layer C-H（Candidate Discovery → Normalization → Verification → Impact Analysis → Severity Calibration → Report Synthesis）复用 `core/skills/diff-review/specs/review-pipeline.md`，两者在 prompt 里都会对 Codex 显式限定审查范围。
+
 ---
 
 ## 9. 运行中的辅助命令
@@ -1059,15 +1143,16 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ## 11. Skills 体系总览
 
-仓库当前提供 18 个 skill 目录，按职责分为四类：
+仓库当前提供 20+ 个 skill 目录，按职责分为五类：
 
-### 11.1 用户直接调用的专项 Skills（9 个）
+### 11.1 用户直接调用的专项 Skills
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
-| `scan` | `/scan` | 扫描项目技术栈，生成项目配置与上下文 |
+| `scan` | `/scan` | 扫描项目技术栈，生成项目配置、上下文与知识库引导 |
 | `fix-bug` | `/fix-bug` | 单问题结构化修复 |
 | `diff-review` | `/diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
+| `session-review` | `/session-review` | 审查当前会话内由本模型产生的改动，压缩/清空检测，不回退到 git diff |
 | `write-tests` | `/write-tests` | 补测试、修测试 |
 | `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
@@ -1096,6 +1181,15 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 |-------|---------|------|
 | `plan` | `/quick-plan` | 轻量快速规划，只产出可执行 `plan.md`，不进入 workflow 状态机 |
 | `dispatching-parallel-agents` | workflow/team 内部按需触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
+
+### 11.3.1 Knowledge Skills（4 个）
+
+| Skill | 触发方式 | 功能 |
+|-------|---------|------|
+| `knowledge-bootstrap` | `/knowledge-bootstrap` 或 `/scan` Part 5 引导 | 生成 `.claude/knowledge/` 骨架（frontend / backend / guides + `local.md`） |
+| `knowledge-update` | `/knowledge-update` | 交互式按 6 类片段模板写入 code-spec 或 guide，可选追加机读规则 |
+| `knowledge-check` | `/knowledge-check`，`/workflow-review` Stage 1 自动调用 | 扫描 diff 命中 `## Machine-checkable Rules`；blocking 违规退出码 2 |
+| `knowledge-review` | `/knowledge-review` | 只读审查过期、冲突、覆盖率与模板升级，输出报告 |
 
 ### 11.4 基础设施说明
 
@@ -1468,11 +1562,18 @@ git worktree prune
 /fix-bug "bug 描述"
 /diff-review                 # Quick：单模型 + finding verification + impact analysis
 /diff-review --deep          # Deep：Codex 候选问题 + 统一裁决 + impact-aware report
+/session-review              # 仅审本会话内由本模型改过的文件
 /write-tests
 /bug-batch
 /figma-ui <URL>
 /search-first "功能需求"
 /deep-research "研究主题"
+
+# 知识库
+/knowledge-bootstrap         # 初始化 .claude/knowledge/ 骨架
+/knowledge-update            # 交互式沉淀 code-spec / guide / 机读规则
+/knowledge-check             # 对当前 diff 跑机读规则硬卡口
+/knowledge-review            # 只读审查过期、冲突、覆盖率与模板升级
 ```
 
 ---
@@ -1493,9 +1594,15 @@ git worktree prune
 - `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
+- `core/skills/session-review/SKILL.md`
 - `core/skills/team/SKILL.md`
 - `core/skills/team-workflow/SKILL.md`
-- `core/specs/workflow-runtime/state-machine.md`
+- `core/skills/knowledge-bootstrap/SKILL.md`
+- `core/skills/knowledge-update/SKILL.md`
+- `core/skills/knowledge-check/SKILL.md`
+- `core/skills/knowledge-review/SKILL.md`
+- `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
 - `core/specs/team-runtime/overview.md`
+- `core/specs/knowledge-templates/`（knowledge 模板源）
 - `docs/workflow-hooks.md`（Workflow Hook Guardrails 详细文档）
 - `docs/worktree-hooks.md`（Worktree 串行化 Hook 详细文档）

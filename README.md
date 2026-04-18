@@ -31,6 +31,21 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | `/team` | command entry | 团队协作入口；仅在用户显式输入时使用，不自动触发 |
 | `/enhance` | command entry | 对原始提示词做结构化增强，再等待用户确认 |
 | `/git-rollback` | command entry | 交互式 Git 回滚入口，默认 dry-run 预览 |
+| `/knowledge-bootstrap` | command entry | 初始化项目级 `.claude/knowledge/` 骨架 |
+| `/knowledge-update` | command entry | 交互式沉淀 code-spec / guide / 机读规则 |
+| `/knowledge-check` | command entry | 对当前 diff 跑 knowledge 机读规则硬卡口 |
+| `/knowledge-review` | command entry | 审查 knowledge 库的过期、冲突、覆盖率与模板升级 |
+| `/session-review` | command entry | 审查当前会话内本模型产生的改动（区别于 `/diff-review` 的 git diff 视角） |
+
+### 项目知识库（Knowledge）
+
+`.claude/knowledge/` 提供项目级的编码约定、架构决策、禁用模式与常见错误沉淀，和 workflow 主线协同：
+
+- `/scan` Part 5 首次扫描时引导初始化；已有 knowledge 时汇总 filled/draft 状态
+- `/workflow-plan` Step 1.5 作为 advisory constraints 供 Spec 生成参考
+- `/workflow-review` Stage 1 Step 0 调用 `knowledge_compliance.js` 对 diff 跑机读规则；`blocking` 违规 → 审查直接 Issues Found，消耗 1 次共享预算
+- code-spec 位于 `frontend/` / `backend/`，guides 位于 `guides/`；机读规则语法定义在 `/knowledge-check` 文档里
+- 新项目零摩擦：无 knowledge 目录 / 无机读规则时，硬卡口恒返回 compliant
 
 ### Team 模式
 
@@ -60,6 +75,7 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | `scan` | 扫描项目技术栈并生成项目配置 |
 | `fix-bug` | 结构化定位与修复单点问题 |
 | `diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
+| `session-review` | 审查当前会话内由本模型产生的改动；压缩/清空检测，避免扫入上游或他人改动 |
 | `write-tests` | 补齐单元测试 / 集成测试 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
@@ -68,6 +84,10 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | `deep-research` | 面向外部信息的多源引文研究 |
 | `team` | `/team` 的显式入口 skill；只负责路由与边界，不自动触发 |
 | `team-workflow` | `/team` 的重型 runtime skill；承接 start/execute/status/archive 的 phase/state contract |
+| `knowledge-bootstrap` | 初始化 `.claude/knowledge/` 骨架（frontend / backend / guides） |
+| `knowledge-update` | 按 6 类片段模板（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）写入 code-spec 或 guide |
+| `knowledge-check` | 扫描 diff 命中 `## Machine-checkable Rules`；workflow-review 硬卡口入口 |
+| `knowledge-review` | 审查 knowledge 库过期、冲突、覆盖率与模板升级，只读输出报告 |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
 ---
@@ -92,12 +112,16 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 |  自然语言 SKILL.md, 不含可执行代码                                 |
 +-----------------------------------------------------------------+
 |                 Runtime 层 (CLI 工具链)                            |
-|  workflow_cli.js        统一命令入口 (17 个子命令)                  |
+|  workflow_cli.js        统一命令入口                              |
 |  execution_sequencer.js 执行治理 (ContextGovernor)                |
 |  state_manager.js       状态读写                                  |
 |  task_parser.js         Plan 解析                                 |
 |  quality_review.js      质量关卡                                  |
 |  verification.js        验证证据                                  |
+|  batch_orchestrator.js  并行批次编排（配置 + select-batch）        |
+|  merge_strategist.js    集成 worktree 创建 / 合流 / 丢弃           |
+|  knowledge_bootstrap.js Knowledge 骨架生成                        |
+|  knowledge_compliance.js 机读规则硬卡口检查                       |
 +-----------------------------------------------------------------+
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
@@ -140,8 +164,19 @@ core/
 |   +-- team-runtime/             # team 状态机与共享运行时文档
 +-- hooks/                        # 4 个 runtime hook 脚本
 +-- utils/
-    +-- workflow/                  # workflow_cli.js、execution_sequencer.js 等
+    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、batch_orchestrator.js、merge_strategist.js、knowledge_* 等
     +-- team/                      # team runtime 脚本
+```
+
+项目侧还有一份与 workflow 并行的 knowledge 目录：
+
+```text
+.claude/knowledge/
++-- index.md                       # 根索引 + 更新记录
++-- local.md                       # 本项目模板基线 + Changelog
++-- frontend/                      # 前端 code-spec + Machine-checkable Rules
++-- backend/                       # 后端 code-spec + Machine-checkable Rules
++-- guides/                        # 思考清单，不参与硬卡口
 ```
 
 ### 声明式 Skill 架构
@@ -218,6 +253,7 @@ npm run sync -- -a claude-code
 /workflow-plan "需求描述"
 /workflow-plan spec-review --choice "Spec 正确，生成 Plan"
 /workflow-execute
+/workflow-review
 ```
 
 如果你要从一开始就以团队编排方式推进多边界任务，可显式改用：
@@ -226,6 +262,15 @@ npm run sync -- -a claude-code
 /team start "需求描述"
 /team execute
 ```
+
+### 并行批次执行（workflow-execute 内部）
+
+当同阶段存在 2+ 独立任务且平台支持子 Agent 时，`workflow-execute` 会通过 `batch_orchestrator.js` 选出可并行批次，再委托 `dispatching-parallel-agents` 落地。两类批次：
+
+- **只读批次**（analysis / review）：不 provision worktree，子 Agent 产物写入 `~/.claude/workflows/{projectId}/artifacts/{groupId}/`
+- **写文件批次**：串行 provision worktree → 并行启子 Agent → 合流到集成 worktree → stage2 审查 → 合入主分支；失败则由 `merge_strategist.js discard-integration` 丢弃集成 worktree，任务回 `pending`
+
+含 `git_commit` / `quality_review` action 的任务不会进入并行批次。详细接口参见 `core/specs/workflow/state-machine.md` 的 `ParallelExecution` / `ParallelGroupRecord` / `BatchQualityGateResult` 定义。
 
 ### Hook 流程控制
 
@@ -305,6 +350,8 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 - 启动规划流程，生成 `spec.md` 并停在 `spec_review`
 - `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
+- Step 1.5 读取 `.claude/knowledge/` 作为 advisory constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载
+- Codex Spec Review（条件，advisory）与 Codex Plan Review（条件，bounded-autofix）在 Spec / Plan 生成后可选触发
 
 #### `workflow-execute`（执行 Skill）
 
@@ -352,8 +399,9 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 ```
 
 - `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
-- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查
-- 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`
+- Stage 1 Step 0 调用 `knowledge_compliance.js` 对 diff 跑机读规则硬卡口；blocking 违规直接 Issues Found 并消耗 1 次共享预算
+- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算
+- 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
 
 ---
 
@@ -459,9 +507,11 @@ flowchart TD
 
 - 单 Bug：`/fix-bug`
 - 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
+- 当前会话审查：`/session-review`（只审本模型在本会话里改过的文件，避免扫入上游或他人改动）
 - 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`
+- 沉淀规范：`/knowledge-update` / `/knowledge-review` / `/knowledge-check`
 
 优先使用 `/team` 的场景：
 
@@ -499,6 +549,7 @@ flowchart TD
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
 - `core/commands/git-rollback.md`
+- `core/commands/knowledge-bootstrap.md` / `knowledge-update.md` / `knowledge-check.md` / `knowledge-review.md`
 - `core/skills/workflow-plan/SKILL.md`
 - `core/skills/workflow-execute/SKILL.md`
 - `core/skills/workflow-review/SKILL.md`
@@ -508,10 +559,13 @@ flowchart TD
 - `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
+- `core/skills/session-review/SKILL.md`
 - `core/skills/team/SKILL.md`
 - `core/skills/team-workflow/SKILL.md`
-- `core/specs/workflow-runtime/state-machine.md`
+- `core/skills/knowledge-bootstrap/SKILL.md` / `knowledge-update/SKILL.md` / `knowledge-check/SKILL.md` / `knowledge-review/SKILL.md`
+- `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
 - `core/specs/team-runtime/overview.md`
+- `core/specs/knowledge-templates/`（knowledge 模板源）
 
 ---
 

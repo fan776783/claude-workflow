@@ -66,6 +66,7 @@ Part 1: 技术栈检测（文件系统）
 Part 2: 语义代码检索（MCP 深度分析）
 Part 3: 生成报告
 Part 4: 产出完整性检查（新增）
+Part 5: Knowledge 初始化检查（新增，迁移自 workflow-plan Step 1.5）
 ```
 
 ## Part 0: 空项目检测与 --init 快速路径
@@ -239,10 +240,14 @@ mkdir -p ".claude/config"
   • UI 配置: .claude/config/ui-config.json
   • 上下文报告: .claude/repo-context.md
 
+📚 知识库: .claude/knowledge/ ({N} files, {filled} filled / {draft} draft)
+   └─ 未初始化时: 💡 进入 Part 5 询问是否初始化；或后续用 /knowledge-bootstrap
+
 📚 下一步：
   1. 查看上下文报告: cat .claude/repo-context.md
   2. 启动工作流: /workflow-plan "功能需求描述"
   3. UI 还原: /figma-ui <figma-url>（自动读取 ui-config.json）
+  4. 沉淀规范: /knowledge-update（按需）
 ```
 
 ## Part 4: 产出完整性检查
@@ -288,9 +293,59 @@ ${missing.map(f => `  ❌ ${f}`).join('\n')}
 }
 ```
 
+## Part 5: Knowledge 初始化检查
+
+**目的**：替代原 `/workflow-plan` Step 1.5，在项目扫描阶段就引导用户建立 `.claude/knowledge/` 骨架。
+
+**触发条件**：扫描模式为 `full` 或 `config-only`，且 `.claude/knowledge/index.md` 不存在，且 `project-config.json` 中 `knowledge.bootstrapStatus !== 'skipped'`。
+
+**跳过条件**：`--init` / `--context-only` 模式；knowledge 目录已存在；用户之前选过"跳过"。
+
+**流程**：
+
+1. 查询状态：
+   ```bash
+   node ~/.agents/agent-workflow/core/utils/workflow/knowledge_bootstrap.js status \
+     --project-root "$(pwd)"
+   ```
+2. 若 `bootstrapStatus` 为 null 且 knowledge 目录不存在，提示用户：
+   ```
+   📚 检测到项目尚未建立知识库（.claude/knowledge/）。
+   知识库用于沉淀编码约定、架构决策、常见错误等项目级规范；
+   其中 code-spec 文件的 Machine-checkable Rules 会在 /workflow-review 时作为硬卡口执行。
+
+   是否现在初始化？
+     ① 初始化骨架（稍后用 /knowledge-update 填充）
+     ② 跳过（写 bootstrapStatus=skipped，不再提示）
+     ③ 稍后用 /knowledge-bootstrap 手动初始化
+   ```
+3. 用户选「初始化」：
+   ```bash
+   node ~/.agents/agent-workflow/core/utils/workflow/knowledge_bootstrap.js init \
+     --project-root "$(pwd)" \
+     --frameworks "<逗号分隔的 tech.frameworks>"
+   ```
+4. 用户选「跳过」：
+   ```bash
+   node ~/.agents/agent-workflow/core/utils/workflow/knowledge_bootstrap.js skip \
+     --project-root "$(pwd)"
+   ```
+5. 用户选「稍后」：什么都不做，输出提示：`💡 稍后可用 /knowledge-bootstrap 初始化`
+
+**完整性检查补充**：若用户在 Part 5 选择初始化，`expectedOutputsByMode.full` 额外包含：
+- `.claude/knowledge/index.md`
+- `.claude/knowledge/local.md`
+
+若已有 knowledge 目录，输出摘要行：`📚 knowledge: {N} files ({filled} filled / {draft} draft)`，不再询问。
+
+---
+
 ## 与其他命令的关系
 
 ```bash
-/scan                           # 首次使用或架构变更后
-/workflow-plan "功能需求"      # 自动读取 repo-context.md
+/scan                           # 首次使用或架构变更后（含 Part 5 知识库引导）
+/knowledge-bootstrap            # 单独初始化知识库（scan 跳过后的手动入口）
+/knowledge-update               # 沉淀规范
+/knowledge-check                # 本地预演硬卡口
+/workflow-plan "功能需求"      # 自动读取 repo-context.md + knowledge/
 ```

@@ -278,7 +278,26 @@ function completeWorkflow(state, statePath, totalTasks) {
 function handleTaskError(state, statePath, taskId, taskName, errorMessage) {
   state.status = 'failed'
   state.failure_reason = errorMessage
-  state.current_tasks = [taskId]
+  const currentTasks = state.current_tasks || []
+  const inBatch = currentTasks.length > 1
+  if (inBatch) {
+    // 批次上下文：标记批次失败并清理 current_tasks，避免 discard 后残留僵尸任务
+    const batchId = state.parallel_execution?.current_batch || null
+    const groups = Array.isArray(state.parallel_groups) ? state.parallel_groups : []
+    const record = batchId ? groups.find((g) => g.id === batchId) : null
+    if (record) {
+      record.status = 'failed'
+      record.failed_task_id = taskId
+      record.conflict_detected = true
+      record.finished_at = isoNow()
+      if (state.parallel_execution) state.parallel_execution.current_batch = null
+    }
+    const clearSet = new Set(record?.task_ids || currentTasks)
+    state.current_tasks = currentTasks.filter((id) => !clearSet.has(id))
+    if (state.current_tasks.length === 0) state.current_tasks = [taskId]
+  } else {
+    state.current_tasks = [taskId]
+  }
   const progress = state.progress || (state.progress = {})
   const failedList = progress.failed || (progress.failed = [])
   addUnique(failedList, taskId)

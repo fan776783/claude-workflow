@@ -34,6 +34,22 @@ function loadProjectConfig(projectRoot) {
   }
 }
 
+const DEFAULT_PARALLEL_CONFIG = {
+  enabled: false,
+  maxConcurrency: 1,
+  allowedKinds: ['readonly', 'writable'],
+  timeoutMinutes: 15,
+  keepWorktreeOnFail: false,
+}
+
+function normalizeProjectConfig(config) {
+  if (!config) return { parallel: { ...DEFAULT_PARALLEL_CONFIG } }
+  const normalized = { ...config }
+  const parallel = normalized.parallel || {}
+  normalized.parallel = { ...DEFAULT_PARALLEL_CONFIG, ...parallel }
+  return normalized
+}
+
 function extractProjectId(config) {
   if (!config) return null
   const project = config.project || {}
@@ -62,6 +78,31 @@ function resolveExistingStatePath(stateOrProject) {
 const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
 const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
 const EXECUTE_ENTRY_STATUSES = new Set(['planned', 'running', 'paused', 'failed', 'blocked'])
+
+function buildBatchView(state) {
+  if (!state) return null
+  const currentBatchId = state.parallel_execution?.current_batch || null
+  if (!currentBatchId) return null
+  const groups = Array.isArray(state.parallel_groups) ? state.parallel_groups : []
+  const record = groups.find((g) => g.id === currentBatchId)
+  if (!record || record.status !== 'running') return null
+  const taskIds = Array.isArray(record.task_ids) ? [...record.task_ids] : []
+  if (taskIds.length === 0) return null
+  const runtime = state.task_runtime || {}
+  const taskRuntimes = taskIds.map((id) => ({
+    id,
+    dispatch_mode: runtime[id]?.dispatch_mode || null,
+    worktree_path: runtime[id]?.worktree_path || null,
+    branch: runtime[id]?.branch || null,
+  }))
+  return {
+    batch_id: currentBatchId,
+    kind: record.kind || 'writable',
+    task_ids: taskIds,
+    task_runtimes: taskRuntimes,
+    dispatch_skill: 'dispatching-parallel-agents',
+  }
+}
 
 function buildExecuteEntry(command, intent, explicitMode, projectRoot, options = {}) {
   const { force = false } = options
@@ -134,6 +175,8 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     if (intent && !explicitMode && resolvedMode === (preferredMode || 'continuous') && !VALID_EXECUTION_MODES.has(intent)) {
       result.warning = `unrecognized_intent:${intent}`
     }
+    const batchView = buildBatchView(state)
+    if (batchView) result.batch = batchView
     return result
   }
 
@@ -191,6 +234,8 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     if (intent && !explicitMode && resolvedMode === preferredMode && !VALID_EXECUTION_MODES.has(intent)) {
       result.warning = `unrecognized_intent:${intent}`
     }
+    const batchView = buildBatchView(state)
+    if (batchView) result.batch = batchView
     return result
   }
 
@@ -211,6 +256,7 @@ function loadExecutionContext(projectId = null, projectRoot = null) {
   const currentTaskId = (normalizedState.current_tasks || [null])[0]
   const currentTask = tasks.find((task) => task.id === currentTaskId) || null
   if (tasksContent) normalizedState._tasks_content = tasksContent
+  const currentTaskIds = (normalizedState.current_tasks || []).filter(Boolean)
   return {
     state: normalizedState,
     state_path: statePath,
@@ -219,6 +265,8 @@ function loadExecutionContext(projectId = null, projectRoot = null) {
     tasks,
     current_task: currentTask ? taskToDict(currentTask) : null,
     current_task_id: currentTaskId,
+    current_task_ids: currentTaskIds,
+    is_batch: currentTaskIds.length > 1,
     total_tasks: tasksContent ? countTasks(tasksContent) : 0,
   }
 }
@@ -552,7 +600,9 @@ function main() {
 module.exports = {
   VALID_EXECUTION_MODES,
   HARD_STOP_ACTIONS,
+  DEFAULT_PARALLEL_CONFIG,
   loadProjectConfig,
+  normalizeProjectConfig,
   extractProjectId,
   resolveStatePathForProject,
   resolveCliStatePath,
@@ -566,6 +616,7 @@ module.exports = {
   applyGovernanceDecision,
   updateAfterTaskCompletion,
   prepareParallelSequentialFallback,
+  buildBatchView,
   markTaskSkipped,
   prepareRetry,
   resetRetryRuntime,

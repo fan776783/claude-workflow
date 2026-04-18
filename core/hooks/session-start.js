@@ -5,7 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
 const { getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
-const { getWorkflowRuntime, getThinkingGuides } = require('../utils/workflow/task_runtime')
+const { getWorkflowRuntime, getThinkingGuides, getKnowledgeContext } = require('../utils/workflow/task_runtime')
 
 /**
  * 判断是否应跳过 hook（非交互模式时跳过）
@@ -199,6 +199,13 @@ function main() {
     for (const guide of guides.files) parts.push(`  - ${guide.displayPath}`)
     if (guides.legacyWarning) parts.push(`兼容提示: ${guides.legacyWarning}`)
     parts.push('</thinking-guides>')
+  }
+
+  const knowledge = getKnowledgeContext(projectRoot)
+  if (knowledge) {
+    parts.push('<project-knowledge role="advisory">')
+    parts.push(knowledge)
+    parts.push('</project-knowledge>')
   }
 
   parts.push('</workflow-context>')

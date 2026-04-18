@@ -62,6 +62,18 @@ const MINIMUM_SESSIONS = {
   executor: null,
 }
 
+const MINIMUM_PARALLEL_EXECUTION = {
+  enabled: false,
+  max_concurrency: 1,
+  current_batch: null,
+}
+
+const MINIMUM_BOUNDARY_SCHEDULING = {
+  enabled: false,
+  currentBoundary: null,
+  boundaryProgress: {},
+}
+
 
 const MINIMUM_STATE_STATUSES = new Set(['idle', 'spec_review', 'planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed', 'archived'])
 const POST_SPEC_REVIEW_STATUSES = new Set(['planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed'])
@@ -92,6 +104,10 @@ function ensureStateDefaults(state) {
     if (!Array.isArray(normalized.progress[key])) normalized.progress[key] = [...value]
   }
   if (!normalized.quality_gates) normalized.quality_gates = {}
+  if (!normalized.task_runtime) normalized.task_runtime = {}
+  if (!Array.isArray(normalized.parallel_groups)) normalized.parallel_groups = []
+  if (!normalized.parallel_execution) normalized.parallel_execution = copyJson(MINIMUM_PARALLEL_EXECUTION)
+  if (!normalized.boundaryScheduling) normalized.boundaryScheduling = copyJson(MINIMUM_BOUNDARY_SCHEDULING)
   if (!normalized.unblocked) normalized.unblocked = []
   if (!normalized.sessions) normalized.sessions = copyJson(MINIMUM_SESSIONS)
   if (!normalized.delta_tracking) normalized.delta_tracking = copyJson(MINIMUM_DELTA_TRACKING)
@@ -253,6 +269,8 @@ module.exports = {
   MINIMUM_GIT_STATUS,
   MINIMUM_CONTEXT_INJECTION,
   MINIMUM_SESSIONS,
+  MINIMUM_PARALLEL_EXECUTION,
+  MINIMUM_BOUNDARY_SCHEDULING,
 
   MINIMUM_STATE_STATUSES,
   isoNow,

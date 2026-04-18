@@ -7,6 +7,7 @@ const { readState, writeState, completeWorkflow } = require('./state_manager')
 const { getWorkflowStatePath, getWorkflowsDir } = require('./path_utils')
 const {
   cmdComplete,
+  cmdCompleteBatch,
   cmdContextBudget,
   cmdList,
   cmdNext,
@@ -22,6 +23,14 @@ const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
 const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const { buildBatchPassGateResult, writeBatchQualityGateResult } = require('./quality_review')
+const { finishBatch, getBatchRecord, setBatchReviewGroup, failWritableBatch } = require('./batch_orchestrator')
+const {
+  getRepoRoot,
+  getIntegrationWorktreeDir,
+  finalMergeToMain,
+  discardIntegrationWorktree,
+} = require('./merge_strategist')
 
 const EXECUTION_MODE_ALIASES = {
   继续: 'continuous',
@@ -179,9 +188,7 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
   }
 }
 
-function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId = null, projectRoot = null) {
-  const completeResult = cmdComplete(taskId, projectId, projectRoot)
-  if (completeResult.error) return completeResult
+function advanceAfterComplete(completedTaskIds, journalSummary, decisions, projectId, projectRoot) {
   const nextResult = cmdNext(projectId, projectRoot)
   const nextTask = nextResult.next_task
   const [state, statePath, tasksContent] = resolveStateAndTasks(projectId, projectRoot)
@@ -206,11 +213,12 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
     const pid = projectId || detectProjectId(projectRoot)
     if (pid) {
       const nextId = nextTask && typeof nextTask === 'object' ? nextTask.id : nextTask
+      const label = Array.isArray(completedTaskIds) ? completedTaskIds.join(',') : completedTaskIds
       journalResult = cmdAdd(
         pid,
-        `完成 ${taskId}${nextId ? ` → ${nextId}` : ''}`,
+        `完成 ${label}${nextId ? ` → ${nextId}` : ''}`,
         pid,
-        [taskId],
+        Array.isArray(completedTaskIds) ? completedTaskIds : [completedTaskIds],
         journalSummary,
         decisions || [],
         nextId ? [`下一任务: ${nextId}`] : []
@@ -218,14 +226,241 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
     }
   }
 
+  return { nextTask, workflowStatus: state ? state.status : null, journalResult }
+}
+
+function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId = null, projectRoot = null) {
+  const completeResult = cmdComplete(taskId, projectId, projectRoot)
+  if (completeResult.error) return completeResult
+  const { nextTask, workflowStatus, journalResult } = advanceAfterComplete(taskId, journalSummary, decisions, projectId, projectRoot)
   const result = {
     advanced: true,
     completed_task: taskId,
     next_task: nextTask,
-    workflow_status: state ? state.status : null,
+    workflow_status: workflowStatus,
   }
   if (journalResult) result.journal = journalResult
   return result
+}
+
+function collectBatchGateInputs(state, taskIds, tasksContent) {
+  const tasks = tasksContent ? parseTasksV2(tasksContent) : []
+  const taskMap = new Map(tasks.map((task) => [task.id, task]))
+  const requirementIds = new Set()
+  const criticalConstraints = new Set()
+  const perTaskStage1 = {}
+
+  const missingStage1 = []
+  const failedStage1 = []
+  for (const taskId of taskIds) {
+    const task = taskMap.get(taskId)
+    for (const requirementId of task?.requirement_ids || []) requirementIds.add(requirementId)
+    for (const constraint of task?.critical_constraints || []) criticalConstraints.add(constraint)
+
+    const gate = ((state || {}).quality_gates || {})[taskId] || {}
+    const stage1 = gate.stage1
+    const hasStage1 = stage1 && typeof stage1 === 'object'
+    const stage1Passed = hasStage1 && stage1.passed === true
+    if (!hasStage1) missingStage1.push(taskId)
+    else if (!stage1Passed) failedStage1.push(taskId)
+    perTaskStage1[taskId] = {
+      passed: stage1Passed,
+      attempts: Math.max(1, Number((stage1 && stage1.attempts) || gate.attempt || 1)),
+      issues_found: Math.max(0, Number((stage1 && stage1.issues_found) || 0)),
+    }
+  }
+
+  return {
+    requirementIds: [...requirementIds],
+    criticalConstraints: [...criticalConstraints],
+    perTaskStage1,
+    missingStage1,
+    failedStage1,
+  }
+}
+
+function cmdAdvanceBatch(taskIds, journalSummary = null, decisions = null, projectId = null, projectRoot = null, batchId = null, batchMeta = {}) {
+  const [stateBeforeComplete, statePathBeforeComplete, tasksContentBeforeComplete] = resolveStateAndTasks(projectId, projectRoot)
+  let batchRecord = null
+  const effectiveMeta = { ...(batchMeta || {}) }
+  const gitActions = []
+
+  if (batchId && stateBeforeComplete) {
+    batchRecord = getBatchRecord(stateBeforeComplete, batchId)
+    if (!batchRecord) return { error: `并行批次不存在: ${batchId}` }
+    if (batchRecord.kind === 'writable') {
+      if (batchRecord.status === 'completed' && batchRecord.merge_state === 'completed') {
+        return {
+          advanced: true,
+          completed_tasks: [...taskIds],
+          next_task: null,
+          workflow_status: stateBeforeComplete.status || null,
+          batch_id: batchId,
+          idempotent: true,
+          merged_commit: batchRecord.diff_window?.to_commit || null,
+        }
+      }
+      if (effectiveMeta.stage2_passed !== true) return { error: `writable 批次 ${batchId} 尚未通过 stage2 审查，禁止推进完成` }
+
+      const preCheck = collectBatchGateInputs(stateBeforeComplete, taskIds, tasksContentBeforeComplete || '')
+      if (preCheck.missingStage1.length) {
+        return { error: `writable 批次 ${batchId} 存在缺失 stage1 记录的任务：${preCheck.missingStage1.join(', ')}`, batch_id: batchId }
+      }
+      if (preCheck.failedStage1.length) {
+        return { error: `writable 批次 ${batchId} 存在 stage1 未通过的任务：${preCheck.failedStage1.join(', ')}`, batch_id: batchId }
+      }
+
+      // Git 侧合并先于状态登记：merged_commit 缺失时尝试内部 finalMergeToMain
+      if (!effectiveMeta.merged_commit) {
+        if (batchRecord.merge_state === 'merged_awaiting_state' && batchRecord.merge_commit) {
+          // 上次合并成功但后续 state 写入失败；复用已登记的 merge_commit，跳过二次 git merge
+          effectiveMeta.base_commit = effectiveMeta.base_commit || batchRecord.merge_base || null
+          effectiveMeta.merged_commit = batchRecord.merge_commit
+          gitActions.push({ action: 'reuse_merge_intent', batch_id: batchId, merge_commit: batchRecord.merge_commit })
+        } else {
+          const root = projectRoot || process.cwd()
+          const repoRoot = getRepoRoot(root)
+          if (!repoRoot) return { error: '不在 git 仓库中，无法执行 integration merge', batch_id: batchId }
+          const effectiveProjectId = projectId || detectProjectId(projectRoot) || stateBeforeComplete.project_id || null
+          let integrationPath
+          try { integrationPath = getIntegrationWorktreeDir(repoRoot, batchId, effectiveProjectId) }
+          catch (err) { return { error: `解析 integration worktree 失败: ${err.message}`, batch_id: batchId } }
+
+          // Pre-merge intent：记录"正在合并"，落盘后再执行 git 操作
+          batchRecord.merge_state = 'merging'
+          batchRecord.merge_started_at = new Date().toISOString()
+          batchRecord.merge_base = stateBeforeComplete.initial_head_commit || null
+          writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
+
+          const mergeResult = finalMergeToMain(repoRoot, integrationPath, batchId, effectiveProjectId, batchRecord.merge_base || null)
+          gitActions.push({ action: 'final_merge_to_main', result: mergeResult })
+          if (mergeResult.error) {
+            // 合并失败：清理 merge_state，避免后续被误判为 merged_awaiting_state
+            batchRecord.merge_state = 'failed'
+            writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
+            return {
+              error: `integration worktree 合并到主分支失败: ${mergeResult.error}`,
+              batch_id: batchId,
+              git_actions: gitActions,
+            }
+          }
+          effectiveMeta.base_commit = effectiveMeta.base_commit || mergeResult.main_head_before || stateBeforeComplete.initial_head_commit || null
+          effectiveMeta.merged_commit = mergeResult.main_head_after || mergeResult.integration_commit
+
+          // Post-merge intent：main 已前进；若后续 state 写入失败，可据此恢复
+          batchRecord.merge_state = 'merged_awaiting_state'
+          batchRecord.merge_commit = effectiveMeta.merged_commit
+          batchRecord.merge_base = effectiveMeta.base_commit
+          writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
+        }
+      }
+      if (!effectiveMeta.merged_commit) return { error: `writable 批次 ${batchId} 缺少 merged_commit，禁止推进完成` }
+    }
+  }
+
+  const completeResult = cmdCompleteBatch(taskIds, projectId, projectRoot)
+  if (completeResult.error) return completeResult
+
+  if (batchId) {
+    const [state, statePath] = resolveStateAndTasks(projectId, projectRoot)
+    if (state && statePath) {
+      const diffWindow = effectiveMeta.merged_commit
+        ? {
+          from_commit: effectiveMeta.base_commit || state.initial_head_commit || null,
+          to_commit: effectiveMeta.merged_commit,
+          files_changed: Math.max(0, Number(effectiveMeta.files_changed || 0)),
+        }
+        : null
+      if (batchRecord?.kind === 'writable' && effectiveMeta.stage2_passed === true) {
+        const gateInputs = collectBatchGateInputs(stateBeforeComplete || state, taskIds, tasksContentBeforeComplete || '')
+        const gateResult = buildBatchPassGateResult(
+          batchId,
+          taskIds,
+          effectiveMeta.base_commit || state.initial_head_commit || null,
+          effectiveMeta.merged_commit,
+          diffWindow ? diffWindow.files_changed : 0,
+          gateInputs.requirementIds,
+          gateInputs.criticalConstraints,
+          gateInputs.perTaskStage1,
+          Math.max(1, Number(effectiveMeta.stage2_attempts || 1)),
+          Math.max(0, Number(effectiveMeta.critical_count || 0)),
+          Math.max(0, Number(effectiveMeta.important_count || 0)),
+          Math.max(0, Number(effectiveMeta.minor_count || 0)),
+          effectiveMeta.reviewer || 'subagent'
+        )
+        const qualityGates = state.quality_gates || (state.quality_gates = {})
+        qualityGates[batchId] = gateResult
+        writeBatchQualityGateResult(statePath, batchId, gateResult, projectId || detectProjectId(projectRoot))
+        setBatchReviewGroup(state, batchId, {
+          quality_gate_id: effectiveMeta.quality_gate_id || batchId,
+          stage2_passed: true,
+        })
+      }
+      finishBatch(state, batchId, 'completed', diffWindow)
+      const completedRecord = getBatchRecord(state, batchId)
+      if (completedRecord && batchRecord?.kind === 'writable') {
+        completedRecord.merge_state = 'completed'
+        if (effectiveMeta.merged_commit) completedRecord.merge_commit = effectiveMeta.merged_commit
+      }
+      writeState(statePath, state)
+    }
+  }
+
+  const { nextTask, workflowStatus, journalResult } = advanceAfterComplete(taskIds, journalSummary, decisions, projectId, projectRoot)
+  const result = {
+    advanced: true,
+    completed_tasks: [...taskIds],
+    next_task: nextTask,
+    workflow_status: workflowStatus,
+  }
+  if (batchId) result.batch_id = batchId
+  if (gitActions.length) result.git_actions = gitActions
+  if (effectiveMeta.merged_commit) result.merged_commit = effectiveMeta.merged_commit
+  if (journalResult) result.journal = journalResult
+  return result
+}
+
+function cmdBatchFail(batchId, { nextAction = 'discard_integration_worktree', failedTaskId = null, reason = null, projectId = null, projectRoot = null } = {}) {
+  const [state, statePath] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流' }
+  const record = getBatchRecord(state, batchId)
+  if (!record) return { error: `并行批次不存在: ${batchId}` }
+
+  const gitActions = []
+  const effectiveProjectId = projectId || detectProjectId(projectRoot) || state.project_id || null
+  if (nextAction === 'discard_integration_worktree') {
+    const root = projectRoot || process.cwd()
+    const repoRoot = getRepoRoot(root) || root
+    const discard = discardIntegrationWorktree(repoRoot, batchId, { forceDeleteBranch: true, projectId: effectiveProjectId })
+    gitActions.push({ action: 'discard_integration_worktree', result: discard })
+    // 即使存在 errors（例如 worktree 不存在）也继续推进状态清理，避免脏状态残留
+  }
+
+  const finalStatus = nextAction === 'discard_integration_worktree' ? 'discarded' : 'failed'
+  failWritableBatch(state, statePath, batchId, finalStatus, projectId || detectProjectId(projectRoot))
+
+  // 重新读取以补充 conflict_detected / failed_task_id 并清理 current_tasks
+  const [afterState, afterPath] = resolveStateAndTasks(projectId, projectRoot)
+  if (afterState && afterPath) {
+    const updated = getBatchRecord(afterState, batchId)
+    if (updated) {
+      updated.conflict_detected = true
+      if (failedTaskId) updated.failed_task_id = failedTaskId
+      if (reason) updated.failure_reason = String(reason).slice(0, 500)
+    }
+    const taskSet = new Set(record.task_ids || [])
+    afterState.current_tasks = (afterState.current_tasks || []).filter((id) => !taskSet.has(id))
+    writeState(afterPath, afterState)
+  }
+
+  return {
+    batch_failed: true,
+    batch_id: batchId,
+    status: finalStatus,
+    next_action: nextAction,
+    cleared_tasks: [...(record.task_ids || [])],
+    git_actions: gitActions,
+  }
 }
 
 function cmdReviewAdvance(outcome, failedTaskIds = null, projectId = null, projectRoot = null) {
@@ -370,6 +605,12 @@ function main() {
       const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
       const normalizedMode = mode || (intent && EXECUTION_MODE_ALIASES[intent]) || intent
       result = buildExecuteEntry(command, intent, normalizedMode, root, { force: args.includes('--force') })
+      const parallelFlag = option(args, '--parallel')
+      if (args.includes('--no-parallel')) {
+        result.parallel_override = { enabled: false, max_concurrency: 1 }
+      } else if (parallelFlag) {
+        result.parallel_override = { enabled: true, max_concurrency: Math.max(1, Number(parallelFlag) || 2) }
+      }
     } else if (command === 'next') {
       result = cmdNext(pid, projectRoot)
     } else if (command === 'plan' || command === 'start') {
@@ -402,6 +643,42 @@ function main() {
         result = cmdReviewAdvance('passed', null, pid, projectRoot)
       } else if (args.includes('--review-failed')) {
         result = cmdReviewAdvance('failed', splitCsv(option(args, '--failed-tasks', '')), pid, projectRoot)
+      } else if (args.includes('--batch-fail')) {
+        const batchId = option(args, '--batch-id', null)
+        if (!batchId) {
+          result = { error: 'advance --batch-fail 需要 --batch-id' }
+        } else {
+          result = cmdBatchFail(batchId, {
+            nextAction: option(args, '--next-action', 'discard_integration_worktree'),
+            failedTaskId: option(args, '--failed-task', null),
+            reason: option(args, '--reason', null),
+            projectId: pid,
+            projectRoot,
+          })
+        }
+      } else if (args.includes('--batch')) {
+        const batchTaskIds = splitCsv(option(args, '--batch'))
+        const batchId = option(args, '--batch-id', null)
+        result = cmdAdvanceBatch(
+          batchTaskIds,
+          option(args, '--journal'),
+          splitCsv(option(args, '--decisions', '')),
+          pid,
+          projectRoot,
+          batchId,
+          {
+            base_commit: option(args, '--base-commit', null),
+            merged_commit: option(args, '--merged-commit', null),
+            files_changed: option(args, '--files-changed', 0),
+            quality_gate_id: option(args, '--quality-gate-id', null),
+            stage2_passed: args.includes('--stage2-passed'),
+            stage2_attempts: option(args, '--stage2-attempts', 1),
+            critical_count: option(args, '--critical-count', 0),
+            important_count: option(args, '--important-count', 0),
+            minor_count: option(args, '--minor-count', 0),
+            reviewer: option(args, '--reviewer', null),
+          }
+        )
       } else {
         result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot)
       }
@@ -452,6 +729,8 @@ function main() {
 module.exports = {
   EXECUTION_MODE_ALIASES,
   cmdAdvance,
+  cmdAdvanceBatch,
+  cmdBatchFail,
   cmdContext,
   cmdInit,
   cmdReviewAdvance,

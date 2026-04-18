@@ -50,6 +50,13 @@ prd_coverage: "prd-spec-coverage.json"
 
 {{critical_constraints}}
 
+### 3.x Project Knowledge Constraints
+
+> 从 `.claude/knowledge/` 提取的与本任务相关的项目级约束（如有）。
+> 若 knowledge 目录不存在或无相关内容，删除本小节。
+
+{{knowledge_constraints}}
+
 ---
 
 ## 4. User-facing Behavior

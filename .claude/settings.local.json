@@ -37,8 +37,13 @@
       "Bash(node -e \"require\\(''''./core/utils/workflow/state_manager''''\\)\")",
       "Bash(node -e \"require\\(''''./core/utils/workflow/workflow_cli''''\\)\")",
       "Bash(node -e \"require\\(''''./core/hooks/session-start.js''''\\)\")",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "WebFetch(domain:*)",
+      "WebFetch(domain:docs.trytrellis.app)",
+      "mcp__fetch__fetch"
     ],
-    "deny": ["Bash(rm *)"]
+    "deny": [
+      "Bash(rm *)"
+    ]
   }
 }

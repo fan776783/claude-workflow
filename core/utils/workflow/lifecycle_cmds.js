@@ -29,6 +29,7 @@ const {
 } = require('./state_manager')
 const { detectProjectId, detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
 const { parseTasksV2, taskToDict } = require('./task_parser')
+const { getKnowledgeContext, getKnowledgeFiles } = require('./task_runtime')
 const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
@@ -141,6 +142,10 @@ function renderTemplate(template, values) {
     rendered = rendered.split(`{{${key}}}`).join(value)
   }
   return rendered
+}
+
+function stripProjectKnowledgeSection(content) {
+  return String(content || '').replace(/\n### 3\.x Project Knowledge Constraints[\s\S]*?\n---\n/, '\n---\n')
 }
 
 function resolveRequirementInput(requirement, projectRoot) {
@@ -598,8 +603,9 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
 
   const requirementItems = extractRequirementItems(requirementText, summary)
   const requirementCoverage = buildRequirementCoverage(requirementItems)
+  const knowledgeConstraints = getKnowledgeContext(root, 1500) || ''
 
-  const specContent = renderTemplate(specTemplate, {
+  const renderedSpecContent = renderTemplate(specTemplate, {
     requirement_source: requirementSource,
     created_at: now,
     task_name: taskName,
@@ -613,7 +619,9 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     file_structure: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
     acceptance_criteria: requirementItems.map((item) => `- [ ] ${item.id}: ${item.acceptance_signal || item.normalized_summary}`).join('\n') || `- [ ] ${summary}`,
     implementation_slices: requirementItems.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n') || `- Slice 1：响应 ${summary}`,
+    knowledge_constraints: knowledgeConstraints,
   })
+  const specContent = knowledgeConstraints ? renderedSpecContent : stripProjectKnowledgeSection(renderedSpecContent)
 
   const specReview = mapSpecReviewChoice(specChoice)
   const shouldGeneratePlan = specReview.status === 'approved'

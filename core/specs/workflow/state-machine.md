@@ -300,7 +300,74 @@
 | `zeroDecisionAudit` | 零决策审计结果 |
 | `delta_tracking` | 增量变更追踪系统 |
 | `task_runtime` | Per-task 运行时状态（v3.5.0），键为任务 ID |
-| `quality_gates` | 质量关卡审查结果（v3.5.0），键为关卡任务 ID |
+| `quality_gates` | 质量关卡审查结果（v3.5.0），键为关卡任务 ID 或批次 ID |
+| `parallel_execution` | 并行执行全局配置（`enabled`, `max_concurrency`, `current_batch`） |
+
+## 并行执行接口（v5.1.0）
+
+### ParallelExecution
+
+```typescript
+interface ParallelExecution {
+  enabled: boolean;
+  max_concurrency: number;
+  current_batch: string | null;
+}
+```
+
+### ParallelGroupRecord
+
+```typescript
+interface ParallelGroupRecord {
+  id: string;
+  kind: 'readonly' | 'writable';
+  task_ids: string[];
+  status: 'running' | 'completed' | 'failed' | 'fallback_serial' | 'partial' | 'rolledback';
+  started_at: string;
+  finished_at: string | null;
+  conflict_detected: boolean;
+  diff_window: {
+    from_commit: string;
+    to_commit: string;
+    files_changed: number;
+  } | null;
+  review_group: {
+    quality_gate_id: string;
+    stage2_passed: boolean;
+  } | null;
+}
+```
+
+### TaskRuntime 扩展字段
+
+```typescript
+interface TaskRuntimeExt {
+  retry_count: number;
+  last_failure_stage: string;
+  last_failure_reason: string;
+  hard_stop_triggered: boolean;
+  debugging_phases_completed: string[];
+  worktree_path?: string;
+  branch?: string;
+  batch_id?: string;
+  dispatch_mode?: 'inline' | 'subagent' | 'worktree';
+}
+```
+
+### BatchQualityGateResult
+
+```typescript
+interface BatchQualityGateResult extends QualityGateResult {
+  scope: 'batch';
+  batch_id: string;
+  task_ids: string[];
+  per_task_stage1: Record<string, {
+    passed: boolean;
+    attempts: number;
+    issues_found: number;
+  }>;
+}
+```
 
 ## 审查状态接口
 

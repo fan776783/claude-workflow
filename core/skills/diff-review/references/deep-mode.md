@@ -5,6 +5,7 @@ Codex 协作审查。不是把 Codex 意见直接展示给用户，而是将 Cod
 ## 角色
 
 **代码审查协调员**，编排双来源候选问题：
+
 1. **Codex** — 后端逻辑、安全、性能、资源管理候选问题
 2. **Claude (Self)** — 前端 UI/UX、可访问性、状态管理、交互行为候选问题
 3. **Claude (Self)** — 统一裁决：归一化、验证、impact analysis、severity calibration、最终报告
@@ -30,164 +31,19 @@ Codex 协作审查。不是把 Codex 意见直接展示给用户，而是将 Cod
 ### Layer B: File Classification
 
 将变更文件分为两类：
-- **后端文件**: `*.js, *.ts, *.py, *.go, *.java, *.rs` 等（非组件）
-- **前端文件**: `*.tsx, *.jsx, *.vue, *.svelte, *.css, *.scss` 等
+
+- **后端文件**：`*.js, *.ts, *.py, *.go, *.java, *.rs` 等（非组件）
+- **前端文件**：`*.tsx, *.jsx, *.vue, *.svelte, *.css, *.scss` 等
 
 如遇全栈文件或边界不清晰文件，允许同时纳入两个视角审查。
 
-### Layer C: Parallel Candidate Discovery
+### Layer C-H: 共享审查管线
 
-#### Codex 候选问题发现
+从候选问题发现到最终报告的全部流程（Candidate Discovery → Normalization → Verification → Impact Analysis → Severity Calibration → Report Synthesis）已统一抽出到 [`../specs/review-pipeline.md`](../specs/review-pipeline.md)。
 
-使用 `run_in_background: true`（**不设置** timeout），按 `collaborating-with-codex` skill 实际执行桥接脚本调用 Codex。
+**调用约定**：Layer A/B 完成后，把变更集（来源描述 + 文件清单 + 统计）交给共享管线。Codex prompt 里必须显式把审查范围限定到本次 diff，避免误审。
 
-**⚠️ 禁止预判降级**：不得在未实际执行桥接脚本的情况下，以"当前环境 Codex 不可用""未检测到 Codex""Codex 环境缺失"等理由跳过此步骤。是否可用只能由脚本执行结果决定——先调用，失败了再走降级路径。
-
-Codex prompt 应明确要求：
-- 只输出候选问题，不输出最终 verdict
-- 关注：
-  - logic correctness
-  - edge cases
-  - error handling
-  - security vulnerabilities
-  - performance issues
-  - concurrency / resource management
-  - changed contracts and likely downstream impact
-- 若声称会影响其他部分，必须指出具体受影响代码路径、调用方、契约或测试面
-
-#### 当前模型候选问题发现
-
-在等待 Codex 结果期间，当前模型独立审查前端与集成面：
-- 组件设计、props 接口、状态管理
-- 可访问性（语义 HTML、ARIA、键盘导航）
-- 响应式设计、暗色模式支持
-- 交互状态（hover、focus、loading、error、empty）
-- 前后端 / 跨层契约匹配
-
-### Layer D: Candidate Normalization + Deduplication
-
-使用 `TaskOutput` 获取 Codex 结果后，当前模型统一处理候选问题：
-1. 将 Codex / Claude 两侧输出归一化为同一 finding 结构
-2. 去重合并相同问题
-3. 标记来源：`Codex` / `Claude` / `Both`
-4. 区分“候选问题数量”和“准备进入验证的问题数量”
-
-### Layer E: Finding Verification
-
-对所有准备进入最终报告的 P0 / P1 / P2 候选问题执行验证：
-
-1. **代码库验证**：问题是否真实存在
-2. **Introduced-by-change 检查**：是否由当前 diff 引入
-3. **适用性检查**：建议是否适用于当前架构与技术栈
-4. **YAGNI 检查**：非安全类建议是否有实际使用场景
-5. **副作用评估**：采纳建议是否可能引入新问题
-
-处理结果：
-- `verified`：进入 impact analysis
-- `partially_verified`：允许保留，但仅能作为 P2/P3 或不确定性说明进入最终报告
-- `rejected`：从最终报告剔除
-
-### Layer F: Impact Analysis
-
-对所有 material findings 执行影响性分析，遵循 `../specs/impact-analysis.md`。
-
-至少需要覆盖：
-- direct files
-- affected modules / callers / consumers
-- contract / shared state / user-visible surfaces
-- blast radius
-- regression risk
-- existing tests
-- validation scope
-
-### Layer G: Severity Calibration + Final Adjudication
-
-在 verification 与 impact analysis 完成后：
-1. 重新确定 severity（P0-P3）
-2. 确认哪些 finding 真正足以影响 verdict
-3. 计算：
-   - `Impact Status`
-   - `Verification Coverage`
-   - 最终 `Confidence`
-4. 输出最终 `Verdict`
-
-### Layer H: Report Synthesis
-
-按 `../specs/report-schema.md` 输出 Deep 报告。
-
-## 推荐输出格式
-
-```markdown
-# Deep Review Report
-
-## Summary
-| Field | Value |
-|-------|-------|
-| Review Mode | Deep |
-| 审查范围 | <用自然语言描述审查的代码范围> |
-| Verdict | CORRECT / INCORRECT |
-| Confidence | 0.XX |
-| Impact Status | not_needed / partial / complete |
-| Verification Coverage | none / partial / complete |
-| Files | X files (+Y/-Z lines) |
-| Codex Status | success / failed / degraded |
-
-**Explanation**: <综合结论>
-
----
-
-## Critical Issues (P0-P1)
-
-### [PX] <标题>
-| Field | Value |
-|-------|-------|
-| ID | F-01 |
-| File | `path/to/file.ts` |
-| Lines | X-Y |
-| Source | Codex / Claude / Both |
-
-**Evidence**
-- ...
-
-**Verification**
-- Status: verified
-- Notes: ...
-
-**Impact**
-- ...
-
-**If Unfixed**
-- ...
-
-**Fix Scope**
-- ...
-
-**Regression Verification**
-- ...
-
----
-
-## Other Issues (P2-P3)
-...
-
----
-
-## Statistics
-| Metric | Value |
-|--------|-------|
-| Codex Candidates | X |
-| Claude Candidates | X |
-| Verified Findings | X |
-| Consensus Issues | X |
-| Rejected Candidates | X |
-
----
-
-## Verdict
-- <最终结论>
-```
-
-## Deep 模式额外要求
+### Deep 模式额外要求
 
 - 若桥接脚本实际执行后返回错误（即 Codex 调用失败），但当前模型未发现 P0，可输出 `CORRECT (degraded)`，并在 Summary 中明确说明失败原因。未尝试调用就声称"不可用"不属于此降级路径
 - 若某个高优先级候选问题无法完成验证，不得直接进入最终 findings
@@ -196,16 +52,4 @@ Codex prompt 应明确要求：
 
 ## Review Loop 要求
 
-若 Verdict = `INCORRECT`：
-- 所有 P0/P1 finding 必须给出 impact-aware `Fix Scope` 与 `Regression Verification`
-- 报告末尾必须保留：
-
-```markdown
-> 发现 X 个 P0/P1 问题，修复方案如上。是否按以上方案执行修复？输入 `fix` 执行，输入 `skip` 跳过。
-```
-
-在用户实际确认并输入 `fix` 前，Deep 模式默认停在报告阶段，不自动转入修复。
-
-重新审查时：
-1. 先重新检查上轮 blocking findings 的 impact scope 与 validation scope
-2. 再重新执行完整 Deep 流程（含候选问题发现、验证、impact analysis、汇总裁决）
+Review Loop 的完整契约见 `../specs/review-pipeline.md`。Deep 模式在此基础上默认停在报告阶段，不自动转入修复；用户显式输入 `fix` 后才进入修复循环。

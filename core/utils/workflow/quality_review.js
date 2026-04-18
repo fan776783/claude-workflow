@@ -6,6 +6,7 @@ const { createEvidence } = require('./verification')
 const { assertCanonicalWorkflowStatePath, detectProjectIdFromRoot } = require('./path_utils')
 const { ensureStateDefaults, getReviewResult } = require('./workflow_types')
 const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile } = require('./role_injection')
+const { checkCompliance } = require('./knowledge_compliance')
 
 const GATE_BUDGET = {
   max_total_loops: 4,
@@ -171,7 +172,45 @@ function collectBlockingIssues(result) {
   return collected
 }
 
-function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, stage2Attempts = 1, stage1IssuesFound = 0, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent', state = {}, stage2ReviewMode = 'single_reviewer', stage2CodexStatus = null, stage2ReviewCycleId = null) {
+function runKnowledgeCompliance(projectRoot, baseCommit) {
+  try {
+    return checkCompliance({ projectRoot: projectRoot || process.cwd(), baseCommit })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // Hard gate must not fail open: any checker exception becomes a blocking violation.
+    return {
+      compliant: false,
+      rules_count: 0,
+      violations: [{
+        file: '<knowledge_compliance>',
+        line: 0,
+        rule: 'checker-exception',
+        knowledge_source: 'knowledge_compliance',
+        severity: 'blocking',
+        message: `knowledge_compliance checker threw: ${message}`,
+      }],
+      warnings: [],
+      checked_files: 0,
+      base_commit: baseCommit || null,
+      error: message,
+    }
+  }
+}
+
+function summarizeComplianceForGate(complianceResult) {
+  if (!complianceResult) return null
+  return {
+    checked: true,
+    rules_count: complianceResult.rules_count || 0,
+    blocking: (complianceResult.violations || []).length,
+    warnings: (complianceResult.warnings || []).length,
+    violations: complianceResult.violations || [],
+    base_commit: complianceResult.base_commit || null,
+    error: complianceResult.error || null,
+  }
+}
+
+function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, stage2Attempts = 1, stage1IssuesFound = 0, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent', state = {}, stage2ReviewMode = 'single_reviewer', stage2CodexStatus = null, stage2ReviewCycleId = null, knowledgeCompliance = null) {
   const attempts = stage1Attempts + stage2Attempts
   const now = isoNow()
   const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
@@ -189,6 +228,7 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
     diff_window: diffWindow,
     stage1: { passed: true, attempts: stage1Attempts, issues_found: stage1IssuesFound, completed_at: now },
     stage2: { passed: true, attempts: stage2Attempts, assessment: 'approved', critical_count: criticalCount, important_count: importantCount, minor_count: minorCount, completed_at: now, role: reviewerPrompt.role, profile: reviewerPrompt.profile, review_mode: stage2ReviewMode, codex_status: stage2CodexStatus, review_cycle_id: stage2ReviewCycleId, raw_results: null, merged: null },
+    knowledge_compliance: knowledgeCompliance,
     overall_passed: true,
     reviewed_at: now,
     reviewer,
@@ -273,6 +313,94 @@ function resolveBaseCommitForCommand(state = {}, projectRoot = process.cwd(), ex
   return resolveReviewBaseline(state, projectRoot)
 }
 
+function aggregateStage1(taskIds, perTaskStage1) {
+  const entries = (taskIds || []).map((id) => perTaskStage1[id])
+  const allPresent = entries.every(Boolean)
+  const allPassed = allPresent && entries.length > 0 && entries.every((s) => s.passed)
+  const totalAttempts = entries.reduce((sum, s) => sum + ((s || {}).attempts || 0), 0)
+  const totalIssues = entries.reduce((sum, s) => sum + ((s || {}).issues_found || 0), 0)
+  return { allPassed, totalAttempts, totalIssues }
+}
+
+function buildBatchPassGateResult(groupId, taskIds, baseCommit, mergedCommit, filesChanged = 0, requirementIds = [], criticalConstraints = [], perTaskStage1 = {}, stage2Attempts = 1, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent', state = {}) {
+  const now = isoNow()
+  const diffWindow = createDiffWindow(baseCommit, null, null, filesChanged)
+  const { allPassed: allStage1Passed, totalAttempts: totalStage1Attempts, totalIssues: totalStage1Issues } = aggregateStage1(taskIds, perTaskStage1)
+  return {
+    review_type: 'quality_review',
+    review_mode: 'machine_loop',
+    gate_task_id: groupId,
+    scope: 'batch',
+    batch_id: groupId,
+    task_ids: [...taskIds],
+    per_task_stage1: { ...perTaskStage1 },
+    subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
+    max_attempts: GATE_BUDGET.max_total_loops,
+    attempt: totalStage1Attempts + stage2Attempts,
+    last_decision: 'pass',
+    next_action: 'continue_execution',
+    commit_hash: mergedCommit || baseCommit,
+    diff_window: diffWindow,
+    protected_requirement_ids: [...requirementIds],
+    protected_constraints: [...criticalConstraints],
+    stage1: { passed: allStage1Passed, attempts: totalStage1Attempts, issues_found: totalStage1Issues, completed_at: now },
+    stage2: { passed: true, attempts: stage2Attempts, assessment: 'approved', critical_count: criticalCount, important_count: importantCount, minor_count: minorCount, completed_at: now },
+    overall_passed: true,
+    reviewed_at: now,
+    reviewer,
+  }
+}
+
+function buildBatchFailedGateResult(groupId, taskIds, failedStage, baseCommit, mergedCommit, filesChanged = 0, requirementIds = [], criticalConstraints = [], perTaskStage1 = {}, totalAttempts = 1, lastResult = null, reviewer = 'subagent') {
+  const now = isoNow()
+  const diffWindow = createDiffWindow(baseCommit, null, null, filesChanged)
+  const { allPassed: allStage1Passed, totalAttempts: totalStage1Attempts, totalIssues: totalStage1Issues } = aggregateStage1(taskIds, perTaskStage1)
+  const budgetExhausted = totalAttempts >= GATE_BUDGET.max_total_loops
+  const stage2Failed = failedStage === 'stage2'
+  const terminalDecision = budgetExhausted || stage2Failed ? 'rejected' : 'revise'
+  const nextAction = terminalDecision === 'rejected' ? 'discard_integration_worktree' : 'fix_and_retry_batch'
+  const result = {
+    review_type: 'quality_review',
+    review_mode: 'machine_loop',
+    gate_task_id: groupId,
+    scope: 'batch',
+    batch_id: groupId,
+    task_ids: [...taskIds],
+    per_task_stage1: { ...perTaskStage1 },
+    subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
+    max_attempts: GATE_BUDGET.max_total_loops,
+    attempt: totalAttempts,
+    last_decision: terminalDecision,
+    next_action: nextAction,
+    blocking_issues: collectBlockingIssues(lastResult),
+    commit_hash: mergedCommit || baseCommit,
+    diff_window: diffWindow,
+    protected_requirement_ids: [...requirementIds],
+    protected_constraints: [...criticalConstraints],
+    stage1: { passed: allStage1Passed, attempts: totalStage1Attempts, issues_found: totalStage1Issues, completed_at: now },
+    overall_passed: false,
+    reviewed_at: now,
+    reviewer,
+  }
+  if (stage2Failed) {
+    const issues = typeof lastResult === 'object' && lastResult ? (lastResult.issues || {}) : {}
+    result.stage2 = {
+      passed: false,
+      attempts: Math.max(totalAttempts - totalStage1Attempts, 0),
+      assessment: (lastResult || {}).assessment || 'rejected',
+      critical_count: (issues.critical || []).length,
+      important_count: (issues.important || []).length,
+      minor_count: (issues.minor || []).length,
+      completed_at: now,
+    }
+  }
+  return result
+}
+
+function writeBatchQualityGateResult(statePath, groupId, gateResult, projectId = null) {
+  return writeQualityGateResult(statePath, groupId, gateResult, projectId)
+}
+
 function writeQualityGateResult(statePath, taskId, gateResult, projectId = null) {
   const state = ensureStateDefaults(readState(statePath, projectId))
   const qualityGates = state.quality_gates || (state.quality_gates = {})
@@ -352,7 +480,24 @@ function main() {
         return
       }
       const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, option('--review-mode') || 'single_reviewer', option('--codex-status') || null, option('--review-cycle-id') || null)
+      const skipCompliance = args.includes('--skip-knowledge-compliance')
+      const projectRootForCompliance = commandState.state.project_root || process.cwd()
+      const complianceResult = skipCompliance ? null : runKnowledgeCompliance(projectRootForCompliance, baseCommit)
+      const complianceSummary = summarizeComplianceForGate(complianceResult)
+      const hasBlockingCompliance = complianceSummary && complianceSummary.blocking > 0
+      if (hasBlockingCompliance) {
+        const totalAttempts = Number(option('--stage1-attempts') || 1) + Number(option('--stage2-attempts') || 1)
+        const lastResult = {
+          source: 'knowledge_compliance',
+          blocking_issues: (complianceSummary.violations || []).map((v) => ({ description: `${v.file}:${v.line} ${v.rule} — ${v.message}`, severity: 'critical', knowledge_source: v.knowledge_source })),
+        }
+        const failResult = buildFailedGateResult(taskId, 'stage1_recheck', baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), totalAttempts, lastResult, option('--reviewer') || 'subagent', commandState.state)
+        failResult.knowledge_compliance = complianceSummary
+        if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, failResult, commandState.projectId)
+        process.stdout.write(`${JSON.stringify({ gate_result: failResult, evidence: createQualityReviewEvidence(taskId, failResult) })}\n`)
+        return
+      }
+      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, option('--review-mode') || 'single_reviewer', option('--codex-status') || null, option('--review-cycle-id') || null, complianceSummary)
       if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return
@@ -435,6 +580,9 @@ module.exports = {
   collectBlockingIssues,
   buildPassGateResult,
   buildFailedGateResult,
+  buildBatchPassGateResult,
+  buildBatchFailedGateResult,
+  writeBatchQualityGateResult,
   resolveQualityReviewProfile,
   createReviewerPrompt,
   writeQualityGateResult,
@@ -447,6 +595,8 @@ module.exports = {
   resolveReviewBaseline,
   resolveBaseCommitForCommand,
   buildBudgetSnapshot,
+  runKnowledgeCompliance,
+  summarizeComplianceForGate,
 }
 
 if (require.main === module) main()

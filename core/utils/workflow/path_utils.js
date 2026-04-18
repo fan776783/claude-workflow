@@ -8,6 +8,7 @@ const WORKFLOW_STATE_FILENAME = 'workflow-state.json'
 const THINKING_GUIDES_DISPLAY_PATH = '.claude/.agent-workflow/specs/guides'
 const THINKING_GUIDES_MANAGED_SEGMENTS = ['.claude', '.agent-workflow', 'specs', 'guides']
 const THINKING_GUIDES_LEGACY_SEGMENTS = ['.claude', 'specs', 'guides']
+const KNOWLEDGE_DIR_SEGMENTS = ['.claude', 'knowledge']
 
 function resolveUnder(baseDir, relativePath) {
   if (!relativePath) return null
@@ -97,6 +98,26 @@ function getThinkingGuidesDir(projectRoot, options = {}) {
   return null
 }
 
+function getKnowledgeDir(projectRoot) {
+  const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+  const dir = path.join(root, ...KNOWLEDGE_DIR_SEGMENTS)
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { path: dir, exists: false }
+  }
+  try {
+    const resolvedRoot = fs.realpathSync(root)
+    const resolvedDir = fs.realpathSync(dir)
+    const expectedPrefix = path.join(resolvedRoot, ...KNOWLEDGE_DIR_SEGMENTS)
+    // 必须严格位于 <root>/.claude/knowledge 下，拒绝符号链接指向仓库根或仓库外部
+    if (resolvedDir !== expectedPrefix && !resolvedDir.startsWith(expectedPrefix + path.sep)) {
+      return { path: dir, exists: false }
+    }
+    return { path: resolvedDir, exists: true, resolvedRoot, expectedPrefix }
+  } catch {
+    return { path: dir, exists: false }
+  }
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === 'resolve') {
@@ -135,6 +156,8 @@ module.exports = {
   detectProjectIdFromRoot,
   getThinkingGuidesDir,
   THINKING_GUIDES_DISPLAY_PATH,
+  getKnowledgeDir,
+  KNOWLEDGE_DIR_SEGMENTS,
 }
 
 if (require.main === module) main()

@@ -3,7 +3,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides } = require('../utils/workflow/task_runtime')
+const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides, getKnowledgeContext } = require('../utils/workflow/task_runtime')
 const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
 /**
@@ -60,6 +60,11 @@ function buildTaskContext(runtime) {
   }
 
   parts.push('<team-guardrail>\nordinary workflow task injection must ignore team runtime context; do not read or inherit team_id, team_name, worker_roster, dispatch_batches, team_review, or ~/.claude/workflows/{projectId}/teams/* unless the user explicitly entered /team.\n</team-guardrail>')
+
+  const knowledge = getKnowledgeContext(projectRoot)
+  if (knowledge) {
+    parts.push(`<project-knowledge role="advisory">\n${knowledge}\n</project-knowledge>`)
+  }
 
   const guides = getThinkingGuides(projectRoot)
   if (guides && guides.files.length) {
