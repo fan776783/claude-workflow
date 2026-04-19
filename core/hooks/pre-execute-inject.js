@@ -3,7 +3,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides, getKnowledgeContext } = require('../utils/workflow/task_runtime')
+const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides, getKnowledgeContextScoped, resolveActiveKnowledgeScope } = require('../utils/workflow/task_runtime')
 const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
 /**
@@ -59,11 +59,11 @@ function buildTaskContext(runtime) {
     parts.push(`<quality-gate-state>\nlast_decision: ${qualityGate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.overall_passed === true}\n</quality-gate-state>`)
   }
 
-  parts.push('<team-guardrail>\nordinary workflow task injection must ignore team runtime context; do not read or inherit team_id, team_name, worker_roster, dispatch_batches, team_review, or ~/.claude/workflows/{projectId}/teams/* unless the user explicitly entered /team.\n</team-guardrail>')
-
-  const knowledge = getKnowledgeContext(projectRoot)
+  const scope = resolveActiveKnowledgeScope(runtime)
+  const knowledge = getKnowledgeContextScoped(projectRoot, scope)
   if (knowledge) {
-    parts.push(`<project-knowledge role="advisory">\n${knowledge}\n</project-knowledge>`)
+    const scopeLabel = scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"'
+    parts.push(`<project-knowledge role="advisory" ${scopeLabel}>\n${knowledge}\n</project-knowledge>`)
   }
 
   const guides = getThinkingGuides(projectRoot)
@@ -102,19 +102,6 @@ function buildBlockResult(reason) {
 }
 
 /**
- * 从工具输入中移除禁止的 team 相关字段
- * @param {object} toolInput - 原始工具输入
- * @returns {{ sanitizedToolInput: object, removedFields: string[] }} 清理后的输入和被移除的字段名
- */
-function stripForbiddenTeamFields(toolInput) {
-  const forbiddenTeamFields = ['team', 'team_name', 'team_id', 'teamId']
-  const sanitizedToolInput = { ...toolInput }
-  const removedFields = forbiddenTeamFields.filter((field) => Object.prototype.hasOwnProperty.call(sanitizedToolInput, field))
-  for (const field of removedFields) delete sanitizedToolInput[field]
-  return { sanitizedToolInput, removedFields }
-}
-
-/**
  * PreToolUse(Task) hook 主流程：读取 hook 输入 → 治理检查 → 注入任务上下文 → 输出结果
  */
 function main() {
@@ -133,7 +120,6 @@ function main() {
   }
 
   const toolInput = typeof hookInput.tool_input === 'object' && hookInput.tool_input ? hookInput.tool_input : {}
-  const { sanitizedToolInput, removedFields: inheritedTeamFields } = stripForbiddenTeamFields(toolInput)
   const runtime = findWorkflowState()
   const state = runtime?.state
   if (!state) {
@@ -141,11 +127,7 @@ function main() {
       process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] workflow 状态文件解析失败 (${runtime.stateParseError})，治理阻断。请检查 ${runtime.statePath || 'workflow-state.json'} 是否损坏。`)))
       return
     }
-    const message = inheritedTeamFields.length
-      ? `[workflow-hook] 未发现活动 workflow，已忽略 team 上下文字段: ${inheritedTeamFields.join(', ')}。`
-      : '[workflow-hook] 未发现活动 workflow，跳过上下文注入。'
-    const patchedToolInput = inheritedTeamFields.length ? sanitizedToolInput : null
-    process.stdout.write(JSON.stringify(buildAllowResult(message, patchedToolInput)))
+    process.stdout.write(JSON.stringify(buildAllowResult('[workflow-hook] 未发现活动 workflow，跳过上下文注入。')))
     return
   }
 
@@ -171,11 +153,7 @@ function main() {
     return
   }
 
-  if (inheritedTeamFields.length) {
-    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] 当前不是显式 /team 路径，禁止透传 team 上下文字段: ${inheritedTeamFields.join(', ')}`)))
-    return
-  }
-  const taskDescription = sanitizedToolInput.description || ''
+  const taskDescription = toolInput.description || ''
   const context = buildTaskContext(runtime)
 
   if (!context) {
@@ -183,7 +161,7 @@ function main() {
     return
   }
 
-  const patchedToolInput = { ...sanitizedToolInput, description: `${context}\n\n---\n\n${taskDescription}` }
+  const patchedToolInput = { ...toolInput, description: `${context}\n\n---\n\n${taskDescription}` }
   const result = buildAllowResult(`[workflow-hook] 已注入任务上下文 (${context.length} 字符)`, patchedToolInput)
   process.stdout.write(JSON.stringify(result))
 }

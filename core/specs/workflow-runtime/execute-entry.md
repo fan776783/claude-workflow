@@ -58,5 +58,4 @@
 - 真正是否继续，始终以 `ContextGovernor`、验证证据、质量关卡和阻塞状态为准。
 - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证治理。
 - `continue-parallel-boundaries` 只表示 workflow 内部的并行执行建议；即使识别到 2+ 独立任务，也不得自动切入 `/team`。
-- workflow hooks 与普通 agent launch 只允许消费 workflow runtime，不得继承或透传 active team runtime 的 `team_id` / `team_name` / `team_phase`。
 - `SessionStart` / `PreToolUse(Task)` hooks 只能注入上下文或阻断非法继续，不能替代 shared execute resolver 决定恢复路径。

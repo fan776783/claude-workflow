@@ -14,12 +14,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Development - validate before publish
-npm run prepublishOnly    # Runs scripts/validate.js
+npm run prepublishOnly    # Runs scripts/validate.js (the only validation gate)
 
 # CLI commands (after npm install -g)
 agent-workflow status    # Show installation status
 agent-workflow sync      # Sync templates to AI coding tools
 agent-workflow sync -a claude-code,cursor  # Install to specific agents
+agent-workflow link      # Refresh managed links without re-copying canonical payload
 agent-workflow init      # Init project config in current directory
 agent-workflow doctor    # Diagnose configuration issues
 
@@ -28,6 +29,10 @@ npm run release:patch     # Bug fixes: 1.0.0 -> 1.0.1
 npm run release:minor     # Features: 1.0.0 -> 1.1.0
 npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 ```
+
+Notes:
+- No test suite or linter — `prepublishOnly` running `scripts/validate.js` is the sole pre-publish check.
+- `scripts/release.sh` is a bash script. On Windows, run the `release:*` scripts from Git Bash / WSL.
 
 ## Architecture
 
@@ -51,16 +56,14 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
     │   ├── workflow-delta/  # Delta entry for /workflow-delta
     │   ├── workflow-status/ # Status entry for /workflow-status
     │   ├── workflow-archive/ # Archive entry for /workflow-archive
-    │   ├── team/            # Explicit /team entry skill (routing only)
-    │   ├── team-workflow/   # Heavy runtime contract for /team start|execute|status|archive
     │   ├── scan/            # Project scanning
     │   ├── fix-bug/         # Bug fixing workflow
     │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
     │   ├── bug-batch/       # Batch bug fixing
     │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
-    │   ├── figma-ui/        # Figma to code
-    │   └── perf-budget/     # Performance budget validation
+    │   ├── knowledge-*/     # Knowledge compliance engine (bootstrap/check/review/update)
+    │   └── figma-ui/        # Figma to code
     ├── commands/            # Command entry definitions
     ├── utils/               # Internal runtime utilities
     ├── docs/                # Supporting docs and templates
@@ -102,53 +105,16 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 
 ## Available Skills
 
-The package includes the following skills (all portable across AI coding tools):
+Skills are the portable unit shipped to each AI tool. The authoritative list lives under `core/skills/` — every directory there is a published skill. A few skill families worth knowing when navigating the repo:
 
-**Core Workflow:**
+- **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
+- **Knowledge** (`knowledge-bootstrap`, `knowledge-update`, `knowledge-review`) — declarative 7-section code-spec contract aligned with Trellis; `{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
+- **Lightweight planning & review** — `plan` (quick 4-step planning), `session-review`, `diff-review`, `fix-bug`, `bug-batch`, `write-tests`.
+- **Dispatch & research** — `dispatching-parallel-agents`, `search-first`, `deep-research`, `collaborating-with-codex`.
+- **Other** — `scan`, `figma-ui`.
 
-- `/workflow-plan` - Planning skill (analysis → discussion → UX gate → Spec → Plan)
-- `/workflow-execute` - Execution skill (continuation governance + validation + quality gates + implementation report)
-- `/workflow-delta` - Delta skill (PRD/API/requirement changes)
-- `/workflow-status` - View current progress, blockers, and next-step suggestions
-- `/workflow-archive` - Archive completed workflows
-- `/team` - Explicit team orchestration entrypoint for command-capable agents (stable `/team start|execute|status|archive` surface exposed from `core/commands/team.md`, with the `team` entry skill plus `team-workflow` runtime skill backed by `core/specs/team-runtime/` docs)
-  - `start` - Bootstraps team-specific planning/runtime artifacts
-  - `execute` - Runs team-exec → team-verify / team-fix loop
-  - `status` - Served from shared team runtime docs
-  - `archive` - Served from shared team runtime docs
-- `workflow-review` - Review skill used by workflow quality gates (spec compliance + code quality)
-- `team` - `/team` command entry skill for explicit routing/boundary semantics only; never auto-triggered by `/workflow-*` skills, `/quick-plan`, `dispatching-parallel-agents`, or natural-language broad-task detection
-- `team-workflow` - Heavy team runtime skill for explicit `/team start|execute|status|archive`, owning phase/state contracts while preserving the same public `/team` command surface
+`/team` 命令直接走 Claude Code 原生 Agent Teams，不再有独立 skill 或 runtime；`core/commands/team.md` 负责命令契约，`core/hooks/team-idle.js` 与 `core/hooks/team-task-guard.js` 提供任务板守门和 cleanup 协调。
 
-**Planning:**
+When updating this section, re-check `core/skills/` rather than trusting this list — it drifts.
 
-- `/quick-plan` - Lightweight quick planning (4-step: understand → analyze → plan → confirm, no state machine)
-
-**Development Tools:**
-
-- `/scan` - Project scanning (tech stack detection + context report generation)
-- `/fix-bug` - Bug fixing workflow (locate → analyze → fix → review)
-- `/write-tests` - Test writing expert (unit + integration tests)
-
-**Code Review:**
-
-- `/diff-review` - Code review (Quick by default, `--deep` for Codex-assisted, `--pr` for GitHub PR review)
-- `/bug-batch` - Batch bug fixing (pull from Blueking project management)
-- `/dispatching-parallel-agents` - Parallel dispatch for independent domains (independence check + boundary grouping + conflict fallback)
-
-**Research:**
-
-- `/search-first` - Search before implementing (codebase + npm/PyPI + GitHub → Adopt/Extend/Build decision)
-- `/deep-research` - Multi-source cited research (firecrawl/exa MCP + read_url_content fallback)
-
-**UI Development:**
-
-- `/figma-ui` - Figma design to code (visual fidelity validation)
-
-**Performance:**
-
-- `/perf-budget` - Performance budget validation (page load, bundle size, API response)
-
-Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git)
-
-Team state stored at `~/.claude/workflows/{project-hash}/teams/{team-id}/team-state.json` and is only created by explicit `/team ...` commands.
+Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git).

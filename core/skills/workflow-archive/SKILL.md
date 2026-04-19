@@ -88,7 +88,7 @@ CLI 自动完成：
 /workflow-plan "新功能描述"
 ```
 
-> ⚠️ `/workflow-archive` 只归档 workflow runtime；team 相关归档应使用 `/team archive`。
+> ⚠️ `/workflow-archive` 只归档 workflow runtime。原生 `/team` 的收尾由 `TeammateIdle` hook 触发负责人执行 `clean up team`。
 
 ---
 

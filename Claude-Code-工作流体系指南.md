@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v15.0.0  
-**最后更新**：2026-04-18  
+**文档版本**：v15.1.0  
+**最后更新**：2026-04-19  
 **适用仓库**：`@justinfan/agent-workflow`
 
 ---
@@ -159,8 +159,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 |  journal.js             会话日志                                  |
 |  batch_orchestrator.js  并行批次编排（config / select-batch）      |
 |  merge_strategist.js    集成 worktree 创建 / 合流 / 丢弃           |
-|  knowledge_bootstrap.js Knowledge 骨架生成                        |
-|  knowledge_compliance.js 机读规则硬卡口检查                       |
+|  knowledge_bootstrap.js Knowledge 骨架生成（支持 monorepo）         |
 +-----------------------------------------------------------------+
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
@@ -790,8 +789,7 @@ stateDiagram-v2
 | `journal.js` | 会话日志 | `add`, `list`, `search`, `get` |
 | `batch_orchestrator.js` | 并行批次编排 | `config`, `select-batch`, `dispatchReadonlyBatch` |
 | `merge_strategist.js` | 集成 worktree 合流 | `create-integration`, `merge-integration`, `discard-integration` |
-| `knowledge_bootstrap.js` | Knowledge 骨架生成 | `init`, `status`, `skip` |
-| `knowledge_compliance.js` | 机读规则硬卡口 | `check`（退出码 0 / 2） |
+| `knowledge_bootstrap.js` | Knowledge 骨架生成（支持 monorepo workspace 检测） | `init`, `status`, `skip` |
 
 ---
 
@@ -1005,40 +1003,136 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ---
 
-## 8A. Knowledge 硬卡口与命令链
+## 8A. Knowledge 目录与命令链
 
-从本版本起，`.claude/knowledge/` 作为项目级规范沉淀目录正式接入 workflow。
+`.claude/knowledge/` 是项目自己的"活文档"，和 CLAUDE.md 的区别是：CLAUDE.md 说"AI 该知道的项目背景"，knowledge 说"这个项目代码该怎么写"。本版本对齐 Trellis 的声明式审查模型，不再引入机读规则硬卡口；一致性由 `/workflow-review` Stage 1 用人工对照 code-spec 检查。
+
+### 定位
+
+- **code-spec**（`{pkg}/{layer}/*.md`）：具体怎么写代码。采用 7 段合约：Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct
+- **guide**（`guides/*.md`）：写代码前该想什么。思考清单、决策思路、指向 code-spec 的指针，不重复具体规则
+- **layer index**（`{pkg}/{layer}/index.md`）：4 段入口，Overview / Guidelines Index / Pre-Development Checklist / Quality Check
+
+判断依据：
+- 「这是怎么写代码」→ code-spec
+- 「这是写代码前想什么」→ guide
+- 「不准写成这样」→ 写进对应 code-spec 的 Wrong vs Correct 段，靠人工审查把关
 
 ### 目录结构
 
+Monorepo：按 `{pkg}/{layer}/` 二维布局 + 共享 `guides/`：
+
 ```
 .claude/knowledge/
-├── index.md                # 根索引 + 更新记录
-├── local.md                # 本项目模板基线 + Changelog
-├── frontend/               # 前端 code-spec + Machine-checkable Rules
-├── backend/                # 后端 code-spec + Machine-checkable Rules
-└── guides/                 # 思考清单，不参与硬卡口
+├── index.md
+├── local.md
+├── {pkg-a}/
+│   ├── frontend/index.md
+│   └── backend/index.md
+├── {pkg-b}/
+│   ├── frontend/index.md
+│   └── backend/index.md
+└── guides/index.md
+```
+
+单包项目仍走单例 package 布局：
+
+```
+.claude/knowledge/
+├── index.md
+├── local.md
+├── {project-name}/
+│   ├── frontend/index.md
+│   └── backend/index.md
+└── guides/index.md
 ```
 
 ### 命令链职责分工
 
-| 命令 | 角色 |
-|------|------|
-| `/scan` Part 5 | 首次扫描时引导 `/knowledge-bootstrap` 或写 `bootstrapStatus=skipped` |
-| `/knowledge-bootstrap` | 基于 `project-config.json` 的 `tech.frameworks` 生成骨架，幂等 |
-| `/knowledge-update` | 按 6 类片段模板（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）写入 |
-| `/knowledge-check` | 对 diff 跑 `## Machine-checkable Rules`；退出码 0 compliant / 2 blocking 违规 / 1 CLI 错误 |
-| `/knowledge-review` | 只读审查过期、冲突、覆盖率与模板升级，输出报告 |
+| 命令 | 什么时候用 | 角色 |
+|------|-----------|------|
+| `/scan` Part 5 | 首次扫描项目时 | 引导 `/knowledge-bootstrap` 或写 `bootstrapStatus=skipped` |
+| `/knowledge-bootstrap` | 项目首次启用 knowledge，或 `/scan` 提示未初始化 | 按 `project-config.json` 的 `monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；monorepo 但未写 `monorepo.packages` 时，自动从 `pnpm-workspace.yaml` / `package.json workspaces` / `lerna.json` 解析 workspace 列表 |
+| `/knowledge-update` | 完成实现 / 修完 bug / 做完设计决策，且有沉淀价值时 | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
+| `/knowledge-review` | 定期维护（每周 / 大版本前） | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
+
+### 7 段 code-spec 怎么选
+
+`/knowledge-update` 交互式会先问沉淀哪种形态：
+
+| 形态 | 用于 | 典型触发 |
+|------|------|---------|
+| **7 段 code-spec** | 新 API、跨层契约、错误矩阵、具体字段命名规则 | "新加了 template 下载 API"、"前后端字段映射表"、"错误码 E_AUTH_401 的返回格式" |
+| **thinking guide** | 写代码前该想什么的检查清单 | "提交代码前检查 X"、"涉及 auth 的改动先看 Y" |
+
+不确定时优先 code-spec；guides 保持精简。
+
+code-spec 的 7 段：
+
+1. **Scope / Trigger** — 什么样的变更触发本 spec + 具体 file glob
+2. **Signatures** — 具体**文件路径** + **命令名 / API 名 / 数据库表名**；禁止占位符
+3. **Contracts** — 字段级清单（字段名 + 类型 + 必需性），禁止"返回 JSON"之类笼统描述
+4. **Validation & Error Matrix** — 输入条件 → 错误码 / 行为 / 错误消息
+5. **Good / Base / Bad Cases** — 三案例（场景 + 代码片段）
+6. **Tests Required** — 具体到**测试文件 + 测试名 + 断言内容**
+7. **Wrong vs Correct** — 至少一对 bad → good 对比
 
 ### 在 workflow 中的接入点
 
-- **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/knowledge/` 目录汇总 Constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
-- **`workflow-review` Stage 1 Step 0（硬卡口）**：调用 `knowledge_compliance.js check`
-  - 退出码 0 → 继续
-  - 退出码 2 → 直接 `Issues Found`，列出 violations（文件:行号 + `knowledge_source` + `message`），消耗 1 次共享预算
-  - 退出码 1（CLI 异常）→ 按违规处理，不得静默放行；确需绕过须 `quality_review.js pass --skip-knowledge-compliance` 并在实施报告中记录原因
-  - 无 knowledge / 无机读规则 → 恒 compliant，对新项目零摩擦
-- **机读规则语法**：`id` / `severity` / `kind` / `pattern` / `applies_to` / `message`；支持 `forbid` / `require` / `warn`；`guides/`、`local.md`、`index.md` 不参与
+- **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/knowledge/` 目录汇总 Constraints；Spec 模板保留 `3.x Project Knowledge Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
+- **`workflow-execute`（advisory）**：把 `<project-knowledge>` 段以参考信息注入 Task，不阻塞
+- **`workflow-review` Stage 1（人工对照）**：Reviewer 把实现与对应 code-spec 段逐条对照，发现偏离直接写进 `Issues Found`；不再调用 CLI 硬卡口
+
+### 端到端示例：沉淀一条 API 契约
+
+场景：新加了一个后端 API `POST /api/auth/login`，前后端字段有命名约定（驼峰→下划线）。想把这条契约沉淀到 knowledge。
+
+**Step 1 — 确保骨架存在**
+
+```bash
+/knowledge-bootstrap
+# monorepo 项目会自动按 workspace 生成 {pkg}/{layer}/
+```
+
+**Step 2 — 用 `/knowledge-update` 写入 code-spec**
+
+```bash
+/knowledge-update
+```
+
+交互时回答：
+- 沉淀哪种形态？→ code-spec
+- 属于哪个 package / layer？→ `{api}/backend`
+- 文件名？→ `auth-api.md`
+
+逐段填写 7 段合约，重点：
+- Signatures：写清楚 `POST /api/auth/login` 的路径、入参 shape、出参 shape
+- Contracts：列出每个字段的名称 + 类型 + 必需性 + 命名转换规则（`userName` ↔ `user_name`）
+- Validation & Error Matrix：枚举 `E_AUTH_401` / `E_AUTH_400` / `E_INTERNAL_500` 三种情况
+- Tests Required：指到具体测试文件 `tests/auth/login.test.ts` + 断言名
+- Wrong vs Correct：给一个字段漏做命名转换的 bad case
+
+**Step 3 — 在 workflow 中参考**
+
+```bash
+/workflow-plan "新增手机号登录"
+# Step 1.5 会把 auth-api.md 的 Contracts 段作为 advisory constraints 写入 Spec
+/workflow-execute
+/workflow-review
+# Stage 1 reviewer 会把实现和 auth-api.md 逐条对照
+```
+
+**Step 4 — 定期维护**
+
+```bash
+/knowledge-review
+# 输出报告到 .claude/reports/knowledge-review-{date}.md
+# 检查：
+#   - 哪些 code-spec 7 段不完整（missing-section / draft / abstract-content）
+#   - 哪些 code-spec 超过 30 / 90 天没更新
+#   - guides 指针是否指向已不存在的 code-spec（broken-pointer）
+#   - canonical 模板 / manifests 是否有升级需要合并
+```
 
 ---
 
@@ -1143,7 +1237,7 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ## 11. Skills 体系总览
 
-仓库当前提供 20+ 个 skill 目录，按职责分为五类：
+仓库当前提供 21 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
 
 ### 11.1 用户直接调用的专项 Skills
 
@@ -1160,9 +1254,9 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 | `deep-research` | `/deep-research` | 面向外部信息的多源引文研究 |
 | `collaborating-with-codex` | 主动触发 | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
-### 11.2 Workflow / Team 主线 Skills（7 个）
+### 11.2 Workflow 主线 Skills（6 个）
 
-这些 skill 直接作为命令入口，或作为 `/team` command 入口路由调用：
+以下 skill 直接作为命令入口；`/team` 直接走 Claude Code 原生 Agent Teams，不再有独立 skill：
 
 | Skill | 入口 | 职责 |
 |-------|--------|------|
@@ -1172,8 +1266,8 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 | `workflow-delta` | `/workflow-delta` | 增量变更：需求 / PRD / API 变更的影响分析与同步 |
 | `workflow-status` | `/workflow-status` | 运行时状态查看 |
 | `workflow-archive` | `/workflow-archive` | 工作流归档 |
-| `team` | `/team start` 入口层 | 显式 team mode 的入口契约、边界与路由关系 |
-| `team-workflow` | `/team execute|status|archive` 及 start runtime | team phase/state contract、verify / fix loop 与运行时语义 |
+
+`/team` 命令不再是 skill；它直接走 Claude Code 原生 Agent Teams，入口由 `core/commands/team.md` 定义，伴随 `team-idle.js` / `team-task-guard.js` 两个 hook 做守门与 idle 收尾协调。
 
 ### 11.3 规划与研究辅助 Skills（2 个）
 
@@ -1182,22 +1276,21 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 | `plan` | `/quick-plan` | 轻量快速规划，只产出可执行 `plan.md`，不进入 workflow 状态机 |
 | `dispatching-parallel-agents` | workflow/team 内部按需触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 
-### 11.3.1 Knowledge Skills（4 个）
+### 11.3.1 Knowledge Skills（3 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
-| `knowledge-bootstrap` | `/knowledge-bootstrap` 或 `/scan` Part 5 引导 | 生成 `.claude/knowledge/` 骨架（frontend / backend / guides + `local.md`） |
-| `knowledge-update` | `/knowledge-update` | 交互式按 6 类片段模板写入 code-spec 或 guide，可选追加机读规则 |
-| `knowledge-check` | `/knowledge-check`，`/workflow-review` Stage 1 自动调用 | 扫描 diff 命中 `## Machine-checkable Rules`；blocking 违规退出码 2 |
-| `knowledge-review` | `/knowledge-review` | 只读审查过期、冲突、覆盖率与模板升级，输出报告 |
+| `knowledge-bootstrap` | `/knowledge-bootstrap` 或 `/scan` Part 5 引导 | 按 `monorepo.packages × tech.frameworks` 生成 `.claude/knowledge/{pkg}/{layer}/` 骨架 + `guides/` + `local.md`；monorepo 未写 `monorepo.packages` 时自动扫 workspace |
+| `knowledge-update` | `/knowledge-update` | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
+| `knowledge-review` | `/knowledge-review` | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
 
 ### 11.4 基础设施说明
 
-- **共享运行时**（`core/specs/workflow-runtime/`、`core/specs/team-runtime/`）：状态机、共享工具、外部依赖语义、预检逻辑等运行时资源
-- **共享模板**（`core/specs/workflow-templates/`、`core/specs/team-templates/`）：spec / plan 模板
+- **共享运行时**（`core/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、预检逻辑等运行时资源
+- **共享模板**（`core/specs/workflow-templates/`）：spec / plan 模板
 - **思维指南**（`core/specs/guides/`）：代码复用检查清单、跨层检查清单、AI 审查误报指南
 - **Commands**（`core/commands/`）：`team`、`quick-plan`、`enhance`、`git-rollback`
-- **Node.js helpers**：workflow 在 `core/utils/workflow/`，team 在 `core/utils/team/`
+- **Node.js helpers**：workflow 位于 `core/utils/workflow/`
 
 ### 11.5 使用原则
 
@@ -1216,7 +1309,7 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ### 12.1 Hook 分类
 
-当前共 **4 个 hook 脚本**，按职责分为两类：
+当前共 **6 个 hook 脚本**，按职责分为三类：
 
 | 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
 |------|-----------|------|----------|------|
@@ -1224,6 +1317,8 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 | | `WorktreeRemove` | `worktree-cleanup.js` | ✅ 随 `sync` 自动注入 | 清理孤立 worktree 引用、回收托管目录、释放串行锁 |
 | **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文与 guardrail |
 | | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | 在 Task 派发前检查状态并注入任务上下文 |
+| **Team Hooks**（Claude Code 原生 Agent Teams）| `TeammateIdle` | `team-idle.js` | ✅ 随 `sync` 自动注入 | 任务板未清空时阻止队友 idle；清空时提示队友给 Lead 发 message 后退出 |
+| | `TaskCreated` / `TaskCompleted` | `team-task-guard.js` | ✅ 随 `sync` 自动注入 | 任务粒度守门：缺 owner / deliverable 或遗留 TODO 时退码 2 拒绝 |
 
 ### 12.2 Hook 在流程中的位置
 
@@ -1288,10 +1383,8 @@ flowchart TD
    - 无 `current_tasks[0]` → **阻断**
 5. 检查 `spec_file` / `plan_file` 是否齐全
    - 缺失 → **阻断**
-6. 检查是否透传了禁止的 team 字段
-   - 非 `/team` 路径不允许携带 `team_id` 等字段 → **阻断**
-7. 构建注入上下文：当前 task block、verification commands、spec context、quality gate state、thinking guides
-8. 将上下文拼接到 `tool_input.description` 前缀 → **放行**
+6. 构建注入上下文：当前 task block、verification commands、spec context、quality gate state、thinking guides
+7. 将上下文拼接到 `tool_input.description` 前缀 → **放行**
 
 **阻断时输出**：`{ "continue": false, "reason": "..." }`
 
@@ -1374,6 +1467,30 @@ npm run sync -- -y    # 同上，跳过确认
           "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\""
         }]
       }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-idle.js\""
+        }]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-task-guard.js\" created"
+        }]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-task-guard.js\" completed"
+        }]
+      }
     ]
   }
 }
@@ -1388,6 +1505,7 @@ Hooks **负责**：
 - 注入 workflow 状态、当前 task、验证命令、关键约束信息
 - 在状态非法、上下文不完整时阻断继续
 - 串行化 worktree 创建，回收孤立目录
+- 为 `/team` 原生 Agent Teams 做任务板守门与 idle 收尾协调
 
 Hooks **不负责**：
 
@@ -1395,6 +1513,7 @@ Hooks **不负责**：
 - 替代 `/workflow-execute` 的 shared resolver
 - 创建第二套状态机
 - 直接把失败解释成 retry / skip / archive
+- 替代 Team Lead 执行 `clean up team`（Lead-only 指令由负责人会话侧完成）
 
 ### 12.6 故障排查
 
@@ -1454,15 +1573,15 @@ git worktree prune
 
 已有工作流发生需求更新、PRD 更新或 API 变更时，不建议直接手改 `plan.md`，而是优先使用 `/workflow-delta` 保持状态和工件一致。
 
-### 13.6 显式团队编排
+### 13.6 原生 Agent Teams 并行
 
-当同一需求需要拆成多个上下文边界，并希望使用 team runtime 统一治理时，显式使用：
+当同一需求有若干互相独立、可以真正并行推进的子任务时，使用 Claude Code 原生 Agent Teams：
 
 ```bash
-/team start "需求描述"
-/team execute
-/team status
+/team 并行推进三个模块：auth / billing / notification
 ```
+
+需要先在 settings.json 里启用 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`。详细契约参见 `core/commands/team.md`；队友空闲与任务板守门由 `team-idle.js` / `team-task-guard.js` 自动处理。
 
 ---
 
@@ -1546,12 +1665,9 @@ git worktree prune
 # 归档
 /workflow-archive
 
-# team
-/team "需求描述"
-/team start "需求描述"
-/team execute
-/team status
-/team archive
+# team（Claude Code 原生 Agent Teams，需打开 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1）
+/team 并行审查 PR #142 的安全 / 性能 / 测试覆盖
+/team 用 4 个 Sonnet 队友并行重构这几个模块
 
 # 轻量规划与辅助命令
 /quick-plan "需求描述"
@@ -1570,10 +1686,9 @@ git worktree prune
 /deep-research "研究主题"
 
 # 知识库
-/knowledge-bootstrap         # 初始化 .claude/knowledge/ 骨架
-/knowledge-update            # 交互式沉淀 code-spec / guide / 机读规则
-/knowledge-check             # 对当前 diff 跑机读规则硬卡口
-/knowledge-review            # 只读审查过期、冲突、覆盖率与模板升级
+/knowledge-bootstrap         # 初始化 .claude/knowledge/ 骨架（支持 monorepo）
+/knowledge-update            # 交互式沉淀 7 段 code-spec 或 thinking guide
+/knowledge-review            # 只读扫描 7 段完整性、过期、冲突、canonical 对账
 ```
 
 ---
@@ -1581,7 +1696,7 @@ git worktree prune
 ## 参考资料
 
 - `README.md`
-- `core/commands/team.md`（显式 team command 入口）
+- `core/commands/team.md`（/team 命令定义，Claude Code 原生 Agent Teams）
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
 - `core/commands/git-rollback.md`
@@ -1595,14 +1710,11 @@ git worktree prune
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
 - `core/skills/session-review/SKILL.md`
-- `core/skills/team/SKILL.md`
-- `core/skills/team-workflow/SKILL.md`
 - `core/skills/knowledge-bootstrap/SKILL.md`
 - `core/skills/knowledge-update/SKILL.md`
-- `core/skills/knowledge-check/SKILL.md`
 - `core/skills/knowledge-review/SKILL.md`
 - `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
-- `core/specs/team-runtime/overview.md`
 - `core/specs/knowledge-templates/`（knowledge 模板源）
+- `core/hooks/team-idle.js`、`core/hooks/team-task-guard.js`（原生 Agent Teams 的任务板守门与自动清理）
 - `docs/workflow-hooks.md`（Workflow Hook Guardrails 详细文档）
 - `docs/worktree-hooks.md`（Worktree 串行化 Hook 详细文档）

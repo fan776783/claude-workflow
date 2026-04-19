@@ -230,7 +230,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 state.json → ⑤Journal（条件） → 下一 Task
 ```
 
-> Knowledge 沉淀已从执行阶段移除。如在本次实现中发现值得沉淀的内容，完成工作流后使用 `/knowledge-update` 显式捕获；违规检查由 `workflow-review` Stage 1 的 `/knowledge-check` 硬卡口负责。
+> Knowledge 沉淀已从执行阶段移除。如在本次实现中发现值得沉淀的内容，完成工作流后使用 `/knowledge-update` 显式捕获，由 `workflow-review` Stage 1 的人工对照审查兜底。
 
 | 步骤 | 名称 | 关键规则 |
 |------|------|----------|

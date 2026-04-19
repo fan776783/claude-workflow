@@ -102,27 +102,19 @@ function determineNextAction(state) {
  * @returns {string} 护栏规则描述
  */
 function determineGuardrail(state) {
-  if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行；普通会话不得继承或恢复任何 team context。'
+  if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行。'
   const gateViolation = getSpecReviewGateViolation(state)
   if (gateViolation) return 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。'
   const status = state.status || 'idle'
-  if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划，也不得混入 team context。'
+  if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。'
   if (status === 'planning') return 'Guardrail：Plan 生成中，禁止派发执行型 Task 或进入 execute 路径；如长时间停留请重新 `/workflow-plan`。'
-  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现，也不得切换到 team 语义。'
-  if (status === 'running' || status === 'paused') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡；普通 workflow 会话忽略 team runtime。'
-  if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务，也不得继承 team context。'
-  if (status === 'blocked') return 'Guardrail：阻塞态需先 unblock，不能把“继续”解释为直接执行或 team 恢复。'
-  if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行，也不读取 team runtime。'
-  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`；team runtime 不会自动继承到普通会话。'
-  return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门；非 `/team` 路径必须忽略 team runtime。'
-}
-
-/**
- * 生成 team 模式护栏提示，防止普通会话误读 team runtime
- * @returns {string} team 护栏规则描述
- */
-function determineTeamGuardrail() {
-  return 'Guardrail：普通 session / workflow 只读取 workflow runtime，不继承 team runtime 的 team_id、team_name、worker_roster、dispatch_batches 或 review 状态；只有显式 `/team start|execute|status|archive|cleanup` 才允许读取 team-state.json。`/team cleanup` 还必须显式提供 teamId。'
+  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现。'
+  if (status === 'running' || status === 'paused') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。'
+  if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
+  if (status === 'blocked') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
+  if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。'
+  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`。'
+  return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。'
 }
 
 /**
@@ -182,10 +174,6 @@ function main() {
   parts.push(determineGuardrail(state))
   parts.push('</workflow-guardrail>')
 
-  parts.push('<team-guardrail>')
-  parts.push(determineTeamGuardrail())
-  parts.push('</team-guardrail>')
-
   if (specs) {
     parts.push('<project-specs>')
     parts.push(specs)
@@ -201,9 +189,10 @@ function main() {
     parts.push('</thinking-guides>')
   }
 
-  const knowledge = getKnowledgeContext(projectRoot)
+  // Session start 时尚无 active task，保留全树视角，但收紧预算避免早期占用上下文
+  const knowledge = getKnowledgeContext(projectRoot, 2000, { rootIndexBudget: 200, layerIndexBudget: 120 })
   if (knowledge) {
-    parts.push('<project-knowledge role="advisory">')
+    parts.push('<project-knowledge role="advisory" scope="overview">')
     parts.push(knowledge)
     parts.push('</project-knowledge>')
   }

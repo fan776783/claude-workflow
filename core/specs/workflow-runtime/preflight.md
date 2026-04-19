@@ -38,7 +38,7 @@
 - **不存在** → 自动生成最小配置：
   - `project.id`：必须通过 CLI 计算，禁止手动 shell 命令（如 `echo | md5sum`）拼接。CLI 内部对路径执行 `path.resolve()` + `.toLowerCase()` 后再取 MD5 前 12 位，手动计算极易因路径规范化差异产生不一致。自动生成最小配置时使用：
     ```bash
-    node -e "const {stableProjectId}=require('./core/utils/team/planning-support');console.log(stableProjectId(process.cwd()))"
+    node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds');console.log(stableProjectId(process.cwd()))"
     ```
   - `project.name`：当前目录名
   - `tech`：全部标记为 `unknown`

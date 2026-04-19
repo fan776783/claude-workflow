@@ -2,77 +2,94 @@
 
 > {{one_line_description}}
 >
-> **Layer**: frontend | backend
+> **Package / Layer**: {{package}} / {{layer}}
 > **Last Updated**: {{date}}
+
+> **必填字段说明**
+> 本 spec 的 7 段都必须有具体内容。占位符需被真实的文件路径 / 命令名 / API 名 / 字段名 / 测试名替换。
+> 段落为空或只有抽象描述属于未完成状态，`/knowledge-review` 会在 7 段 lint 中列出。
 
 ## 1. Scope / Trigger
 
-- Trigger: {{why_this_needs_code_spec_depth}}
-- Applies to: {{files_or_directories}}
+- **Trigger**（什么样的变更触发本 spec）: {{describe_change_scenario}}
+- **Applies to**（具体文件 / 目录 glob）: `{{file_path_or_glob}}`
 
 ## 2. Signatures
 
-- {{signature_list_with_types}}
+**必填**：具体文件路径 + 命令名 / API 名 / 数据库表名，不要写成抽象描述。
+
+- File: `{{path/to/file.ext}}`
+- Name: `{{command_or_api_or_table_name}}`
 
 ```{{lang}}
-// 代表性签名
-{{signature_example}}
+{{signature_code}}
 ```
 
 ## 3. Contracts
 
+**必填**：字段级清单（字段名 + 类型 + 必需性），不要写 "返回 JSON" 之类笼统描述。
+
 ### Request / Input
 
-| 字段 | 类型 | 约束 |
-|------|------|------|
-| {{field}} | {{type}} | {{constraints}} |
+| 字段 | 类型 | 必需 | 约束 |
+|------|------|------|------|
+| `{{field_name}}` | `{{type}}` | yes/no | {{constraints}} |
 
 ### Response / Output
 
-| 字段 | 类型 | 约束 |
-|------|------|------|
-| {{field}} | {{type}} | {{constraints}} |
+| 字段 | 类型 | 必需 | 约束 |
+|------|------|------|------|
+| `{{field_name}}` | `{{type}}` | yes/no | {{constraints}} |
 
 ### Environment / Config
 
-| Key | Required | 说明 |
-|-----|----------|------|
-| {{key}} | yes/no | {{description}} |
+| Key | 必需 | 说明 |
+|-----|------|------|
+| `{{ENV_VAR_NAME}}` | yes/no | {{description}} |
 
 ## 4. Validation & Error Matrix
 
-| 条件 | 行为 |
-|------|------|
-| {{condition}} | {{result_or_error}} |
+| 输入条件 | 错误码 / 行为 | 错误消息 |
+|---------|-------------|---------|
+| `{{condition}}` | `{{error_code_or_action}}` | `{{message}}` |
 
 ## 5. Good / Base / Bad Cases
 
-- **Good**：{{description}}
-- **Base**：{{description}}
-- **Bad**：{{description}}
+### Good（正确路径）
+
+**场景**：{{scenario_description}}
 
 ```{{lang}}
-// Good
-{{good_example}}
+{{good_example_code}}
 ```
 
-```{{lang}}
-// Base
-{{base_example}}
-```
+### Base（边界情况）
+
+**场景**：{{scenario_description}}
 
 ```{{lang}}
-// Bad
-{{bad_example}}
+{{base_example_code}}
+```
+
+### Bad（错误输入）
+
+**场景**：{{scenario_description}}
+
+```{{lang}}
+{{bad_example_code}}
 ```
 
 ## 6. Tests Required
 
-| 测试 | 断言点 |
-|------|--------|
-| {{test_name}} | {{assertion}} |
+**必填**：具体到测试文件 + 测试名 + 断言内容。
+
+| 测试文件 | 测试名 | 断言点 |
+|---------|-------|-------|
+| `{{tests/path/to/test.ext}}` | `{{test_name}}` | {{assertion_description}} |
 
 ## 7. Wrong vs Correct
+
+至少一对 bad → good 对比。
 
 ### Wrong
 
@@ -88,32 +105,4 @@
 {{correct_example}}
 ```
 
----
-
-## Machine-checkable Rules
-
-> 机读规则由 `/knowledge-check` 在 review 阶段强制校验。每条规则写成独立代码块，语法如下：
->
-> ```yaml
-> # forbid：diff 命中该 pattern → blocking
-> # require：新增或修改的文件必须包含该 pattern → blocking
-> # warn：命中作为 warning，不阻塞
-> id: {{rule_id}}
-> severity: blocking | warning
-> kind: forbid | require | warn
-> pattern: "{{regex}}"
-> applies_to: "**/*.ts"   # glob，可选，默认所有变更文件
-> message: "{{human_readable_reason}}"
-> ```
->
-> 无 `## Machine-checkable Rules` 小节的文件仅作为 advisory 注入，不参与硬卡口。
-
-```yaml
-# 示例
-id: forbid-any-type
-severity: blocking
-kind: forbid
-pattern: ":\\s*any\\b"
-applies_to: "**/*.{ts,tsx}"
-message: "禁止使用 any 类型，请使用具体类型或 unknown"
-```
+**Why it's correct**：{{reason}}

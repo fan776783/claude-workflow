@@ -29,7 +29,7 @@ const {
 } = require('./state_manager')
 const { detectProjectId, detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
 const { parseTasksV2, taskToDict } = require('./task_parser')
-const { getKnowledgeContext, getKnowledgeFiles } = require('./task_runtime')
+const { getKnowledgeContext, getKnowledgeContextScoped, getKnowledgeFiles } = require('./task_runtime')
 const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
@@ -421,7 +421,32 @@ function buildPRDCoverageReport(items, specContent) {
   }
 }
 
-function buildTaskBlock(entry, index, allEntries = []) {
+// 推断 plan 任务块应挂的 package。
+// 单包项目回退链：project.name → package.json#name → 仓库目录名（与 knowledge_bootstrap.resolvePackages 对齐）。
+// Monorepo 回退链：config.monorepo.defaultPackage → config.monorepo.packages[0]。
+// 两条链都是"给 plan 生成器一个**可落地**的默认值，避免生成出无 Package 的任务块"；
+// 与 runtime resolver 的"monorepo 不推断默认包"契约区别是：plan 阶段是一次性编译，无 active task，
+// 选错了的代价是 `/knowledge-before-dev` 读错 subtree（soft-fail 到全树），不是破坏状态机。
+function inferTaskPackage(projectRoot, config) {
+  const type = ((config || {}).project || {}).type
+  if (type === 'monorepo') {
+    const mono = (config || {}).monorepo || {}
+    const def = mono.defaultPackage
+    if (def && String(def).trim()) return String(def).trim()
+    const list = Array.isArray(mono.packages) ? mono.packages : []
+    const first = list.find((item) => item && String(item).trim())
+    return first ? String(first).trim() : ''
+  }
+  const configName = ((config || {}).project || {}).name
+  if (configName && String(configName).trim()) return String(configName).trim()
+  try {
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'))
+    if (pkgJson && pkgJson.name) return String(pkgJson.name).replace(/^@[^/]+\//, '')
+  } catch { /* ignore */ }
+  return path.basename(path.resolve(projectRoot))
+}
+
+function buildTaskBlock(entry, index, allEntries = [], pkg = '') {
   const taskId = `T${index + 1}`
   const depends = index > 0 ? [`T${index}`] : []
   const fileSlug = entry.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -438,9 +463,10 @@ function buildTaskBlock(entry, index, allEntries = []) {
     `  - A3: 运行验证并核对 ${entry.id} → 确认 requirement_ids / 关键约束 / 验收项一致（验证：相关检查全部通过）`,
   ].join('\n')
   const criticalConstraints = (entry.protected_details && entry.protected_details.length ? entry.protected_details : ['保持现有功能不受影响']).join(', ')
+  const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
   return `## ${taskId}: 实现 ${entry.id} ${entry.summary}
 - **阶段**: implement
-- **Spec 参考**: ${entry.spec_section}, §7
+${packageLine}- **Spec 参考**: ${entry.spec_section}, §7
 - **Plan 参考**: P${index + 1}
 - **需求 ID**: ${entry.id}
 - **创建文件**: ${fileBucket}/${fileSlug}.ts
@@ -459,11 +485,12 @@ ${steps}
 `
 }
 
-function buildPlanTasks(requirementCoverage = []) {
+function buildPlanTasks(requirementCoverage = [], pkg = '') {
   if (!requirementCoverage.length) {
+    const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
     return `## T1: 实现核心需求
 - **阶段**: implement
-- **Spec 参考**: §2, §5, §7
+${packageLine}- **Spec 参考**: §2, §5, §7
 - **Plan 参考**: P1
 - **需求 ID**: R-001
 - **创建文件**: src/shared/r-001.ts
@@ -482,7 +509,7 @@ function buildPlanTasks(requirementCoverage = []) {
 - **验证期望**: PASS
 `
   }
-  return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries)).join('\n')
+  return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries, pkg)).join('\n')
 }
 
 function inferPlanRelativeFromSpec(specRelative, taskName) {
@@ -603,7 +630,10 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
 
   const requirementItems = extractRequirementItems(requirementText, summary)
   const requirementCoverage = buildRequirementCoverage(requirementItems)
-  const knowledgeConstraints = getKnowledgeContext(root, 1500) || ''
+  const planPackage = inferTaskPackage(root, config)
+  const knowledgeConstraints = (planPackage
+    ? getKnowledgeContextScoped(root, { activePackage: planPackage, source: 'config' }, 1500)
+    : getKnowledgeContext(root, 1500)) || ''
 
   const renderedSpecContent = renderTemplate(specTemplate, {
     requirement_source: requirementSource,
@@ -642,7 +672,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
       files_modify: '- 无',
       files_test: '- 无',
       requirement_coverage: renderRequirementCoverage(planRequirementCoverage),
-      tasks: buildPlanTasks(planRequirementCoverage),
+      tasks: buildPlanTasks(planRequirementCoverage, planPackage),
     })
     : null
 
@@ -827,6 +857,7 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   const templateRoot = path.resolve(__dirname, '..', '..', 'specs', 'workflow-templates')
   const planTemplate = fs.readFileSync(path.join(templateRoot, 'plan-template.md'), 'utf8')
   const requirementCoverage = buildRequirementCoverageFromSpec(specContent)
+  const resumePlanPackage = inferTaskPackage(root, config)
   const planContent = renderTemplate(planTemplate, {
     requirement_source: requirementSource,
     created_at: new Date().toISOString(),
@@ -842,7 +873,7 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
     files_modify: '- 无',
     files_test: '- 无',
     requirement_coverage: renderRequirementCoverage(requirementCoverage),
-    tasks: buildPlanTasks(requirementCoverage),
+    tasks: buildPlanTasks(requirementCoverage, resumePlanPackage),
   })
   const parsedTasks = parseTasksV2(planContent)
   if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析', project_id: resolvedProjectId }

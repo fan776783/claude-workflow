@@ -197,5 +197,4 @@ phase-2-plan-generation.md → No-TBD HARD-GATE
 | `workflow-execute` | SKILL.md 52 行索引页 + specs/ 多文件 | 合并为完整行动指南，同 workflow-plan |
 | `workflow-review` | specs/execute/ 下 subagent-review.md 较长 | 精简伪代码，CLI 接管审查状态写入 |
 | `workflow-delta` | 中等体量 | 检查 JSON 构造是否可由 CLI 接管 |
-| `team-workflow` | 引用较多外部文档 | 检查前置加载情况 |
 | `scan` | 295 行，含伪代码 | 声明式替代 |

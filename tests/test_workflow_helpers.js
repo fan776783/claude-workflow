@@ -27,9 +27,6 @@ const batchOrchestrator = require(path.join(workflowDir, 'batch_orchestrator.js'
 const docContracts = require(path.join(workflowDir, 'doc_contracts.js'))
 const installer = require(path.join(repoRoot, 'lib', 'installer.js'))
 const interactiveInstaller = require(path.join(repoRoot, 'lib', 'interactive-installer.js'))
-const teamLifecycle = require(path.join(repoRoot, 'core', 'utils', 'team', 'lifecycle.js'))
-const teamStateManager = require(path.join(repoRoot, 'core', 'utils', 'team', 'state-manager.js'))
-const teamCliScript = path.join(repoRoot, 'core', 'utils', 'team', 'team-cli.js')
 const sessionStartHook = path.join(repoRoot, 'core', 'hooks', 'session-start.js')
 const preExecuteHook = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
 
@@ -146,48 +143,6 @@ function createWorkflowPlan(home, projectId = 'proj-test', planName = 'tasks.md'
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.writeFileSync(planPath, content)
   return planPath
-}
-
-function createTeamRuntimeArtifacts(home, root, projectId, teamId, { status = 'planning', teamName = teamId } = {}) {
-  const workflowsTeamDir = path.join(home, '.claude', 'workflows', projectId, 'teams', teamId)
-  const taskBoardPath = path.join(workflowsTeamDir, 'team-task-board.json')
-  const specRelative = path.join('.claude', 'specs', `${teamId}.team.md`)
-  const planRelative = path.join('.claude', 'plans', `${teamId}.team.md`)
-  const specPath = path.join(root, specRelative)
-  const planPath = path.join(root, planRelative)
-
-  fs.mkdirSync(path.dirname(specPath), { recursive: true })
-  fs.mkdirSync(path.dirname(planPath), { recursive: true })
-  fs.mkdirSync(workflowsTeamDir, { recursive: true })
-
-  fs.writeFileSync(specPath, `# Team Spec\nTEAM-ONLY:${teamId}\n`)
-  fs.writeFileSync(planPath, `# Team Plan\nTEAM-ONLY:${teamId}\n`)
-  fs.writeFileSync(taskBoardPath, '[]\n')
-
-  const statePath = path.join(workflowsTeamDir, 'team-state.json')
-  fs.writeFileSync(statePath, JSON.stringify({
-    project_id: projectId,
-    team_id: teamId,
-    team_name: teamName,
-    status,
-    team_phase: status === 'archived' ? 'archived' : 'team-plan',
-    spec_file: specRelative,
-    plan_file: planRelative,
-    team_tasks_file: taskBoardPath,
-    worker_roster: [{ name: 'leader', writable: false }],
-    team_review: { overall_passed: status === 'archived', reviewed_at: null, notes: [] },
-    fix_loop: { attempt: 0, current_failed_boundaries: [] },
-    governance: {
-      explicit_invocation_only: true,
-      auto_trigger_allowed: false,
-      parallel_dispatch_mode: 'internal-team-only',
-    },
-    activation: { mode: 'explicit-team-command', entry: 'team', auto_trigger_allowed: false },
-    created_at: '2026-04-08T00:00:00.000Z',
-    updated_at: '2026-04-08T00:00:00.000Z',
-  }, null, 2))
-
-  return statePath
 }
 
 function runHook(script, input, options = {}) {
@@ -1063,71 +1018,6 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(trigger.source, 'packages\\api\\lib\\autogen\\teamApi.ts')
   })
 
-  await t.test('session-start ignores active team runtime artifacts for ordinary workflow context', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-team-isolation-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    fs.mkdirSync(path.join(root, '.claude', 'specs'), { recursive: true })
-    fs.writeFileSync(path.join(root, '.claude', 'specs', 'index.md'), '# Workflow Spec Index\nWORKFLOW-ONLY\n')
-
-    withHome(home, () => {
-      createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
-      createTeamRuntimeArtifacts(home, root, 'proj-test', 'superpowers-analysis', { status: 'planning' })
-
-      const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
-      assert.equal(sessionResult.status, 0)
-      assert.match(sessionResult.stdout, /<workflow-context>/)
-      assert.match(sessionResult.stdout, /WORKFLOW-ONLY/)
-      assert.doesNotMatch(sessionResult.stdout, /TEAM-ONLY:superpowers-analysis/)
-      assert.doesNotMatch(sessionResult.stdout, /superpowers-analysis/)
-      assert.doesNotMatch(sessionResult.stdout, /team-plan/)
-    })
-  })
-
-  await t.test('archived team runtime artifacts do not bleed into ordinary workflow session start', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-team-archived-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    fs.mkdirSync(path.join(root, '.claude', 'specs'), { recursive: true })
-    fs.writeFileSync(path.join(root, '.claude', 'specs', 'index.md'), '# Workflow Spec Index\nWORKFLOW-ONLY\n')
-
-    withHome(home, () => {
-      createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
-      createTeamRuntimeArtifacts(home, root, 'proj-test', 'none', { status: 'archived', teamName: 'none' })
-
-      const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
-      assert.equal(sessionResult.status, 0)
-      assert.match(sessionResult.stdout, /显式 `\/workflow-execute`|显式 \/workflow-execute/)
-      assert.match(sessionResult.stdout, /team-guardrail/)
-      assert.doesNotMatch(sessionResult.stdout, /TEAM-ONLY:none/)
-      assert.doesNotMatch(sessionResult.stdout, /项目: none/)
-      assert.doesNotMatch(sessionResult.stdout, /superpowers-analysis/)
-    })
-  })
-
-  await t.test('team CLI auto-resolves active runtime only for explicit team commands', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-team-cli-'))
-    const [extraEnv, home] = makeCliEnv(tmpRoot)
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-
-    createTeamRuntimeArtifacts(home, root, 'proj-test', 'superpowers-analysis', { status: 'planning' })
-
-    const statusResult = runNode(path.join(repoRoot, 'core', 'utils', 'team', 'team-cli.js'), ['status', '--project-id', 'proj-test', '--project-root', root], { cwd: root, env: extraEnv })
-    assert.equal(statusResult.status, 0, statusResult.stderr)
-    const statusPayload = JSON.parse(statusResult.stdout)
-    assert.equal(statusPayload.team_id, 'superpowers-analysis')
-    assert.equal(statusPayload.team_name, 'superpowers-analysis')
-    assert.equal(statusPayload.governance.explicit_invocation_only, true)
-  })
-
   await t.test('session-start and task/quality hooks enforce workflow guardrails', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-hooks-'))
     const home = path.join(tmpRoot, 'home')
@@ -1153,7 +1043,6 @@ test('workflow helper migration coverage', async (t) => {
       const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
       assert.equal(sessionResult.status, 0)
       assert.match(sessionResult.stdout, /workflow-guardrail/)
-      assert.match(sessionResult.stdout, /team-guardrail/)
       assert.match(sessionResult.stdout, /不能直接进入实现|显式 `\/workflow-execute`|显式 \/workflow-execute/)
 
       const blockedTask = runHook(preExecuteHook, {
@@ -1212,147 +1101,6 @@ test('workflow helper migration coverage', async (t) => {
       assert.match(injectedPayload.message, /已注入任务上下文/)
       assert.match(injectedPayload.tool_input.description, /verification-commands/)
       assert.match(injectedPayload.tool_input.description, /quality-gate-state/)
-      assert.match(injectedPayload.tool_input.description, /team-guardrail/)
-
-      const teamContextBlocked = runHook(preExecuteHook, {
-        tool_name: 'Task',
-        tool_input: { description: '执行 T1', team_id: 'alpha-team', team_name: 'Alpha Team' },
-      }, { cwd: root, env: { HOME: home } })
-      const teamContextBlockedPayload = JSON.parse(teamContextBlocked.stdout)
-      assert.equal(teamContextBlockedPayload.continue, false)
-      assert.match(teamContextBlockedPayload.reason, /禁止透传 team 上下文字段/)
-
-
-    })
-  })
-
-  await t.test('team runtime requires explicit invocation and rejects reserved team identifiers', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-runtime-guard-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    createTeamRuntimeArtifacts(home, root, 'proj-test', 'team-alpha')
-
-    withHome(home, () => {
-      const executeWithoutSource = teamLifecycle.cmdTeamExecute({ projectRoot: root })
-      assert.equal(executeWithoutSource.error, 'team runtime 仅允许通过显式 /team 或 team-workflow 入口访问')
-
-      const statusWithoutSource = teamLifecycle.cmdTeamStatus({ projectRoot: root })
-      assert.equal(statusWithoutSource.error, 'team runtime 仅允许通过显式 /team 或 team-workflow 入口访问')
-
-      const archiveWithoutSource = teamLifecycle.cmdTeamArchive({ projectRoot: root })
-      assert.equal(archiveWithoutSource.error, 'team runtime 仅允许通过显式 /team 或 team-workflow 入口访问')
-
-      const executeReserved = teamLifecycle.cmdTeamExecute({ projectRoot: root, teamId: 'none', invocationSource: 'team-command' })
-      assert.equal(executeReserved.error, 'team_id 包含保留哨兵值，疑似上层传入了脏 team 上下文')
-
-      const cliStatus = runNode(teamCliScript, ['status', '--project-id', 'proj-test', '--project-root', root], { cwd: root, env: { HOME: home } })
-      assert.equal(cliStatus.status, 0, cliStatus.stderr)
-      const cliStatusPayload = JSON.parse(cliStatus.stdout)
-      assert.equal(cliStatusPayload.team_id, 'team-alpha')
-      assert.equal(cliStatusPayload.governance.explicit_invocation_only, true)
-    })
-  })
-
-  await t.test('workflow hooks ignore team runtime and reject inherited team fields', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-team-isolation-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    fs.mkdirSync(path.join(root, '.claude', 'specs'), { recursive: true })
-    fs.writeFileSync(path.join(root, '.claude', 'specs', 'index.md'), '# Spec Index\n')
-    createTeamRuntimeArtifacts(home, root, 'proj-test', 'team-superpowers', { teamName: 'superpowers-analysis' })
-
-    withHome(home, () => {
-      const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
-      assert.equal(sessionResult.status, 0)
-      assert.match(sessionResult.stdout, /team-guardrail/)
-      assert.doesNotMatch(sessionResult.stdout, /superpowers-analysis/)
-      assert.doesNotMatch(sessionResult.stdout, /team-superpowers/)
-
-      const noWorkflowTask = runHook(preExecuteHook, {
-        tool_name: 'Task',
-        tool_input: { description: '执行普通任务', team_name: 'superpowers-analysis' },
-      }, { cwd: root, env: { HOME: home } })
-      assert.equal(noWorkflowTask.status, 0)
-      const noWorkflowPayload = JSON.parse(noWorkflowTask.stdout)
-      assert.equal(noWorkflowPayload.continue, true)
-      assert.match(noWorkflowPayload.message, /已忽略 team 上下文字段/)
-      assert.equal(noWorkflowPayload.tool_input.team_name, undefined)
-      assert.equal(noWorkflowPayload.tool_input.description, '执行普通任务')
-
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
-      const runningState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      runningState.tasks_file = 'tasks.md'
-      runningState.quality_gates = { T1: { overall_passed: true, last_decision: 'pass' } }
-      fs.writeFileSync(statePath, JSON.stringify(runningState, null, 2))
-      createWorkflowPlan(home, 'proj-test', 'tasks.md', '## T1: 执行任务\n- **actions**: edit_file\n- **验证命令**: node -e "process.exit(0)"\n')
-
-      const inheritedTeamTask = runHook(preExecuteHook, {
-        tool_name: 'Task',
-        tool_input: { description: '执行 T1', team_name: 'superpowers-analysis' },
-      }, { cwd: root, env: { HOME: home } })
-      const inheritedTeamPayload = JSON.parse(inheritedTeamTask.stdout)
-      assert.equal(inheritedTeamPayload.continue, false)
-      assert.match(inheritedTeamPayload.reason, /禁止透传 team 上下文字段/)
-    })
-  })
-
-  await t.test('team cleanup requires archived runtime and preserves repo artifacts', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-runtime-cleanup-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    const archivedStatePath = createTeamRuntimeArtifacts(home, root, 'proj-test', 'team-cleanup', { status: 'archived' })
-    const runtimeDir = path.dirname(archivedStatePath)
-    const repoSpec = path.join(root, '.claude', 'specs', 'team-cleanup.team.md')
-    const repoPlan = path.join(root, '.claude', 'plans', 'team-cleanup.team.md')
-
-    withHome(home, () => {
-      const cleanupWithoutSource = teamLifecycle.cmdTeamCleanup({ projectRoot: root, projectId: 'proj-test', teamId: 'team-cleanup' })
-      assert.equal(cleanupWithoutSource.error, 'team runtime 仅允许通过显式 /team 或 team-workflow 入口访问')
-
-      const cleanupMissingId = teamLifecycle.cmdTeamCleanup({ projectRoot: root, projectId: 'proj-test', invocationSource: 'team-command' })
-      assert.equal(cleanupMissingId.error, '缺少 teamId；/team cleanup 只允许显式指定已归档的目标 runtime')
-
-      const cleanupReserved = teamLifecycle.cmdTeamCleanup({ projectRoot: root, projectId: 'proj-test', teamId: 'none', invocationSource: 'team-command' })
-      assert.equal(cleanupReserved.error, 'team_id 包含保留哨兵值，疑似上层传入了脏 team 上下文')
-
-      const cleanupResult = teamLifecycle.cmdTeamCleanup({ projectRoot: root, projectId: 'proj-test', teamId: 'team-cleanup', invocationSource: 'team-command' })
-      assert.equal(cleanupResult.cleaned, true)
-      assert.equal(fs.existsSync(runtimeDir), false)
-      assert.equal(fs.existsSync(repoSpec), true)
-      assert.equal(fs.existsSync(repoPlan), true)
-    })
-  })
-
-  await t.test('team cleanup rejects non-archived runtime and CLI cleanup works for archived target', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'team-runtime-cleanup-cli-'))
-    const home = path.join(tmpRoot, 'home')
-    const root = path.join(tmpRoot, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(root, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-    createTeamRuntimeArtifacts(home, root, 'proj-test', 'team-running', { status: 'planning' })
-    createTeamRuntimeArtifacts(home, root, 'proj-test', 'team-archived', { status: 'archived' })
-
-    withHome(home, () => {
-      const cleanupRunning = teamLifecycle.cmdTeamCleanup({ projectRoot: root, projectId: 'proj-test', teamId: 'team-running', invocationSource: 'team-command' })
-      assert.equal(cleanupRunning.error, 'cannot cleanup non-archived team runtime')
-      assert.equal(cleanupRunning.next_action, 'archive-team-runtime-first')
-
-      const cliCleanup = runNode(teamCliScript, ['cleanup', '--project-id', 'proj-test', '--project-root', root, '--team-id', 'team-archived'], { cwd: root, env: { HOME: home } })
-      assert.equal(cliCleanup.status, 0, cliCleanup.stderr)
-      const cliCleanupPayload = JSON.parse(cliCleanup.stdout)
-      assert.equal(cliCleanupPayload.cleaned, true)
-      assert.equal(cliCleanupPayload.team_id, 'team-archived')
-      assert.equal(fs.existsSync(path.join(home, '.claude', 'workflows', 'proj-test', 'teams', 'team-archived')), false)
     })
   })
 
@@ -1989,6 +1737,63 @@ test('workflow helper migration coverage', async (t) => {
     assert.doesNotMatch(ctx, /<system-reminder>/)
     assert.match(ctx, /&lt;\/project-knowledge&gt;/)
     assert.match(ctx, /&lt;\/?system/)
+  })
+
+  await t.test('parseTasksV2 drops malformed or duplicate Package values', () => {
+    // 单条合法值
+    const single = taskParser.parseTasksV2('## T1: x\n- **Package**: my-app\n')[0]
+    assert.equal(single.package, 'my-app')
+
+    // 重复行 → 静默置空（不采信首值）
+    const dup = taskParser.parseTasksV2('## T1: x\n- **Package**: first\n- **Package**: second\n')[0]
+    assert.equal(dup.package, '')
+
+    // 含路径分隔符 → 拒绝
+    const slash = taskParser.parseTasksV2('## T1: x\n- **Package**: foo/bar\n')[0]
+    assert.equal(slash.package, '')
+
+    // 路径跳转 → 拒绝
+    const dotdot = taskParser.parseTasksV2('## T1: x\n- **Package**: ..\n')[0]
+    assert.equal(dotdot.package, '')
+
+    // 含反斜杠 → 拒绝
+    const backslash = taskParser.parseTasksV2('## T1: x\n- **Package**: foo\\\\bar\n')[0]
+    assert.equal(backslash.package, '')
+
+    // 合法字符集（字母/数字/连字符/下划线/点）全部通过
+    const allowed = taskParser.parseTasksV2('## T1: x\n- **Package**: pkg_1.v2-alpha\n')[0]
+    assert.equal(allowed.package, 'pkg_1.v2-alpha')
+  })
+
+  await t.test('resolveActiveKnowledgeScope rejects malicious package names', () => {
+    // 恶意 task.package → 回退到下一级
+    const runtime = { projectRoot: repoRoot, currentTask: { package: '../evil' } }
+    const scope = taskRuntime.resolveActiveKnowledgeScope(runtime, { project: { name: 'test-repo', type: 'single' } })
+    assert.equal(scope.source, 'config')
+    assert.equal(scope.activePackage, 'test-repo')
+
+    // flag 含分隔符 → 忽略 flag，走 task
+    const scope2 = taskRuntime.resolveActiveKnowledgeScope(
+      { projectRoot: repoRoot, currentTask: { package: 'valid-pkg' } },
+      { project: { name: 'test-repo', type: 'single' } },
+      { package: 'foo/bar' }
+    )
+    assert.equal(scope2.source, 'task')
+    assert.equal(scope2.activePackage, 'valid-pkg')
+
+    // monorepo 且无 active task → 不推断默认包
+    const scope3 = taskRuntime.resolveActiveKnowledgeScope(
+      { projectRoot: repoRoot },
+      { project: { name: 'mono', type: 'monorepo' }, monorepo: { packages: ['a', 'b'] } }
+    )
+    assert.equal(scope3.activePackage, null)
+  })
+
+  await t.test('getKnowledgeContextScoped ignores malformed scope payload', () => {
+    // 即使构造出恶意 scope，入口兜底应拒绝并走 fallback 到全树或 null
+    // 当前项目无 .claude/knowledge/ → null（合规）
+    const ctx = taskRuntime.getKnowledgeContextScoped(repoRoot, { activePackage: '../../tmp', source: 'task' }, 1000)
+    assert.equal(ctx, null)
   })
 
   await t.test('integration branch names are namespaced by projectId', () => {

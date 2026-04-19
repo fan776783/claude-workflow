@@ -30,6 +30,7 @@ function createWorkflowTaskV2(data = {}) {
     id: data.id || '',
     name: data.name || '',
     phase: data.phase || 'implement',
+    package: data.package ? String(data.package).trim() : '',
     files: createTaskFiles(data.files),
     leverage: [...(data.leverage || [])],
     spec_ref: data.spec_ref || '§Unknown',
@@ -58,6 +59,22 @@ function extractField(body, fieldName) {
   const match = pattern.exec(String(body || ''))
   if (!match) return null
   return match[1].replace(/`/g, '').trim()
+}
+
+// Package 字段白名单：仅允许 [A-Za-z0-9_.-]，拒绝路径分隔符与路径跳转。
+// 与 task_runtime.isValidPackageName 保持一致（该校验挪不到 task_runtime 是因为这里是消费侧防线）。
+const PACKAGE_FIELD_PATTERN = /^[A-Za-z0-9_.-]+$/
+function extractPackageField(body) {
+  const raw = String(body || '')
+  // 检测重复 Package 行：≥2 次视为 plan 手工编辑出错，静默置空不要信任首值。
+  const pattern = /^\s*-?\s*\*\*Package\*\*\s*:\s*(.+?)$/gim
+  const matches = [...raw.matchAll(pattern)]
+  if (matches.length > 1) return ''
+  if (matches.length === 0) return ''
+  const value = matches[0][1].replace(/`/g, '').trim()
+  if (!value || value === '.' || value === '..') return ''
+  if (!PACKAGE_FIELD_PATTERN.test(value)) return ''
+  return value
 }
 
 function extractListField(body, fieldName) {
@@ -130,6 +147,7 @@ function parseTasksV2(content) {
       id: taskId,
       name,
       phase: extractField(body, '阶段') || 'implement',
+      package: extractPackageField(body) || '',
       files: parseTaskFiles(body),
       leverage: extractListField(body, '复用'),
       spec_ref: extractField(body, 'Spec 参考') || '§Unknown',

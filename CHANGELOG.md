@@ -9,19 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Knowledge 设计全量对齐 Trellis)
+
+- **目录布局**：`.claude/knowledge/` 从顶层 `{frontend, backend, guides}/` 切换为二维 `{pkg}/{layer}/` + 共享 `guides/`，单包项目也走单例 `{project-name}/{layer}/` 布局
+- **Code-spec 结构**：统一采用 Trellis 7 段合约（Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct），每段必填具体文件路径 / API 名 / 字段名 / 测试名，不接受抽象描述
+- **模板**：`layer-index-template.md` 升级为 4 段（Overview · Guidelines Index · Pre-Development Checklist · Quality Check）；新增 `guides-index-template.md` 6 段（含 Pre-Modification Rule、How to Use This Directory、Contributing）；`local-template.md` 按 package × layer 重写
+- **Skill 行为**：
+  - `/knowledge-bootstrap` 支持 `monorepo.packages` 自动判 package，缺省时自动从 `pnpm-workspace.yaml` / `package.json#workspaces` / `lerna.json` 解析 workspace；新增 `--reset` 破坏性重建；检测到旧顶层布局则报错不自动迁移
+  - `/knowledge-update` 删除 6 类片段交互分支，改为 7 段 code-spec 或 thinking guide 引导
+  - `/knowledge-review` 升级为 7 段完整性 lint + canonical / manifest 对账
+
+### Changed (/team 迁移到 Claude Code 原生 Agent Teams)
+
+- `/team` 命令不再由独立 skill + team-runtime 承接，直接调用 Claude Code 原生 Agent Teams
+- 命令行为统一由 `core/commands/team.md` 定义，要求 Claude Code ≥ v2.1.32 且 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，启动前做 preflight，不满足直接拒绝
+- 收尾协议：Lead 收到队友的"任务板已清空"message 后执行 `clean up team`；失败时通过 `AskUserQuestion` 弹出 `retry_cleanup / force_cleanup / keep_team` 三个快捷选项
+- 官方硬约束被显式写入命令与 `core/CLAUDE.md`：一会话一个 team、不可嵌套、Lead 固定不可转移、权限 spawn 时继承不可按队友设置
+- `/team` 仅在用户显式输入时生效；`/workflow-*` / `/quick-plan` / `dispatching-parallel-agents` / 自然语言宽泛请求都不再路由到 team
+
 ### Added
 
-- **项目知识库体系（`.claude/knowledge/`）**：引入 4 个 knowledge 命令与同名 skills，沉淀项目级 code-spec、约定、禁用模式与机读规则
-  - `/knowledge-bootstrap`：基于 `project-config.json` 的 `tech.frameworks` 生成 `frontend/` / `backend/` / `guides/` 骨架与 `local.md`，幂等
-  - `/knowledge-update`：交互式按 6 类片段模板（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）写入 code-spec 或 guide，可选追加 `## Machine-checkable Rules`
-  - `/knowledge-check`：扫描 diff 命中机读规则，退出码 0 compliant / 2 blocking / 1 CLI 错误
-  - `/knowledge-review`：只读审查过期、冲突、覆盖率与 canonical 模板升级，输出报告到 `.claude/reports/`
-  - 新增运行时脚本 `core/utils/workflow/knowledge_bootstrap.js` 与 `knowledge_compliance.js`，含 `globToRegex` / blocking severity / `applies_to` 支持
-  - 新增模板库 `core/specs/knowledge-templates/`（code-spec / guide / guideline / index / layer-index / local）
-  - 配套测试 `tests/test_knowledge_bootstrap.js`、`test_knowledge_compliance.js`、`test_knowledge_compliance_gate.js`
-- **workflow-plan 接入 knowledge（advisory）**：Step 1.5 读取 `.claude/knowledge/` 汇总 Constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载；未初始化且未 skip 时输出 advisory 提示，不阻塞
-- **workflow-review 硬卡口**：Stage 1 Step 0 调用 `knowledge_compliance.js check`；blocking 违规直接 `Issues Found` 并消耗 1 次共享预算；CLI 异常按违规处理（不得 fail-open）；需显式绕过时使用 `quality_review.js pass --skip-knowledge-compliance`
-- **`/scan` Part 5 Knowledge 初始化检查**：首次扫描时引导 `/knowledge-bootstrap`，或写入 `knowledge.bootstrapStatus = skipped`；已有 knowledge 时输出 filled/draft 摘要
+- **Team Hooks**：`core/hooks/team-idle.js`（TeammateIdle）+ `core/hooks/team-task-guard.js`（TaskCreated / TaskCompleted）
+  - `team-idle`：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 阻止 idle；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行，Lead 侧收到 message 再执行 `clean up team`，hook 不代行 Lead-only 指令
+  - `team-task-guard`：TaskCreated 要求有 `task_subject`；TaskCompleted 要求无 TODO / FIXME / 待验证 / 待补充 字眼并带实际验证证据，否则退码 2 拒绝
+  - 安装时自动写入 `~/.claude/settings.json`；项目级安装跳过注入
+- **`agent-workflow link` CLI**：新增 `link` 子命令，只刷新受管链接而不重新拷贝 canonical 载荷，便于本地开发把受管目录指回仓库 `core/`
+- **发布管线 manifest 生成**：`scripts/release.sh` 将版本 bump 拆为 5 步，新增 `scripts/generate-manifest.js` 生成 knowledge-template 迁移 manifest 与 docs-site changelog，并把产物一并纳入 release commit
+
+### Removed (激进对齐 Trellis 声明式模型 + /team 原生化)
+
+- `/knowledge-check` 命令与同名 skill 整体删除
+- `core/utils/workflow/knowledge_compliance.js` 机读规则引擎删除
+- `tests/test_knowledge_compliance.js` 与 `tests/test_knowledge_compliance_gate.js` 删除
+- `core/specs/knowledge-templates/guideline-template.md`（6 类片段风格）删除
+- `## Machine-checkable Rules` YAML 块约定废弃
+- `workflow-review` Stage 1 不再调用 `/knowledge-check` 硬卡口；改为人工对照 code-spec 审查
+- `core/utils/workflow/quality_review.js` 移除 `knowledge_compliance` 引用、`--skip-knowledge-compliance` flag、`knowledge_compliance` gate 字段
+- `core/skills/team/` 与 `core/skills/team-workflow/` 两个 skill 整体删除
+- `core/specs/team-runtime/`（overview / state-machine / execute-entry / status / archive）与 `core/specs/team-templates/`（plan / spec 模板）整体删除
+- `core/utils/team/` 下 team runtime 脚本（`team-cli.js` / `lifecycle.js` / `state-manager.js` / `task-board*.js` / `phase-controller.js` / `governance.js` / `status-renderer.js` / `planning-*.js` / `templates.js` / `doc-contracts.js`）整体删除
+- `tests/test_team_cli_commands.js` / `tests/test_phase_controller_enhanced.js` 删除；`tests/test_workflow_helpers.js` 同步移除 team helper 相关断言
+- `docs/implementation_plan.md` 历史方案文档删除
+
+### Notes
+
+- 初版 knowledge 体系（6 类片段 + 机读规则硬卡 + `/knowledge-check`）未曾发版，本次变更未保留任何向后兼容，一次性替换为 Trellis 对齐设计
+- 原 `/team` 重型 runtime 同样未稳定发版，直接移除而不提供迁移路径；已有 `team-state.json` 的用户请手动归档或忽略
+- `/workflow-plan` Step 1.5 的 advisory knowledge 读取保留；Spec 模板的 `3.x Project Knowledge Constraints` 小节保留
+- `/scan` Part 5 引导 `/knowledge-bootstrap` 的逻辑保留（面向新布局）
+- `session-start.js` 注入 `<project-knowledge>` 段与 `pre-execute-inject.js` 的 team 继承隔离校验保留（普通 workflow session 依然不继承 team runtime 脏上下文）
+
+## [5.0.3] - 2026-04-16
+
+### Changed
+
+- **diff-review 审查模式文档细化**：澄清 Quick / Deep 模式的入口门槛、执行流程与报告结构，减少模式路由歧义
+
+### Removed
+
+- **过时的 PR / Quick 审查文档**：删除与当前 impact-aware 管线不再匹配的历史 PR review 与 Quick 模式说明
+
+## [5.0.2] - 2026-04-16
+
+### Changed
+
+- **figma-ui skill 文档增强**：补充详细的使用指南、前置条件与排障步骤，覆盖资源分诊、编码与验证阶段的常见问题
+
+## [5.0.1] - 2026-04-14
+
+### Changed
+
+- **diff-review Deep 模式执行要求澄清**：明确 Deep 模式必须通过 Codex 完成候选问题发现，防止在未实际调用外部模型的情况下提前降级为 Quick 模式
+
+## [5.0.0] - 2026-04-13
+
+### Added
+
 - **并行批次执行与集成 worktree**：新增 `batch_orchestrator.js`（config / select-batch / dispatchReadonlyBatch）与 `merge_strategist.js`（create-integration / merge-integration / discard-integration / finalMergeToMain）
   - 只读批次不 provision worktree，产物落到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/`
   - 写文件批次先串行 provision worktree，再并行启动子 Agent，合流到集成 worktree 中跑 stage2 审查；失败则丢弃集成 worktree，任务回 `pending`
@@ -33,12 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **workflow-review 两阶段审查接入 knowledge compliance**：Stage 1 增加 Step 0 预检，`Project Knowledge Consistency` 成为 blocking 维度；其他 knowledge 维度仍为 advisory
 - **`workflow-execute` 并行判定入口迁至 `batch_orchestrator`**：`dispatching-parallel-agents` 仅负责底层分派；`buildExecuteEntry()` 在活跃批次上下文下返回 `result.batch`，skill 必须以 `dispatching-parallel-agents` 为入口
-- **Hooks 协议更新**：`session-start.js` 注入项目 knowledge 摘要（`<project-knowledge>` 段）；`pre-execute-inject.js` 沿用禁止继承 team 字段的校验
-
-### Changed（以下为此前已登记内容）
-
 - **figma-ui 资源分诊前移**：将 figma-ui 的资源处理从“编码后按 `usedAssets` 收口”重构为“编码前 Asset Triage + AssetPlan”
   - `get_design_context` 后新增 `file-list-diff` / `newlyDownloadedFiles` / `assetMapping` 语义，显式限定当前任务下载资源范围
   - 编码阶段只消费 `inline` / `promote` 结果，不再把后置 `usedAssets` 作为唯一资源锚点

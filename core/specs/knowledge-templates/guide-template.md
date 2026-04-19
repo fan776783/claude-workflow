@@ -9,8 +9,8 @@
 
 修改 {{scope}} 相关代码前：
 
-- [ ] {{question_1}} → 参考 `frontend/{{spec_file}}.md`
-- [ ] {{question_2}} → 参考 `backend/{{spec_file}}.md`
+- [ ] {{question_1}} → 参考 `{{package}}/{{layer}}/{{spec_file}}.md`
+- [ ] {{question_2}} → 参考 `{{package}}/{{layer}}/{{spec_file}}.md`
 - [ ] {{question_3}}
 
 ## When to Trigger
@@ -22,8 +22,8 @@
 
 | 主题 | 文件 |
 |------|------|
-| {{topic}} | `{{layer}}/{{file}}.md` |
+| {{topic}} | `{{package}}/{{layer}}/{{file}}.md` |
 
 ---
 
-> ⚠️ Guide 只做检查清单和指针，不重复 code-spec 的具体规则。若要记录"怎么写"，请放到 `frontend/` 或 `backend/` 的 code-spec 文件里。
+> ⚠️ Guide 只做检查清单和指针，不重复 code-spec 的具体规则。若要记录"怎么写"，请放到 `{package}/{layer}/` 下的 code-spec 文件里。

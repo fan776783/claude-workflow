@@ -104,7 +104,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | **验收对齐** | 实现是否满足 spec Acceptance Criteria |
 | **页面分层** | 单文件是否承载过多独立功能模块 |
 | **路由结构** | spec 中规划的多页面是否实现了路由/导航 |
-| **项目知识一致性** | 实现是否符合 `.claude/knowledge/` 中的约定？**存在 Machine-checkable Rules blocking 违规时阻塞审查通过（硬卡口由 Step 2 Step 0 预检 + CLI 自动触发）**，其余维度仍为 advisory |
+| **项目知识一致性** | 实现是否符合 `.claude/knowledge/` 中的约定？以人工对照 code-spec 为准，advisory |
+| **跨层一致性**（advisory） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md)：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度，按 diff 命中条件触发。输出到 `Cross-Layer (Advisory)` 独立块，不参与 Stage 1 pass/fail 判定 |
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
@@ -119,25 +120,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ### 执行流程
 
-0. **Knowledge Compliance 预检（硬卡口）**：
-   ```bash
-   node ~/.agents/agent-workflow/core/utils/workflow/knowledge_compliance.js check \
-     --project-root "{projectRoot}" \
-     --base-commit {baseCommit} \
-     --format json
-   ```
-   - 退出码 `0`（compliant）：继续后续流程
-   - 退出码 `2`（存在 blocking 违规）：直接返回 `Issues Found`，列出所有 `violations`（文件:行号 + `knowledge_source` + `message`），不进入需求覆盖检查。消耗 1 次共享预算
-   - 退出码 `1`（CLI 错误 / 参数缺失 / 依赖异常）：**按违规处理**——硬卡口不得在 checker 失败时静默放行。输出原因，标记 `Issues Found`，阻塞审查通过，消耗 1 次共享预算。修复 CLI 问题后重试；如确需绕过（例如 checker 本身 bug），必须用 `quality_review.js pass --skip-knowledge-compliance` 显式通过并在 implementation report 中记录原因
-   - 无 `.claude/knowledge/` 或无 `## Machine-checkable Rules` 规则时，CLI 返回 `compliant: true`（退出码 0），零摩擦通过
-   - Step 4 CLI `pass` 会在写入 state 时再执行一次合规检查（幂等兜底），确保 skill 与 runtime 视角一致。runtime 也不会在 checker 异常时 fail-open，任何异常都作为 blocking 违规写入 `knowledge_compliance.violations`
 1. 读取 spec 全文 + 所有 plan task 定义
 2. 获取变更文件列表（`git diff --name-only {baseCommit}..HEAD`）
 3. 逐条检查每个 spec 需求：
    - 通过 `view_file` 读取对应实现代码
    - 验证：需求覆盖、行为匹配、约束遵循、验收对齐
 4. 检查范围控制（是否有超出 spec 的额外实现）
-5. 输出结果：
+5. **跨层 advisory 检查**（详见下文「跨层检查」小节；只产生 advisory 记录，不影响 Stage 1 判定）
+6. 输出结果：
 
 ```
 **Status:** Compliant | Issues Found
@@ -146,7 +136,37 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 **Spec Coverage Checklist:**
 - [x] 需求 X 已实现 ✅
 - [ ] 需求 Y 未实现 ❌ — [原因]
+**Cross-Layer (Advisory):**
+- [A 数据流] 本次 diff 触及 3+ 层，请按 references/cross-layer-checklist.md §A 自检
+- [B 代码复用] 修改了 src/constants/ 下的常量，请 grep 原值确认无残留
 ```
+（未触发任何 probe → 省略 `Cross-Layer (Advisory)` 块）
+
+#### 跨层检查（advisory，Stage 1 内部）
+
+对应执行流程的第 5 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）执行 4 个启发式 probe。probe 输入必须复用 `quality_review.js budget` 的 base commit，**不**使用裸 `git diff` / `git status`。
+
+| Probe | 触发条件 | checklist 节 |
+|------|---------|-------------|
+| A 数据流 | diff 文件命中 ≥ 3 层（api/routes、service/lib、db/models、components/views、utils） | A |
+| B 代码复用 | diff 触及 `src/constants/**`，或 diff 内文本字面量出现 ≥ 3 次 | B |
+| C Import 路径 | diff window 含新增源文件 | C |
+| D 同层一致性 | diff 内 ≥ 2 文件共享同一直接父目录 | D |
+
+guides 读取 fallback 链（按顺序取第一个存在的）：
+
+1. `.claude/knowledge/guides/<name>.md`（项目级）
+2. `core/specs/guides/<name>.md`（仓库内置，已随包分发 `cross-layer-checklist.md` / `code-reuse-checklist.md` / `ai-review-false-positive-guide.md`）
+3. 都没有 → 只用 `references/cross-layer-checklist.md` 里的 checklist 文本
+
+**advisory 性质（硬约束）**：
+
+- **不**阻断 Stage 1 pass/fail
+- **不**消耗 4 次共享预算
+- **不**写入 `quality_gates.*`
+- **不**触发 Stage 2 重跑
+- 输出到 `Cross-Layer (Advisory)` 独立块，禁止混入 `Issues` 或 `Spec Coverage Checklist`
+- 与 Stage 2 的 `代码复用` / `跨层完整性` 同一发现应合并为一条（避免上下游重复）
 
 ### 审查未通过
 
@@ -321,7 +341,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 若本次 review 中发现值得沉淀的新模式或约定，输出：
 
 ```
-💡 建议使用 /knowledge-update 将本次 review 发现的约定沉淀到 .claude/knowledge/，并视情况补充 Machine-checkable Rules 启用硬卡口。
+💡 建议使用 /knowledge-update 将本次 review 发现的约定沉淀到 .claude/knowledge/ 中对应的 code-spec。
 ```
 
 无建议时省略此 section。

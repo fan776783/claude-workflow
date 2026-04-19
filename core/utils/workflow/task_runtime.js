@@ -184,14 +184,168 @@ function collectMarkdownFiles(dir, allowedPrefix = null) {
   return results
 }
 
-function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000) {
+// 合法的 knowledge package 目录名：仅允许 [A-Za-z0-9_.-]；拒绝 `/ \ ..` 等路径分隔符与路径跳转。
+// 用于在 resolver / scoped reader 两处做白名单防御。
+const PACKAGE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/
+function isValidPackageName(name) {
+  if (typeof name !== 'string') return false
+  const trimmed = name.trim()
+  if (!trimmed || trimmed === '.' || trimmed === '..') return false
+  return PACKAGE_NAME_PATTERN.test(trimmed)
+}
+
+// 解析本次 knowledge 读取应聚焦到哪个 package。
+// 优先级：flag.package → 当前任务的 Package 字段 → 项目配置推断的单包名 → null（soft-fail）
+// 单包回退链必须与 knowledge_bootstrap.resolvePackages 保持对齐：project.name → package.json#name → 仓库目录名。
+// 任一来源解析出的 package 名必须通过 isValidPackageName 校验，否则视为未解析，走下一级回退。
+function resolveActiveKnowledgeScope(runtime, projectConfig = null, overrides = {}) {
+  const flagPackage = overrides && typeof overrides.package === 'string' ? overrides.package.trim() : ''
+  if (flagPackage && isValidPackageName(flagPackage)) return { activePackage: flagPackage, source: 'flag' }
+
+  const task = getCurrentTask(runtime)
+  const taskPackage = task && typeof task.package === 'string' ? task.package.trim() : ''
+  if (taskPackage && isValidPackageName(taskPackage)) return { activePackage: taskPackage, source: 'task' }
+
+  const root = runtime && runtime.projectRoot ? runtime.projectRoot : process.cwd()
+  let config = projectConfig
+  if (!config) {
+    try {
+      const configPath = path.join(root, '.claude', 'config', 'project-config.json')
+      if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    } catch { /* ignore; fall through */ }
+  }
+  const projectType = ((config || {}).project || {}).type
+  // Monorepo 下不推断默认包，避免把其中一个包当默认污染别的包
+  if (projectType === 'monorepo') return { activePackage: null, source: null }
+
+  const configName = ((config || {}).project || {}).name
+  if (configName) {
+    const trimmed = String(configName).trim()
+    if (isValidPackageName(trimmed)) return { activePackage: trimmed, source: 'config' }
+  }
+  try {
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+    if (pkgJson && pkgJson.name) {
+      const stripped = String(pkgJson.name).replace(/^@[^/]+\//, '')
+      if (isValidPackageName(stripped)) return { activePackage: stripped, source: 'package-json' }
+    }
+  } catch { /* ignore */ }
+  const repoDir = path.basename(path.resolve(root))
+  if (isValidPackageName(repoDir)) return { activePackage: repoDir, source: 'repo-dir' }
+  return { activePackage: null, source: null }
+}
+
+function readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget = 300) {
+  const parts = []
+  let totalLen = 0
+  const rootContent = safeReadKnowledge(path.join(dirInfo.path, 'index.md'), allowedPrefix, Math.min(rootIndexBudget, maxChars))
+  if (rootContent) {
+    parts.push(sanitizeKnowledgeBody(String(rootContent).trim()))
+    totalLen += rootContent.length
+  }
+  const guidesIndex = path.join(dirInfo.path, 'guides', 'index.md')
+  if (fs.existsSync(guidesIndex) && totalLen < maxChars) {
+    const snippet = safeReadKnowledge(guidesIndex, allowedPrefix, Math.min(200, maxChars - totalLen))
+    if (snippet) {
+      const block = formatKnowledgeBlock('guides/index.md', snippet)
+      if (block && totalLen + block.length + 2 <= maxChars) {
+        parts.push(block)
+        totalLen += block.length + 2
+      }
+    }
+  }
+  return { parts, totalLen }
+}
+
+function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxChars, projectRoot, layerIndexBudget = 150) {
+  let totalLen = startLen
+  const subRoot = path.join(dirInfo.path, subDir)
+  if (!fs.existsSync(subRoot) || !fs.statSync(subRoot).isDirectory()) return totalLen
+  const layers = fs.readdirSync(subRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.isSymbolicLink())
+    .sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of layers) {
+    const layerIndex = path.join(subRoot, entry.name, 'index.md')
+    const snippet = safeReadKnowledge(layerIndex, allowedPrefix, layerIndexBudget)
+    if (!snippet) continue
+    const rel = `${subDir}/${entry.name}/index.md`
+    const block = formatKnowledgeBlock(rel, snippet)
+    if (!block) continue
+    const blockLen = block.length + 2
+    if (totalLen + blockLen > maxChars) continue
+    parts.push(block)
+    totalLen += blockLen
+  }
+  const files = collectMarkdownFiles(subRoot, allowedPrefix)
+  for (const filePath of files) {
+    const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
+    const remaining = maxChars - totalLen
+    if (remaining <= 80) break
+    const snippet = safeReadKnowledge(filePath, allowedPrefix, Math.min(600, remaining - 32))
+    if (!snippet) continue
+    const block = formatKnowledgeBlock(relativePath, snippet)
+    if (!block) continue
+    const blockLen = block.length + 2
+    if (totalLen + blockLen > maxChars) continue
+    parts.push(block)
+    totalLen += blockLen
+  }
+  return totalLen
+}
+
+function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, maxChars = 2000, options = {}) {
+  const dirInfo = getKnowledgeDir(projectRoot)
+  if (!dirInfo.exists) return null
+  const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
+  const rawPackage = scope && scope.activePackage ? String(scope.activePackage) : null
+  // 对 activePackage 再做一次白名单校验（防御 resolver 外路径、或调用方手工构造 scope）
+  const activePackage = rawPackage && isValidPackageName(rawPackage) ? rawPackage : null
+  const pkgDir = activePackage ? path.join(dirInfo.path, activePackage) : null
+  const pkgExists = pkgDir && fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()
+
+  // 无 active package 或目录不存在 → 回退到全树（向后兼容）
+  if (!pkgExists) return getKnowledgeContext(projectRoot, maxChars)
+
+  const rootIndexBudget = options.rootIndexBudget || 300
+  const layerIndexBudget = options.layerIndexBudget || 150
+  const { parts, totalLen } = readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget)
+  let cursor = totalLen
+  // 1) 扫描 {pkg}/ 子树
+  cursor = walkScopedContext(dirInfo, allowedPrefix, activePackage, parts, cursor, maxChars, projectRoot, layerIndexBudget)
+  // 2) 扫描 guides/ 下的具体 guide 文件（index.md 已在 readRootAndGuides 中处理过）
+  if (cursor < maxChars) {
+    const guidesDir = path.join(dirInfo.path, 'guides')
+    if (fs.existsSync(guidesDir)) {
+      const files = collectMarkdownFiles(guidesDir, allowedPrefix)
+      for (const filePath of files) {
+        const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
+        const remaining = maxChars - cursor
+        if (remaining <= 80) break
+        const snippet = safeReadKnowledge(filePath, allowedPrefix, Math.min(600, remaining - 32))
+        if (!snippet) continue
+        const block = formatKnowledgeBlock(relativePath, snippet)
+        if (!block) continue
+        const blockLen = block.length + 2
+        if (cursor + blockLen > maxChars) continue
+        parts.push(block)
+        cursor += blockLen
+      }
+    }
+  }
+
+  return parts.length ? parts.join('\n\n') : null
+}
+
+function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, options = {}) {
   const dirInfo = getKnowledgeDir(projectRoot)
   if (!dirInfo.exists) return null
   const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
 
+  const rootIndexBudget = options.rootIndexBudget || Math.min(300, maxChars)
+  const layerIndexBudget = options.layerIndexBudget || 150
+
   const parts = []
   let totalLen = 0
-  const rootIndexBudget = Math.min(300, maxChars)
   const rootContent = safeReadKnowledge(path.join(dirInfo.path, 'index.md'), allowedPrefix, rootIndexBudget)
   if (rootContent) {
     parts.push(sanitizeKnowledgeBody(String(rootContent).trim()))
@@ -204,7 +358,7 @@ function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000) {
 
   for (const entry of layers) {
     const layerIndex = path.join(dirInfo.path, entry.name, 'index.md')
-    const snippet = safeReadKnowledge(layerIndex, allowedPrefix, 150)
+    const snippet = safeReadKnowledge(layerIndex, allowedPrefix, layerIndexBudget)
     if (!snippet) continue
     const block = formatKnowledgeBlock(`${entry.name}/index.md`, snippet)
     if (!block) continue
@@ -256,5 +410,8 @@ module.exports = {
   getSpecContent,
   getThinkingGuides,
   getKnowledgeContext,
+  getKnowledgeContextScoped,
   getKnowledgeFiles,
+  resolveActiveKnowledgeScope,
+  isValidPackageName,
 }

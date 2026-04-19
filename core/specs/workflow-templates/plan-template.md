@@ -53,7 +53,7 @@ context_profile: "{{context_profile}}"
 
 ## Tasks
 
-> 每个任务块必须使用 `## Tn:` 标题，并包含 `阶段`、`Spec 参考`、`Plan 参考`、`需求 ID`、`actions`、`步骤` 等 WorkflowTaskV2 字段。
+> 每个任务块必须使用 `## Tn:` 标题，并包含 `阶段`、`Package`（plan 生成器按以下顺序推断：单包→project.name / package.json#name / 仓库目录名；monorepo→monorepo.defaultPackage / monorepo.packages[0]；若需改写，由写 plan 的人手动调整）、`Spec 参考`、`Plan 参考`、`需求 ID`、`actions`、`步骤` 等 WorkflowTaskV2 字段。
 
 {{tasks}}
 

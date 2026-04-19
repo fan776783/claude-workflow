@@ -312,7 +312,7 @@ ${missing.map(f => `  ❌ ${f}`).join('\n')}
    ```
    📚 检测到项目尚未建立知识库（.claude/knowledge/）。
    知识库用于沉淀编码约定、架构决策、常见错误等项目级规范；
-   其中 code-spec 文件的 Machine-checkable Rules 会在 /workflow-review 时作为硬卡口执行。
+   code-spec 采用 7 段合约结构，/workflow-review 阶段人工对照审查。
 
    是否现在初始化？
      ① 初始化骨架（稍后用 /knowledge-update 填充）
@@ -345,7 +345,7 @@ ${missing.map(f => `  ❌ ${f}`).join('\n')}
 ```bash
 /scan                           # 首次使用或架构变更后（含 Part 5 知识库引导）
 /knowledge-bootstrap            # 单独初始化知识库（scan 跳过后的手动入口）
-/knowledge-update               # 沉淀规范
-/knowledge-check                # 本地预演硬卡口
+/knowledge-update               # 沉淀规范（7 段 code-spec 或 thinking guide）
+/knowledge-review               # 审查 knowledge 库过期 / 完整性 / canonical 版本对账
 /workflow-plan "功能需求"      # 自动读取 repo-context.md + knowledge/
 ```

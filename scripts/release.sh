@@ -100,7 +100,7 @@ main() {
 
   # Bump version (without git tag from npm)
   echo ""
-  echo "[1/4] Bumping version..."
+  echo "[1/5] Bumping version..."
   npm version "$version_type" --no-git-tag-version
 
   local new_version
@@ -108,23 +108,33 @@ main() {
   [[ -z "$new_version" ]] && { echo "Error: failed to read new version" >&2; exit 1; }
   echo "      $current_version -> $new_version"
 
+  # Generate knowledge-template migration manifest + docs-site changelog
+  echo ""
+  echo "[2/5] Generating knowledge-template manifest..."
+  node scripts/generate-manifest.js "$new_version"
+  echo "      Manifest generated"
+
   # Publish
   echo ""
-  echo "[2/4] Publishing to $REGISTRY_URL..."
+  echo "[3/5] Publishing to $REGISTRY_URL..."
   npm publish --registry="$REGISTRY_URL"
   echo "      Published successfully!"
 
   # Git operations
   if [[ "$in_git" == true ]]; then
     echo ""
-    echo "[3/4] Creating git commit..."
+    echo "[4/5] Creating git commit..."
     git add package.json
     [[ -f package-lock.json ]] && git add package-lock.json
     [[ -f npm-shrinkwrap.json ]] && git add npm-shrinkwrap.json
+    git add core/specs/knowledge-templates/manifests/ 2>/dev/null || true
+    if [[ -d docs-site ]]; then
+      git add docs-site/changelog docs-site/zh/changelog docs-site/docs.json 2>/dev/null || true
+    fi
     git commit -m "chore(release): v$new_version"
 
     echo ""
-    echo "[4/4] Creating git tag v$new_version..."
+    echo "[5/5] Creating git tag v$new_version..."
     git tag "v$new_version"
 
     if confirm "Push to origin?"; then
@@ -134,8 +144,8 @@ main() {
     fi
   else
     echo ""
-    echo "[3/4] Skipped (not in git repo)"
-    echo "[4/4] Skipped (not in git repo)"
+    echo "[4/5] Skipped (not in git repo)"
+    echo "[5/5] Skipped (not in git repo)"
   fi
 
   echo ""
