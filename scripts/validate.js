@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs-extra');
 const { spawnSync } = require('child_process');
 const { validateWorkflowDocContracts } = require('../core/utils/workflow/doc_contracts.js');
+const { validateKnowledgeTemplateHeadings } = require('../core/utils/workflow/template_contracts.js');
+const { validatePlatformParity } = require('../core/utils/platform_parity.js');
 
 /**
  * 以子进程方式运行 Node.js 脚本并返回结果
@@ -513,6 +515,66 @@ async function validateKnowledgeManifests(repoRoot, packageRoot, errors) {
 }
 
 /**
+ * 校验 knowledge canonical 模板的段标题是否完整（7/4/6 段契约）。
+ * Trellis 对齐的 Stage 1 Knowledge Spec Check 与 Probe E 依赖这些段存在，
+ * 段落改名或层级漂移会让 advisory/blocking 判定读不到内容。
+ * @param {string[]} errors
+ */
+function validateKnowledgeTemplateContracts(errors) {
+  const result = validateKnowledgeTemplateHeadings();
+  if (result.ok) {
+    console.log('  ✅ knowledge templates: 7/4/6 段契约校验通过');
+    return;
+  }
+  for (const entry of result.errors) {
+    errors.push(entry.message);
+  }
+}
+
+/**
+ * 校验 multi-tool 分发契约。lib/agents.js 与 lib/installer.js 之间的一致性由
+ * core/utils/platform_parity.js 负责，本函数只把结果汇总到 errors。
+ * @param {string[]} errors
+ */
+function validatePlatformParityContract(errors) {
+  const result = validatePlatformParity();
+  if (result.warnings && result.warnings.length) {
+    for (const warning of result.warnings) console.log(`  ⚠️  platform parity 警告: ${warning}`);
+  }
+  if (result.ok) {
+    console.log(`  ✅ platform parity: ${result.agentNames.length} 个 agents / ${result.skills.length} 个 skills 校验通过`);
+    return;
+  }
+  for (const entry of result.errors) errors.push(entry);
+}
+
+/**
+ * 在 prepublish 时跑契约测试。限定在专门标注为 *_contracts.js 的测试文件，
+ * 避免拖慢发布流程，并保证 Trellis 对齐的表面不会在未跑全量测试的情况下发版。
+ * @param {string} repoRoot
+ * @param {string[]} errors
+ */
+function runContractTests(repoRoot, errors) {
+  const testFiles = [
+    path.join(repoRoot, 'tests', 'test_knowledge_contracts.js'),
+    path.join(repoRoot, 'tests', 'test_quality_review_stage1.js'),
+    path.join(repoRoot, 'tests', 'test_task_aware_injection.js'),
+  ];
+  const existing = testFiles.filter((file) => fs.existsSync(file));
+  if (!existing.length) {
+    errors.push('契约测试缺失（tests/test_*_contracts.js / test_quality_review_stage1.js / test_task_aware_injection.js）');
+    return;
+  }
+  const result = spawnSync(process.execPath, ['--test', ...existing], { encoding: 'utf8' });
+  if (result.status === 0) {
+    console.log(`  ✅ contract tests: ${existing.length} 个 suite 通过`);
+    return;
+  }
+  const tail = [result.stdout, result.stderr].filter(Boolean).join('\n').trim().split(/\r?\n/).slice(-40).join('\n');
+  errors.push(`契约测试失败 (exit ${result.status}):\n${tail}`);
+}
+
+/**
  * 发布前验证主流程：检查目录结构、workflow/team 契约、路径引用
  * @returns {Promise<void>}
  */
@@ -558,6 +620,9 @@ async function validate() {
   await validateTeamContracts(repoRoot, packageRoot, errors);
   await validatePathReferences(repoRoot, packageRoot, errors);
   await validateKnowledgeManifests(repoRoot, packageRoot, errors);
+  validateKnowledgeTemplateContracts(errors);
+  validatePlatformParityContract(errors);
+  runContractTests(repoRoot, errors);
 
   if (errors.length > 0) {
     console.log('\n❌ 验证失败:\n');

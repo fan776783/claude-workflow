@@ -11,6 +11,7 @@ const {
 const { addUnique } = require('./status_utils')
 const {
   buildUserSpecReview,
+  deriveEffectiveStatus,
   ensureStateDefaults,
   getReviewResult,
   nextChangeId,
@@ -156,7 +157,11 @@ function markDependencyUnblocked(state, dependency, tasksToUnblock = null) {
     const blocked = progress.blocked || []
     progress.blocked = blocked.filter((taskId) => !tasksToUnblock.includes(taskId))
   }
-  if (normalized.status === 'blocked') normalized.status = 'running'
+  const effective = deriveEffectiveStatus(normalized)
+  if (effective.status === 'halted' && effective.halt_reason === 'dependency') {
+    normalized.status = 'running'
+    normalized.halt_reason = null
+  }
   return normalized
 }
 
@@ -263,6 +268,7 @@ function updateCodexPlanReview(state, details = {}) {
 
 function completeWorkflow(state, statePath, totalTasks) {
   state.status = 'completed'
+  state.halt_reason = null
   state.current_tasks = []
   state.completed_at = isoNow()
   writeState(statePath, state)
@@ -276,7 +282,8 @@ function completeWorkflow(state, statePath, totalTasks) {
 }
 
 function handleTaskError(state, statePath, taskId, taskName, errorMessage) {
-  state.status = 'failed'
+  state.status = 'halted'
+  state.halt_reason = 'failure'
   state.failure_reason = errorMessage
   const currentTasks = state.current_tasks || []
   const inBatch = currentTasks.length > 1

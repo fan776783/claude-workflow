@@ -194,17 +194,62 @@ function isValidPackageName(name) {
   return PACKAGE_NAME_PATTERN.test(trimmed)
 }
 
+// Target Layer 白名单，必须与 task_parser.normalizeTargetLayer 保持一致。
+const TASK_LAYER_WHITELIST = new Set(['frontend', 'backend', 'guides'])
+function normalizeTaskLayer(value) {
+  if (!value) return null
+  const normalized = String(value).trim().toLowerCase()
+  return TASK_LAYER_WHITELIST.has(normalized) ? normalized : null
+}
+
+// 任务声明的变更文件 hint 做基础清洗，防止进入 scope 时出现奇怪值
+function normalizeChangedFileHints(value) {
+  if (!Array.isArray(value)) return []
+  const seen = new Set()
+  const result = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    const trimmed = entry.trim().replace(/\\/g, '/')
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    result.push(trimmed)
+  }
+  return result
+}
+
+function collectTaskChangedHints(task) {
+  if (!task || typeof task !== 'object') return []
+  const files = task.files || {}
+  const parts = []
+  for (const key of ['create', 'modify', 'test']) {
+    if (Array.isArray(files[key])) parts.push(...files[key])
+  }
+  return normalizeChangedFileHints(parts)
+}
+
 // 解析本次 knowledge 读取应聚焦到哪个 package。
 // 优先级：flag.package → 当前任务的 Package 字段 → 项目配置推断的单包名 → null（soft-fail）
 // 单包回退链必须与 knowledge_bootstrap.resolvePackages 保持对齐：project.name → package.json#name → 仓库目录名。
 // 任一来源解析出的 package 名必须通过 isValidPackageName 校验，否则视为未解析，走下一级回退。
+//
+// scope 对象同时携带 taskLayer / changedFileHints 两个可选字段：
+//   taskLayer        — 由任务显式声明的 frontend/backend/guides，供 scoped reader 收窄到单 layer
+//   changedFileHints — 任务声明的 create/modify/test 文件列表，供 scoped reader 优先命中相关 spec
+// 这两个字段**不参与** activePackage 的兜底判断，只对读取顺序起影响，缺失时回退现有行为。
 function resolveActiveKnowledgeScope(runtime, projectConfig = null, overrides = {}) {
-  const flagPackage = overrides && typeof overrides.package === 'string' ? overrides.package.trim() : ''
-  if (flagPackage && isValidPackageName(flagPackage)) return { activePackage: flagPackage, source: 'flag' }
-
   const task = getCurrentTask(runtime)
+  const overrideLayer = normalizeTaskLayer(overrides && overrides.taskLayer)
+  const taskLayer = overrideLayer || normalizeTaskLayer(task && task.target_layer)
+  const overrideHints = normalizeChangedFileHints(overrides && overrides.changedFileHints)
+  const changedFileHints = overrideHints.length ? overrideHints : collectTaskChangedHints(task)
+
+  const withScopeExtras = (scope) => ({ ...scope, taskLayer, changedFileHints })
+
+  const flagPackage = overrides && typeof overrides.package === 'string' ? overrides.package.trim() : ''
+  if (flagPackage && isValidPackageName(flagPackage)) return withScopeExtras({ activePackage: flagPackage, source: 'flag' })
+
   const taskPackage = task && typeof task.package === 'string' ? task.package.trim() : ''
-  if (taskPackage && isValidPackageName(taskPackage)) return { activePackage: taskPackage, source: 'task' }
+  if (taskPackage && isValidPackageName(taskPackage)) return withScopeExtras({ activePackage: taskPackage, source: 'task' })
 
   const root = runtime && runtime.projectRoot ? runtime.projectRoot : process.cwd()
   let config = projectConfig
@@ -216,23 +261,23 @@ function resolveActiveKnowledgeScope(runtime, projectConfig = null, overrides = 
   }
   const projectType = ((config || {}).project || {}).type
   // Monorepo 下不推断默认包，避免把其中一个包当默认污染别的包
-  if (projectType === 'monorepo') return { activePackage: null, source: null }
+  if (projectType === 'monorepo') return withScopeExtras({ activePackage: null, source: null })
 
   const configName = ((config || {}).project || {}).name
   if (configName) {
     const trimmed = String(configName).trim()
-    if (isValidPackageName(trimmed)) return { activePackage: trimmed, source: 'config' }
+    if (isValidPackageName(trimmed)) return withScopeExtras({ activePackage: trimmed, source: 'config' })
   }
   try {
     const pkgJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
     if (pkgJson && pkgJson.name) {
       const stripped = String(pkgJson.name).replace(/^@[^/]+\//, '')
-      if (isValidPackageName(stripped)) return { activePackage: stripped, source: 'package-json' }
+      if (isValidPackageName(stripped)) return withScopeExtras({ activePackage: stripped, source: 'package-json' })
     }
   } catch { /* ignore */ }
   const repoDir = path.basename(path.resolve(root))
-  if (isValidPackageName(repoDir)) return { activePackage: repoDir, source: 'repo-dir' }
-  return { activePackage: null, source: null }
+  if (isValidPackageName(repoDir)) return withScopeExtras({ activePackage: repoDir, source: 'repo-dir' })
+  return withScopeExtras({ activePackage: null, source: null })
 }
 
 function readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget = 300) {
@@ -257,13 +302,48 @@ function readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget = 3
   return { parts, totalLen }
 }
 
-function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxChars, projectRoot, layerIndexBudget = 150) {
+// Build scoring key for changedFileHints：只取 hint 文件的 basename 以及去扩展名的 basename。
+// 不再加父目录名 token —— 父目录名（如 "backend"）会匹配同 layer 下**所有** spec，
+// 把"优先读取 hint 相关 spec"退化成按字母序排列。匹配策略与 hintMatchesSpec 严格对应。
+function buildHintTokens(hints) {
+  const tokens = new Set()
+  for (const hint of hints || []) {
+    const normalized = String(hint || '').replace(/\\/g, '/')
+    if (!normalized) continue
+    const segments = normalized.split('/').filter(Boolean)
+    if (!segments.length) continue
+    const last = segments[segments.length - 1]
+    tokens.add(last.toLowerCase())
+    const lastNoExt = last.replace(/\.[^./]+$/, '')
+    if (lastNoExt && lastNoExt !== last) tokens.add(lastNoExt.toLowerCase())
+  }
+  return tokens
+}
+
+// 只按 spec basename（含/不含 .md 扩展名）匹配 hint token。
+// 禁止对完整相对路径做 substring 搜索——那会让路径里任何一段（pkg 名 / layer 名）误命中。
+function hintMatchesSpec(tokens, specPath) {
+  if (!tokens || tokens.size === 0) return false
+  const basename = path.basename(specPath).toLowerCase()
+  if (tokens.has(basename)) return true
+  const basenameNoExt = basename.replace(/\.md$/, '')
+  if (basenameNoExt && tokens.has(basenameNoExt)) return true
+  return false
+}
+
+function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxChars, projectRoot, layerIndexBudget = 150, options = {}) {
+  const { taskLayer = null, hintTokens = null } = options
   let totalLen = startLen
   const subRoot = path.join(dirInfo.path, subDir)
   if (!fs.existsSync(subRoot) || !fs.statSync(subRoot).isDirectory()) return totalLen
-  const layers = fs.readdirSync(subRoot, { withFileTypes: true })
+  let layers = fs.readdirSync(subRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.isSymbolicLink())
     .sort((a, b) => a.name.localeCompare(b.name))
+  // taskLayer 显式声明且命中 layer 目录 → 只读该 layer；未命中 → 不做裁剪（维持现状）
+  if (taskLayer) {
+    const narrowed = layers.filter((e) => e.name.toLowerCase() === taskLayer)
+    if (narrowed.length) layers = narrowed
+  }
   for (const entry of layers) {
     const layerIndex = path.join(subRoot, entry.name, 'index.md')
     const snippet = safeReadKnowledge(layerIndex, allowedPrefix, layerIndexBudget)
@@ -276,8 +356,27 @@ function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxC
     parts.push(block)
     totalLen += blockLen
   }
-  const files = collectMarkdownFiles(subRoot, allowedPrefix)
-  for (const filePath of files) {
+  const layerFilter = taskLayer
+    ? new Set(layers.map((e) => path.join(subRoot, e.name)))
+    : null
+  const allFiles = collectMarkdownFiles(subRoot, allowedPrefix)
+  const files = layerFilter
+    ? allFiles.filter((f) => [...layerFilter].some((prefix) => f === prefix || f.startsWith(prefix + path.sep)))
+    : allFiles
+  // 有 hint tokens 时，先读命中 hint 的 spec，再读其他（在剩余预算内）
+  const tokens = hintTokens && hintTokens.size > 0 ? hintTokens : null
+  const ordered = tokens
+    ? (() => {
+        const hits = []
+        const rest = []
+        for (const filePath of files) {
+          if (hintMatchesSpec(tokens, filePath)) hits.push(filePath)
+          else rest.push(filePath)
+        }
+        return [...hits, ...rest]
+      })()
+    : files
+  for (const filePath of ordered) {
     const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
     const remaining = maxChars - totalLen
     if (remaining <= 80) break
@@ -308,10 +407,12 @@ function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, ma
 
   const rootIndexBudget = options.rootIndexBudget || 300
   const layerIndexBudget = options.layerIndexBudget || 150
+  const taskLayer = normalizeTaskLayer(scope && scope.taskLayer)
+  const hintTokens = buildHintTokens((scope && scope.changedFileHints) || [])
   const { parts, totalLen } = readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget)
   let cursor = totalLen
-  // 1) 扫描 {pkg}/ 子树
-  cursor = walkScopedContext(dirInfo, allowedPrefix, activePackage, parts, cursor, maxChars, projectRoot, layerIndexBudget)
+  // 1) 扫描 {pkg}/ 子树；taskLayer 命中时只读该 layer，hint tokens 命中的 spec 优先读取
+  cursor = walkScopedContext(dirInfo, allowedPrefix, activePackage, parts, cursor, maxChars, projectRoot, layerIndexBudget, { taskLayer, hintTokens })
   // 2) 扫描 guides/ 下的具体 guide 文件（index.md 已在 readRootAndGuides 中处理过）
   if (cursor < maxChars) {
     const guidesDir = path.join(dirInfo.path, 'guides')
@@ -414,4 +515,7 @@ module.exports = {
   getKnowledgeFiles,
   resolveActiveKnowledgeScope,
   isValidPackageName,
+  normalizeTaskLayer,
+  normalizeChangedFileHints,
+  collectTaskChangedHints,
 }

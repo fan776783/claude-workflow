@@ -4,7 +4,7 @@
 const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
-const { getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { getWorkflowRuntime, getThinkingGuides, getKnowledgeContext } = require('../utils/workflow/task_runtime')
 
 /**
@@ -78,19 +78,21 @@ function determineNextAction(state) {
   if (!state) return '没有活跃的工作流。使用 `/workflow-plan` 开始新任务。'
   const gateViolation = getSpecReviewGateViolation(state)
   if (gateViolation) return '检测到 User Spec Review 缺失。请先回到 Phase 1.1 完成显式批准，再继续进入 plan 或 execute。'
-  const status = state.status || 'idle'
+  const { status, halt_reason } = deriveEffectiveStatus(state)
   const currentTasks = state.current_tasks || []
   const progress = state.progress || {}
   const completed = progress.completed || []
 
   if (status === 'idle') return '使用 `/workflow-plan` 开始新的工作流。'
   if (status === 'planned') return '规划已完成。使用 `/workflow-execute` 开始执行；不要重新进入规划。'
-  if (status === 'planning') return 'Plan 正在生成中。如果长时间停留在此状态，可能需要重新运行 `/workflow-plan`。'
   if (status === 'spec_review') return 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。'
   if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow-execute 继续。`
-  if (status === 'paused') return '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。'
-  if (status === 'failed') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
-  if (status === 'blocked') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
+  if (status === 'halted') {
+    if (halt_reason === 'dependency') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
+    if (halt_reason === 'failure') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
+    return '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。'
+  }
+  if (status === 'review_pending') return '所有任务已完成，待 /workflow-review 审查通过后方可归档。'
   if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow-archive 归档，不要继续执行。`
   if (status === 'archived') return '工作流已归档。使用 `/workflow-plan` 开始新任务。'
   return `当前状态: ${status}。使用 /workflow-status 查看详情。`
@@ -105,13 +107,16 @@ function determineGuardrail(state) {
   if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行。'
   const gateViolation = getSpecReviewGateViolation(state)
   if (gateViolation) return 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。'
-  const status = state.status || 'idle'
+  const { status, halt_reason } = deriveEffectiveStatus(state)
   if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。'
-  if (status === 'planning') return 'Guardrail：Plan 生成中，禁止派发执行型 Task 或进入 execute 路径；如长时间停留请重新 `/workflow-plan`。'
-  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口；禁止直接进入实现。'
-  if (status === 'running' || status === 'paused') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。'
-  if (status === 'failed') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
-  if (status === 'blocked') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
+  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。'
+  if (status === 'running') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。'
+  if (status === 'halted') {
+    if (halt_reason === 'failure') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
+    if (halt_reason === 'dependency') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
+    return 'Guardrail：governance pause，恢复执行必须经过 `/workflow-execute` 的 shared resolver。'
+  }
+  if (status === 'review_pending') return 'Guardrail：待 `/workflow-review` 审查通过，不得跳过直接归档。'
   if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。'
   if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`。'
   return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。'

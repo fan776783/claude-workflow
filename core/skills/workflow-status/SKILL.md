@@ -139,16 +139,17 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 
 | 当前状态 | 下一步提示 |
 |---------|-----------|
-| `spec_review` | 审查 `spec.md` 后确认 Spec 审批 |
-| `planning` | 内部瞬时阶段；如长时间停留应检查 Plan 生成流程 |
+| `spec_review` | 审查 `spec.md` 后确认 Spec 审批（Plan 生成中也归入此状态） |
 | `planned` | 审查 Spec 和 Plan 后执行 `/workflow-execute` |
 | `running` | 继续执行 `/workflow-execute` |
-| `paused` | 根据暂停原因处理后 `/workflow-execute` |
-| `blocked` | 使用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <dep>` 解除依赖 |
-| `failed` | 修复后 `/workflow-execute --retry` 或 `--skip` |
+| `halted` (halt_reason=governance) | 根据暂停原因处理后 `/workflow-execute` 恢复 |
+| `halted` (halt_reason=dependency) | 使用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <dep>` 解除依赖 |
+| `halted` (halt_reason=failure) | 修复后 `/workflow-execute --retry` 或 `--skip` |
 | `review_pending` | 执行 `/workflow-review` 进行全量完成审查 |
 | `completed` | 🎉 工作流已完成，可执行 `/workflow-archive` |
 | `archived` | 需要新需求请 `/workflow-plan` |
+
+> Legacy 状态 `paused` / `blocked` / `failed` / `planning` 仍可能出现在未迁移的磁盘文件中，会被投影为上述新状态。可运行 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js migrate-state` 一次性升级。
 
 > ⚠️ `/workflow-status` 只读取 workflow runtime；若用户使用的是 `/team`，应转而查看 `/team status`，不得把 team runtime 混入 workflow status。
 

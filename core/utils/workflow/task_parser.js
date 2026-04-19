@@ -25,12 +25,21 @@ function createTaskVerification(data = {}) {
   }
 }
 
+// Target Layer 白名单：frontend / backend / guides 三选一，对齐 knowledge 目录布局。
+const TARGET_LAYER_WHITELIST = new Set(['frontend', 'backend', 'guides'])
+function normalizeTargetLayer(value) {
+  if (!value) return ''
+  const normalized = String(value).trim().toLowerCase()
+  return TARGET_LAYER_WHITELIST.has(normalized) ? normalized : ''
+}
+
 function createWorkflowTaskV2(data = {}) {
   return {
     id: data.id || '',
     name: data.name || '',
     phase: data.phase || 'implement',
     package: data.package ? String(data.package).trim() : '',
+    target_layer: normalizeTargetLayer(data.target_layer),
     files: createTaskFiles(data.files),
     leverage: [...(data.leverage || [])],
     spec_ref: data.spec_ref || '§Unknown',
@@ -148,6 +157,7 @@ function parseTasksV2(content) {
       name,
       phase: extractField(body, '阶段') || 'implement',
       package: extractPackageField(body) || '',
+      target_layer: normalizeTargetLayer(extractField(body, 'Target Layer')),
       files: parseTaskFiles(body),
       leverage: extractListField(body, '复用'),
       spec_ref: extractField(body, 'Spec 参考') || '§Unknown',
@@ -337,6 +347,8 @@ function main() {
 }
 
 module.exports = {
+  TARGET_LAYER_WHITELIST,
+  normalizeTargetLayer,
   createTaskFiles,
   createTaskVerification,
   createWorkflowTaskV2,

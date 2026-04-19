@@ -42,12 +42,13 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
 ```
 
-CLI 自动完成：
+CLI 自动完成（tombstone 两阶段提交）：
 - 校验工作流状态为 `completed`（否则返回错误）
-- 将 `changes/CHG-*` 目录移动到 `archive/`
-- 生成归档摘要（`--summary` 时）
-- 更新 `workflow-state.json` 状态为 `archived`
-- 清空 `delta_tracking.current_change`
+- 写 `ARCHIVING.marker` tombstone，用于崩溃恢复
+- 在 `history/<YYYY-MM>/<task>-<timestamp>/` 下生成归档快照：`workflow-state.json`（status=archived）、`tasks.md`、`changes/CHG-*`、可选 `archive-summary-*.md`
+- 最后删除根目录 `workflow-state.json` / `tasks.md` / `changes/` 并清除 tombstone，使根目录回到"无活跃工作流"状态
+
+> 若归档过程中崩溃，下次任意 `/workflow-*` 命令启动时会自动识别 tombstone：Phase 1 未完成则回滚 destDir，Phase 2 未完成则前滚清理根目录。
 
 **错误处理**：
 
@@ -72,11 +73,13 @@ CLI 自动完成：
 
 文件结构：
 ~/.claude/workflows/{projectId}/
-├── workflow-state.json        ← 状态已更新为 archived
-├── archive/                   ← 归档目录
-│   ├── CHG-*/                 ← delta 变更记录（如有）
-│   └── archive-summary-*.md   ← 归档摘要（如有）
-└── changes/                   ← 已清空
+├── history/
+│   └── <YYYY-MM>/<task>-<timestamp>/
+│       ├── workflow-state.json        ← 归档快照 (status=archived)
+│       ├── tasks.md
+│       ├── changes/                   ← 原 CHG-*
+│       └── archive-summary-*.md       ← 归档摘要（如有）
+└── (根目录下 workflow-state.json / tasks.md / changes/ 已清空)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 

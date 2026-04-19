@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v6.1 纠偏：Knowledge 行为面重新对齐 Trellis)
+
+> 上一版 `Unreleased` 的 "Knowledge 设计全量对齐 Trellis" 表述被 Codex 联合审查认定为过度声称——schema 层对齐，但行为层（per-change check、infra gate）相比 Trellis 的 `/check` + `/finish-work` 仍是 drift。本次在保持"不复刻 Trellis 运行时（task.json / journaling / ralph-loop）"前提下，把以下行为面补齐：
+
+- **workflow-review Stage 1 新增 Knowledge Spec Check 子步（advisory）**：按 diff 文件反查 `{pkg}/{layer}/` 下的 code-spec，列出缺失 / 偏差 / 建议。诊断不消耗 Stage 1 / Stage 2 的 4 次共享预算，写入 `state.quality_gates[taskId].stage1.knowledge_check`；CLI 新增 `--knowledge-performed` / `--knowledge-findings` 参数。参见 `core/skills/workflow-review/references/stage1-knowledge-check.md`
+- **cross-layer-checklist 新增 § E Infra 深度 Gate（阻塞）**：命中 infra / cross-layer 关键路径（`src/api/**`、`src/migrations/**`、`auth/**`、`services/**` 等）且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 fail。`role_injection.js` 新增 `classifyInfraDepth(files)`；`quality_review.js` 新增 `--cross-layer-depth-gap` / `--cross-layer-files` / `--cross-layer-specs` / `--cross-layer-missing-sections` 参数，阻塞项写入 `stage1.cross_layer_depth_gap` 并合并进 `blocking_issues`
+- **task-aware 预注入**：`plan-template.md` 新增可选字段 `Target Layer`；`task_parser.js` 与 `task_runtime.js` 把 `target_layer` 以及任务已声明的变更文件透传到 `resolveActiveKnowledgeScope` → `getKnowledgeContextScoped`，做 layer + file-hint 二次裁剪；`pre-execute-inject.js` 的 `<project-knowledge>` 标签新增 `layer="..."` 与 `hints="N"` 属性
+- **平台一致性契约**：新增 `core/specs/platform-parity.md` 与 `core/utils/platform_parity.js`；`scripts/validate.js` 在 prepublish 时校验 `lib/agents.js` 覆盖 9 个 agent、每 agent 字段完整、`lib/installer.js` 的 `TEMPLATE_DIRS` / `MANAGED_DIRS` / `COMMANDS_DIR` / `SKILLS_DIR` / `MANAGED_NAMESPACE_DIR` 与 `core/` 实际结构一致、每个 skill 目录都含 `SKILL.md`
+- **契约测试锁定 Trellis 对齐面**：新增 `core/utils/workflow/template_contracts.js`（验证 code-spec 7 段 / layer-index 4 段 / guides-index 6 段的精确标题）、`tests/test_knowledge_contracts.js`、`tests/test_quality_review_stage1.js`、`tests/test_task_aware_injection.js`，并在 `scripts/validate.js` 末尾以 `node --test` 跑一次，prepublish 不通过即 CI fail
+- **向后兼容**：旧 plan（无 `Target Layer`、无 `Changed Files`）行为与现状一致；未命中 Probe E 的 PR 走 `/workflow-review` 与现状一致；legacy `quality_gates[taskId].stage1` 缺少 `knowledge_check` 时 `normalizeQualityGateRecord` 会补一个 advisory 占位
+
+> 诚实对齐声明（Codex 建议措辞）：Knowledge schema 与读取链路对齐 Trellis：package/layer 布局、7 段 code-spec、thinking guides、before-dev、session/task 注入遵循 Trellis 模型。**Enforcement 与 runtime 保持 agent-workflow 自己的设计**：本版本未复刻 Trellis 的 `/check` + `/finish-work` gate、task-json 生命周期、journaling、ralph-loop 编排；v6.1 起 per-change knowledge check 以 workflow-review Stage 1 advisory 子步回归，infra / cross-layer 深度 gate 以 Probe E 升级为阻塞。
+
 ### Changed (Knowledge 设计全量对齐 Trellis)
 
 - **目录布局**：`.claude/knowledge/` 从顶层 `{frontend, backend, guides}/` 切换为二维 `{pkg}/{layer}/` + 共享 `guides/`，单包项目也走单例 `{project-name}/{layer}/` 布局

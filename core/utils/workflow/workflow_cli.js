@@ -18,11 +18,12 @@ const {
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock, recoverArchiveTombstone } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
-const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const { LEGACY_STATUS_TO_HALT_REASON, buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const os = require('os')
 const { buildBatchPassGateResult, writeBatchQualityGateResult } = require('./quality_review')
 const { finishBatch, getBatchRecord, setBatchReviewGroup, failWritableBatch } = require('./batch_orchestrator')
 const {
@@ -567,6 +568,50 @@ function splitCsv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
 }
 
+// One-shot upgrader: rewrites legacy top-level {paused,blocked,failed,planning} into the new model.
+// Backups go under <workflowDir>/.migrations/<ts>/. Active state files are migrated in place.
+function cmdMigrateState(options = {}) {
+  const root = path.join(os.homedir(), '.claude', 'workflows')
+  if (!fs.existsSync(root)) return { migrated: 0, total: 0, root }
+  const dryRun = Boolean(options.dryRun)
+  const entries = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())
+  const results = []
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-')
+  for (const entry of entries) {
+    const workflowDir = path.join(root, entry.name)
+    const statePath = path.join(workflowDir, 'workflow-state.json')
+    if (!fs.existsSync(statePath)) continue
+    let state
+    try { state = JSON.parse(fs.readFileSync(statePath, 'utf8')) } catch { results.push({ project_id: entry.name, skipped: 'parse_error' }); continue }
+    const originalStatus = state.status || null
+    const reason = LEGACY_STATUS_TO_HALT_REASON[originalStatus] || null
+    const planningRemap = originalStatus === 'planning'
+    if (!reason && !planningRemap) {
+      results.push({ project_id: entry.name, skipped: 'already_new', status: originalStatus })
+      continue
+    }
+    if (dryRun) {
+      results.push({ project_id: entry.name, would_migrate: originalStatus, target_status: reason ? 'halted' : 'spec_review' })
+      continue
+    }
+    const backupDir = path.join(workflowDir, '.migrations', timestamp)
+    fs.mkdirSync(backupDir, { recursive: true })
+    fs.copyFileSync(statePath, path.join(backupDir, 'workflow-state.json'))
+    if (reason) {
+      state.status = 'halted'
+      state.halt_reason = reason
+    } else if (planningRemap) {
+      state.status = 'spec_review'
+      state.halt_reason = null
+    }
+    state.updated_at = new Date().toISOString()
+    fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+    results.push({ project_id: entry.name, migrated_from: originalStatus, migrated_to: state.status, halt_reason: state.halt_reason || null, backup_dir: backupDir })
+  }
+  const migrated = results.filter((r) => r.migrated_from || r.would_migrate).length
+  return { migrated, total: results.length, root, dry_run: dryRun, results }
+}
+
 function parseArgs(argv) {
   const args = [...argv]
   const options = { projectId: null, projectRoot: null }
@@ -598,6 +643,16 @@ function main() {
     const pid = options.projectId
     const projectRoot = options.projectRoot
     let result
+
+    // Recover from a crashed /workflow-archive before dispatching any command, so active-workflow
+    // detection sees a clean root (either fully archived or fully reverted).
+    try {
+      const recoveryPid = pid || detectProjectId(projectRoot)
+      if (recoveryPid) {
+        const workflowDir = getWorkflowsDir(recoveryPid)
+        if (workflowDir && fs.existsSync(workflowDir)) recoverArchiveTombstone(workflowDir)
+      }
+    } catch {}
 
     if (command === 'execute' || command === 'continue') {
       const intent = args[0] && !args[0].startsWith('--') ? args[0] : null
@@ -636,6 +691,8 @@ function main() {
       }
     } else if (command === 'archive') {
       result = cmdArchive(args.includes('--summary'), pid, projectRoot)
+    } else if (command === 'migrate-state') {
+      result = cmdMigrateState({ dryRun: args.includes('--dry-run') })
     } else if (command === 'unblock') {
       result = cmdUnblock(args[0], pid, projectRoot)
     } else if (command === 'advance') {
@@ -714,7 +771,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n')
       process.exitCode = 1
       return
     }

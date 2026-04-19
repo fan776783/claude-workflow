@@ -240,7 +240,8 @@ function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
   const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
   if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记失败` }
   fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'failed'))
-  state.status = 'failed'
+  state.status = 'halted'
+  state.halt_reason = 'failure'
   state.failure_reason = reason
   state.current_tasks = [taskId]
   const progress = state.progress || (state.progress = {})

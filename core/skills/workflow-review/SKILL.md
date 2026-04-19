@@ -105,7 +105,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | **页面分层** | 单文件是否承载过多独立功能模块 |
 | **路由结构** | spec 中规划的多页面是否实现了路由/导航 |
 | **项目知识一致性** | 实现是否符合 `.claude/knowledge/` 中的约定？以人工对照 code-spec 为准，advisory |
-| **跨层一致性**（advisory） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md)：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度，按 diff 命中条件触发。输出到 `Cross-Layer (Advisory)` 独立块，不参与 Stage 1 pass/fail 判定 |
+| **Knowledge Spec Check**（advisory） | 参考 [`references/stage1-knowledge-check.md`](references/stage1-knowledge-check.md)：按 diff 文件反查 `{pkg}/{layer}/` code-spec，逐条给出缺失 / 偏差 / 建议。诊断条数写入 `stage1.knowledge_check.findings_count`，不影响 pass/fail。 |
+| **跨层一致性**（advisory） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § A–D：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度，按 diff 命中条件触发。输出到 `Cross-Layer (Advisory)` 独立块，不参与 Stage 1 pass/fail 判定 |
+| **Probe E Infra 深度 gate**（阻塞） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § E：命中 infra / cross-layer 关键路径且相关 code-spec 的 7 段里 `Validation & Error Matrix` / `Good/Base/Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail，并通过 `quality_review.js fail --cross-layer-depth-gap true` 写入 `stage1.cross_layer_depth_gap` + `blocking_issues.cross_layer_depth_gap`。相关 code-spec 不存在时只记 advisory，不升级成阻塞。 |
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
@@ -126,8 +128,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
    - 通过 `view_file` 读取对应实现代码
    - 验证：需求覆盖、行为匹配、约束遵循、验收对齐
 4. 检查范围控制（是否有超出 spec 的额外实现）
-5. **跨层 advisory 检查**（详见下文「跨层检查」小节；只产生 advisory 记录，不影响 Stage 1 判定）
-6. 输出结果：
+5. **Knowledge Spec Check（advisory）**：按 [`references/stage1-knowledge-check.md`](references/stage1-knowledge-check.md) 把 diff 文件映射到 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。不影响 Stage 1 判定，只记录到 `stage1.knowledge_check`。
+6. **跨层 advisory 检查（A/B/C/D）**（详见下文「跨层检查」小节；只产生 advisory 记录，不影响 Stage 1 判定）
+7. **Probe E Infra 深度 gate（阻塞）**：若 diff 命中 infra / cross-layer 关键路径且相关 code-spec 存在但 7 段深度不足 → Stage 1 fail，走 `quality_review.js fail --failed-stage stage1 --cross-layer-depth-gap true --cross-layer-files ... --cross-layer-specs ... --cross-layer-missing-sections ...` 写入阻塞项；相关 code-spec 不存在时降级为 advisory，不写阻塞项。
+8. 输出结果：
 
 ```
 **Status:** Compliant | Issues Found
@@ -136,11 +140,19 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 **Spec Coverage Checklist:**
 - [x] 需求 X 已实现 ✅
 - [ ] 需求 Y 未实现 ❌ — [原因]
+**Knowledge Spec Check (Advisory):**
+- [src/api/foo.ts → backend/api-conventions.md]: 新增 POST /foo 未在 Signatures 中声明 → 补齐 code-spec 的 Name / File
+- [src/api/bar.ts]: 无 code-spec under my-pkg/backend/，考虑用 /knowledge-update 创建
 **Cross-Layer (Advisory):**
 - [A 数据流] 本次 diff 触及 3+ 层，请按 references/cross-layer-checklist.md §A 自检
 - [B 代码复用] 修改了 src/constants/ 下的常量，请 grep 原值确认无残留
+**Probe E Infra Depth (Blocking, 若命中):**
+- 关键路径文件：src/api/export.ts, src/migrations/20260419_add_export.sql
+- 关联 code-spec：my-pkg/backend/export-api.md
+- 缺失段：Validation & Error Matrix, Tests Required
+- 建议：用 /knowledge-update 补齐对应段落后再重跑 /workflow-review
 ```
-（未触发任何 probe → 省略 `Cross-Layer (Advisory)` 块）
+（未触发任何 probe → 省略 `Knowledge Spec Check (Advisory)` / `Cross-Layer (Advisory)` / `Probe E` 块；Knowledge Spec Check 执行但无发现时，仍输出块并写 "No findings."）
 
 #### 跨层检查（advisory，Stage 1 内部）
 

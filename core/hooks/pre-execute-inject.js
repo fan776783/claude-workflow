@@ -4,7 +4,7 @@
 const fs = require('fs')
 const path = require('path')
 const { getWorkflowRuntime, getCurrentTaskId, getTaskBlock, getCurrentTask, getTaskVerificationCommands, getSpecContent, getThinkingGuides, getKnowledgeContextScoped, resolveActiveKnowledgeScope } = require('../utils/workflow/task_runtime')
-const { getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { deriveEffectiveStatus, getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 
 /**
  * 从 Markdown 内容中提取指定标题下的段落
@@ -59,11 +59,18 @@ function buildTaskContext(runtime) {
     parts.push(`<quality-gate-state>\nlast_decision: ${qualityGate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.overall_passed === true}\n</quality-gate-state>`)
   }
 
+  // 把当前 task 显式声明的 target_layer / 文件清单透传到 scope，让 scoped reader 做 layer + file-hint 二次裁剪。
+  // 任务没有声明这些字段时，resolveActiveKnowledgeScope 内部会退回当前 package 级别行为，保持与旧 plan 的兼容。
   const scope = resolveActiveKnowledgeScope(runtime)
   const knowledge = getKnowledgeContextScoped(projectRoot, scope)
   if (knowledge) {
-    const scopeLabel = scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"'
-    parts.push(`<project-knowledge role="advisory" ${scopeLabel}>\n${knowledge}\n</project-knowledge>`)
+    const labels = []
+    labels.push(scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"')
+    if (scope && scope.taskLayer) labels.push(`layer="${scope.taskLayer}"`)
+    if (scope && Array.isArray(scope.changedFileHints) && scope.changedFileHints.length) {
+      labels.push(`hints="${scope.changedFileHints.length}"`)
+    }
+    parts.push(`<project-knowledge role="advisory" ${labels.join(' ')}>\n${knowledge}\n</project-knowledge>`)
   }
 
   const guides = getThinkingGuides(projectRoot)
@@ -137,8 +144,10 @@ function main() {
     return
   }
 
-  if (!['running', 'paused'].includes(state.status)) {
-    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] 当前 workflow 状态为 ${state.status}，不允许直接派发执行型 Task。请先走对应的 workflow 命令路径。`)))
+  const effective = deriveEffectiveStatus(state)
+  const canDispatch = effective.status === 'running' || (effective.status === 'halted' && effective.halt_reason === 'governance')
+  if (!canDispatch) {
+    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] 当前 workflow 状态为 ${state.status}${effective.halt_reason ? `/${effective.halt_reason}` : ''}，不允许直接派发执行型 Task。请先走对应的 workflow 命令路径。`)))
     return
   }
 

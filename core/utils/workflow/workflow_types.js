@@ -75,8 +75,55 @@ const MINIMUM_BOUNDARY_SCHEDULING = {
 }
 
 
-const MINIMUM_STATE_STATUSES = new Set(['idle', 'spec_review', 'planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed', 'archived'])
-const POST_SPEC_REVIEW_STATUSES = new Set(['planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed'])
+// New canonical statuses + legacy values kept for backward compatibility during the migration window.
+// Legacy values (`planning`, `paused`, `blocked`, `failed`) may still appear on disk until the
+// one-shot `agent-workflow migrate-state` runs; deriveEffectiveStatus projects them to the new model.
+const MINIMUM_STATE_STATUSES = new Set([
+  'idle',
+  'spec_review',
+  'planned',
+  'running',
+  'halted',
+  'review_pending',
+  'completed',
+  'archived',
+  // legacy
+  'planning',
+  'paused',
+  'blocked',
+  'failed',
+])
+const POST_SPEC_REVIEW_STATUSES = new Set([
+  'planned',
+  'running',
+  'halted',
+  'review_pending',
+  'completed',
+  // legacy
+  'planning',
+  'paused',
+  'blocked',
+  'failed',
+])
+
+const LEGACY_STATUS_TO_HALT_REASON = {
+  paused: 'governance',
+  blocked: 'dependency',
+  failed: 'failure',
+}
+
+// Project legacy top-level status values onto the new (status, halt_reason) model without mutating input.
+// Readers use this to stay status-agnostic during the migration window; writers should produce the new
+// shape directly (status='halted' + halt_reason=...) via the state_manager helpers.
+function deriveEffectiveStatus(state) {
+  const source = state || {}
+  const rawStatus = source.status || 'idle'
+  const reasonFromLegacy = LEGACY_STATUS_TO_HALT_REASON[rawStatus] || null
+  if (reasonFromLegacy) return { status: 'halted', halt_reason: reasonFromLegacy }
+  if (rawStatus === 'planning') return { status: 'spec_review', halt_reason: null }
+  const haltReason = source.halt_reason || null
+  return { status: rawStatus, halt_reason: rawStatus === 'halted' ? (haltReason || 'governance') : null }
+}
 
 function buildMinimumState(projectId, planFile, specFile, currentTasks = [], status = 'running') {
   if (!MINIMUM_STATE_STATUSES.has(status)) throw new Error(`invalid workflow status: ${status}`)
@@ -122,17 +169,23 @@ function ensureStateDefaults(state) {
   if (!normalized.review_status.codex_spec_review) normalized.review_status.codex_spec_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 1, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
+  if (!('halt_reason' in normalized)) normalized.halt_reason = null
   if (!normalized.created_at) normalized.created_at = normalized.updated_at || isoNow()
   if (!normalized.updated_at) normalized.updated_at = isoNow()
   return normalized
 }
 
 function normalizeQualityGateRecord(taskId, record) {
+  const stage1 = { ...(record.stage1 || {}) }
+  // Knowledge Spec Check 是 Stage 1 的 advisory 子段，旧记录没有这个字段时补一个占位，方便下游无脑读取。
+  if (!stage1.knowledge_check || typeof stage1.knowledge_check !== 'object') {
+    stage1.knowledge_check = { performed: false, advisory: true, findings_count: 0 }
+  }
   return {
     gate_task_id: record.gate_task_id || taskId,
     review_mode: record.review_mode || 'machine_loop',
     last_decision: record.last_decision || 'revise',
-    stage1: record.stage1 || {},
+    stage1,
     stage2: record.stage2 || {},
     overall_passed: Boolean(record.overall_passed || false),
     reviewed_at: record.reviewed_at || null,
@@ -273,10 +326,12 @@ module.exports = {
   MINIMUM_BOUNDARY_SCHEDULING,
 
   MINIMUM_STATE_STATUSES,
+  LEGACY_STATUS_TO_HALT_REASON,
   isoNow,
   copyJson,
   buildMinimumState,
   ensureStateDefaults,
+  deriveEffectiveStatus,
   normalizeQualityGateRecord,
   getReviewResult,
   summarizeProgress,

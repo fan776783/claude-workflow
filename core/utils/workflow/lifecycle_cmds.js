@@ -30,7 +30,7 @@ const {
 const { detectProjectId, detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
 const { parseTasksV2, taskToDict } = require('./task_parser')
 const { getKnowledgeContext, getKnowledgeContextScoped, getKnowledgeFiles } = require('./task_runtime')
-const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
+const { buildMinimumState, deriveEffectiveStatus, ensureStateDefaults } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
   buildDiscussionArtifact,
@@ -1139,7 +1139,11 @@ function cmdDeltaSync(dependency, projectId = null, projectRoot = null) {
     if (!normalizedState.progress) normalizedState.progress = {}
     normalizedState.progress.blocked = reconciliation.blocked
     newlyUnblocked = reconciliation.newly_unblocked
-    if (normalizedState.status === 'blocked' && !reconciliation.blocked.length) normalizedState.status = 'running'
+    const effective = deriveEffectiveStatus(normalizedState)
+    if (effective.status === 'halted' && effective.halt_reason === 'dependency' && !reconciliation.blocked.length) {
+      normalizedState.status = 'running'
+      normalizedState.halt_reason = null
+    }
   }
 
   // 3. 写入审计记录（先审计后生效）
@@ -1176,6 +1180,106 @@ function cmdDelta(source = '', projectId = null, projectRoot = null) {
   return cmdDeltaInit(trigger.type, trigger.source, trigger.description, projectId, projectRoot)
 }
 
+const ARCHIVE_MARKER_FILE = 'ARCHIVING.marker'
+const ARCHIVE_MARKER_VERSION = 2
+const ARCHIVE_LEASE_MS = 5 * 60 * 1000
+
+function buildArchiveTimestamp() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-')
+}
+
+function buildHistorySlug(taskName) {
+  const raw = String(taskName || '').trim()
+  const slug = slugifyFilename(raw) || raw.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'workflow'
+  return slug.slice(0, 80) || 'workflow'
+}
+
+function readArchiveMarker(workflowDir) {
+  const markerPath = path.join(workflowDir, ARCHIVE_MARKER_FILE)
+  if (!fs.existsSync(markerPath)) return null
+  try {
+    return { path: markerPath, data: JSON.parse(fs.readFileSync(markerPath, 'utf8')) }
+  } catch {
+    return { path: markerPath, data: null }
+  }
+}
+
+function writeArchiveMarker(workflowDir, data) {
+  const markerPath = path.join(workflowDir, ARCHIVE_MARKER_FILE)
+  const tmp = `${markerPath}.${process.pid}.${crypto.randomUUID()}.tmp`
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`)
+  fs.renameSync(tmp, markerPath)
+  return markerPath
+}
+
+function isArchiveOwnerAlive(pid) {
+  const numericPid = Number(pid)
+  if (!Number.isInteger(numericPid) || numericPid <= 0 || numericPid > 0x7fffffff) return false
+  if (numericPid === process.pid) return false
+  try {
+    process.kill(numericPid, 0)
+    return true
+  } catch (err) {
+    if (err && err.code === 'ESRCH') return false
+    if (err && err.code === 'ERR_INVALID_ARG_TYPE') return false
+    // Windows EPERM or any other errno: assume alive, lease expiry is the fallback signal.
+    return true
+  }
+}
+
+// Tombstone-based recovery: called by workflow_cli before dispatching commands.
+// Decisions:
+//   - marker.phase === 'committing' → forward-commit (Phase 2 crash)
+//   - otherwise → rollback destDir (Phase 1 crash or unrecognized marker)
+//   - If marker's owner PID is still alive AND lease has not expired → skip entirely
+//     (another process is still archiving; touching anything here would race).
+function recoverArchiveTombstone(workflowDir) {
+  const marker = readArchiveMarker(workflowDir)
+  if (!marker) return { recovered: false }
+  const data = marker.data || {}
+
+  const leaseExpiresAt = data.lease_expires_at ? Date.parse(data.lease_expires_at) : 0
+  const leaseValid = Number.isFinite(leaseExpiresAt) && leaseExpiresAt > Date.now()
+  const ownerPid = data.owner_pid != null ? Number(data.owner_pid) : null
+  const ownerIsSelf = ownerPid && ownerPid === process.pid
+  if (!ownerIsSelf && ownerPid && leaseValid && isArchiveOwnerAlive(ownerPid)) {
+    return { recovered: false, reason: 'owner_alive', owner_pid: ownerPid, lease_expires_at: data.lease_expires_at }
+  }
+
+  const destDir = data.dest_dir || null
+  const phase = data.phase || null
+
+  if (phase === 'committing') {
+    finalizeArchiveCommit(workflowDir, destDir)
+    fs.rmSync(marker.path, { force: true })
+    return { recovered: true, phase: 'phase2-forward-commit', dest_dir: destDir }
+  }
+
+  // Phase 'populating' or legacy v1 markers (no phase field) → roll destDir back.
+  // The v1 signal (destState exists == Phase 2 done) was unsafe because Phase 1
+  // writes destState before copying tasks/changes; legacy markers must rollback.
+  if (destDir && fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true })
+  fs.rmSync(marker.path, { force: true })
+  return { recovered: true, phase: 'phase1-rollback', dest_dir: destDir }
+}
+
+function finalizeArchiveCommit(workflowDir, destDir) {
+  const rootState = path.join(workflowDir, 'workflow-state.json')
+  const rootStateLock = `${rootState}.lock`
+  if (fs.existsSync(rootState)) fs.rmSync(rootState, { force: true })
+  if (fs.existsSync(rootStateLock)) fs.rmSync(rootStateLock, { force: true })
+  const rootTasks = path.join(workflowDir, 'tasks.md')
+  if (fs.existsSync(rootTasks)) fs.rmSync(rootTasks, { force: true })
+  const rootChanges = path.join(workflowDir, 'changes')
+  if (fs.existsSync(rootChanges)) {
+    try {
+      const remaining = fs.readdirSync(rootChanges)
+      if (remaining.length === 0) fs.rmdirSync(rootChanges)
+      else fs.rmSync(rootChanges, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 function cmdArchive(summary = false, projectId = null, projectRoot = null) {
   const [resolvedProjectId, , workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
   if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有可归档的工作流' }
@@ -1183,16 +1287,61 @@ function cmdArchive(summary = false, projectId = null, projectRoot = null) {
   const normalizedState = ensureStateDefaults(state)
   if (normalizedState.status !== 'completed') return { error: '只有 completed 状态的工作流可以归档', state_status: normalizedState.status }
 
-  const changesDir = path.join(workflowDir, 'changes')
-  const archiveDir = path.join(workflowDir, 'archive')
-  fs.mkdirSync(archiveDir, { recursive: true })
+  const markerPath = path.join(workflowDir, ARCHIVE_MARKER_FILE)
+  if (fs.existsSync(markerPath)) return { error: '检测到未完成的归档 tombstone，请先调用 recover 或手动清理', marker: markerPath }
 
-  const archivedChanges = []
+  const timestamp = buildArchiveTimestamp()
+  const slug = buildHistorySlug(normalizedState.task_name)
+  // timestamp is produced by buildArchiveTimestamp as YYYYMMDD-HHMMSS.
+  const yearMonth = `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}`
+  const historyRoot = path.join(workflowDir, 'history', yearMonth)
+  const destDir = path.join(historyRoot, `${slug}-${timestamp}`)
+  fs.mkdirSync(destDir, { recursive: true })
+
+  const changesDir = path.join(workflowDir, 'changes')
+  const plannedEntries = []
   if (fs.existsSync(changesDir)) {
     for (const entry of fs.readdirSync(changesDir).sort()) {
+      if (!entry.startsWith('CHG-')) continue
       const source = path.join(changesDir, entry)
-      if (!entry.startsWith('CHG-') || !fs.statSync(source).isDirectory()) continue
-      const destination = path.join(archiveDir, entry)
+      if (!fs.statSync(source).isDirectory()) continue
+      plannedEntries.push(entry)
+    }
+  }
+
+  const startedAt = new Date().toISOString()
+  const leaseExpiresAt = new Date(Date.now() + ARCHIVE_LEASE_MS).toISOString()
+  writeArchiveMarker(workflowDir, {
+    marker_version: ARCHIVE_MARKER_VERSION,
+    project_id: resolvedProjectId,
+    dest_dir: destDir,
+    started_at: startedAt,
+    lease_expires_at: leaseExpiresAt,
+    owner_pid: process.pid,
+    phase: 'populating',
+    entries: plannedEntries,
+  })
+
+  // Phase 1: populate destDir (snapshot state, copy tasks.md, move CHG-*). Root remains intact
+  // so active-workflow detection still works if we crash mid-flight. A recovery that lands in
+  // the middle of this phase will see phase='populating' and roll destDir back.
+  normalizedState.status = 'archived'
+  normalizedState.halt_reason = null
+  normalizedState.archived_at = new Date().toISOString()
+  if (!normalizedState.delta_tracking) normalizedState.delta_tracking = {}
+  normalizedState.delta_tracking.current_change = null
+  fs.writeFileSync(path.join(destDir, 'workflow-state.json'), `${JSON.stringify(normalizedState, null, 2)}\n`)
+
+  const rootTasks = path.join(workflowDir, 'tasks.md')
+  if (fs.existsSync(rootTasks)) fs.copyFileSync(rootTasks, path.join(destDir, 'tasks.md'))
+
+  const destChanges = path.join(destDir, 'changes')
+  const archivedChanges = []
+  if (plannedEntries.length) {
+    fs.mkdirSync(destChanges, { recursive: true })
+    for (const entry of plannedEntries) {
+      const source = path.join(changesDir, entry)
+      const destination = path.join(destChanges, entry)
       if (fs.existsSync(destination)) fs.rmSync(destination, { recursive: true, force: true })
       fs.renameSync(source, destination)
       archivedChanges.push(entry)
@@ -1201,19 +1350,38 @@ function cmdArchive(summary = false, projectId = null, projectRoot = null) {
 
   let summaryPath = null
   if (summary) {
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-')
-    summaryPath = path.join(archiveDir, `archive-summary-${timestamp}.md`)
+    summaryPath = path.join(destDir, `archive-summary-${timestamp}.md`)
     const progress = normalizedState.progress || {}
     fs.writeFileSync(summaryPath, ['# 工作流归档摘要', '', `- 项目 ID: ${resolvedProjectId}`, `- Task: ${normalizedState.task_name || 'N/A'}`, `- Spec: ${normalizedState.spec_file || 'N/A'}`, `- Plan: ${normalizedState.plan_file || 'N/A'}`, `- 已归档变更: ${archivedChanges.length ? archivedChanges.join(', ') : '无'}`, `- 已完成任务: ${(progress.completed || []).length}`, `- 已跳过任务: ${(progress.skipped || []).length}`, `- 失败任务: ${(progress.failed || []).length}`, ''].join('\n'))
   }
 
-  normalizedState.status = 'archived'
-  normalizedState.archived_at = new Date().toISOString()
-  if (!normalizedState.delta_tracking) normalizedState.delta_tracking = {}
-  normalizedState.delta_tracking.current_change = null
-  writeState(statePath, normalizedState)
+  // Transition to phase='committing'. This is the cut point that recoveries use to decide
+  // whether to forward-commit (delete root) or rollback (delete destDir): everything up to
+  // this point is still safely reversible.
+  writeArchiveMarker(workflowDir, {
+    marker_version: ARCHIVE_MARKER_VERSION,
+    project_id: resolvedProjectId,
+    dest_dir: destDir,
+    started_at: startedAt,
+    lease_expires_at: new Date(Date.now() + ARCHIVE_LEASE_MS).toISOString(),
+    owner_pid: process.pid,
+    phase: 'committing',
+    entries: plannedEntries,
+    archived_changes: archivedChanges,
+  })
 
-  return { archived: true, project_id: resolvedProjectId, archived_changes: archivedChanges, archive_dir: archiveDir, summary_file: summaryPath, workflow_status: normalizedState.status }
+  // Phase 2: commit — remove root state/tasks/changes, then clear the tombstone.
+  finalizeArchiveCommit(workflowDir, destDir)
+  fs.rmSync(markerPath, { force: true })
+
+  return {
+    archived: true,
+    project_id: resolvedProjectId,
+    archived_changes: archivedChanges,
+    history_dir: destDir,
+    summary_file: summaryPath,
+    workflow_status: 'archived',
+  }
 }
 
 function cmdUnblock(dependency, projectId = null, projectRoot = null) {
@@ -1234,7 +1402,11 @@ function cmdUnblock(dependency, projectId = null, projectRoot = null) {
     if (!normalizedState.progress) normalizedState.progress = {}
     normalizedState.progress.blocked = reconciliation.blocked
     newlyUnblocked = reconciliation.newly_unblocked
-    if (normalizedState.status === 'blocked' && !reconciliation.blocked.length) normalizedState.status = 'running'
+    const effective = deriveEffectiveStatus(normalizedState)
+    if (effective.status === 'halted' && effective.halt_reason === 'dependency' && !reconciliation.blocked.length) {
+      normalizedState.status = 'running'
+      normalizedState.halt_reason = null
+    }
   }
 
   writeState(statePath, normalizedState)
@@ -1272,4 +1444,7 @@ module.exports = {
   cmdDeltaSync,
   cmdArchive,
   cmdUnblock,
+  recoverArchiveTombstone,
+  ARCHIVE_MARKER_FILE,
+  ARCHIVE_MARKER_VERSION,
 }

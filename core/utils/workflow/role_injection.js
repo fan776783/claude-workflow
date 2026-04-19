@@ -61,6 +61,57 @@ function readRoleProfiles(profileDir = PROFILE_DIR) {
     })
 }
 
+// Infra / cross-layer 关键路径清单：只做路径启发，用于 workflow-review Stage 1 Probe E 的阻塞判定。
+// 清单与 Trellis `$check-cross-layer` 的高风险范围对齐；后续有新 pattern 可以直接追加，不需要改调用方。
+const INFRA_PATH_PATTERNS = [
+  /(^|\/)src\/api(\/|$)/i,
+  /(^|\/)src\/routes(\/|$)/i,
+  /(^|\/)src\/controllers(\/|$)/i,
+  /(^|\/)src\/services(\/|$)/i,
+  /(^|\/)src\/migrations(\/|$)/i,
+  /(^|\/)migrations(\/|$)/i,
+  /(^|\/)db(\/|$)/i,
+  /(^|\/)schema(\/|$)/i,
+  /(^|\/)prisma(\/|$)/i,
+  /(^|\/)auth(\/|$)/i,
+  /(^|\/)security(\/|$)/i,
+  /(^|\/)middleware(\/|$)/i,
+]
+
+const LAYER_HINTS = [
+  { tag: 'api', patterns: [/(^|\/)src\/api(\/|$)/i, /(^|\/)src\/routes(\/|$)/i, /(^|\/)src\/controllers(\/|$)/i, /(^|\/)src\/handlers(\/|$)/i] },
+  { tag: 'service', patterns: [/(^|\/)src\/services(\/|$)/i, /(^|\/)src\/lib(\/|$)/i, /(^|\/)src\/core(\/|$)/i, /(^|\/)src\/domain(\/|$)/i] },
+  { tag: 'db', patterns: [/(^|\/)db(\/|$)/i, /(^|\/)models(\/|$)/i, /(^|\/)src\/repositories(\/|$)/i, /(^|\/)schema(\/|$)/i, /(^|\/)migrations(\/|$)/i] },
+  { tag: 'ui', patterns: [/(^|\/)src\/components(\/|$)/i, /(^|\/)src\/views(\/|$)/i, /(^|\/)src\/templates(\/|$)/i, /(^|\/)src\/pages(\/|$)/i] },
+  { tag: 'utils', patterns: [/(^|\/)src\/utils(\/|$)/i, /(^|\/)src\/helpers(\/|$)/i, /(^|\/)src\/common(\/|$)/i] },
+]
+
+/**
+ * 根据 diff 文件清单判断是否进入 infra / cross-layer 关键路径。
+ * 输入一律规范化为正斜杠；判定只依赖路径，不读文件内容，避免引入大开销。
+ * @param {string[]} files
+ * @returns {{ infra: boolean, layerCount: number, infraFiles: string[], layers: string[] }}
+ */
+function classifyInfraDepth(files = []) {
+  const normalized = (Array.isArray(files) ? files : [])
+    .map((f) => String(f || '').replace(/\\/g, '/').trim())
+    .filter(Boolean)
+  const infraFiles = []
+  const layerHits = new Set()
+  for (const file of normalized) {
+    if (INFRA_PATH_PATTERNS.some((re) => re.test(file))) infraFiles.push(file)
+    for (const { tag, patterns } of LAYER_HINTS) {
+      if (patterns.some((re) => re.test(file))) layerHits.add(tag)
+    }
+  }
+  return {
+    infra: infraFiles.length > 0,
+    layerCount: layerHits.size,
+    infraFiles,
+    layers: [...layerHits],
+  }
+}
+
 function classifyRoleSignals(requirementContent = '', analysisPatterns = [], discussionArtifact = null, extra = {}) {
   const text = [requirementContent, extra.taskName, extra.summary, safeArray(extra.requirementIds).join(' '), safeArray(extra.criticalConstraints).join(' ')].filter(Boolean).join('\n')
   const frameworksText = safeArray(analysisPatterns).map((pattern) => String((pattern || {}).name || '')).join(' ')
@@ -177,9 +228,12 @@ function buildAgentPrompt(profile = {}, injectedContext = {}, platform = 'unknow
 
 module.exports = {
   PROFILE_DIR,
+  INFRA_PATH_PATTERNS,
+  LAYER_HINTS,
   parseFrontmatter,
   readRoleProfiles,
   classifyRoleSignals,
+  classifyInfraDepth,
   deriveSignalTags,
   defaultRoleForPhase,
   resolveRoleProfile,

@@ -22,7 +22,7 @@ const {
   taskToDict,
   updateTaskStatusInMarkdown,
 } = require('./task_parser')
-const { acknowledgeSkippedSpecReview, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+const { acknowledgeSkippedSpecReview, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
 
 function loadProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -77,7 +77,23 @@ function resolveExistingStatePath(stateOrProject) {
 
 const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
 const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
-const EXECUTE_ENTRY_STATUSES = new Set(['planned', 'running', 'paused', 'failed', 'blocked'])
+const EXECUTE_ENTRY_STATUSES = new Set([
+  'planned',
+  'running',
+  'halted',
+  // legacy (pre-migration disk states)
+  'paused',
+  'failed',
+  'blocked',
+])
+const RESUME_ENTRY_STATUSES = new Set([
+  'running',
+  'halted',
+  // legacy
+  'paused',
+  'failed',
+  'blocked',
+])
 
 function buildBatchView(state) {
   if (!state) return null
@@ -144,11 +160,9 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
       }
     }
     if (!EXECUTE_ENTRY_STATUSES.has(state.status)) {
-      const message = state.status === 'spec_review'
-        ? 'Spec 正在等待用户确认，请先完成 User Spec Review 并生成 Plan，再执行 /workflow-execute。'
-        : state.status === 'planning'
-          ? 'Plan 仍在生成或审查中，请先完成规划流程后再执行。'
-          : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow-status 查看详情。`
+      const message = state.status === 'spec_review' || state.status === 'planning'
+        ? 'Spec 正在等待用户确认或 Plan 仍在生成，请先完成规划流程后再执行 /workflow-execute。'
+        : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow-status 查看详情。`
       return {
         entry_action: 'none',
         resolved_mode: null,
@@ -204,8 +218,8 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
       }
     }
     const status = state.status
-    if (!new Set(['running', 'paused', 'failed', 'blocked']).has(status)) {
-      const message = ['planned', 'planning'].includes(status)
+    if (!RESUME_ENTRY_STATUSES.has(status)) {
+      const message = ['planned', 'planning', 'spec_review'].includes(status)
         ? '规划已完成但尚未开始执行，请显式使用 /workflow-execute 开始执行。'
         : `当前状态 ${status} 不支持直接恢复，请使用 /workflow-status 查看详情。`
       return {
@@ -343,8 +357,10 @@ function decideGovernanceAction(state, nextTask = null, executionMode = 'continu
   const pollution = assessContextPollutionRisk(nextTask, budget)
   const primarySignals = { taskIndependence: independence, contextPollutionRisk: pollution }
 
-  if (['failed', 'blocked'].includes(normalizedState.status)) {
-    return buildDecision('pause-governance', `status-${normalizedState.status}`, 'warning', budget, 'direct', primarySignals, false, ['工作流已处于 failed/blocked 状态，优先暂停治理'])
+  const effective = deriveEffectiveStatus(normalizedState)
+  if (effective.status === 'halted' && (effective.halt_reason === 'failure' || effective.halt_reason === 'dependency')) {
+    const label = effective.halt_reason === 'failure' ? 'failure' : 'dependency'
+    return buildDecision('pause-governance', `status-halted-${label}`, 'warning', budget, 'direct', primarySignals, false, [`工作流已 halted（${label}），优先暂停治理`])
   }
   if (budget.at_hard_handoff) {
     return buildDecision('handoff-required', 'hard-handoff-threshold', 'critical', budget, 'direct', primarySignals, true, ['预算达到硬停止阈值，必须交接'])
@@ -385,7 +401,8 @@ function applyGovernanceDecision(state, decision, statePath = null, nextTaskIds 
   const normalizedState = ensureStateDefaults(state)
   const action = decision.action || 'continue-direct'
   if (HARD_STOP_ACTIONS.has(action)) {
-    normalizedState.status = 'paused'
+    normalizedState.status = 'halted'
+    normalizedState.halt_reason = 'governance'
     updateContinuation(
       normalizedState,
       action,
@@ -460,7 +477,9 @@ function markTaskSkipped(statePath, tasksPath, tasksContent, taskId) {
 
 function prepareRetry(statePath, taskId, failureReason = null, failureStage = 'execution') {
   const state = ensureStateDefaults(readState(statePath))
-  if (state.status !== 'failed') return { retryable: false, reason: `status-not-failed:${state.status}`, task_id: taskId }
+  const effective = deriveEffectiveStatus(state)
+  const isRetryable = effective.status === 'halted' && effective.halt_reason === 'failure'
+  if (!isRetryable) return { retryable: false, reason: `status-not-failed:${state.status}`, task_id: taskId }
   const taskRuntime = state.task_runtime || (state.task_runtime = {})
   const runtime = taskRuntime[taskId] || (taskRuntime[taskId] = { retry_count: 0, last_failure_stage: failureStage, last_failure_reason: failureReason || state.failure_reason || '', hard_stop_triggered: false, debugging_phases_completed: [] })
   runtime.retry_count = Number(runtime.retry_count || 0) + 1
@@ -472,6 +491,7 @@ function prepareRetry(statePath, taskId, failureReason = null, failureStage = 'e
     return { retryable: false, reason: 'hard-stop', task_id: taskId, retry_count: runtime.retry_count }
   }
   state.status = 'running'
+  state.halt_reason = null
   state.failure_reason = null
   writeState(statePath, state)
   return { retryable: true, task_id: taskId, retry_count: runtime.retry_count, failure_stage: runtime.last_failure_stage }

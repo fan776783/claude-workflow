@@ -66,6 +66,49 @@
 - [ ] 命名风格 / 格式化 / 错误处理方式是否一致
 - [ ] 本次修改是否让同目录下的文件行为更统一或更分裂
 
+## E. Infra / Cross-Layer 深度 Gate（阻塞）
+
+**Trigger（AND）**：
+
+1. 以下任一命中：
+   - § A（数据流 ≥ 3 层）命中
+   - diff 文件命中 infra 关键路径（`src/api/**`、`src/routes/**`、`src/controllers/**`、`src/services/**`、`src/migrations/**`、`migrations/**`、`db/**`、`schema/**`、`prisma/**`、`auth/**`、`security/**`、`middleware/**` 等；清单以 `core/utils/workflow/role_injection.js::INFRA_PATH_PATTERNS` 为准）
+   - § D 命中且其中任一文件匹配 infra glob
+2. 关联 code-spec **存在**但 7 段里 `## 4. Validation & Error Matrix` / `## 5. Good / Base / Bad Cases` / `## 6. Tests Required` 任一缺失或只剩占位符
+   - 关联 code-spec **不存在**时不升级为阻塞，只在 Stage 1 Knowledge Spec Check 里按 advisory 记录；避免把"没写 spec"和"改了关键路径"叠加惩罚
+
+**Checklist**：
+
+- [ ] 枚举命中的 infra 文件清单
+- [ ] 列出关联 code-spec（可能多份）
+- [ ] 对每份 spec 逐段核对 7 段是否达标；缺失段名要具体
+- [ ] 给用户明确修复路径：`/knowledge-update` 补齐 → 重跑 `/workflow-review`
+
+**阻塞行为**：
+
+- 调用 `quality_review.js fail --failed-stage stage1 --cross-layer-depth-gap true` 并提供：
+  - `--cross-layer-files <逗号分隔>`：命中 infra 路径的文件
+  - `--cross-layer-specs <逗号分隔>`：关联 code-spec 相对路径
+  - `--cross-layer-missing-sections <逗号分隔>`：缺失段名
+  - `--cross-layer-description <text>`：可选的额外说明
+- CLI 会把字段写入 `state.quality_gates[taskId].stage1.cross_layer_depth_gap`，并把一条 `type: "cross_layer_depth_gap"` 条目合并到 `blocking_issues`
+- Stage 1 pass 路径**禁止**出现 `cross_layer_depth_gap=true` 的参数；Probe E 命中等价于必须走 fail 分支
+
+**示例 CLI 调用**：
+
+```
+node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail T3 \
+  --project-id {projectId} \
+  --failed-stage stage1 \
+  --base-commit <baseCommit> --total-attempts 2 \
+  --knowledge-performed true --knowledge-findings 1 \
+  --cross-layer-depth-gap true \
+  --cross-layer-files "src/api/export.ts,src/migrations/20260419_add_export.sql" \
+  --cross-layer-specs "my-pkg/backend/export-api.md" \
+  --cross-layer-missing-sections "Validation & Error Matrix,Tests Required" \
+  --last-result-json '{}'
+```
+
 ## 与 Stage 2 的去重
 
 Stage 2 `stage2-review-checklist.md` 已覆盖：
@@ -98,6 +141,17 @@ if shared_parent_dir_count(files, min=2):
   advisory.push(section="D 同层一致性", checklist_from="§D")
 
 render_block("Cross-Layer (Advisory)", advisory)
+
+# Probe E 单独判断：只有命中且 code-spec 深度不足时才阻塞
+infra = classifyInfraDepth(files)   # role_injection.js
+if infra.infra and related_specs_exist(files) and missing_sections_in_specs(files):
+  quality_review_fail(
+    failed_stage="stage1",
+    cross_layer_depth_gap=true,
+    files=infra.infraFiles,
+    specs=related_specs,
+    missing_sections=sections,
+  )
 ```
 
-实现时 probe 自身**不执行** grep / 修改 / 阻断动作，只负责把 checklist 追加到审查输出的独立块。
+A/B/C/D probe 自身**不执行** grep / 修改 / 阻断动作，只负责把 checklist 追加到审查输出的独立块。Probe E 是唯一会写 `blocking_issues` 的跨层判断。
