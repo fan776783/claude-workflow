@@ -2,7 +2,7 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v15.1.0  
+**文档版本**：v15.2.0  
 **最后更新**：2026-04-19  
 **适用仓库**：`@justinfan/agent-workflow`
 
@@ -18,7 +18,7 @@
 - [6. 状态机](#6-状态机)
 - [7. `/workflow-plan` 规划流程详解](#7-workflow-plan-规划流程详解)
 - [8. `/workflow-execute` 执行流程详解](#8-workflow-execute-执行流程详解)
-- [8A. Knowledge 硬卡口与命令链](#8a-knowledge-硬卡口与命令链)
+- [8A. Code Specs 硬卡口与命令链](#8a-code-specs-硬卡口与命令链)
 - [8B. `/session-review` 与 `/diff-review`](#8b-session-review-与-diff-review)
 - [9. 运行中的辅助命令](#9-运行中的辅助命令)
 - [10. 工作流产物与状态文件](#10-工作流产物与状态文件)
@@ -159,7 +159,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 |  journal.js             会话日志                                  |
 |  batch_orchestrator.js  并行批次编排（config / select-batch）      |
 |  merge_strategist.js    集成 worktree 创建 / 合流 / 丢弃           |
-|  knowledge_bootstrap.js Knowledge 骨架生成（支持 monorepo）         |
+|  spec_bootstrap.js      Code-specs 骨架生成（支持 monorepo）         |
 +-----------------------------------------------------------------+
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
@@ -789,7 +789,7 @@ stateDiagram-v2
 | `journal.js` | 会话日志 | `add`, `list`, `search`, `get` |
 | `batch_orchestrator.js` | 并行批次编排 | `config`, `select-batch`, `dispatchReadonlyBatch` |
 | `merge_strategist.js` | 集成 worktree 合流 | `create-integration`, `merge-integration`, `discard-integration` |
-| `knowledge_bootstrap.js` | Knowledge 骨架生成（支持 monorepo workspace 检测） | `init`, `status`, `skip` |
+| `spec_bootstrap.js` | Code-specs 骨架生成（支持 monorepo workspace 检测） | `init`, `status`, `skip` |
 
 ---
 
@@ -1003,9 +1003,9 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 
 ---
 
-## 8A. Knowledge 目录与命令链
+## 8A. Code Specs 目录与命令链
 
-`.claude/knowledge/` 是项目自己的"活文档"，和 CLAUDE.md 的区别是：CLAUDE.md 说"AI 该知道的项目背景"，knowledge 说"这个项目代码该怎么写"。本版本对齐 Trellis 的声明式审查模型，不再引入机读规则硬卡口；一致性由 `/workflow-review` Stage 1 用人工对照 code-spec 检查。
+`.claude/code-specs/` 是项目自己的"活文档"，和 CLAUDE.md 的区别是：CLAUDE.md 说"AI 该知道的项目背景"，code-specs 说"这个项目代码该怎么写"。本版本对齐 Trellis 的声明式模型：schema 与读取链路（`{pkg}/{layer}` + 7 段 code-spec + before-dev + task 注入）对齐 Trellis，但 Enforcement 保持 agent-workflow 自己的执行面——不复刻 Trellis 的 `/check` 与 `/finish-work` 硬卡运行时，per-change 检查改为 `/workflow-review` Stage 1 的 advisory 子步，infra / cross-layer 深度 gate 以 Probe E 升级为阻塞。
 
 ### 定位
 
@@ -1023,7 +1023,7 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 Monorepo：按 `{pkg}/{layer}/` 二维布局 + 共享 `guides/`：
 
 ```
-.claude/knowledge/
+.claude/code-specs/
 ├── index.md
 ├── local.md
 ├── {pkg-a}/
@@ -1038,7 +1038,7 @@ Monorepo：按 `{pkg}/{layer}/` 二维布局 + 共享 `guides/`：
 单包项目仍走单例 package 布局：
 
 ```
-.claude/knowledge/
+.claude/code-specs/
 ├── index.md
 ├── local.md
 ├── {project-name}/
@@ -1051,14 +1051,15 @@ Monorepo：按 `{pkg}/{layer}/` 二维布局 + 共享 `guides/`：
 
 | 命令 | 什么时候用 | 角色 |
 |------|-----------|------|
-| `/scan` Part 5 | 首次扫描项目时 | 引导 `/knowledge-bootstrap` 或写 `bootstrapStatus=skipped` |
-| `/knowledge-bootstrap` | 项目首次启用 knowledge，或 `/scan` 提示未初始化 | 按 `project-config.json` 的 `monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；monorepo 但未写 `monorepo.packages` 时，自动从 `pnpm-workspace.yaml` / `package.json workspaces` / `lerna.json` 解析 workspace 列表 |
-| `/knowledge-update` | 完成实现 / 修完 bug / 做完设计决策，且有沉淀价值时 | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
-| `/knowledge-review` | 定期维护（每周 / 大版本前） | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
+| `/scan` Part 5 | 首次扫描项目时 | 引导 `/spec-bootstrap` 或写 `bootstrapStatus=skipped` |
+| `/spec-bootstrap` | 项目首次启用 code-specs，或 `/scan` 提示未初始化 | 按 `project-config.json` 的 `monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；monorepo 但未写 `monorepo.packages` 时，自动从 `pnpm-workspace.yaml` / `package.json workspaces` / `lerna.json` 解析 workspace 列表 |
+| `/spec-before-dev` | 刚切换到某个 package/layer 准备开始实现时 | 按当前 package/layer 展开 `index.md` Pre-Development Checklist，强制读一遍 code-spec 与 guides 的具体指针，对齐 Trellis `$before-dev` |
+| `/spec-update` | 完成实现 / 修完 bug / 做完设计决策，且有沉淀价值时 | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
+| `/spec-review` | 定期维护（每周 / 大版本前） | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
 
 ### 7 段 code-spec 怎么选
 
-`/knowledge-update` 交互式会先问沉淀哪种形态：
+`/spec-update` 交互式会先问沉淀哪种形态：
 
 | 形态 | 用于 | 典型触发 |
 |------|------|---------|
@@ -1079,25 +1080,27 @@ code-spec 的 7 段：
 
 ### 在 workflow 中的接入点
 
-- **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/knowledge/` 目录汇总 Constraints；Spec 模板保留 `3.x Project Knowledge Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
-- **`workflow-execute`（advisory）**：把 `<project-knowledge>` 段以参考信息注入 Task，不阻塞
-- **`workflow-review` Stage 1（人工对照）**：Reviewer 把实现与对应 code-spec 段逐条对照，发现偏离直接写进 `Issues Found`；不再调用 CLI 硬卡口
+- **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/code-specs/` 目录汇总 Constraints；Spec 模板保留 `3.x Project Code Specs Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
+- **`workflow-execute` task-aware 预注入（advisory）**：`plan-template.md` 新增可选字段 `Target Layer`；`task_runtime` 按任务声明的 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 标签带 `layer="..."` 与 `hints="N"` 属性，不阻塞
+- **`workflow-review` Stage 1 Code Specs Check（advisory）**：按 diff 文件反查 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议，写入 `stage1.code_specs_check.findings_count`，不消耗 Stage 1 / Stage 2 的 4 次共享预算，不影响 pass/fail
+- **`workflow-review` Stage 1 跨层 advisory（A/B/C/D）**：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度启发式，按 diff 命中条件触发，仅做早期警示
+- **`workflow-review` Stage 1 Probe E Infra 深度 Gate（阻塞）**：命中 infra / cross-layer 关键路径（`src/api/**`、`src/migrations/**`、`auth/**`、`services/**` 等），且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 fail，并把阻塞项写入 `stage1.cross_layer_depth_gap` + `blocking_issues`；关联 code-spec 不存在时降级为 advisory，不升级成阻塞
 
 ### 端到端示例：沉淀一条 API 契约
 
-场景：新加了一个后端 API `POST /api/auth/login`，前后端字段有命名约定（驼峰→下划线）。想把这条契约沉淀到 knowledge。
+场景：新加了一个后端 API `POST /api/auth/login`，前后端字段有命名约定（驼峰→下划线）。想把这条契约沉淀到 code-specs。
 
 **Step 1 — 确保骨架存在**
 
 ```bash
-/knowledge-bootstrap
+/spec-bootstrap
 # monorepo 项目会自动按 workspace 生成 {pkg}/{layer}/
 ```
 
-**Step 2 — 用 `/knowledge-update` 写入 code-spec**
+**Step 2 — 用 `/spec-update` 写入 code-spec**
 
 ```bash
-/knowledge-update
+/spec-update
 ```
 
 交互时回答：
@@ -1117,16 +1120,20 @@ code-spec 的 7 段：
 ```bash
 /workflow-plan "新增手机号登录"
 # Step 1.5 会把 auth-api.md 的 Contracts 段作为 advisory constraints 写入 Spec
+/spec-before-dev --package my-pkg --layer backend
+# 动手前显式读一遍 {pkg}/{layer}/index.md 的 Pre-Development Checklist
 /workflow-execute
 /workflow-review
 # Stage 1 reviewer 会把实现和 auth-api.md 逐条对照
+# Code Specs Check 子步会按 diff 文件反查 code-spec 给 advisory findings
+# Probe E 若命中 infra 路径 + 7 段深度不足，Stage 1 直接 fail
 ```
 
 **Step 4 — 定期维护**
 
 ```bash
-/knowledge-review
-# 输出报告到 .claude/reports/knowledge-review-{date}.md
+/spec-review
+# 输出报告到 .claude/reports/spec-review-{date}.md
 # 检查：
 #   - 哪些 code-spec 7 段不完整（missing-section / draft / abstract-content）
 #   - 哪些 code-spec 超过 30 / 90 天没更新
@@ -1237,7 +1244,7 @@ code-spec 的 7 段：
 
 ## 11. Skills 体系总览
 
-仓库当前提供 21 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
+仓库当前提供 22 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
 
 ### 11.1 用户直接调用的专项 Skills
 
@@ -1276,13 +1283,14 @@ code-spec 的 7 段：
 | `plan` | `/quick-plan` | 轻量快速规划，只产出可执行 `plan.md`，不进入 workflow 状态机 |
 | `dispatching-parallel-agents` | workflow/team 内部按需触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 
-### 11.3.1 Knowledge Skills（3 个）
+### 11.3.1 Code Specs Skills（4 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
-| `knowledge-bootstrap` | `/knowledge-bootstrap` 或 `/scan` Part 5 引导 | 按 `monorepo.packages × tech.frameworks` 生成 `.claude/knowledge/{pkg}/{layer}/` 骨架 + `guides/` + `local.md`；monorepo 未写 `monorepo.packages` 时自动扫 workspace |
-| `knowledge-update` | `/knowledge-update` | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
-| `knowledge-review` | `/knowledge-review` | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
+| `spec-bootstrap` | `/spec-bootstrap` 或 `/scan` Part 5 引导 | 按 `monorepo.packages × tech.frameworks` 生成 `.claude/code-specs/{pkg}/{layer}/` 骨架 + `guides/` + `local.md`；monorepo 未写 `monorepo.packages` 时自动扫 workspace |
+| `spec-before-dev` | `/spec-before-dev` 或刚切换 package/layer 准备开始实现时主动调用 | 按当前 package/layer 展开 `index.md` 的 Pre-Development Checklist，把 hook 的 advisory 摘要展开成一次具体的阅读动作；对齐 Trellis `$before-dev` |
+| `spec-update` | `/spec-update` | 交互式按 7 段 code-spec 或 thinking guide 形态写入 |
+| `spec-review` | `/spec-review` | 只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，输出报告 |
 
 ### 11.4 基础设施说明
 
@@ -1686,9 +1694,10 @@ git worktree prune
 /deep-research "研究主题"
 
 # 知识库
-/knowledge-bootstrap         # 初始化 .claude/knowledge/ 骨架（支持 monorepo）
-/knowledge-update            # 交互式沉淀 7 段 code-spec 或 thinking guide
-/knowledge-review            # 只读扫描 7 段完整性、过期、冲突、canonical 对账
+/spec-bootstrap         # 初始化 .claude/code-specs/ 骨架（支持 monorepo）
+/spec-before-dev        # 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist
+/spec-update            # 交互式沉淀 7 段 code-spec 或 thinking guide
+/spec-review            # 只读扫描 7 段完整性、过期、冲突、canonical 对账
 ```
 
 ---
@@ -1706,15 +1715,18 @@ git worktree prune
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-status/SKILL.md`
 - `core/skills/workflow-archive/SKILL.md`
-- `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
 - `core/skills/session-review/SKILL.md`
-- `core/skills/knowledge-bootstrap/SKILL.md`
-- `core/skills/knowledge-update/SKILL.md`
-- `core/skills/knowledge-review/SKILL.md`
+- `core/skills/spec-bootstrap/SKILL.md`
+- `core/skills/spec-before-dev/SKILL.md`
+- `core/skills/spec-update/SKILL.md`
+- `core/skills/spec-review/SKILL.md`
+- `core/skills/workflow-review/references/stage1-code-specs-check.md`（Code Specs Check advisory 子步）
+- `core/skills/workflow-review/references/cross-layer-checklist.md`（A/B/C/D advisory + Probe E 阻塞 gate）
+- `core/specs/platform-parity.md`（multi-tool 分发 parity 契约）
 - `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
-- `core/specs/knowledge-templates/`（knowledge 模板源）
+- `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js`、`core/hooks/team-task-guard.js`（原生 Agent Teams 的任务板守门与自动清理）
 - `docs/workflow-hooks.md`（Workflow Hook Guardrails 详细文档）
 - `docs/worktree-hooks.md`（Worktree 串行化 Hook 详细文档）

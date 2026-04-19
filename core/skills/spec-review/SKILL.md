@@ -1,11 +1,11 @@
 ---
-name: knowledge-review
-description: "审查 knowledge 库的 7 段合约完整性、过期、冲突与 canonical 版本对账。触发条件：用户调用 /knowledge-review，或定期维护 knowledge 库时。输出可读的 review 报告，不直接修改文件。"
+name: spec-review
+description: "审查 code-specs 库的 7 段合约完整性、过期、冲突与 canonical 版本对账。触发条件：用户调用 /spec-review，或定期维护 code-specs 库时。输出可读的 review 报告，不直接修改文件。"
 ---
 
-# /knowledge-review
+# /spec-review
 
-只读的 knowledge 库审查命令。对齐 Trellis 的声明式审查模型：按 7 段合约 lint + 过期 / 冲突 / canonical 对账，输出报告供用户决定后续动作。
+只读的 code-specs 库审查命令。对齐 Trellis 的声明式审查模型：按 7 段合约 lint + 过期 / 冲突 / canonical 对账，输出报告供用户决定后续动作。
 
 ## 检查维度
 
@@ -37,7 +37,7 @@ git log -1 --format=%ct -- <file>
 
 ### 4. Canonical 模板 / Manifest 对账
 
-读取 `.claude/knowledge/local.md` 的 Template Baseline，与 `core/specs/knowledge-templates/` 当前版本做对比，同时读取 `core/specs/knowledge-templates/manifests/` 下最新 manifest 判断是否存在迁移项：
+读取 `.claude/code-specs/local.md` 的 Template Baseline，与 `core/specs/spec-templates/` 当前版本做对比，同时读取 `core/specs/spec-templates/manifests/` 下最新 manifest 判断是否存在迁移项：
 
 - 模板文件 hash / mtime 有差异 → 输出需要用户审视的变更摘要
 - manifest 中的 `migrations[]` 按 type 分类列出：
@@ -49,12 +49,12 @@ git log -1 --format=%ct -- <file>
 
 ## 流程
 
-1. 扫描 `.claude/knowledge/**/*.md`
+1. 扫描 `.claude/code-specs/**/*.md`
 2. 依次跑 4 类检查
 3. 生成 Markdown 报告：
 
 ```
-# Knowledge Review — {{date}}
+# Spec Review — {{date}}
 
 ## Summary
 - Code-specs scanned: N
@@ -80,18 +80,18 @@ git log -1 --format=%ct -- <file>
 - manifests/v3.2.0.json: 1 rename, 2 safe-file-delete, 0 delete
 ```
 
-4. 输出报告路径 `.claude/reports/knowledge-review-{{date}}.md`
-5. 不修改任何 knowledge 文件
+4. 输出报告路径 `.claude/reports/spec-review-{{date}}.md`
+5. 不修改任何 code-specs 文件
 
 ## 用法
 
 ```
-/knowledge-review                     # 全量审查
-/knowledge-review --check-upgrade     # 仅做 canonical / manifest 对账
+/spec-review                     # 全量审查
+/spec-review --check-upgrade     # 仅做 canonical / manifest 对账
 ```
 
 ## 与其他命令的关系
 
-- 审查结果中的 missing / draft / stale 由用户 `/knowledge-update` 手动补齐
+- 审查结果中的 missing / draft / stale 由用户 `/spec-update` 手动补齐
 - canonical 升级差异由用户手动合并或编辑 `local.md` 记录"已审视"
 - 不再有机读规则 / 硬卡口；`workflow-review` Stage 1 走人工对照

@@ -1,14 +1,14 @@
-# Stage 1 Knowledge Spec Check（Advisory）
+# Stage 1 Code Specs Check（Advisory）
 
 > workflow-review Stage 1 的 per-change 子步。对齐 Trellis `/check` 的诊断语义：按 diff 文件反查 `{pkg}/{layer}/` 下的 code-spec，列出缺失 / 偏差 / 建议，**不参与 Stage 1 pass/fail 判定**。
 >
-> 诊断条数写入 `state.quality_gates[taskId].stage1.knowledge_check.findings_count`；是否执行写入 `performed`；`advisory: true` 固定。
+> 诊断条数写入 `state.quality_gates[taskId].stage1.code_specs_check.findings_count`；是否执行写入 `performed`；`advisory: true` 固定。
 
 ## 适用范围
 
 - 每次 `/workflow-review` 的 Stage 1 执行都跑一次本子步
 - 诊断不消耗 Stage 1 / Stage 2 的 4 次共享预算
-- 输出块独立于 `Issues` / `Spec Coverage Checklist`，合并到最终审查报告时放在 `Knowledge Spec Check (Advisory)` 区块
+- 输出块独立于 `Issues` / `Spec Coverage Checklist`，合并到最终审查报告时放在 `Code Specs Check (Advisory)` 区块
 
 ## 执行顺序（参考 SKILL.md 主流程）
 
@@ -26,10 +26,10 @@ for file in files:
   if deviation:
     findings.push(deviation)
 
-render_block("Knowledge Spec Check (Advisory)", findings)
+render_block("Code Specs Check (Advisory)", findings)
 report_cli(
-  knowledge_performed = true,
-  knowledge_findings = len(findings),
+  code_specs_performed = true,
+  code_specs_findings = len(findings),
 )
 ```
 
@@ -37,7 +37,7 @@ report_cli(
 
 对每个改动文件，优先用以下顺序定位 code-spec：
 
-1. **路径映射**：`src/{pkg}/{layer}/**` → `.claude/knowledge/{pkg}/{layer}/*.md`；若仓库单包，`{pkg}` 取自 `project-config.json` 的 `project.name` 或 `package.json#name`。
+1. **路径映射**：`src/{pkg}/{layer}/**` → `.claude/code-specs/{pkg}/{layer}/*.md`；若仓库单包，`{pkg}` 取自 `project-config.json` 的 `project.name` 或 `package.json#name`。
 2. **文件名 hint**：剔除扩展名后与 code-spec 文件名或 Spec `## 2. Signatures` 里 `File:` 字段做包含匹配。
 3. **Scope glob**：code-spec `## 1. Scope / Trigger` 的 `Applies to` 字段里的 glob 显式命中。
 
@@ -48,7 +48,7 @@ report_cli(
 每条 finding 使用以下之一：
 
 - `- [<file> → <relative code-spec path>]: <偏差描述> → <建议修复方式>`
-- `- [<file>]: no code-spec under <pkg>/<layer>/, consider /knowledge-update`
+- `- [<file>]: no code-spec under <pkg>/<layer>/, consider /spec-update`
 
 无 finding 时输出：`- No findings.`（仍然要出块，表明检查已执行）
 
@@ -76,8 +76,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass <taskId
   --base-commit <baseCommit> --current-commit <currentCommit> \
   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
   --stage1-attempts <n> --stage2-attempts <n> \
-  --knowledge-performed true \
-  --knowledge-findings <findings_count>
+  --code-specs-performed true \
+  --code-specs-findings <findings_count>
 ```
 
 或在 `fail` 路径：
@@ -87,12 +87,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail <taskId
   --project-id {projectId} \
   --failed-stage stage1 \
   --base-commit <baseCommit> --total-attempts <n> \
-  --knowledge-performed true \
-  --knowledge-findings <findings_count> \
+  --code-specs-performed true \
+  --code-specs-findings <findings_count> \
   --last-result-json '<json>'
 ```
 
-`--knowledge-performed` 默认 `true`，如因执行环境问题未跑本子步必须显式设为 `false`。
+`--code-specs-performed` 默认 `true`，如因执行环境问题未跑本子步必须显式设为 `false`。
 
 ## 与 Probe E 的分工
 

@@ -1,4 +1,4 @@
-# Project Knowledge Base
+# Project Code Specs
 
 > 项目级编码规范与架构决策。AI 在规划和执行任务前会自动读取。
 >

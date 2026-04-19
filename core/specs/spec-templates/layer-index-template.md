@@ -1,4 +1,4 @@
-# {{layer_name}} Knowledge
+# {{layer_name}} Code Specs
 
 > {{layer_description}}
 

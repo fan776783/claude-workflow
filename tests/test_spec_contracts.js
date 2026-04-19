@@ -8,9 +8,9 @@ const workflowDir = path.join(repoRoot, 'core', 'utils', 'workflow')
 const templateContracts = require(path.join(workflowDir, 'template_contracts.js'))
 const platformParity = require(path.join(repoRoot, 'core', 'utils', 'platform_parity.js'))
 
-test('knowledge contracts', async (t) => {
+test('spec contracts', async (t) => {
   await t.test('code-spec/layer-index/guides-index heading contracts all pass on canonical templates', () => {
-    const result = templateContracts.validateKnowledgeTemplateHeadings()
+    const result = templateContracts.validateSpecTemplateHeadings()
     assert.equal(result.ok, true, JSON.stringify(result.errors))
   })
 
@@ -18,7 +18,7 @@ test('knowledge contracts', async (t) => {
     const fakeContracts = {
       'code-spec-template.md': ['## 1. Scope / Trigger', '## 999. Nonexistent Section'],
     }
-    const result = templateContracts.validateKnowledgeTemplateHeadings(fakeContracts)
+    const result = templateContracts.validateSpecTemplateHeadings(fakeContracts)
     assert.equal(result.ok, false)
     assert.ok(result.errors.some((e) => e.heading === '## 999. Nonexistent Section'))
   })
@@ -54,7 +54,7 @@ test('knowledge contracts', async (t) => {
 
   await t.test('canonical templates physically contain the required headings verbatim', () => {
     for (const [file, expected] of Object.entries(templateContracts.TEMPLATE_CONTRACTS)) {
-      const full = path.join(templateContracts.KNOWLEDGE_TEMPLATES_DIR, file)
+      const full = path.join(templateContracts.SPEC_TEMPLATES_DIR, file)
       assert.equal(fs.existsSync(full), true, `missing ${file}`)
       const lines = fs.readFileSync(full, 'utf8').split(/\r?\n/).map((l) => l.trim())
       for (const heading of expected) {
@@ -96,15 +96,15 @@ test('knowledge contracts', async (t) => {
     assert.deepEqual(fatalAgentErrors, [])
   })
 
-  await t.test('knowledge canonical layout has {pkg}/{layer} + shared guides/ contract', () => {
+  await t.test('spec canonical layout has {pkg}/{layer} + shared guides/ contract', () => {
     // The canonical bootstrap produces this shape; we assert the layer-index template hints at it.
     const layerIndexContent = fs.readFileSync(
-      path.join(templateContracts.KNOWLEDGE_TEMPLATES_DIR, 'layer-index-template.md'),
+      path.join(templateContracts.SPEC_TEMPLATES_DIR, 'layer-index-template.md'),
       'utf8'
     )
     assert.match(layerIndexContent, /\.\.\/\.\.\/guides\/index\.md/)
     const indexContent = fs.readFileSync(
-      path.join(templateContracts.KNOWLEDGE_TEMPLATES_DIR, 'index-template.md'),
+      path.join(templateContracts.SPEC_TEMPLATES_DIR, 'index-template.md'),
       'utf8'
     )
     assert.match(indexContent, /\{package\}\/\{layer\}\/index\.md/)

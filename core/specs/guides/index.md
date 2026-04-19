@@ -3,8 +3,8 @@
 > 借鉴自 Trellis 的 `spec/guides/` 体系。
 > AI 在修改代码前应优先阅读相关指南，减少「没想到」类 bug。
 >
-> **与 `.claude/knowledge/` 的关系**：本目录是工具自带的通用思维指南（managed，随升级刷新）；
-> `.claude/knowledge/` 是用户项目级的编码规范与架构决策（PROTECTED，升级不碰）。两者互补。
+> **与 `.claude/code-specs/` 的关系**：本目录是工具自带的通用思维指南（managed，随升级刷新）；
+> `.claude/code-specs/` 是用户项目级的编码规范与架构决策（PROTECTED，升级不碰）。两者互补。
 
 ## 指南列表
 

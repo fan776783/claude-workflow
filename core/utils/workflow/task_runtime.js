@@ -2,7 +2,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getKnowledgeDir } = require('./path_utils')
+const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getCodeSpecsDir } = require('./path_utils')
 const { findTaskById, extractTaskBlock } = require('./task_parser')
 
 function readFile(targetPath, fallback = '') {
@@ -144,25 +144,25 @@ function isPathUnderRoot(filePath, allowedPrefix) {
   }
 }
 
-function safeReadKnowledge(filePath, allowedPrefix, maxLen) {
+function safeReadCodeSpecs(filePath, allowedPrefix, maxLen) {
   if (!fs.existsSync(filePath)) return null
   if (!isPathUnderRoot(filePath, allowedPrefix)) return null
   const content = readFile(filePath)
   return maxLen ? content.slice(0, maxLen) : content
 }
 
-// 防止 knowledge 内容中嵌入的 </project-knowledge> / <system-reminder> 等标记破坏 hook 注入结构
-function sanitizeKnowledgeBody(content) {
+// 防止 code-specs 内容中嵌入的 </project-code-specs> / <system-reminder> 等标记破坏 hook 注入结构
+function sanitizeCodeSpecsBody(content) {
   return String(content || '')
-    .replace(/<\/project-knowledge>/gi, '&lt;/project-knowledge&gt;')
+    .replace(/<\/project-code-specs>/gi, '&lt;/project-code-specs&gt;')
     .replace(/<(\/?system[^>]*)>/gi, '&lt;$1&gt;')
     .replace(/<(\/?workflow-context[^>]*)>/gi, '&lt;$1&gt;')
 }
 
-function formatKnowledgeBlock(label, content) {
+function formatCodeSpecsBlock(label, content) {
   const trimmed = String(content || '').trim()
   if (!trimmed) return null
-  return `### ${label}\n${sanitizeKnowledgeBody(trimmed)}`
+  return `### ${label}\n${sanitizeCodeSpecsBody(trimmed)}`
 }
 
 function collectMarkdownFiles(dir, allowedPrefix = null) {
@@ -184,7 +184,7 @@ function collectMarkdownFiles(dir, allowedPrefix = null) {
   return results
 }
 
-// 合法的 knowledge package 目录名：仅允许 [A-Za-z0-9_.-]；拒绝 `/ \ ..` 等路径分隔符与路径跳转。
+// 合法的 code-specs package 目录名：仅允许 [A-Za-z0-9_.-]；拒绝 `/ \ ..` 等路径分隔符与路径跳转。
 // 用于在 resolver / scoped reader 两处做白名单防御。
 const PACKAGE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/
 function isValidPackageName(name) {
@@ -227,16 +227,16 @@ function collectTaskChangedHints(task) {
   return normalizeChangedFileHints(parts)
 }
 
-// 解析本次 knowledge 读取应聚焦到哪个 package。
+// 解析本次 code-specs 读取应聚焦到哪个 package。
 // 优先级：flag.package → 当前任务的 Package 字段 → 项目配置推断的单包名 → null（soft-fail）
-// 单包回退链必须与 knowledge_bootstrap.resolvePackages 保持对齐：project.name → package.json#name → 仓库目录名。
+// 单包回退链必须与 spec_bootstrap.resolvePackages 保持对齐：project.name → package.json#name → 仓库目录名。
 // 任一来源解析出的 package 名必须通过 isValidPackageName 校验，否则视为未解析，走下一级回退。
 //
 // scope 对象同时携带 taskLayer / changedFileHints 两个可选字段：
 //   taskLayer        — 由任务显式声明的 frontend/backend/guides，供 scoped reader 收窄到单 layer
 //   changedFileHints — 任务声明的 create/modify/test 文件列表，供 scoped reader 优先命中相关 spec
 // 这两个字段**不参与** activePackage 的兜底判断，只对读取顺序起影响，缺失时回退现有行为。
-function resolveActiveKnowledgeScope(runtime, projectConfig = null, overrides = {}) {
+function resolveActiveCodeSpecsScope(runtime, projectConfig = null, overrides = {}) {
   const task = getCurrentTask(runtime)
   const overrideLayer = normalizeTaskLayer(overrides && overrides.taskLayer)
   const taskLayer = overrideLayer || normalizeTaskLayer(task && task.target_layer)
@@ -283,16 +283,16 @@ function resolveActiveKnowledgeScope(runtime, projectConfig = null, overrides = 
 function readRootAndGuides(dirInfo, allowedPrefix, maxChars, rootIndexBudget = 300) {
   const parts = []
   let totalLen = 0
-  const rootContent = safeReadKnowledge(path.join(dirInfo.path, 'index.md'), allowedPrefix, Math.min(rootIndexBudget, maxChars))
+  const rootContent = safeReadCodeSpecs(path.join(dirInfo.path, 'index.md'), allowedPrefix, Math.min(rootIndexBudget, maxChars))
   if (rootContent) {
-    parts.push(sanitizeKnowledgeBody(String(rootContent).trim()))
+    parts.push(sanitizeCodeSpecsBody(String(rootContent).trim()))
     totalLen += rootContent.length
   }
   const guidesIndex = path.join(dirInfo.path, 'guides', 'index.md')
   if (fs.existsSync(guidesIndex) && totalLen < maxChars) {
-    const snippet = safeReadKnowledge(guidesIndex, allowedPrefix, Math.min(200, maxChars - totalLen))
+    const snippet = safeReadCodeSpecs(guidesIndex, allowedPrefix, Math.min(200, maxChars - totalLen))
     if (snippet) {
-      const block = formatKnowledgeBlock('guides/index.md', snippet)
+      const block = formatCodeSpecsBlock('guides/index.md', snippet)
       if (block && totalLen + block.length + 2 <= maxChars) {
         parts.push(block)
         totalLen += block.length + 2
@@ -346,10 +346,10 @@ function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxC
   }
   for (const entry of layers) {
     const layerIndex = path.join(subRoot, entry.name, 'index.md')
-    const snippet = safeReadKnowledge(layerIndex, allowedPrefix, layerIndexBudget)
+    const snippet = safeReadCodeSpecs(layerIndex, allowedPrefix, layerIndexBudget)
     if (!snippet) continue
     const rel = `${subDir}/${entry.name}/index.md`
-    const block = formatKnowledgeBlock(rel, snippet)
+    const block = formatCodeSpecsBlock(rel, snippet)
     if (!block) continue
     const blockLen = block.length + 2
     if (totalLen + blockLen > maxChars) continue
@@ -380,9 +380,9 @@ function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxC
     const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
     const remaining = maxChars - totalLen
     if (remaining <= 80) break
-    const snippet = safeReadKnowledge(filePath, allowedPrefix, Math.min(600, remaining - 32))
+    const snippet = safeReadCodeSpecs(filePath, allowedPrefix, Math.min(600, remaining - 32))
     if (!snippet) continue
-    const block = formatKnowledgeBlock(relativePath, snippet)
+    const block = formatCodeSpecsBlock(relativePath, snippet)
     if (!block) continue
     const blockLen = block.length + 2
     if (totalLen + blockLen > maxChars) continue
@@ -392,8 +392,8 @@ function walkScopedContext(dirInfo, allowedPrefix, subDir, parts, startLen, maxC
   return totalLen
 }
 
-function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, maxChars = 2000, options = {}) {
-  const dirInfo = getKnowledgeDir(projectRoot)
+function getCodeSpecsContextScoped(projectRoot = process.cwd(), scope = null, maxChars = 2000, options = {}) {
+  const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return null
   const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
   const rawPackage = scope && scope.activePackage ? String(scope.activePackage) : null
@@ -403,7 +403,7 @@ function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, ma
   const pkgExists = pkgDir && fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()
 
   // 无 active package 或目录不存在 → 回退到全树（向后兼容）
-  if (!pkgExists) return getKnowledgeContext(projectRoot, maxChars)
+  if (!pkgExists) return getCodeSpecsContext(projectRoot, maxChars)
 
   const rootIndexBudget = options.rootIndexBudget || 300
   const layerIndexBudget = options.layerIndexBudget || 150
@@ -422,9 +422,9 @@ function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, ma
         const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
         const remaining = maxChars - cursor
         if (remaining <= 80) break
-        const snippet = safeReadKnowledge(filePath, allowedPrefix, Math.min(600, remaining - 32))
+        const snippet = safeReadCodeSpecs(filePath, allowedPrefix, Math.min(600, remaining - 32))
         if (!snippet) continue
-        const block = formatKnowledgeBlock(relativePath, snippet)
+        const block = formatCodeSpecsBlock(relativePath, snippet)
         if (!block) continue
         const blockLen = block.length + 2
         if (cursor + blockLen > maxChars) continue
@@ -437,8 +437,8 @@ function getKnowledgeContextScoped(projectRoot = process.cwd(), scope = null, ma
   return parts.length ? parts.join('\n\n') : null
 }
 
-function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, options = {}) {
-  const dirInfo = getKnowledgeDir(projectRoot)
+function getCodeSpecsContext(projectRoot = process.cwd(), maxChars = 2000, options = {}) {
+  const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return null
   const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
 
@@ -447,9 +447,9 @@ function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, optio
 
   const parts = []
   let totalLen = 0
-  const rootContent = safeReadKnowledge(path.join(dirInfo.path, 'index.md'), allowedPrefix, rootIndexBudget)
+  const rootContent = safeReadCodeSpecs(path.join(dirInfo.path, 'index.md'), allowedPrefix, rootIndexBudget)
   if (rootContent) {
-    parts.push(sanitizeKnowledgeBody(String(rootContent).trim()))
+    parts.push(sanitizeCodeSpecsBody(String(rootContent).trim()))
     totalLen += rootContent.length
   }
 
@@ -459,9 +459,9 @@ function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, optio
 
   for (const entry of layers) {
     const layerIndex = path.join(dirInfo.path, entry.name, 'index.md')
-    const snippet = safeReadKnowledge(layerIndex, allowedPrefix, layerIndexBudget)
+    const snippet = safeReadCodeSpecs(layerIndex, allowedPrefix, layerIndexBudget)
     if (!snippet) continue
-    const block = formatKnowledgeBlock(`${entry.name}/index.md`, snippet)
+    const block = formatCodeSpecsBlock(`${entry.name}/index.md`, snippet)
     if (!block) continue
     const blockLen = block.length + 2
     if (totalLen + blockLen > maxChars) continue
@@ -469,14 +469,14 @@ function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, optio
     totalLen += blockLen
   }
 
-  const knowledgeFiles = collectMarkdownFiles(dirInfo.path, allowedPrefix)
-  for (const filePath of knowledgeFiles) {
+  const codeSpecsFiles = collectMarkdownFiles(dirInfo.path, allowedPrefix)
+  for (const filePath of codeSpecsFiles) {
     const relativePath = path.relative(path.resolve(projectRoot), filePath).replace(/\\/g, '/')
     const remaining = maxChars - totalLen
     if (remaining <= 80) break
-    const snippet = safeReadKnowledge(filePath, allowedPrefix, Math.min(600, remaining - 32))
+    const snippet = safeReadCodeSpecs(filePath, allowedPrefix, Math.min(600, remaining - 32))
     if (!snippet) continue
-    const block = formatKnowledgeBlock(relativePath, snippet)
+    const block = formatCodeSpecsBlock(relativePath, snippet)
     if (!block) continue
     const blockLen = block.length + 2
     if (totalLen + blockLen > maxChars) continue
@@ -487,8 +487,8 @@ function getKnowledgeContext(projectRoot = process.cwd(), maxChars = 2000, optio
   return parts.length ? parts.join('\n\n') : null
 }
 
-function getKnowledgeFiles(projectRoot = process.cwd()) {
-  const dirInfo = getKnowledgeDir(projectRoot)
+function getCodeSpecsFiles(projectRoot = process.cwd()) {
+  const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return []
   const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
   return collectMarkdownFiles(dirInfo.path, allowedPrefix).map((f) => ({
@@ -510,10 +510,10 @@ module.exports = {
   getTaskVerificationCommands,
   getSpecContent,
   getThinkingGuides,
-  getKnowledgeContext,
-  getKnowledgeContextScoped,
-  getKnowledgeFiles,
-  resolveActiveKnowledgeScope,
+  getCodeSpecsContext,
+  getCodeSpecsContextScoped,
+  getCodeSpecsFiles,
+  resolveActiveCodeSpecsScope,
   isValidPackageName,
   normalizeTaskLayer,
   normalizeChangedFileHints,

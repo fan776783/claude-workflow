@@ -5,7 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
 const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
-const { getWorkflowRuntime, getThinkingGuides, getKnowledgeContext } = require('../utils/workflow/task_runtime')
+const { getWorkflowRuntime, getThinkingGuides, getCodeSpecsContext } = require('../utils/workflow/task_runtime')
 
 /**
  * 判断是否应跳过 hook（非交互模式时跳过）
@@ -195,11 +195,11 @@ function main() {
   }
 
   // Session start 时尚无 active task，保留全树视角，但收紧预算避免早期占用上下文
-  const knowledge = getKnowledgeContext(projectRoot, 2000, { rootIndexBudget: 200, layerIndexBudget: 120 })
-  if (knowledge) {
-    parts.push('<project-knowledge role="advisory" scope="overview">')
-    parts.push(knowledge)
-    parts.push('</project-knowledge>')
+  const codeSpecs = getCodeSpecsContext(projectRoot, 2000, { rootIndexBudget: 200, layerIndexBudget: 120 })
+  if (codeSpecs) {
+    parts.push('<project-code-specs role="advisory" scope="overview">')
+    parts.push(codeSpecs)
+    parts.push('</project-code-specs>')
   }
 
   parts.push('</workflow-context>')

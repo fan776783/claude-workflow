@@ -29,7 +29,7 @@ const {
 } = require('./state_manager')
 const { detectProjectId, detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
 const { parseTasksV2, taskToDict } = require('./task_parser')
-const { getKnowledgeContext, getKnowledgeContextScoped, getKnowledgeFiles } = require('./task_runtime')
+const { getCodeSpecsContext, getCodeSpecsContextScoped, getCodeSpecsFiles } = require('./task_runtime')
 const { buildMinimumState, deriveEffectiveStatus, ensureStateDefaults } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
@@ -144,8 +144,8 @@ function renderTemplate(template, values) {
   return rendered
 }
 
-function stripProjectKnowledgeSection(content) {
-  return String(content || '').replace(/\n### 3\.x Project Knowledge Constraints[\s\S]*?\n---\n/, '\n---\n')
+function stripProjectCodeSpecsSection(content) {
+  return String(content || '').replace(/\n### 3\.x Project Code Specs Constraints[\s\S]*?\n---\n/, '\n---\n')
 }
 
 function resolveRequirementInput(requirement, projectRoot) {
@@ -422,11 +422,11 @@ function buildPRDCoverageReport(items, specContent) {
 }
 
 // 推断 plan 任务块应挂的 package。
-// 单包项目回退链：project.name → package.json#name → 仓库目录名（与 knowledge_bootstrap.resolvePackages 对齐）。
+// 单包项目回退链：project.name → package.json#name → 仓库目录名（与 spec_bootstrap.resolvePackages 对齐）。
 // Monorepo 回退链：config.monorepo.defaultPackage → config.monorepo.packages[0]。
 // 两条链都是"给 plan 生成器一个**可落地**的默认值，避免生成出无 Package 的任务块"；
 // 与 runtime resolver 的"monorepo 不推断默认包"契约区别是：plan 阶段是一次性编译，无 active task，
-// 选错了的代价是 `/knowledge-before-dev` 读错 subtree（soft-fail 到全树），不是破坏状态机。
+// 选错了的代价是 `/spec-before-dev` 读错 subtree（soft-fail 到全树），不是破坏状态机。
 function inferTaskPackage(projectRoot, config) {
   const type = ((config || {}).project || {}).type
   if (type === 'monorepo') {
@@ -631,9 +631,9 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   const requirementItems = extractRequirementItems(requirementText, summary)
   const requirementCoverage = buildRequirementCoverage(requirementItems)
   const planPackage = inferTaskPackage(root, config)
-  const knowledgeConstraints = (planPackage
-    ? getKnowledgeContextScoped(root, { activePackage: planPackage, source: 'config' }, 1500)
-    : getKnowledgeContext(root, 1500)) || ''
+  const codeSpecsConstraints = (planPackage
+    ? getCodeSpecsContextScoped(root, { activePackage: planPackage, source: 'config' }, 1500)
+    : getCodeSpecsContext(root, 1500)) || ''
 
   const renderedSpecContent = renderTemplate(specTemplate, {
     requirement_source: requirementSource,
@@ -649,9 +649,9 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     file_structure: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
     acceptance_criteria: requirementItems.map((item) => `- [ ] ${item.id}: ${item.acceptance_signal || item.normalized_summary}`).join('\n') || `- [ ] ${summary}`,
     implementation_slices: requirementItems.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n') || `- Slice 1：响应 ${summary}`,
-    knowledge_constraints: knowledgeConstraints,
+    code_specs_constraints: codeSpecsConstraints,
   })
-  const specContent = knowledgeConstraints ? renderedSpecContent : stripProjectKnowledgeSection(renderedSpecContent)
+  const specContent = codeSpecsConstraints ? renderedSpecContent : stripProjectCodeSpecsSection(renderedSpecContent)
 
   const specReview = mapSpecReviewChoice(specChoice)
   const shouldGeneratePlan = specReview.status === 'approved'

@@ -177,9 +177,9 @@ function ensureStateDefaults(state) {
 
 function normalizeQualityGateRecord(taskId, record) {
   const stage1 = { ...(record.stage1 || {}) }
-  // Knowledge Spec Check 是 Stage 1 的 advisory 子段，旧记录没有这个字段时补一个占位，方便下游无脑读取。
-  if (!stage1.knowledge_check || typeof stage1.knowledge_check !== 'object') {
-    stage1.knowledge_check = { performed: false, advisory: true, findings_count: 0 }
+  // Code Specs Check 是 Stage 1 的 advisory 子段，旧记录没有这个字段时补一个占位，方便下游无脑读取。
+  if (!stage1.code_specs_check || typeof stage1.code_specs_check !== 'object') {
+    stage1.code_specs_check = { performed: false, advisory: true, findings_count: 0 }
   }
   return {
     gate_task_id: record.gate_task_id || taskId,

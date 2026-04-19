@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-// Knowledge template 契约：锁定 7 段 code-spec / 4 段 layer-index / 6 段 guides-index 的段落标题。
-// canonical 模板发生 drift（段落改名 / 漏写）时，/workflow-review 的 Knowledge Spec Check 与 Probe E
+// Code-specs template 契约：锁定 7 段 code-spec / 4 段 layer-index / 6 段 guides-index 的段落标题。
+// canonical 模板发生 drift（段落改名 / 漏写）时，/workflow-review 的 Code Specs Check 与 Probe E
 // 会因为读不到对应段落而失效。这里做最小集的 exact-heading 校验，scripts/validate.js 在 prepublish 时调用。
 
 const fs = require('fs')
 const path = require('path')
 
-const KNOWLEDGE_TEMPLATES_DIR = path.resolve(__dirname, '..', '..', 'specs', 'knowledge-templates')
+const SPEC_TEMPLATES_DIR = path.resolve(__dirname, '..', '..', 'specs', 'spec-templates')
 
 // 每个模板声明必须出现的精确段标题。顺序与模板当前一致；若调整模板顺序，请同步这里。
 const TEMPLATE_CONTRACTS = {
@@ -37,13 +37,13 @@ const TEMPLATE_CONTRACTS = {
 }
 
 function readTemplate(relativeName) {
-  const fullPath = path.join(KNOWLEDGE_TEMPLATES_DIR, relativeName)
+  const fullPath = path.join(SPEC_TEMPLATES_DIR, relativeName)
   if (!fs.existsSync(fullPath)) return { exists: false, content: '', path: fullPath }
   return { exists: true, content: fs.readFileSync(fullPath, 'utf8'), path: fullPath }
 }
 
 // exact-match：每个期望的 heading 必须作为整行出现。允许前后有空白，不允许层级或字样漂移（## → ### / 英文→中文）。
-function validateKnowledgeTemplateHeadings(contracts = TEMPLATE_CONTRACTS) {
+function validateSpecTemplateHeadings(contracts = TEMPLATE_CONTRACTS) {
   const errors = []
   for (const [relativeName, expectedHeadings] of Object.entries(contracts)) {
     const { exists, content, path: templatePath } = readTemplate(relativeName)
@@ -64,20 +64,20 @@ function validateKnowledgeTemplateHeadings(contracts = TEMPLATE_CONTRACTS) {
 function main() {
   const args = [...process.argv.slice(2)]
   const command = args.shift()
-  if (command === 'validate-knowledge-templates') {
-    const result = validateKnowledgeTemplateHeadings()
+  if (command === 'validate-spec-templates') {
+    const result = validateSpecTemplateHeadings()
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     if (!result.ok) process.exitCode = 1
     return
   }
-  process.stderr.write('Usage: node template_contracts.js validate-knowledge-templates\n')
+  process.stderr.write('Usage: node template_contracts.js validate-spec-templates\n')
   process.exitCode = 1
 }
 
 module.exports = {
-  KNOWLEDGE_TEMPLATES_DIR,
+  SPEC_TEMPLATES_DIR,
   TEMPLATE_CONTRACTS,
-  validateKnowledgeTemplateHeadings,
+  validateSpecTemplateHeadings,
 }
 
 if (require.main === module) main()

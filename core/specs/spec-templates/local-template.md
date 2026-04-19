@@ -1,13 +1,13 @@
 ---
-name: knowledge-local
-description: "项目级 knowledge 定制与升级基线。记录本项目对 canonical 模板的裁剪与每次 /knowledge-update 的 Changelog。升级 canonical 模板时用此文件做合并基线。"
+name: code-specs-local
+description: "项目级 code-specs 定制与升级基线。记录本项目对 canonical 模板的裁剪与每次 /spec-update 的 Changelog。升级 canonical 模板时用此文件做合并基线。"
 ---
 
-# Knowledge Local
+# Code Specs Local
 
 ## Template Baseline
 
-> `/knowledge-review --check-upgrade` 通过对比这里和 canonical manifest 判断是否需要手动合并。
+> `/spec-review --check-upgrade` 通过对比这里和 canonical manifest 判断是否需要手动合并。
 
 | Template | Baseline Version / Date | Customized? |
 |----------|-------------------------|-------------|
@@ -43,7 +43,7 @@ description: "项目级 knowledge 定制与升级基线。记录本项目对 can
 
 ## Changelog
 
-> 每次 `/knowledge-update` 追加一条。`Type` 列对齐 Trellis 的 6 类分类（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）；bootstrap 行留 `—`。
+> 每次 `/spec-update` 追加一条。`Type` 列对齐 Trellis 的 6 类分类（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）；bootstrap 行留 `—`。
 
 | Date | Command | Package / Layer | Type | Title | Source |
 |------|---------|-----------------|------|-------|--------|

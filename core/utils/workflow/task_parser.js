@@ -25,7 +25,7 @@ function createTaskVerification(data = {}) {
   }
 }
 
-// Target Layer 白名单：frontend / backend / guides 三选一，对齐 knowledge 目录布局。
+// Target Layer 白名单：frontend / backend / guides 三选一，对齐 code-specs 目录布局。
 const TARGET_LAYER_WHITELIST = new Set(['frontend', 'backend', 'guides'])
 function normalizeTargetLayer(value) {
   if (!value) return ''

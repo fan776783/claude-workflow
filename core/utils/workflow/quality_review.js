@@ -204,8 +204,8 @@ function collectBlockingIssues(result) {
   return collected
 }
 
-// 归一化 Stage 1 的 knowledge_check 子段。per-change 诊断永远 advisory，只记录计数与是否执行过。
-function normalizeKnowledgeCheck({ performed = true, findingsCount = 0 } = {}) {
+// 归一化 Stage 1 的 code_specs_check 子段。per-change 诊断永远 advisory，只记录计数与是否执行过。
+function normalizeCodeSpecsCheck({ performed = true, findingsCount = 0 } = {}) {
   return {
     performed: Boolean(performed),
     advisory: true,
@@ -230,8 +230,8 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
   const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
   const reviewerPrompt = createReviewerPrompt(state, requirementIds, criticalConstraints, diffWindow)
   const stage1 = { passed: true, attempts: stage1Attempts, issues_found: stage1IssuesFound, completed_at: now }
-  // Knowledge Spec Check 仅 advisory，只要 CLI 有声明就写入；pass 路径不应命中 cross_layer_depth_gap，保留字段以便下游统一读取。
-  stage1.knowledge_check = normalizeKnowledgeCheck(options.knowledgeCheck || {})
+  // Code Specs Check 仅 advisory，只要 CLI 有声明就写入；pass 路径不应命中 cross_layer_depth_gap，保留字段以便下游统一读取。
+  stage1.code_specs_check = normalizeCodeSpecsCheck(options.codeSpecsCheck || {})
   return {
     review_type: 'quality_review',
     review_mode: 'machine_loop',
@@ -261,13 +261,13 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
   const now = isoNow()
   const diffWindow = createDiffWindow(baseCommit, fromTask, toTask, filesChanged)
   const reviewerPrompt = createReviewerPrompt(state, requirementIds, criticalConstraints, diffWindow)
-  // 把上游 CLI 传入的 cross_layer_depth_gap / knowledge_check 合并进 lastResult，再走 collectBlockingIssues。
+  // 把上游 CLI 传入的 cross_layer_depth_gap / code_specs_check 合并进 lastResult，再走 collectBlockingIssues。
   const mergedLastResult = { ...(lastResult && typeof lastResult === 'object' ? lastResult : {}) }
   if (options.crossLayerDepthGap && options.crossLayerDepthGap.triggered) {
     mergedLastResult.cross_layer_depth_gap = normalizeCrossLayerDepthGap(options.crossLayerDepthGap)
   }
   const stage1 = { passed: !stage1Failed, attempts: stage1Attempts, issues_found: extractIssueCount(mergedLastResult), completed_at: now }
-  stage1.knowledge_check = normalizeKnowledgeCheck(options.knowledgeCheck || {})
+  stage1.code_specs_check = normalizeCodeSpecsCheck(options.codeSpecsCheck || {})
   if (mergedLastResult.cross_layer_depth_gap) stage1.cross_layer_depth_gap = mergedLastResult.cross_layer_depth_gap
   const result = {
     review_type: 'quality_review',
@@ -492,9 +492,9 @@ function main() {
       if (raw == null) return defaultValue
       return /^(1|true|yes|on)$/i.test(String(raw).trim())
     }
-    const buildKnowledgeCheck = () => ({
-      performed: boolOption('--knowledge-performed', true),
-      findingsCount: Number(option('--knowledge-findings') || 0),
+    const buildCodeSpecsCheck = () => ({
+      performed: boolOption('--code-specs-performed', true),
+      findingsCount: Number(option('--code-specs-findings') || 0),
     })
     const buildCrossLayerDepthGap = () => {
       const triggered = boolOption('--cross-layer-depth-gap', false)
@@ -524,7 +524,7 @@ function main() {
         return
       }
       const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, option('--review-mode') || 'single_reviewer', option('--codex-status') || null, option('--review-cycle-id') || null, { knowledgeCheck: buildKnowledgeCheck() })
+      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, option('--review-mode') || 'single_reviewer', option('--codex-status') || null, option('--review-cycle-id') || null, { codeSpecsCheck: buildCodeSpecsCheck() })
       if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return
@@ -554,7 +554,7 @@ function main() {
         return
       }
       const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', commandState.state, { knowledgeCheck: buildKnowledgeCheck(), crossLayerDepthGap: buildCrossLayerDepthGap() })
+      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', commandState.state, { codeSpecsCheck: buildCodeSpecsCheck(), crossLayerDepthGap: buildCrossLayerDepthGap() })
       if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return

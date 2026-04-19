@@ -127,7 +127,7 @@ main() {
     git add package.json
     [[ -f package-lock.json ]] && git add package-lock.json
     [[ -f npm-shrinkwrap.json ]] && git add npm-shrinkwrap.json
-    git add core/specs/knowledge-templates/manifests/ 2>/dev/null || true
+    git add core/specs/spec-templates/manifests/ 2>/dev/null || true
     if [[ -d docs-site ]]; then
       git add docs-site/changelog docs-site/zh/changelog docs-site/docs.json 2>/dev/null || true
     fi

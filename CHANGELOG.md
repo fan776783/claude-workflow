@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed (v6.1 纠偏：Knowledge 行为面重新对齐 Trellis)
+### Changed (目录改名：knowledge → code-specs)
+
+- `.claude/knowledge/` 重命名为 `.claude/code-specs/`；skill/命令名已是 `spec-*`，目录名同步到"code spec"语义，避免与 `/workflow-plan` 写入的 `.claude/specs/` 任务 spec 混淆
+- `project-config.json` 中 `knowledge.bootstrapStatus` / `updatedAt` 字段改名为 `codeSpecs.bootstrapStatus` / `codeSpecs.updatedAt`
+- Workflow state 字段 `stage1.knowledge_check` 改名为 `stage1.code_specs_check`；相关 CLI 参数 `--knowledge-performed` / `--knowledge-findings` 改名为 `--code-specs-performed` / `--code-specs-findings`
+- Hook 注入标签 `<project-knowledge>` 改名为 `<project-code-specs>`
+- Spec 模板中 `3.x Project Knowledge Constraints` 小节改名为 `3.x Project Code Specs Constraints`；模板占位符 `{{knowledge_constraints}}` 改名为 `{{code_specs_constraints}}`
+- 内部函数：`getKnowledgeDir` → `getCodeSpecsDir`、`getKnowledgeContext*` → `getCodeSpecsContext*`、`resolveActiveKnowledgeScope` → `resolveActiveCodeSpecsScope`、`initKnowledgeSkeleton` → `initCodeSpecsSkeleton`、`countKnowledgeStats` → `countCodeSpecsStats`、`stripProjectKnowledgeSection` → `stripProjectCodeSpecsSection`
+- 不保留旧路径/字段兼容（本特性未发版）
+
+### Changed (v6.1 纠偏：Code Specs 行为面重新对齐 Trellis)
 
 > 上一版 `Unreleased` 的 "Knowledge 设计全量对齐 Trellis" 表述被 Codex 联合审查认定为过度声称——schema 层对齐，但行为层（per-change check、infra gate）相比 Trellis 的 `/check` + `/finish-work` 仍是 drift。本次在保持"不复刻 Trellis 运行时（task.json / journaling / ralph-loop）"前提下，把以下行为面补齐：
 
@@ -28,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code-spec 结构**：统一采用 Trellis 7 段合约（Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct），每段必填具体文件路径 / API 名 / 字段名 / 测试名，不接受抽象描述
 - **模板**：`layer-index-template.md` 升级为 4 段（Overview · Guidelines Index · Pre-Development Checklist · Quality Check）；新增 `guides-index-template.md` 6 段（含 Pre-Modification Rule、How to Use This Directory、Contributing）；`local-template.md` 按 package × layer 重写
 - **Skill 行为**：
-  - `/knowledge-bootstrap` 支持 `monorepo.packages` 自动判 package，缺省时自动从 `pnpm-workspace.yaml` / `package.json#workspaces` / `lerna.json` 解析 workspace；新增 `--reset` 破坏性重建；检测到旧顶层布局则报错不自动迁移
-  - `/knowledge-update` 删除 6 类片段交互分支，改为 7 段 code-spec 或 thinking guide 引导
-  - `/knowledge-review` 升级为 7 段完整性 lint + canonical / manifest 对账
+  - `/spec-bootstrap` 支持 `monorepo.packages` 自动判 package，缺省时自动从 `pnpm-workspace.yaml` / `package.json#workspaces` / `lerna.json` 解析 workspace；新增 `--reset` 破坏性重建；检测到旧顶层布局则报错不自动迁移
+  - `/spec-update` 删除 6 类片段交互分支，改为 7 段 code-spec 或 thinking guide 引导
+  - `/spec-review` 升级为 7 段完整性 lint + canonical / manifest 对账
 
 ### Changed (/team 迁移到 Claude Code 原生 Agent Teams)
 
@@ -42,19 +52,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/spec-before-dev` skill + command**：动手写代码前显式读一遍当前 package/layer 的 Pre-Development Checklist。对齐 Trellis `$before-dev`，把 `{pkg}/{layer}/index.md` 展开成一次具体的阅读动作，而不是依赖 hook 的 advisory 摘要。参数解析顺序复用 `resolveActiveKnowledgeScope`（`--package` → active task 的 `Package` 字段 → 项目单包名），未能解析时 soft-fail 不报错。与 `session-start` hook 的 `overview` 注入、`pre-execute` hook 的 `scoped context` 注入形成三层知识入口：overview → scoped → explicit digest
 - **Team Hooks**：`core/hooks/team-idle.js`（TeammateIdle）+ `core/hooks/team-task-guard.js`（TaskCreated / TaskCompleted）
   - `team-idle`：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 阻止 idle；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行，Lead 侧收到 message 再执行 `clean up team`，hook 不代行 Lead-only 指令
   - `team-task-guard`：TaskCreated 要求有 `task_subject`；TaskCompleted 要求无 TODO / FIXME / 待验证 / 待补充 字眼并带实际验证证据，否则退码 2 拒绝
   - 安装时自动写入 `~/.claude/settings.json`；项目级安装跳过注入
 - **`agent-workflow link` CLI**：新增 `link` 子命令，只刷新受管链接而不重新拷贝 canonical 载荷，便于本地开发把受管目录指回仓库 `core/`
-- **发布管线 manifest 生成**：`scripts/release.sh` 将版本 bump 拆为 5 步，新增 `scripts/generate-manifest.js` 生成 knowledge-template 迁移 manifest 与 docs-site changelog，并把产物一并纳入 release commit
+- **发布管线 manifest 生成**：`scripts/release.sh` 将版本 bump 拆为 5 步，新增 `scripts/generate-manifest.js` 生成 spec-template 迁移 manifest 与 docs-site changelog，并把产物一并纳入 release commit
 
 ### Removed (激进对齐 Trellis 声明式模型 + /team 原生化)
 
 - `/knowledge-check` 命令与同名 skill 整体删除
 - `core/utils/workflow/knowledge_compliance.js` 机读规则引擎删除
 - `tests/test_knowledge_compliance.js` 与 `tests/test_knowledge_compliance_gate.js` 删除
-- `core/specs/knowledge-templates/guideline-template.md`（6 类片段风格）删除
+- `core/specs/spec-templates/guideline-template.md`（6 类片段风格）删除
 - `## Machine-checkable Rules` YAML 块约定废弃
 - `workflow-review` Stage 1 不再调用 `/knowledge-check` 硬卡口；改为人工对照 code-spec 审查
 - `core/utils/workflow/quality_review.js` 移除 `knowledge_compliance` 引用、`--skip-knowledge-compliance` flag、`knowledge_compliance` gate 字段
@@ -66,10 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- 初版 knowledge 体系（6 类片段 + 机读规则硬卡 + `/knowledge-check`）未曾发版，本次变更未保留任何向后兼容，一次性替换为 Trellis 对齐设计
+- 初版 knowledge 体系（6 类片段 + 机读规则硬卡 + `/knowledge-check`）未曾发版，本次变更未保留任何向后兼容，一次性替换为 Trellis 对齐设计（skill 命名已于 5.0.4 后期统一为 `spec-*`）
 - 原 `/team` 重型 runtime 同样未稳定发版，直接移除而不提供迁移路径；已有 `team-state.json` 的用户请手动归档或忽略
 - `/workflow-plan` Step 1.5 的 advisory knowledge 读取保留；Spec 模板的 `3.x Project Knowledge Constraints` 小节保留
-- `/scan` Part 5 引导 `/knowledge-bootstrap` 的逻辑保留（面向新布局）
+- `/scan` Part 5 引导 `/spec-bootstrap` 的逻辑保留（面向新布局）
 - `session-start.js` 注入 `<project-knowledge>` 段与 `pre-execute-inject.js` 的 team 继承隔离校验保留（普通 workflow session 依然不继承 team runtime 脏上下文）
 
 ## [5.0.3] - 2026-04-16

@@ -9,22 +9,22 @@ const workflowDir = path.join(repoRoot, 'core', 'utils', 'workflow')
 const taskRuntime = require(path.join(workflowDir, 'task_runtime.js'))
 const taskParser = require(path.join(workflowDir, 'task_parser.js'))
 
-function makeKnowledge(root, pkg) {
-  const base = path.join(root, '.claude', 'knowledge')
+function makeCodeSpecs(root, pkg) {
+  const base = path.join(root, '.claude', 'code-specs')
   fs.mkdirSync(base, { recursive: true })
-  fs.writeFileSync(path.join(base, 'index.md'), '# Project Knowledge\n')
+  fs.writeFileSync(path.join(base, 'index.md'), '# Project Code Specs\n')
   const pkgDir = path.join(base, pkg)
   fs.mkdirSync(pkgDir, { recursive: true })
   for (const layer of ['frontend', 'backend']) {
     const layerDir = path.join(pkgDir, layer)
     fs.mkdirSync(layerDir, { recursive: true })
-    fs.writeFileSync(path.join(layerDir, 'index.md'), `# ${layer} Knowledge\n`)
+    fs.writeFileSync(path.join(layerDir, 'index.md'), `# ${layer} Code Specs\n`)
   }
   fs.writeFileSync(path.join(pkgDir, 'frontend', 'component-guide.md'), '# component-guide\nfrontend spec body\n')
   fs.writeFileSync(path.join(pkgDir, 'frontend', 'form-validation.md'), '# form-validation\nfrontend form spec\n')
   // 3 个 backend spec：a/b 各自填充到接近 per-file 600 char 上限，z-target 是 hint 目标。
   // 这样在紧 budget 下只能装 1 份 spec，字母序先挑 a-shared 就会把 z-target 挤出预算。
-  // safeReadKnowledge 对单文件有 600 字符上限，这里填到 ~580 确保每个 block 都占满读入窗口。
+  // safeReadCodeSpecs 对单文件有 600 字符上限，这里填到 ~580 确保每个 block 都占满读入窗口。
   const PAD = 'x'.repeat(560)
   fs.writeFileSync(path.join(pkgDir, 'backend', 'a-shared-constants.md'), `# a-shared-constants\n${PAD}\n`)
   fs.writeFileSync(path.join(pkgDir, 'backend', 'b-error-matrix.md'), `# b-error-matrix\n${PAD}\n`)
@@ -34,7 +34,7 @@ function makeKnowledge(root, pkg) {
   fs.writeFileSync(path.join(guidesDir, 'index.md'), '# Guides\n')
 }
 
-test('task-aware knowledge injection', async (t) => {
+test('task-aware code-specs injection', async (t) => {
   await t.test('normalizeTargetLayer accepts whitelist only', () => {
     assert.equal(taskParser.normalizeTargetLayer('frontend'), 'frontend')
     assert.equal(taskParser.normalizeTargetLayer('BACKEND'), 'backend')
@@ -70,7 +70,7 @@ test('task-aware knowledge injection', async (t) => {
     assert.equal(tasks.find((t) => t.id === 'T4').target_layer, '', 'invalid value should drop')
   })
 
-  await t.test('resolveActiveKnowledgeScope carries taskLayer + changedFileHints from task', () => {
+  await t.test('resolveActiveCodeSpecsScope carries taskLayer + changedFileHints from task', () => {
     const runtime = {
       projectRoot: repoRoot,
       currentTask: {
@@ -79,16 +79,16 @@ test('task-aware knowledge injection', async (t) => {
         files: { create: ['src/components/Foo.tsx'], modify: [], test: ['tests/Foo.test.tsx'] },
       },
     }
-    const scope = taskRuntime.resolveActiveKnowledgeScope(runtime)
+    const scope = taskRuntime.resolveActiveCodeSpecsScope(runtime)
     assert.equal(scope.activePackage, 'my-pkg')
     assert.equal(scope.source, 'task')
     assert.equal(scope.taskLayer, 'frontend')
     assert.deepEqual(scope.changedFileHints, ['src/components/Foo.tsx', 'tests/Foo.test.tsx'])
   })
 
-  await t.test('resolveActiveKnowledgeScope honors override taskLayer/changedFileHints', () => {
+  await t.test('resolveActiveCodeSpecsScope honors override taskLayer/changedFileHints', () => {
     const runtime = { projectRoot: repoRoot, currentTask: { package: 'my-pkg', target_layer: 'frontend' } }
-    const scope = taskRuntime.resolveActiveKnowledgeScope(runtime, null, {
+    const scope = taskRuntime.resolveActiveCodeSpecsScope(runtime, null, {
       taskLayer: 'backend',
       changedFileHints: ['src/api/foo.ts'],
     })
@@ -96,11 +96,11 @@ test('task-aware knowledge injection', async (t) => {
     assert.deepEqual(scope.changedFileHints, ['src/api/foo.ts'])
   })
 
-  await t.test('getKnowledgeContextScoped narrows to a single layer when taskLayer is set', () => {
+  await t.test('getCodeSpecsContextScoped narrows to a single layer when taskLayer is set', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-'))
-    makeKnowledge(root, 'my-pkg')
+    makeCodeSpecs(root, 'my-pkg')
 
-    const frontendOnly = taskRuntime.getKnowledgeContextScoped(
+    const frontendOnly = taskRuntime.getCodeSpecsContextScoped(
       root,
       { activePackage: 'my-pkg', taskLayer: 'frontend', changedFileHints: [] },
       5000
@@ -111,7 +111,7 @@ test('task-aware knowledge injection', async (t) => {
     // 新 fixture 下 backend 的 marker 是 TARGET_SPEC_MARKER；taskLayer=frontend 时它必须不出现。
     assert.doesNotMatch(frontendOnly, /TARGET_SPEC_MARKER/, 'backend should be hidden when taskLayer=frontend')
 
-    const backendOnly = taskRuntime.getKnowledgeContextScoped(
+    const backendOnly = taskRuntime.getCodeSpecsContextScoped(
       root,
       { activePackage: 'my-pkg', taskLayer: 'backend', changedFileHints: [] },
       5000
@@ -121,11 +121,11 @@ test('task-aware knowledge injection', async (t) => {
     assert.doesNotMatch(backendOnly, /frontend spec body/)
   })
 
-  await t.test('getKnowledgeContextScoped falls back to full package tree when taskLayer missing', () => {
+  await t.test('getCodeSpecsContextScoped falls back to full package tree when taskLayer missing', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-nolayer-'))
-    makeKnowledge(root, 'my-pkg')
+    makeCodeSpecs(root, 'my-pkg')
 
-    const ctx = taskRuntime.getKnowledgeContextScoped(
+    const ctx = taskRuntime.getCodeSpecsContextScoped(
       root,
       { activePackage: 'my-pkg', taskLayer: null, changedFileHints: [] },
       5000
@@ -138,14 +138,14 @@ test('task-aware knowledge injection', async (t) => {
 
   await t.test('changedFileHints prioritize hint-matching spec over alphabetical order under tight budget', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-hints-'))
-    makeKnowledge(root, 'my-pkg')
+    makeCodeSpecs(root, 'my-pkg')
 
     // Budget 只够装 root index + guides index + layer index + 1 份 backend spec（每份 spec 接近 600 char）。
     // 无 hint 时 a-shared-constants.md 字母序最先 → 会优先读，TARGET_SPEC_MARKER 不出现。
     // 带 hint 指向 z-target-spec.md 时 → 优先级反转，TARGET_SPEC_MARKER 必须出现。
     const BUDGET = 1100
 
-    const withoutHints = taskRuntime.getKnowledgeContextScoped(
+    const withoutHints = taskRuntime.getCodeSpecsContextScoped(
       root,
       { activePackage: 'my-pkg', taskLayer: 'backend', changedFileHints: [] },
       BUDGET
@@ -154,7 +154,7 @@ test('task-aware knowledge injection', async (t) => {
     assert.doesNotMatch(withoutHints, /TARGET_SPEC_MARKER/,
       'without hints, alphabetical order must push z-target-spec out of the tight budget')
 
-    const withHints = taskRuntime.getKnowledgeContextScoped(
+    const withHints = taskRuntime.getCodeSpecsContextScoped(
       root,
       {
         activePackage: 'my-pkg',
@@ -174,9 +174,9 @@ test('task-aware knowledge injection', async (t) => {
     // 这里用真实 fixture 验证：hint 的父目录名同时是 layer 名（"backend"），但由于 basename
     // 不匹配，a-shared-constants 不应被 hint 抢到第一位；z-target-spec 才是 hit 目标。
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-parent-dir-'))
-    makeKnowledge(root, 'my-pkg')
+    makeCodeSpecs(root, 'my-pkg')
     const BUDGET = 1100
-    const withParentDirOnlyHint = taskRuntime.getKnowledgeContextScoped(
+    const withParentDirOnlyHint = taskRuntime.getCodeSpecsContextScoped(
       root,
       {
         activePackage: 'my-pkg',

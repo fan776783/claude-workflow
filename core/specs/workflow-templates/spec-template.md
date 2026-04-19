@@ -50,12 +50,12 @@ prd_coverage: "prd-spec-coverage.json"
 
 {{critical_constraints}}
 
-### 3.x Project Knowledge Constraints
+### 3.x Project Code Specs Constraints
 
-> 从 `.claude/knowledge/` 提取的与本任务相关的项目级约束（如有）。
-> 若 knowledge 目录不存在或无相关内容，删除本小节。
+> 从 `.claude/code-specs/` 提取的与本任务相关的项目级约束（如有）。
+> 若 code-specs 目录不存在或无相关内容，删除本小节。
 
-{{knowledge_constraints}}
+{{code_specs_constraints}}
 
 ---
 

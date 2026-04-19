@@ -62,7 +62,7 @@ Notes:
     │   ├── diff-review/     # Code review
     │   ├── bug-batch/       # Batch bug fixing
     │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
-    │   ├── knowledge-*/     # Knowledge compliance engine (bootstrap/check/review/update)
+    │   ├── spec-*/          # Code-specs compliance engine (bootstrap/before-dev/review/update)
     │   └── figma-ui/        # Figma to code
     ├── commands/            # Command entry definitions
     ├── utils/               # Internal runtime utilities
@@ -108,8 +108,8 @@ Notes:
 Skills are the portable unit shipped to each AI tool. The authoritative list lives under `core/skills/` — every directory there is a published skill. A few skill families worth knowing when navigating the repo:
 
 - **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
-- **Knowledge** (`knowledge-bootstrap`, `knowledge-update`, `knowledge-review`) — declarative 7-section code-spec contract aligned with Trellis; `{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
-- **Lightweight planning & review** — `plan` (quick 4-step planning), `session-review`, `diff-review`, `fix-bug`, `bug-batch`, `write-tests`.
+- **Code Specs** (`spec-bootstrap`, `spec-before-dev`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract aligned with Trellis; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
+- **Lightweight planning & review** — `/quick-plan` command (4-step planning, defined in `core/commands/quick-plan.md`), `session-review`, `diff-review`, `fix-bug`, `bug-batch`, `write-tests`.
 - **Dispatch & research** — `dispatching-parallel-agents`, `search-first`, `deep-research`, `collaborating-with-codex`.
 - **Other** — `scan`, `figma-ui`.
 

@@ -31,14 +31,15 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | `/team` | command entry | 团队协作入口；仅在用户显式输入时使用，不自动触发 |
 | `/enhance` | command entry | 对原始提示词做结构化增强，再等待用户确认 |
 | `/git-rollback` | command entry | 交互式 Git 回滚入口，默认 dry-run 预览 |
-| `/knowledge-bootstrap` | command entry | 初始化项目级 `.claude/knowledge/` 骨架（`{pkg}/{layer}/` + `guides/`） |
-| `/knowledge-update` | command entry | 交互式沉淀 7 段 code-spec 或 thinking guide |
-| `/knowledge-review` | command entry | 审查 7 段合约完整性、过期、冲突与 canonical 对账 |
+| `/spec-bootstrap` | command entry | 初始化项目级 `.claude/code-specs/` 骨架（`{pkg}/{layer}/` + `guides/`） |
+| `/spec-before-dev` | command entry | 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist |
+| `/spec-update` | command entry | 交互式沉淀 7 段 code-spec 或 thinking guide |
+| `/spec-review` | command entry | 审查 7 段合约完整性、过期、冲突与 canonical 对账 |
 | `/session-review` | command entry | 审查当前会话内本模型产生的改动（区别于 `/diff-review` 的 git diff 视角） |
 
-### 项目知识库（Knowledge）
+### 项目 Code Specs
 
-`.claude/knowledge/` 是项目自己的"活文档"，布局对齐 Trellis：
+`.claude/code-specs/` 是项目自己的"活文档"，布局对齐 Trellis：
 
 1. **code-spec**（`{pkg}/{layer}/*.md`）— 具体该怎么写代码，采用 7 段合约：Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct
 2. **guides**（`guides/*.md`）— 写代码前该想什么：思考清单、常见陷阱、决策思路，不重复 code-spec 的具体规则
@@ -46,30 +47,32 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 
 和 workflow 主线的协同点：
 
-- `/scan` Part 5 首次扫描时引导初始化；已有 knowledge 时汇总 filled/draft 状态
+- `/scan` Part 5 首次扫描时引导初始化；已有 code-specs 时汇总 filled/draft 状态
 - `/workflow-plan` Step 1.5 作为 advisory constraints 供 Spec 生成参考
-- `/workflow-execute` 以 advisory 形式注入项目知识
-- `/workflow-review` Stage 1 以人工对照方式检查实现与 code-spec 的一致性（声明式审查，无机读硬卡）
+- `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性
+- `/spec-before-dev` 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist，对齐 Trellis `$before-dev`
+- `/workflow-review` Stage 1 做 3 层 advisory：人工对照 code-spec + Code Specs Check（按 diff 文件反查 code-spec，记录 advisory findings 到 `stage1.code_specs_check`）+ 跨层 A/B/C/D advisory。Probe E Infra 深度 Gate（阻塞）仅在 infra / cross-layer 关键路径 + 关联 code-spec 存在但 7 段深度不足时触发，写入 `stage1.cross_layer_depth_gap` + `blocking_issues`
 
 #### 三个命令的分工
 
 | 命令 | 什么时候用 |
 |------|-----------|
-| `/knowledge-bootstrap` | 项目首次启用 knowledge 时，或 `/scan` 提示未初始化时。按 `project-config.json.monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；`--reset` 清空重建 |
-| `/knowledge-update` | 完成一次有沉淀价值的实现、修完一个 bug、做完一个设计决策之后。交互式按 7 段 code-spec 或 thinking guide 形态写入 |
-| `/knowledge-review` | 定期维护（例如每周 / 每次大版本前）。只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，生成报告让人决定后续动作 |
+| `/spec-bootstrap` | 项目首次启用 code-specs 时，或 `/scan` 提示未初始化时。按 `project-config.json.monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；`--reset` 清空重建 |
+| `/spec-before-dev` | 刚切换到某个 package/layer，准备动手写代码之前。按当前作用域展开 `index.md` Pre-Development Checklist，把 hook 注入的 advisory 摘要展开成一次具体的阅读动作，对齐 Trellis `$before-dev` |
+| `/spec-update` | 完成一次有沉淀价值的实现、修完一个 bug、做完一个设计决策之后。交互式按 7 段 code-spec 或 thinking guide 形态写入 |
+| `/spec-review` | 定期维护（例如每周 / 每次大版本前）。只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，生成报告让人决定后续动作 |
 
 #### 典型使用链路
 
 以"第一次接入 + 沉淀一条 API 契约"为例：
 
 ```bash
-# 1. 首次扫描项目，/scan 会提示 knowledge 未初始化
+# 1. 首次扫描项目，/scan 会提示 code-specs 未初始化
 /scan
 
-# 2. 按提示初始化骨架（或直接 /knowledge-bootstrap）
-/knowledge-bootstrap
-# → 生成 .claude/knowledge/{index.md, local.md, {pkg}/{layer}/index.md, guides/index.md}
+# 2. 按提示初始化骨架（或直接 /spec-bootstrap）
+/spec-bootstrap
+# → 生成 .claude/code-specs/{index.md, local.md, {pkg}/{layer}/index.md, guides/index.md}
 
 # 3. 正常跑 workflow，完成实现
 /workflow-plan "xxx 需求"
@@ -77,12 +80,12 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 /workflow-review
 
 # 4. 实现中稳定下来一条新 API，沉淀为 code-spec
-/knowledge-update
+/spec-update
 # → 交互式选 {pkg}/backend/auth-api.md → 逐段填写 7 段合约
 # → 含具体 file path / API name / payload 字段 / 错误矩阵 / 测试断言 / wrong vs correct
 
 # 5. 跑一次完整性检查
-/knowledge-review
+/spec-review
 # → 若 7 段仍有占位符或抽象描述，报告会列出待补齐项
 ```
 
@@ -117,9 +120,10 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 | `search-first` | 先搜后写，给出 Adopt / Extend / Build 决策 |
 | `deep-research` | 面向外部信息的多源引文研究 |
-| `knowledge-bootstrap` | 初始化 `.claude/knowledge/` 骨架（`{pkg}/{layer}/` + `guides/`） |
-| `knowledge-update` | 按 7 段 code-spec 合约或 thinking guide 形态写入 |
-| `knowledge-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账，只读输出报告 |
+| `spec-bootstrap` | 初始化 `.claude/code-specs/` 骨架（`{pkg}/{layer}/` + `guides/`） |
+| `spec-before-dev` | 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist |
+| `spec-update` | 按 7 段 code-spec 合约或 thinking guide 形态写入 |
+| `spec-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账，只读输出报告 |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
 ---
@@ -152,7 +156,7 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 |  verification.js        验证证据                                  |
 |  batch_orchestrator.js  并行批次编排（配置 + select-batch）        |
 |  merge_strategist.js    集成 worktree 创建 / 合流 / 丢弃           |
-|  knowledge_bootstrap.js Knowledge 骨架生成（{pkg}/{layer}/）      |
+|  spec_bootstrap.js      Code-specs 骨架生成（{pkg}/{layer}/）     |
 +-----------------------------------------------------------------+
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
@@ -194,13 +198,13 @@ core/
 |   +-- workflow-templates/       # spec / plan 模板
 +-- hooks/                        # workflow / worktree / team 运行时 hook 脚本
 +-- utils/
-    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、batch_orchestrator.js、merge_strategist.js、knowledge_* 等
+    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、batch_orchestrator.js、merge_strategist.js、spec_* 等
 ```
 
-项目侧还有一份与 workflow 并行的 knowledge 目录：
+项目侧还有一份与 workflow 并行的 code-specs 目录：
 
 ```text
-.claude/knowledge/
+.claude/code-specs/
 +-- index.md                       # 根索引 + 更新记录
 +-- local.md                       # 本项目模板基线 + Changelog
 +-- {pkg}/
@@ -394,7 +398,7 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 - 启动规划流程，生成 `spec.md` 并停在 `spec_review`
 - `spec-review`：记录用户审查结论，通过后生成 `plan.md` 进入 `planned`
-- Step 1.5 读取 `.claude/knowledge/` 作为 advisory constraints；Spec 模板新增 `3.x Project Knowledge Constraints` 小节承载
+- Step 1.5 读取 `.claude/code-specs/` 作为 advisory constraints；Spec 模板新增 `3.x Project Code Specs Constraints` 小节承载
 - Codex Spec Review（条件，advisory）与 Codex Plan Review（条件，bounded-autofix）在 Spec / Plan 生成后可选触发
 
 #### `workflow-execute`（执行 Skill）
@@ -444,6 +448,8 @@ git worktree list && git worktree prune              # 检查 worktree 状态
 
 - `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
 - Stage 1 以人工对照 code-spec / guides 的方式检查实现是否符合项目约定（声明式审查，无机读硬卡）
+- Stage 1 附带 Code Specs Check（按 diff 文件反查 `{pkg}/{layer}/` code-spec）和跨层 A/B/C/D advisory，均不消耗 4 次共享预算、不影响 pass/fail
+- Stage 1 Probe E（阻塞）：命中 infra / cross-layer 关键路径，且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail
 - 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
 
@@ -555,7 +561,7 @@ flowchart TD
 - 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`
-- 沉淀规范：`/knowledge-update` / `/knowledge-review`
+- 沉淀规范：`/spec-update` / `/spec-review`
 
 优先使用 `/team` 的场景（Claude Code 原生 Agent Teams）：
 
@@ -595,21 +601,22 @@ flowchart TD
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
 - `core/commands/git-rollback.md`
-- `core/commands/knowledge-bootstrap.md` / `knowledge-update.md` / `knowledge-review.md`
 - `core/skills/workflow-plan/SKILL.md`
 - `core/skills/workflow-execute/SKILL.md`
 - `core/skills/workflow-review/SKILL.md`
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-status/SKILL.md`
 - `core/skills/workflow-archive/SKILL.md`
-- `core/skills/plan/SKILL.md`
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
 - `core/skills/session-review/SKILL.md`
 - `core/commands/team.md`（/team 命令，Claude Code 原生 Agent Teams 入口）
-- `core/skills/knowledge-bootstrap/SKILL.md` / `knowledge-update/SKILL.md` / `knowledge-review/SKILL.md`
+- `core/skills/spec-bootstrap/SKILL.md` / `spec-before-dev/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
+- `core/skills/workflow-review/references/stage1-code-specs-check.md`（Code Specs Check advisory 子步）
+- `core/skills/workflow-review/references/cross-layer-checklist.md`（A/B/C/D advisory + Probe E 阻塞 gate）
+- `core/specs/platform-parity.md`（multi-tool 分发 parity 契约，由 `scripts/validate.js` 在 prepublish 时校验）
 - `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
-- `core/specs/knowledge-templates/`（knowledge 模板源）
+- `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
 
 ---

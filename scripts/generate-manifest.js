@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generate canonical knowledge-template migration manifest.
+// Generate canonical spec-template migration manifest.
 // Schema aligns with Trellis D:/code/Trellis/.trellis/spec/cli/backend/migrations.md:
 //   migrations[].type ∈ { rename, rename-dir, safe-file-delete, delete }
 //   uses `from` uniformly (not `path`)
@@ -11,7 +11,7 @@ const crypto = require('crypto')
 const { spawnSync } = require('child_process')
 
 const REPO_ROOT = path.resolve(__dirname, '..')
-const TEMPLATES_DIR = path.join('core', 'specs', 'knowledge-templates')
+const TEMPLATES_DIR = path.join('core', 'specs', 'spec-templates')
 const MANIFESTS_DIR = path.join(REPO_ROOT, TEMPLATES_DIR, 'manifests')
 const DOCS_CHANGELOG_EN = path.join(REPO_ROOT, 'docs-site', 'changelog')
 const DOCS_CHANGELOG_ZH = path.join(REPO_ROOT, 'docs-site', 'zh', 'changelog')

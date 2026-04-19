@@ -8,8 +8,8 @@ const qualityReview = require(path.join(workflowDir, 'quality_review.js'))
 const workflowTypes = require(path.join(workflowDir, 'workflow_types.js'))
 const roleInjection = require(path.join(workflowDir, 'role_injection.js'))
 
-test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
-  await t.test('pass gate records advisory knowledge_check with supplied findings_count', () => {
+test('workflow-review Stage 1 code-specs + Probe E plumbing', async (t) => {
+  await t.test('pass gate records advisory code_specs_check with supplied findings_count', () => {
     const gate = qualityReview.buildPassGateResult(
       'T1',
       'base-123',
@@ -30,12 +30,12 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       'single_reviewer',
       null,
       null,
-      { knowledgeCheck: { performed: true, findingsCount: 3 } }
+      { codeSpecsCheck: { performed: true, findingsCount: 3 } }
     )
     assert.equal(gate.overall_passed, true)
-    assert.equal(gate.stage1.knowledge_check.performed, true)
-    assert.equal(gate.stage1.knowledge_check.advisory, true)
-    assert.equal(gate.stage1.knowledge_check.findings_count, 3)
+    assert.equal(gate.stage1.code_specs_check.performed, true)
+    assert.equal(gate.stage1.code_specs_check.advisory, true)
+    assert.equal(gate.stage1.code_specs_check.findings_count, 3)
     assert.equal(gate.stage1.cross_layer_depth_gap, undefined, 'pass path must not carry blocking field')
   })
 
@@ -56,7 +56,7 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       'subagent',
       {},
       {
-        knowledgeCheck: { performed: true, findingsCount: 1 },
+        codeSpecsCheck: { performed: true, findingsCount: 1 },
         crossLayerDepthGap: {
           triggered: true,
           files: ['src/api/export.ts', 'src/migrations/20260419_add_export.sql'],
@@ -103,7 +103,7 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       'subagent',
       {},
       {
-        knowledgeCheck: { performed: true, findingsCount: 0 },
+        codeSpecsCheck: { performed: true, findingsCount: 0 },
         crossLayerDepthGap: {
           triggered: true,
           files: ['src/api/foo.ts'],
@@ -136,7 +136,7 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       'subagent',
       {},
       {
-        knowledgeCheck: { performed: true, findingsCount: 0 },
+        codeSpecsCheck: { performed: true, findingsCount: 0 },
         crossLayerDepthGap: {
           triggered: true,
           files: ['src/api/bar.ts'],
@@ -167,16 +167,16 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       { missing: [{ description: 'missing requirement' }] },
       'subagent',
       {},
-      { knowledgeCheck: { performed: true, findingsCount: 0 } }
+      { codeSpecsCheck: { performed: true, findingsCount: 0 } }
     )
     assert.equal(gate.stage1.cross_layer_depth_gap, undefined)
     const blocker = gate.blocking_issues.find((x) => x.type === 'cross_layer_depth_gap')
     assert.equal(blocker, undefined)
-    // Knowledge Spec Check still recorded as advisory
-    assert.equal(gate.stage1.knowledge_check.advisory, true)
+    // Code Specs Check still recorded as advisory
+    assert.equal(gate.stage1.code_specs_check.advisory, true)
   })
 
-  await t.test('normalizeQualityGateRecord backfills advisory knowledge_check on legacy records', () => {
+  await t.test('normalizeQualityGateRecord backfills advisory code_specs_check on legacy records', () => {
     const legacy = {
       gate_task_id: 'T4',
       review_mode: 'machine_loop',
@@ -187,9 +187,9 @@ test('workflow-review Stage 1 knowledge + Probe E plumbing', async (t) => {
       reviewed_at: '2026-04-19T00:00:00.000Z',
     }
     const normalized = workflowTypes.normalizeQualityGateRecord('T4', legacy)
-    assert.equal(normalized.stage1.knowledge_check.performed, false)
-    assert.equal(normalized.stage1.knowledge_check.advisory, true)
-    assert.equal(normalized.stage1.knowledge_check.findings_count, 0)
+    assert.equal(normalized.stage1.code_specs_check.performed, false)
+    assert.equal(normalized.stage1.code_specs_check.advisory, true)
+    assert.equal(normalized.stage1.code_specs_check.findings_count, 0)
   })
 
   await t.test('classifyInfraDepth detects api / migrations / auth hits and counts layers', () => {

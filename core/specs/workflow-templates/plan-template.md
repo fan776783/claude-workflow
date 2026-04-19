@@ -57,7 +57,7 @@ context_profile: "{{context_profile}}"
 >
 > 任务可选字段：
 >
-> - `Target Layer`（可省略）— `frontend` / `backend` / `guides` 之一。显式声明后，`pre-execute-inject` 会把 `.claude/knowledge/{Package}/{Target Layer}/` 作为优先注入子集；省略则按 package 级别回退。
+> - `Target Layer`（可省略）— `frontend` / `backend` / `guides` 之一。显式声明后，`pre-execute-inject` 会把 `.claude/code-specs/{Package}/{Target Layer}/` 作为优先注入子集；省略则按 package 级别回退。
 
 {{tasks}}
 

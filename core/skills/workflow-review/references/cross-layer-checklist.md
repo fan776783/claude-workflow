@@ -8,7 +8,7 @@
 
 1. 输入 diff window 来自 `state.initial_head_commit..HEAD`（与 Stage 1 同源）。
 2. 逐项判断是否命中 Trigger；命中则按对应节的 checklist 输出一条 advisory 记录。
-3. guide 引用采用 fallback 链：项目 `.claude/knowledge/guides/<name>.md` → 仓库内置 `core/specs/guides/<name>.md` → 直接使用本文件的 checklist 文本。
+3. guide 引用采用 fallback 链：项目 `.claude/code-specs/guides/<name>.md` → 仓库内置 `core/specs/guides/<name>.md` → 直接使用本文件的 checklist 文本。
 
 ## A. 数据流（3+ layers）
 
@@ -75,14 +75,14 @@
    - diff 文件命中 infra 关键路径（`src/api/**`、`src/routes/**`、`src/controllers/**`、`src/services/**`、`src/migrations/**`、`migrations/**`、`db/**`、`schema/**`、`prisma/**`、`auth/**`、`security/**`、`middleware/**` 等；清单以 `core/utils/workflow/role_injection.js::INFRA_PATH_PATTERNS` 为准）
    - § D 命中且其中任一文件匹配 infra glob
 2. 关联 code-spec **存在**但 7 段里 `## 4. Validation & Error Matrix` / `## 5. Good / Base / Bad Cases` / `## 6. Tests Required` 任一缺失或只剩占位符
-   - 关联 code-spec **不存在**时不升级为阻塞，只在 Stage 1 Knowledge Spec Check 里按 advisory 记录；避免把"没写 spec"和"改了关键路径"叠加惩罚
+   - 关联 code-spec **不存在**时不升级为阻塞，只在 Stage 1 Code Specs Check 里按 advisory 记录；避免把"没写 spec"和"改了关键路径"叠加惩罚
 
 **Checklist**：
 
 - [ ] 枚举命中的 infra 文件清单
 - [ ] 列出关联 code-spec（可能多份）
 - [ ] 对每份 spec 逐段核对 7 段是否达标；缺失段名要具体
-- [ ] 给用户明确修复路径：`/knowledge-update` 补齐 → 重跑 `/workflow-review`
+- [ ] 给用户明确修复路径：`/spec-update` 补齐 → 重跑 `/workflow-review`
 
 **阻塞行为**：
 
@@ -101,7 +101,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail T3 \
   --project-id {projectId} \
   --failed-stage stage1 \
   --base-commit <baseCommit> --total-attempts 2 \
-  --knowledge-performed true --knowledge-findings 1 \
+  --code-specs-performed true --code-specs-findings 1 \
   --cross-layer-depth-gap true \
   --cross-layer-files "src/api/export.ts,src/migrations/20260419_add_export.sql" \
   --cross-layer-specs "my-pkg/backend/export-api.md" \

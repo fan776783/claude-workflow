@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const { spawnSync } = require('child_process');
 const { validateWorkflowDocContracts } = require('../core/utils/workflow/doc_contracts.js');
-const { validateKnowledgeTemplateHeadings } = require('../core/utils/workflow/template_contracts.js');
+const { validateSpecTemplateHeadings } = require('../core/utils/workflow/template_contracts.js');
 const { validatePlatformParity } = require('../core/utils/platform_parity.js');
 
 /**
@@ -448,7 +448,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
 }
 
 /**
- * 校验 knowledge-template manifests 的 schema（若存在）。
+ * 校验 code-specs-template manifests 的 schema（若存在）。
  * Schema 逐字对齐 Trellis migrations.md：
  *   - migrations[].type ∈ { rename, rename-dir, safe-file-delete, delete }
  *   - 统一 from 字段（非 path）
@@ -457,8 +457,8 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
  * @param {string} packageRoot
  * @param {string[]} errors
  */
-async function validateKnowledgeManifests(repoRoot, packageRoot, errors) {
-  const manifestsDir = path.join(packageRoot, 'specs', 'knowledge-templates', 'manifests');
+async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
+  const manifestsDir = path.join(packageRoot, 'specs', 'spec-templates', 'manifests');
   if (!(await fs.pathExists(manifestsDir))) {
     return; // 无 manifest 目录时跳过（首次发版前正常）
   }
@@ -470,60 +470,60 @@ async function validateKnowledgeManifests(repoRoot, packageRoot, errors) {
     try {
       doc = JSON.parse(await fs.readFile(fullPath, 'utf8'));
     } catch (err) {
-      errors.push(`knowledge manifest 解析失败 ${file}: ${err.message}`);
+      errors.push(`code-specs manifest 解析失败 ${file}: ${err.message}`);
       continue;
     }
     if (!doc || typeof doc !== 'object') {
-      errors.push(`knowledge manifest 结构错误 ${file}: 应为对象`);
+      errors.push(`code-specs manifest 结构错误 ${file}: 应为对象`);
       continue;
     }
     if (Object.prototype.hasOwnProperty.call(doc, 'update.skip') ||
         Object.prototype.hasOwnProperty.call(doc, 'update_skip')) {
-      errors.push(`knowledge manifest ${file} 不应包含 update.skip / update_skip（skip 属下游 config 设置）`);
+      errors.push(`code-specs manifest ${file} 不应包含 update.skip / update_skip（skip 属下游 config 设置）`);
     }
     if (!Array.isArray(doc.migrations)) {
-      errors.push(`knowledge manifest ${file} 缺少 migrations 数组`);
+      errors.push(`code-specs manifest ${file} 缺少 migrations 数组`);
       continue;
     }
     doc.migrations.forEach((entry, idx) => {
       if (!entry || typeof entry !== 'object') {
-        errors.push(`knowledge manifest ${file} migrations[${idx}] 非对象`);
+        errors.push(`code-specs manifest ${file} migrations[${idx}] 非对象`);
         return;
       }
       if (!allowedTypes.has(entry.type)) {
-        errors.push(`knowledge manifest ${file} migrations[${idx}].type 非法: ${entry.type}`);
+        errors.push(`code-specs manifest ${file} migrations[${idx}].type 非法: ${entry.type}`);
       }
       if (typeof entry.from !== 'string' || !entry.from) {
-        errors.push(`knowledge manifest ${file} migrations[${idx}] 缺少 from 字段`);
+        errors.push(`code-specs manifest ${file} migrations[${idx}] 缺少 from 字段`);
       }
       if ('path' in entry) {
-        errors.push(`knowledge manifest ${file} migrations[${idx}] 使用了已废弃的 path 字段，应改为 from`);
+        errors.push(`code-specs manifest ${file} migrations[${idx}] 使用了已废弃的 path 字段，应改为 from`);
       }
       if (entry.type === 'rename' || entry.type === 'rename-dir') {
         if (typeof entry.to !== 'string' || !entry.to) {
-          errors.push(`knowledge manifest ${file} migrations[${idx}] ${entry.type} 缺少 to`);
+          errors.push(`code-specs manifest ${file} migrations[${idx}] ${entry.type} 缺少 to`);
         }
       }
       if (entry.type === 'safe-file-delete' && !Array.isArray(entry.allowed_hashes)) {
-        errors.push(`knowledge manifest ${file} migrations[${idx}] safe-file-delete 缺少 allowed_hashes 数组`);
+        errors.push(`code-specs manifest ${file} migrations[${idx}] safe-file-delete 缺少 allowed_hashes 数组`);
       }
     });
   }
   if (files.length > 0) {
-    console.log(`  ✅ knowledge manifests: ${files.length} 个文件 schema 校验通过`);
+    console.log(`  ✅ code-specs manifests: ${files.length} 个文件 schema 校验通过`);
   }
 }
 
 /**
- * 校验 knowledge canonical 模板的段标题是否完整（7/4/6 段契约）。
- * Trellis 对齐的 Stage 1 Knowledge Spec Check 与 Probe E 依赖这些段存在，
+ * 校验 code-specs canonical 模板的段标题是否完整（7/4/6 段契约）。
+ * Trellis 对齐的 Stage 1 Code Specs Check 与 Probe E 依赖这些段存在，
  * 段落改名或层级漂移会让 advisory/blocking 判定读不到内容。
  * @param {string[]} errors
  */
-function validateKnowledgeTemplateContracts(errors) {
-  const result = validateKnowledgeTemplateHeadings();
+function validateCodeSpecsTemplateContracts(errors) {
+  const result = validateSpecTemplateHeadings();
   if (result.ok) {
-    console.log('  ✅ knowledge templates: 7/4/6 段契约校验通过');
+    console.log('  ✅ code-specs templates: 7/4/6 段契约校验通过');
     return;
   }
   for (const entry of result.errors) {
@@ -556,7 +556,7 @@ function validatePlatformParityContract(errors) {
  */
 function runContractTests(repoRoot, errors) {
   const testFiles = [
-    path.join(repoRoot, 'tests', 'test_knowledge_contracts.js'),
+    path.join(repoRoot, 'tests', 'test_spec_contracts.js'),
     path.join(repoRoot, 'tests', 'test_quality_review_stage1.js'),
     path.join(repoRoot, 'tests', 'test_task_aware_injection.js'),
   ];
@@ -619,8 +619,8 @@ async function validate() {
   await validateWorkflowContracts(repoRoot, packageRoot, errors);
   await validateTeamContracts(repoRoot, packageRoot, errors);
   await validatePathReferences(repoRoot, packageRoot, errors);
-  await validateKnowledgeManifests(repoRoot, packageRoot, errors);
-  validateKnowledgeTemplateContracts(errors);
+  await validateCodeSpecsManifests(repoRoot, packageRoot, errors);
+  validateCodeSpecsTemplateContracts(errors);
   validatePlatformParityContract(errors);
   runContractTests(repoRoot, errors);
 

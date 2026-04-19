@@ -3,15 +3,15 @@
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { getKnowledgeDir } = require('./path_utils')
+const { getCodeSpecsDir } = require('./path_utils')
 
 const FRONTEND_FRAMEWORKS = new Set(['react', 'vue', 'angular', 'svelte', 'solid', 'preact', 'next', 'nuxt', 'remix', 'qwik'])
 const BACKEND_FRAMEWORKS = new Set(['express', 'fastify', 'nest', 'koa', 'go', 'gin', 'django', 'flask', 'fastapi', 'rails', 'spring', 'spring-boot', 'rust', 'actix'])
 
 function resolveTemplatesDir() {
   const candidates = [
-    path.resolve(__dirname, '..', '..', 'specs', 'knowledge-templates'),
-    path.join(os.homedir(), '.agents', 'agent-workflow', 'core', 'specs', 'knowledge-templates'),
+    path.resolve(__dirname, '..', '..', 'specs', 'spec-templates'),
+    path.join(os.homedir(), '.agents', 'agent-workflow', 'core', 'specs', 'spec-templates'),
   ]
   for (const candidate of candidates) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) return candidate
@@ -63,12 +63,12 @@ function today() {
 }
 
 function buildRootIndex() {
-  return readTemplate('index-template.md') || '# Project Knowledge Base\n'
+  return readTemplate('index-template.md') || '# Project Code Specs\n'
 }
 
 function buildLayerIndex(layerName, description) {
   const template = readTemplate('layer-index-template.md')
-  if (!template) return `# ${layerName} Knowledge\n`
+  if (!template) return `# ${layerName} Code Specs\n`
   return renderTemplate(template, {
     layer_name: layerName,
     layer_description: description,
@@ -106,21 +106,21 @@ function loadProjectConfig(projectRoot) {
 function updateBootstrapStatus(projectRoot, status) {
   const { configPath, config } = loadProjectConfig(projectRoot)
   if (!config) return { updated: false, reason: 'no_config', path: configPath }
-  config.knowledge = config.knowledge || {}
-  config.knowledge.bootstrapStatus = status
-  config.knowledge.updatedAt = new Date().toISOString()
+  config.codeSpecs = config.codeSpecs || {}
+  config.codeSpecs.bootstrapStatus = status
+  config.codeSpecs.updatedAt = new Date().toISOString()
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
   return { updated: true, path: configPath, status }
 }
 
 function readBootstrapStatus(projectRoot) {
   const { config } = loadProjectConfig(projectRoot)
-  if (!config || !config.knowledge) return null
-  return config.knowledge.bootstrapStatus || null
+  if (!config || !config.codeSpecs) return null
+  return config.codeSpecs.bootstrapStatus || null
 }
 
-function countKnowledgeStats(projectRoot) {
-  const dirInfo = getKnowledgeDir(projectRoot)
+function countCodeSpecsStats(projectRoot) {
+  const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return { exists: false, total: 0, filled: 0, draft: 0 }
   let total = 0
   let filled = 0
@@ -273,10 +273,10 @@ function detectLegacyLayout(baseDir) {
   return { isLegacy: false, paths: [] }
 }
 
-function initKnowledgeSkeleton({ projectRoot = process.cwd(), frameworks = [], force = false, reset = false } = {}) {
+function initCodeSpecsSkeleton({ projectRoot = process.cwd(), frameworks = [], force = false, reset = false } = {}) {
   const root = path.resolve(projectRoot)
-  const dirInfo = getKnowledgeDir(root)
-  const baseDir = dirInfo.exists ? dirInfo.path : path.join(root, '.claude', 'knowledge')
+  const dirInfo = getCodeSpecsDir(root)
+  const baseDir = dirInfo.exists ? dirInfo.path : path.join(root, '.claude', 'code-specs')
 
   const legacy = detectLegacyLayout(baseDir)
   if (legacy.isLegacy && !reset) {
@@ -284,7 +284,7 @@ function initKnowledgeSkeleton({ projectRoot = process.cwd(), frameworks = [], f
       baseDir,
       generated: [],
       error: 'legacy_layout_detected',
-      message: '检测到旧版 knowledge 布局（.claude/knowledge/{frontend,backend}/）。本项目已切换为 {package}/{layer}/ 二维结构，不提供自动迁移。确认无重要数据后使用 init --reset 重建。',
+      message: '检测到旧版布局（.claude/code-specs/{frontend,backend}/）。本项目已切换为 {package}/{layer}/ 二维结构，不提供自动迁移。确认无重要数据后使用 init --reset 重建。',
       legacyPaths: legacy.paths.map((p) => path.relative(root, p)),
     }
   }
@@ -358,7 +358,7 @@ function markSkipped(projectRoot = process.cwd()) {
 }
 
 // 扫描本次 bootstrap 刚生成的文件，统计仍含占位符的数量。
-// 与 /knowledge-review 的 draft lint 的区别：本函数只看本次新生成的骨架，
+// 与 /spec-review 的 draft lint 的区别：本函数只看本次新生成的骨架，
 // review 看的是全库长期存量；两者展示场景不重叠。
 // 对齐 Codex review 的收敛：不全树扫，显式排除 local.md，避免把 Changelog 模板里的 {{date}} 占位符误报。
 function scanEmptyTemplates({ projectRoot = process.cwd(), files = [] } = {}) {
@@ -390,7 +390,7 @@ function main() {
   if (command === 'status') {
     const root = option('--project-root') || process.cwd()
     const status = readBootstrapStatus(root)
-    const stats = countKnowledgeStats(root)
+    const stats = countCodeSpecsStats(root)
     process.stdout.write(`${JSON.stringify({ bootstrapStatus: status, ...stats })}\n`)
     return
   }
@@ -399,7 +399,7 @@ function main() {
     const frameworks = String(option('--frameworks') || '').split(',').map((item) => item.trim()).filter(Boolean)
     const force = args.includes('--force')
     const reset = args.includes('--reset')
-    const result = initKnowledgeSkeleton({ projectRoot: root, frameworks, force, reset })
+    const result = initCodeSpecsSkeleton({ projectRoot: root, frameworks, force, reset })
     if (!result.error && Array.isArray(result.generated) && result.generated.length) {
       result.emptyTemplateAudit = scanEmptyTemplates({ projectRoot: root, files: result.generated })
     }
@@ -419,16 +419,16 @@ function main() {
     process.stdout.write(`${JSON.stringify(markSkipped(root))}\n`)
     return
   }
-  process.stderr.write('Usage: node knowledge_bootstrap.js <status|init|skip|audit-empty> [--project-root <path>] [--frameworks a,b,c] [--force] [--reset] [--files a.md,b.md]\n')
+  process.stderr.write('Usage: node spec_bootstrap.js <status|init|skip|audit-empty> [--project-root <path>] [--frameworks a,b,c] [--force] [--reset] [--files a.md,b.md]\n')
   process.exitCode = 1
 }
 
 module.exports = {
   classifyFrameworks,
-  initKnowledgeSkeleton,
+  initCodeSpecsSkeleton,
   markSkipped,
   readBootstrapStatus,
-  countKnowledgeStats,
+  countCodeSpecsStats,
   resolveTemplatesDir,
   resolvePackages,
   detectWorkspacePackages,
