@@ -22,8 +22,6 @@ description: "workflow-review 入口。独立的全量完成审查步骤 — exe
 4. **预算硬停**：两阶段共享 4 次总预算耗尽 → 标记任务 `failed`，不得继续尝试
 </HARD-GATE>
 
-> 审查结果的写入者始终是 CLI/runtime；workflow hooks 不承担状态写入职责。
-
 ## Checklist（按序执行）
 
 1. ☐ 前置检查（review_pending 校验）
@@ -82,11 +80,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ## Step 2: Stage 1 — 规格合规审查
 
-**执行者**：当前模型（主任务直接执行，不分派子 Agent）。
-
-> 🔑 Stage 1 是结构化对照检查（spec 条目 → 代码实现），属于客观事实验证，不需要子 Agent 的隔离开销。
-> 本 skill 作为独立入口（`/workflow-review`），与 execute 阶段天然隔离，已满足审查独立性要求。
-> Stage 2（主观代码质量判断）仍通过子 Agent 执行，确保深度审查的独立视角。
+**执行者**：当前模型（主任务直接执行，不分派子 Agent）。Stage 1 是结构化对照检查（spec → 代码），属于客观事实验证；`/workflow-review` 作为独立入口已与 execute 天然隔离。Stage 2 的主观判断仍通过子 Agent 执行。
 
 **独立验证规则**（补偿非子 Agent 执行的隔离损失）：
 - **禁止引用 execute 阶段的记忆**：不得使用"我之前实现了 X"作为验证依据
@@ -105,9 +99,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | **页面分层** | 单文件是否承载过多独立功能模块 |
 | **路由结构** | spec 中规划的多页面是否实现了路由/导航 |
 | **项目知识一致性** | 实现是否符合 `.claude/code-specs/` 中的约定？以人工对照 code-spec 为准，advisory |
-| **Code Specs Check**（advisory） | 参考 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md)：按 diff 文件反查 `{pkg}/{layer}/` code-spec，逐条给出缺失 / 偏差 / 建议。诊断条数写入 `stage1.code_specs_check.findings_count`，不影响 pass/fail。 |
-| **跨层一致性**（advisory） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § A–D：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度，按 diff 命中条件触发。输出到 `Cross-Layer (Advisory)` 独立块，不参与 Stage 1 pass/fail 判定 |
-| **Probe E Infra 深度 gate**（阻塞） | 参考 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § E：命中 infra / cross-layer 关键路径且相关 code-spec 的 7 段里 `Validation & Error Matrix` / `Good/Base/Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail，并通过 `quality_review.js fail --cross-layer-depth-gap true` 写入 `stage1.cross_layer_depth_gap` + `blocking_issues.cross_layer_depth_gap`。相关 code-spec 不存在时只记 advisory，不升级成阻塞。 |
+| **Code Specs Check**（advisory） | 按 diff 文件反查 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。详见 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md)。 |
+| **跨层 advisory A–D** | 数据流 / 代码复用 / import 路径 / 同层一致性 4 维度 diff 启发式。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § A–D。 |
+| **Probe E Infra 深度 gate**（阻塞） | infra 关键路径 + 关联 code-spec 7 段深度不足时，Stage 1 直接 fail。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § E。 |
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
@@ -156,29 +150,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 #### 跨层检查（advisory，Stage 1 内部）
 
-对应执行流程的第 5 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）执行 4 个启发式 probe。probe 输入必须复用 `quality_review.js budget` 的 base commit，**不**使用裸 `git diff` / `git status`。
+对应执行流程的第 6–7 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）执行 Probe A–D 启发式诊断与 Probe E 深度 gate。触发条件、checklist 内容、guides fallback 链、advisory 硬约束与 Probe E 阻塞语义，全部以 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) 为准，本文件不再重复。
 
-| Probe | 触发条件 | checklist 节 |
-|------|---------|-------------|
-| A 数据流 | diff 文件命中 ≥ 3 层（api/routes、service/lib、db/models、components/views、utils） | A |
-| B 代码复用 | diff 触及 `src/constants/**`，或 diff 内文本字面量出现 ≥ 3 次 | B |
-| C Import 路径 | diff window 含新增源文件 | C |
-| D 同层一致性 | diff 内 ≥ 2 文件共享同一直接父目录 | D |
-
-guides 读取 fallback 链（按顺序取第一个存在的）：
-
-1. `.claude/code-specs/guides/<name>.md`（项目级）
-2. `core/specs/guides/<name>.md`（仓库内置，已随包分发 `cross-layer-checklist.md` / `code-reuse-checklist.md` / `ai-review-false-positive-guide.md`）
-3. 都没有 → 只用 `references/cross-layer-checklist.md` 里的 checklist 文本
-
-**advisory 性质（硬约束）**：
-
-- **不**阻断 Stage 1 pass/fail
-- **不**消耗 4 次共享预算
-- **不**写入 `quality_gates.*`
-- **不**触发 Stage 2 重跑
-- 输出到 `Cross-Layer (Advisory)` 独立块，禁止混入 `Issues` 或 `Spec Coverage Checklist`
-- 与 Stage 2 的 `代码复用` / `跨层完整性` 同一发现应合并为一条（避免上下游重复）
+关键复用点：Probe A–E 与 Code Specs Check 共享 `git diff --name-only {baseCommit}..HEAD` 的输出；base commit 必须复用 `quality_review.js budget` 的解析结果或直接读 `state.initial_head_commit`，不要再跑裸 `git diff` / `git status`。
 
 ### 审查未通过
 
@@ -196,10 +170,10 @@ guides 读取 fallback 链（按顺序取第一个存在的）：
 
 | 条件 | 模式 | 说明 |
 |------|------|------|
-| `signals.security \|\| signals.backend_heavy \|\| signals.data` | `dual_reviewer` | Codex + sub-Agent 并行审查 |
-| 其他 | `single_reviewer` | 现有 sub-Agent 单路径（不变） |
+| 满足任一信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行审查 |
+| 其他 | `single_reviewer` | 子 Agent 单路径 |
 
-### single_reviewer 模式（默认，不变）
+### single_reviewer 模式（默认）
 
 **执行者**：优先使用 `Task` 工具分派独立子 Agent（单 reviewer）。CLI 自动处理 reviewer profile 解析（`state.context_injection.execution.quality_review_stage2`），无需手动构造。不支持 `Task` 时降级为当前会话内角色切换。
 
@@ -209,7 +183,7 @@ guides 读取 fallback 链（按顺序取第一个存在的）：
 
 ### dual_reviewer 模式（Codex 增强）
 
-当信号匹配时，Codex 与 sub-Agent 并行审查后合并结果。
+当信号匹配时，Codex 与子 Agent 并行审查后合并结果。
 
 **执行流程**：
 
@@ -221,7 +195,7 @@ guides 读取 fallback 链（按顺序取第一个存在的）：
      --cd "{projectRoot}" \
      --prompt "Focus on: logic correctness, edge cases, error handling, security vulnerabilities, performance issues, concurrency, changed contracts and downstream impact. If claiming impact, specify exact code paths and callers."
    ```
-3. **同时 dispatch sub-Agent**（现有 Task 工具路径，不变）
+3. **同时 dispatch 子 Agent**（Task 工具路径）
 4. **Join barrier**：两者都完成后才进入合并。超时策略：Codex 超过 5 分钟未返回 → 降级为 single_reviewer 结果。
 5. **结果合并**：
    - 归一化为统一 finding 结构（见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md) § 统一 Finding 结构）
@@ -229,7 +203,7 @@ guides 读取 fallback 链（按顺序取第一个存在的）：
    - 对 Codex 候选执行 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE
    - 任一 reviewer 有 verified Critical/Important → Stage 2 fail
    - 一方 approve + 另一方有 verified blocker → blocker 优先
-6. **降级**：Codex 失败/超时 → 仅使用 sub-Agent 结果 + 标注 `(Codex degraded)`
+6. **降级**：Codex 失败/超时 → 仅使用子 Agent 结果 + 标注 `(Codex degraded)`
 
 **预算影响**：Codex 调用本身不消耗 Stage 2 retry 预算。合并后的最终判定算 1 次 attempt。
 
@@ -259,9 +233,7 @@ guides 读取 fallback 链（按顺序取第一个存在的）：
 
 **所有审查结果通过 CLI 写入 state**，不得手动构造 JSON。
 
-> [!CAUTION]
-> **`--project-id` 是必填参数**。值来自 Step 0.1 提取的 `{projectId}`。
-> 不传此参数时 CLI 会回退到 `detectProjectIdFromRoot(process.cwd())`，而 review 的执行 cwd 往往不在目标项目下，**这是导致 "CLI 工具不可用" 降级的首要原因**。
+> `--project-id` 必填（见 Step 0.1）。
 
 ```bash
 # 审查通过
@@ -282,20 +254,15 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail <taskId
 node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId> --project-id {projectId}
 ```
 
-> ⚠️ **HARD-GATE #3 强制执行**：必须输出以下 checkpoint 行证明已通过 CLI 写入：
+> **HARD-GATE #3 强制执行**：必须输出以下 checkpoint 行证明已通过 CLI 写入：
 > ```
-> 📝 Review recorded: quality_review.js pass {taskId} → overall_passed={true|false}
+> Review recorded: quality_review.js pass {taskId} → overall_passed={true|false}
 > ```
-> 若上方 CLI 调用失败（如缺少 base-commit），则必须尝试以下降级路径：
-> ```bash
-> # 降级：当 base-commit 不可用时
-> node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass <taskId> \
->   --project-id {projectId} \
->   --base-commit HEAD --current-commit HEAD \
->   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
->   --stage1-attempts 1 --stage2-attempts 1
-> ```
-> 降级仍失败 → 在 checkpoint 行标注 `(CLI unavailable, manual write)` 并记录原因。
+> 若 CLI 调用失败，按以下顺序恢复：
+> 1. 不带 `--base-commit` 重试，让 CLI 自己通过 `resolveReviewBaseline` 解析；
+> 2. 仍失败且报 `缺少质量关卡基线` → 先修复 `state.initial_head_commit`（补齐或重算），再重跑 CLI；
+> 3. 不得用 `--base-commit HEAD --current-commit HEAD` 绕过（会变成空 diff）；也不得手动编辑 `quality_gates.*`，HARD-GATE #3 不允许。
+> 只有在 CLI 本身不可用（例如 node 缺失）时才允许在 checkpoint 行标注 `(CLI unavailable)` 并上报用户，不再尝试写 state。
 
 ### 审查模式标注
 
@@ -304,8 +271,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 📋 Review mode: hybrid | dual-reviewer | degraded-inline
 ```
 
-- `hybrid`：Stage 1 在主任务内执行，Stage 2 通过 sub-Agent 分派（默认 single_reviewer）
-- `dual-reviewer`：Stage 2 通过 Codex + sub-Agent 并行审查后合并结果
+- `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认 single_reviewer）
+- `dual-reviewer`：Stage 2 通过 Codex + 子 Agent 并行审查后合并结果
 - `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
 
 ### 预算遥测

@@ -1,8 +1,13 @@
-# Cross-Layer Checklist（Workflow-Review Stage 1 Advisory）
+# Cross-Layer Checklist（Workflow-Review Stage 1）
 
-> Advisory only. 供 `SKILL.md` Stage 1 的「跨层检查」小节引用（执行流程第 5 项）。不写入 `quality_gates.*`，不消耗 Stage 1 / Stage 2 预算，不影响 pass/fail 判定。
+> 供 `SKILL.md` Stage 1 的「跨层检查」小节引用（执行流程第 6–7 项）。文件包含两类 probe，语义不同：
 >
-> 对齐 Trellis `$check-cross-layer` 的 4 个维度，但只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
+> - **§ A–D**：advisory probe。不写入 `quality_gates.*`，不消耗 Stage 1 / Stage 2 预算，不影响 pass/fail 判定。
+> - **§ E**：infra 深度 gate，**阻塞**。命中即走 `quality_review.js fail --cross-layer-depth-gap true`，会写 `quality_gates.*` 并让 Stage 1 失败。
+>
+> Probe E 依赖 Code Specs Check（执行流程第 5 项）产出的 code-spec 映射，必须在其之后执行。
+>
+> 对齐 Trellis `$check-cross-layer` 的 4 个维度，A–D 只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
 
 ## 如何使用
 
@@ -53,7 +58,7 @@
 
 - [ ] 相对 import vs 绝对 import 的风格是否与邻近文件一致
 - [ ] 是否引入循环依赖
-- [ ] barrel（形如 src/\<dir\>/index.ts 或 src/\<dir\>/index.js 的再导出文件）是否需要更新导出
+- [ ] barrel（re-export index）是否需要更新导出
 - [ ] 新文件放置位置是否符合 layer 约定
 
 ## D. 同层一致性
@@ -113,8 +118,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail T3 \
 
 Stage 2 `stage2-review-checklist.md` 已覆盖：
 
-- **代码复用** — subagent 会对照运行时 `.claude/.agent-workflow/specs/guides/code-reuse-checklist.md`
-- **跨层完整性** — subagent 会对照运行时 `.claude/.agent-workflow/specs/guides/cross-layer-checklist.md`
+- **代码复用** — 子 Agent 会对照运行时 `.claude/.agent-workflow/specs/guides/code-reuse-checklist.md`
+- **跨层完整性** — 子 Agent 会对照运行时 `.claude/.agent-workflow/specs/guides/cross-layer-checklist.md`
 
 Stage 1 的 probe 是**更便宜的早期警示**；Stage 2 的判断权威更高。若同一问题两者都命中，以 Stage 2 的详细判定为准，在最终报告里合并为一条。
 

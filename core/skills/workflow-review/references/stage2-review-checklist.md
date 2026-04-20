@@ -54,7 +54,7 @@
 
 ## dual_reviewer 模式：统一 Finding 结构
 
-当 Stage 2 以 `dual_reviewer` 模式运行时（Codex + sub-Agent 并行），两侧的审查结果须归一化为以下结构后再合并判定：
+当 Stage 2 以 `dual_reviewer` 模式运行时（Codex + 子 Agent 并行），两侧的审查结果须归一化为以下结构后再合并判定：
 
 ```json
 {
