@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+（无待发布项）
+
+## [5.2.0] - 2026-04-20
+
+### Changed
+
+- **workflow-execute SKILL.md 文档瘦身**：移除与 checklist 重复的 ASCII 流程图与批量化示例，checkpoint 示例合并为单行，Post-Execution Pipeline 顺序编号从 "①–⑥ + ⑤ Journal" 纠正为 "①–⑤"。行为不变，仅文档表述精简
+- **workflow-review SKILL.md 审查说明重构**：
+  - Stage 1 子检查说明压缩为一行 + 引用 `references/cross-layer-checklist.md` / `stage1-code-specs-check.md`，不在 SKILL 内重复 Probe A–E 触发条件与 advisory 硬约束
+  - 统一使用"子 Agent"表述替换历史 `sub-Agent` / `sub Agent` 混写
+  - CLI 写入失败的降级路径从"用 `--base-commit HEAD --current-commit HEAD` 绕过"改为"先重试 → 修复 `initial_head_commit` → 只有 CLI 本身不可用才允许标注 `(CLI unavailable)`"；禁止手动编辑 `quality_gates.*`
+  - 删除与 checklist 冗余的 "审查结果的写入者始终是 CLI/runtime" 顶栏提示
+- **session-review 默认行为反转**：
+  - 旧：默认 Step 3 会展示清单并等待用户确认，`--no-confirm` 跳过
+  - 新：默认展示清单后直接进入审查；新增 `--confirm` 显式要求暂停等待用户调整清单
+  - `--no-confirm` 参数移除，不保留兼容
+
+## [5.1.0] - 2026-04-20
+
 ### Changed (目录改名：knowledge → code-specs)
 
 - `.claude/knowledge/` 重命名为 `.claude/code-specs/`；skill/命令名已是 `spec-*`，目录名同步到"code spec"语义，避免与 `/workflow-plan` 写入的 `.claude/specs/` 任务 spec 混淆
