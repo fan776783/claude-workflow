@@ -1,10 +1,24 @@
 {
   "version": "5.2.0",
   "previous": "5.1.0",
-  "recommendMigrate": false,
-  "notes": "Release 5.2.0 based on v5.1.0",
-  "breaking": [],
-  "migrations": [],
-  "protected_paths": [],
-  "changelog": "Generated from v5.1.0..HEAD"
+  "recommendMigrate": true,
+  "notes": "v2.2 对齐：local.md 取消 Template Baseline 段，漂移治理切到 .template-hashes.json + manifests/",
+  "breaking": [
+    "local.md 中的 ## Template Baseline 段被移除；模板漂移改由 .template-hashes.json 承载",
+    "code-spec-template.md 去掉 frontmatter；layer-index-template.md 固定三列 Guide / Description / Status"
+  ],
+  "protected_paths": [
+    ".claude/code-specs/{pkg}/{layer}/*.md",
+    ".claude/code-specs/{pkg}/local.md",
+    ".claude/code-specs/guides/**"
+  ],
+  "migrations": [
+    {
+      "type": "delete-section",
+      "file": "local.md",
+      "section": "## Template Baseline",
+      "reason": "模板漂移治理已切到 .template-hashes.json + manifests/"
+    }
+  ],
+  "changelog": "Generated from v5.1.0..HEAD (v2.2 alignment)"
 }

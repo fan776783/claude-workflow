@@ -449,9 +449,10 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
 
 /**
  * 校验 code-specs-template manifests 的 schema（若存在）。
- * Schema 逐字对齐 Trellis migrations.md：
- *   - migrations[].type ∈ { rename, rename-dir, safe-file-delete, delete }
- *   - 统一 from 字段（非 path）
+ * Schema 对齐 Trellis migrations.md + v3 Stage C 扩展：
+ *   - migrations[].type ∈ { rename, rename-dir, rename-section, delete-section, safe-file-delete, delete }
+ *   - 统一 from / path 字段（具体看 type；详见 manifests/README.md）
+ *   - top-level 可选 protected_paths（glob 数组）
  *   - top-level 不含 update.skip / update_skip（skip 属下游 config 设置）
  * @param {string} repoRoot
  * @param {string} packageRoot
@@ -463,7 +464,14 @@ async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
     return; // 无 manifest 目录时跳过（首次发版前正常）
   }
   const files = (await fs.readdir(manifestsDir)).filter((name) => name.endsWith('.json'));
-  const allowedTypes = new Set(['rename', 'rename-dir', 'safe-file-delete', 'delete']);
+  const allowedTypes = new Set([
+    'rename',
+    'rename-dir',
+    'rename-section',
+    'delete-section',
+    'safe-file-delete',
+    'delete',
+  ]);
   for (const file of files) {
     const fullPath = path.join(manifestsDir, file);
     let doc;
@@ -481,6 +489,17 @@ async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
         Object.prototype.hasOwnProperty.call(doc, 'update_skip')) {
       errors.push(`code-specs manifest ${file} 不应包含 update.skip / update_skip（skip 属下游 config 设置）`);
     }
+    if ('protected_paths' in doc) {
+      if (!Array.isArray(doc.protected_paths)) {
+        errors.push(`code-specs manifest ${file} protected_paths 必须为字符串数组`);
+      } else {
+        doc.protected_paths.forEach((entry, idx) => {
+          if (typeof entry !== 'string' || !entry.trim()) {
+            errors.push(`code-specs manifest ${file} protected_paths[${idx}] 必须为非空字符串`);
+          }
+        });
+      }
+    }
     if (!Array.isArray(doc.migrations)) {
       errors.push(`code-specs manifest ${file} 缺少 migrations 数组`);
       continue;
@@ -493,19 +512,42 @@ async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
       if (!allowedTypes.has(entry.type)) {
         errors.push(`code-specs manifest ${file} migrations[${idx}].type 非法: ${entry.type}`);
       }
-      if (typeof entry.from !== 'string' || !entry.from) {
-        errors.push(`code-specs manifest ${file} migrations[${idx}] 缺少 from 字段`);
+      const needsFrom = entry.type === 'rename' || entry.type === 'rename-dir';
+      const needsPath = entry.type === 'delete' || entry.type === 'safe-file-delete';
+      const needsFile = entry.type === 'rename-section' || entry.type === 'delete-section';
+      if (needsFrom && (typeof entry.from !== 'string' || !entry.from)) {
+        errors.push(`code-specs manifest ${file} migrations[${idx}] ${entry.type} 缺少 from 字段`);
       }
-      if ('path' in entry) {
-        errors.push(`code-specs manifest ${file} migrations[${idx}] 使用了已废弃的 path 字段，应改为 from`);
+      if (needsPath && (typeof entry.path !== 'string' || !entry.path)) {
+        errors.push(`code-specs manifest ${file} migrations[${idx}] ${entry.type} 缺少 path 字段`);
+      }
+      if (needsFile && (typeof entry.file !== 'string' || !entry.file)) {
+        errors.push(`code-specs manifest ${file} migrations[${idx}] ${entry.type} 缺少 file 字段`);
       }
       if (entry.type === 'rename' || entry.type === 'rename-dir') {
         if (typeof entry.to !== 'string' || !entry.to) {
           errors.push(`code-specs manifest ${file} migrations[${idx}] ${entry.type} 缺少 to`);
         }
       }
-      if (entry.type === 'safe-file-delete' && !Array.isArray(entry.allowed_hashes)) {
-        errors.push(`code-specs manifest ${file} migrations[${idx}] safe-file-delete 缺少 allowed_hashes 数组`);
+      if (entry.type === 'rename-section') {
+        if (typeof entry.from !== 'string' || !entry.from) {
+          errors.push(`code-specs manifest ${file} migrations[${idx}] rename-section 缺少 from（旧 H2 标题）`);
+        }
+        if (typeof entry.to !== 'string' || !entry.to) {
+          errors.push(`code-specs manifest ${file} migrations[${idx}] rename-section 缺少 to（新 H2 标题）`);
+        }
+      }
+      if (entry.type === 'delete-section') {
+        if (typeof entry.section !== 'string' || !entry.section) {
+          errors.push(`code-specs manifest ${file} migrations[${idx}] delete-section 缺少 section（要删除的 H2 标题）`);
+        }
+      }
+      if (entry.type === 'safe-file-delete') {
+        const hasHashGuard = Array.isArray(entry.allowed_hashes)
+          || (entry.guard && typeof entry.guard === 'object' && typeof entry.guard.hashBefore === 'string');
+        if (!hasHashGuard) {
+          errors.push(`code-specs manifest ${file} migrations[${idx}] safe-file-delete 必须有 allowed_hashes 或 guard.hashBefore`);
+        }
       }
     });
   }

@@ -5,7 +5,14 @@ const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
 const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
-const { getWorkflowRuntime, getThinkingGuides, getCodeSpecsContext } = require('../utils/workflow/task_runtime')
+const {
+  getWorkflowRuntime,
+  getThinkingGuides,
+  getCodeSpecsContext,
+  collectSpecFiles,
+  renderSpecFiles,
+  resolveActiveCodeSpecsScope,
+} = require('../utils/workflow/task_runtime')
 
 /**
  * 判断是否应跳过 hook（非交互模式时跳过）
@@ -194,11 +201,58 @@ function main() {
     parts.push('</thinking-guides>')
   }
 
-  // Session start 时尚无 active task，保留全树视角，但收紧预算避免早期占用上下文
-  const codeSpecs = getCodeSpecsContext(projectRoot, 2000, { rootIndexBudget: 200, layerIndexBudget: 120 })
-  if (codeSpecs) {
-    parts.push('<project-code-specs role="advisory" scope="overview">')
-    parts.push(codeSpecs)
+  // v3 Stage B1: paths-only 判定 + runtime.scope 优先级 + scopeDenied 渲染
+  // 切 paths-only 的条件：
+  //   1) monorepo + codeSpecs.runtime.scope 非 null 且解析出具体 activePackage（或 scopeDenied）
+  //   2) 显式 env SPEC_INJECT_MODE=paths-only
+  //   3) 估算 collector 产出的文件量 > 预算 70% 阈值
+  const scope = resolveActiveCodeSpecsScope(runtime, config, {})
+  const runtimeScopeConfigured = !!((config.codeSpecs || {}).runtime || {}).scope
+  const projectType = (config.project || {}).type
+  const envForcePathsOnly = process.env.SPEC_INJECT_MODE === 'paths-only'
+  const sessionMaxChars = 2000
+  let codeSpecsBlock = null
+  let codeSpecsScopeAttr = 'overview'
+
+  if (scope && scope.scopeDenied) {
+    // scopeDenied → 输出空段 + 原因提示，不回退全树
+    const denied = collectSpecFiles(projectRoot, scope, {})
+    codeSpecsBlock = renderSpecFiles(denied, { mode: 'paths-only' })
+    codeSpecsScopeAttr = 'scope-denied'
+  } else {
+    const collection = collectSpecFiles(projectRoot, scope || null, {})
+    if (collection && collection.files.length) {
+      // 估算字节：每文件 ~500 字内容 + 路径开销
+      const estimated = collection.files.length * 520
+      const pathsOnlyByBudget = estimated > sessionMaxChars * 0.7
+      const pathsOnlyByRuntimeScope = projectType === 'monorepo'
+        && runtimeScopeConfigured
+        && scope && scope.activePackage
+      const usePathsOnly = envForcePathsOnly || pathsOnlyByRuntimeScope || pathsOnlyByBudget
+      if (usePathsOnly) {
+        codeSpecsBlock = renderSpecFiles(collection, { mode: 'paths-only' })
+        codeSpecsScopeAttr = scope && scope.activePackage ? `paths-only:${scope.activePackage}` : 'paths-only'
+      } else {
+        codeSpecsBlock = renderSpecFiles(collection, {
+          mode: 'digest',
+          maxChars: sessionMaxChars,
+          rootIndexBudget: 200,
+          layerIndexBudget: 120,
+        })
+      }
+    } else if (collection && !collection.files.length && collection.dirInfo) {
+      // code-specs 目录存在但空：简短提示
+      codeSpecsBlock = '_code-specs 目录存在但无已填充内容（运行 `/spec-update` 开始沉淀）_'
+      codeSpecsScopeAttr = 'empty'
+    } else {
+      // 无 code-specs 目录：兼容历史行为，保持静默
+      codeSpecsBlock = getCodeSpecsContext(projectRoot, sessionMaxChars, { rootIndexBudget: 200, layerIndexBudget: 120 })
+    }
+  }
+
+  if (codeSpecsBlock) {
+    parts.push(`<project-code-specs role="advisory" scope="${codeSpecsScopeAttr}">`)
+    parts.push(codeSpecsBlock)
     parts.push('</project-code-specs>')
   }
 

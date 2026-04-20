@@ -5,6 +5,17 @@
 > **Package / Layer**: {{package}} / {{layer}}
 > **Last Updated**: {{date}}
 
+<!--
+本模板（7 段 contract）**仅用于 API / DB / 字段级契约类规范**。
+
+判断规则：
+- 要写"请求/响应字段清单 + 错误码矩阵 + 测试断言点"？→ 用本模板（7 段）
+- 要写"代码风格 / 目录约定 / 命名规则 / 常见错误"？→ 改用 convention-template.md（更轻量）
+
+对齐 Trellis：Trellis 实战里大部分 topic 文件走 convention 风格，只有少数涉及严格字段契约时才接近本模板。
+详见 /Users/ws/dev/Trellis/.trellis/spec/cli/backend/error-handling.md（convention 风格范例）。
+-->
+
 > **必填字段说明**
 > 本 spec 的 7 段都必须有具体内容。占位符需被真实的文件路径 / 命令名 / API 名 / 字段名 / 测试名替换。
 > 段落为空或只有抽象描述属于未完成状态，`/spec-review` 会在 7 段 lint 中列出。

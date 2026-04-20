@@ -227,10 +227,34 @@ function collectTaskChangedHints(task) {
   return normalizeChangedFileHints(parts)
 }
 
+// 规范化 codeSpecs.runtime.scope 配置：
+// "active_task"          → { mode: 'active_task' }
+// ["pkg-a", "pkg-b"]     → { mode: 'allowlist', packages: ['pkg-a', 'pkg-b'] }
+// null / 未设 / 非法值   → null
+function normalizeRuntimeScope(value) {
+  if (value == null) return null
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase()
+    return trimmed === 'active_task' ? { mode: 'active_task' } : null
+  }
+  if (Array.isArray(value)) {
+    const packages = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter((entry) => entry && isValidPackageName(entry))
+    return packages.length ? { mode: 'allowlist', packages } : null
+  }
+  return null
+}
+
 // 解析本次 code-specs 读取应聚焦到哪个 package。
-// 优先级：flag.package → 当前任务的 Package 字段 → 项目配置推断的单包名 → null（soft-fail）
+// 优先级：flag.package → codeSpecs.runtime.scope → 当前任务的 Package 字段 → 项目配置推断的单包名 → null（soft-fail）
 // 单包回退链必须与 spec_bootstrap.resolvePackages 保持对齐：project.name → package.json#name → 仓库目录名。
 // 任一来源解析出的 package 名必须通过 isValidPackageName 校验，否则视为未解析，走下一级回退。
+//
+// runtime.scope 语义（v3 新加）：
+//   "active_task"          — 有 task 时等价 task.package；无 task 时 scopeDenied
+//   [pkg-a, pkg-b]         — 只在当前 task.package 命中列表时认可；未命中 scopeDenied
+// scopeDenied 时 reader 不自动回退全树，由调用方决定渲染（paths-only / 空段 / 提示）。
 //
 // scope 对象同时携带 taskLayer / changedFileHints 两个可选字段：
 //   taskLayer        — 由任务显式声明的 frontend/backend/guides，供 scoped reader 收窄到单 layer
@@ -249,7 +273,6 @@ function resolveActiveCodeSpecsScope(runtime, projectConfig = null, overrides = 
   if (flagPackage && isValidPackageName(flagPackage)) return withScopeExtras({ activePackage: flagPackage, source: 'flag' })
 
   const taskPackage = task && typeof task.package === 'string' ? task.package.trim() : ''
-  if (taskPackage && isValidPackageName(taskPackage)) return withScopeExtras({ activePackage: taskPackage, source: 'task' })
 
   const root = runtime && runtime.projectRoot ? runtime.projectRoot : process.cwd()
   let config = projectConfig
@@ -259,6 +282,37 @@ function resolveActiveCodeSpecsScope(runtime, projectConfig = null, overrides = 
       if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     } catch { /* ignore; fall through */ }
   }
+
+  // runtime.scope 必须在 monorepo 提前 return 之前处理，否则字段永远不起效
+  const runtimeScope = normalizeRuntimeScope(((config || {}).codeSpecs || {}).runtime?.scope)
+  if (runtimeScope) {
+    const taskPackageValid = taskPackage && isValidPackageName(taskPackage)
+    if (runtimeScope.mode === 'active_task') {
+      if (taskPackageValid) {
+        return withScopeExtras({ activePackage: taskPackage, source: 'runtime-scope:active_task' })
+      }
+      return withScopeExtras({
+        activePackage: null,
+        source: 'runtime-scope-denied',
+        scopeDenied: true,
+        reason: 'codeSpecs.runtime.scope=active_task 但当前无 active task',
+      })
+    }
+    if (runtimeScope.mode === 'allowlist') {
+      if (taskPackageValid && runtimeScope.packages.includes(taskPackage)) {
+        return withScopeExtras({ activePackage: taskPackage, source: 'runtime-scope:allowlist' })
+      }
+      return withScopeExtras({
+        activePackage: null,
+        source: 'runtime-scope-denied',
+        scopeDenied: true,
+        reason: `active task package '${taskPackage || 'none'}' 未落入 runtime.scope allowlist [${runtimeScope.packages.join(', ')}]`,
+      })
+    }
+  }
+
+  if (taskPackage && isValidPackageName(taskPackage)) return withScopeExtras({ activePackage: taskPackage, source: 'task' })
+
   const projectType = ((config || {}).project || {}).type
   // Monorepo 下不推断默认包，避免把其中一个包当默认污染别的包
   if (projectType === 'monorepo') return withScopeExtras({ activePackage: null, source: null })
@@ -396,13 +450,17 @@ function getCodeSpecsContextScoped(projectRoot = process.cwd(), scope = null, ma
   const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return null
   const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
+
+  // scopeDenied → 不回退全树；返回 null 让调用方自行决定渲染
+  if (scope && scope.scopeDenied) return null
+
   const rawPackage = scope && scope.activePackage ? String(scope.activePackage) : null
   // 对 activePackage 再做一次白名单校验（防御 resolver 外路径、或调用方手工构造 scope）
   const activePackage = rawPackage && isValidPackageName(rawPackage) ? rawPackage : null
   const pkgDir = activePackage ? path.join(dirInfo.path, activePackage) : null
   const pkgExists = pkgDir && fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()
 
-  // 无 active package 或目录不存在 → 回退到全树（向后兼容）
+  // 无 active package 或目录不存在 → 回退到全树（向后兼容；仅非 scopeDenied 场景）
   if (!pkgExists) return getCodeSpecsContext(projectRoot, maxChars)
 
   const rootIndexBudget = options.rootIndexBudget || 300
@@ -487,6 +545,187 @@ function getCodeSpecsContext(projectRoot = process.cwd(), maxChars = 2000, optio
   return parts.length ? parts.join('\n\n') : null
 }
 
+// ─── collector / renderer 抽层（v3 Stage A1） ─────────────────────────────
+//
+// 把"扫描 → 选文件 → 渲染正文"三步解耦：
+//   collectSpecFiles(projectRoot, scope, options) → { files, scopeDenied, reason, dirInfo }
+//   renderSpecFiles(collection, options)          → string | null
+//
+// 支持三种 mode：
+//   'digest'     — 每文件最多 ~600 字，总预算裁剪（等价历史 getCodeSpecsContext* 行为）
+//   'paths-only' — 只输出路径清单 + 一行引导，不读正文
+//   'full'       — 每文件不做小预算截断，但仍受总 maxChars 限制
+//
+// files 条目结构：{ path, relativePath, section: 'root-index' | 'layer-index' | 'guide-index' | 'spec', priority }
+// priority 越小越先读取；paths-only 模式下 priority 只影响列表顺序。
+const COLLECTOR_DEFAULTS = Object.freeze({
+  maxChars: 2000,
+  rootIndexBudget: 300,
+  layerIndexBudget: 150,
+  perFileBudget: 600,
+  mode: 'digest',
+  pathsOnlyHint: '调用 /spec-before-dev 按 package/layer 展开内容',
+})
+
+function resolveCollectorOptions(options = {}) {
+  return {
+    maxChars: options.maxChars || COLLECTOR_DEFAULTS.maxChars,
+    rootIndexBudget: options.rootIndexBudget || COLLECTOR_DEFAULTS.rootIndexBudget,
+    layerIndexBudget: options.layerIndexBudget || COLLECTOR_DEFAULTS.layerIndexBudget,
+    perFileBudget: options.perFileBudget || COLLECTOR_DEFAULTS.perFileBudget,
+    mode: options.mode || COLLECTOR_DEFAULTS.mode,
+    pathsOnlyHint: options.pathsOnlyHint || COLLECTOR_DEFAULTS.pathsOnlyHint,
+  }
+}
+
+// 只枚举，不读正文。用于 paths-only 模式、调用方想先看有哪些文件再决定怎么渲染。
+function collectSpecFiles(projectRoot = process.cwd(), scope = null, options = {}) {
+  const dirInfo = getCodeSpecsDir(projectRoot)
+  if (!dirInfo.exists) {
+    return { files: [], scopeDenied: false, reason: 'code-specs dir not found', dirInfo: null }
+  }
+  if (scope && scope.scopeDenied) {
+    return { files: [], scopeDenied: true, reason: scope.reason || 'scope denied', dirInfo }
+  }
+  const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
+  const rawPackage = scope && scope.activePackage ? String(scope.activePackage) : null
+  const activePackage = rawPackage && isValidPackageName(rawPackage) ? rawPackage : null
+  const taskLayer = normalizeTaskLayer(scope && scope.taskLayer)
+  const hintTokens = buildHintTokens((scope && scope.changedFileHints) || [])
+
+  const files = []
+  const rootIndex = path.join(dirInfo.path, 'index.md')
+  if (fs.existsSync(rootIndex)) {
+    files.push({
+      path: rootIndex,
+      relativePath: 'index.md',
+      section: 'root-index',
+      priority: 0,
+    })
+  }
+  const guidesIndex = path.join(dirInfo.path, 'guides', 'index.md')
+  if (fs.existsSync(guidesIndex)) {
+    files.push({
+      path: guidesIndex,
+      relativePath: 'guides/index.md',
+      section: 'guide-index',
+      priority: 10,
+    })
+  }
+
+  // scoped：只扫 {pkg}/
+  const scanRoots = []
+  if (activePackage) {
+    const pkgDir = path.join(dirInfo.path, activePackage)
+    if (fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()) {
+      scanRoots.push({ root: pkgDir, displayPrefix: activePackage })
+    }
+  } else {
+    // 无 scope：扫 code-specs 下所有一级目录（除了 guides，已单独处理）
+    for (const entry of fs.readdirSync(dirInfo.path, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+      if (entry.name === 'guides') continue
+      scanRoots.push({ root: path.join(dirInfo.path, entry.name), displayPrefix: entry.name })
+    }
+  }
+
+  for (const { root, displayPrefix } of scanRoots) {
+    const layers = fs.readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.isSymbolicLink())
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const filteredLayers = taskLayer
+      ? layers.filter((e) => e.name.toLowerCase() === taskLayer)
+      : layers
+    const layersToScan = filteredLayers.length ? filteredLayers : layers
+
+    for (const layer of layersToScan) {
+      const layerPath = path.join(root, layer.name)
+      const layerIndex = path.join(layerPath, 'index.md')
+      if (fs.existsSync(layerIndex) && isPathUnderRoot(layerIndex, allowedPrefix)) {
+        files.push({
+          path: layerIndex,
+          relativePath: `${displayPrefix}/${layer.name}/index.md`,
+          section: 'layer-index',
+          priority: 20,
+        })
+      }
+      for (const specPath of collectMarkdownFiles(layerPath, allowedPrefix)) {
+        const rel = path.relative(dirInfo.path, specPath).replace(/\\/g, '/')
+        files.push({
+          path: specPath,
+          relativePath: rel,
+          section: 'spec',
+          priority: hintMatchesSpec(hintTokens, specPath) ? 30 : 40,
+        })
+      }
+    }
+  }
+
+  // guides 目录下的具体 guide 文件
+  const guidesDir = path.join(dirInfo.path, 'guides')
+  if (fs.existsSync(guidesDir)) {
+    for (const guidePath of collectMarkdownFiles(guidesDir, allowedPrefix)) {
+      const rel = path.relative(dirInfo.path, guidePath).replace(/\\/g, '/')
+      files.push({
+        path: guidePath,
+        relativePath: rel,
+        section: 'spec',
+        priority: hintMatchesSpec(hintTokens, guidePath) ? 35 : 45,
+      })
+    }
+  }
+
+  files.sort((a, b) => (a.priority - b.priority) || a.relativePath.localeCompare(b.relativePath))
+  return { files, scopeDenied: false, reason: null, dirInfo }
+}
+
+// 把 collectSpecFiles 的结果渲染成最终 <project-code-specs> 体。
+function renderSpecFiles(collection, options = {}) {
+  if (!collection || !collection.dirInfo) return null
+  const opts = resolveCollectorOptions(options)
+  const { files, scopeDenied, reason, dirInfo } = collection
+  const allowedPrefix = dirInfo.expectedPrefix || dirInfo.path
+
+  if (scopeDenied) {
+    return `_scope denied_: ${reason || 'runtime.scope 未命中'}（无 spec 注入）`
+  }
+  if (!files.length) return null
+
+  if (opts.mode === 'paths-only') {
+    const lines = files.map((f) => `- ${f.relativePath}`)
+    return `${opts.pathsOnlyHint}\n\n${lines.join('\n')}`
+  }
+
+  const parts = []
+  let totalLen = 0
+
+  for (const file of files) {
+    const remaining = opts.maxChars - totalLen
+    if (remaining <= 80) break
+    let sliceLen
+    if (file.section === 'root-index') sliceLen = Math.min(opts.rootIndexBudget, remaining)
+    else if (file.section === 'layer-index' || file.section === 'guide-index') sliceLen = Math.min(opts.layerIndexBudget, remaining)
+    else if (opts.mode === 'full') sliceLen = remaining - 32
+    else sliceLen = Math.min(opts.perFileBudget, remaining - 32)
+    const snippet = safeReadCodeSpecs(file.path, allowedPrefix, sliceLen)
+    if (!snippet) continue
+    if (file.section === 'root-index') {
+      const body = sanitizeCodeSpecsBody(String(snippet).trim())
+      if (!body) continue
+      parts.push(body)
+      totalLen += body.length
+    } else {
+      const block = formatCodeSpecsBlock(file.relativePath, snippet)
+      if (!block) continue
+      const blockLen = block.length + 2
+      if (totalLen + blockLen > opts.maxChars) continue
+      parts.push(block)
+      totalLen += blockLen
+    }
+  }
+  return parts.length ? parts.join('\n\n') : null
+}
+
 function getCodeSpecsFiles(projectRoot = process.cwd()) {
   const dirInfo = getCodeSpecsDir(projectRoot)
   if (!dirInfo.exists) return []
@@ -513,7 +752,10 @@ module.exports = {
   getCodeSpecsContext,
   getCodeSpecsContextScoped,
   getCodeSpecsFiles,
+  collectSpecFiles,
+  renderSpecFiles,
   resolveActiveCodeSpecsScope,
+  normalizeRuntimeScope,
   isValidPackageName,
   normalizeTaskLayer,
   normalizeChangedFileHints,

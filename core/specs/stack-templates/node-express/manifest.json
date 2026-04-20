@@ -1,0 +1,21 @@
+{
+  "$schema": "../stack-template.schema.json",
+  "name": "node-express",
+  "description": "Node.js + Express 后端栈",
+  "frameworks": ["express", "node"],
+  "layers": {
+    "backend": {
+      "core": [
+        "directory-structure",
+        "error-handling"
+      ],
+      "optional": [
+        "api-contracts",
+        "database-guidelines",
+        "logging-guidelines",
+        "middleware-conventions"
+      ]
+    }
+  },
+  "notes": "core 是 bootstrap 默认生成的最小主题集；optional 需 --full 才生成。"
+}

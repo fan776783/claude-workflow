@@ -1,0 +1,20 @@
+{
+  "$schema": "../stack-template.schema.json",
+  "name": "vue-nuxt",
+  "description": "Vue 3 + Nuxt 4 前端栈（Pinia / vue-i18n / Tailwind）",
+  "frameworks": ["vue", "nuxt"],
+  "layers": {
+    "frontend": {
+      "core": [
+        "component-guidelines",
+        "directory-structure"
+      ],
+      "optional": [
+        "composable-guidelines",
+        "state-management",
+        "error-handling"
+      ]
+    }
+  },
+  "notes": "core 是 bootstrap 默认生成的最小主题集；optional 需 --full 才生成。shared/ 默认不启用（仅 --experimental-shared）。"
+}

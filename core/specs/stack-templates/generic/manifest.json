@@ -1,0 +1,17 @@
+{
+  "$schema": "../stack-template.schema.json",
+  "name": "generic",
+  "description": "通用栈模板（无具体框架绑定）",
+  "frameworks": [],
+  "layers": {
+    "frontend": {
+      "core": ["directory-structure"],
+      "optional": ["component-guidelines", "error-handling"]
+    },
+    "backend": {
+      "core": ["directory-structure"],
+      "optional": ["error-handling", "api-contracts"]
+    }
+  },
+  "notes": "不预设框架，只提供最小 directory-structure 骨架；适合未识别栈或混合栈场景。"
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "../stack-template.schema.json",
+  "name": "react-next",
+  "description": "React + Next.js 前端栈",
+  "frameworks": ["react", "next"],
+  "layers": {
+    "frontend": {
+      "core": [
+        "component-guidelines",
+        "directory-structure"
+      ],
+      "optional": [
+        "hooks-guidelines",
+        "state-management",
+        "data-fetching",
+        "error-handling"
+      ]
+    }
+  },
+  "notes": "core 是 bootstrap 默认生成的最小主题集；optional 需 --full 才生成。"
+}

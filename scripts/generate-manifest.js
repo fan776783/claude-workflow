@@ -117,11 +117,16 @@ function dirExistsAtHead(dir) {
 }
 
 function sha256OfGitPath(ref, filePath) {
-  // Use raw bytes (no encoding / no trim) to match Trellis spec:
-  // allowed_hashes stores bare 64-char hex digests over the exact file content.
+  // `sha256:<hex>` 对齐 spec_migrate.computeHash 与 .template-hashes.json 的格式。
   const result = spawnSync('git', ['show', `${ref}:${filePath}`], { cwd: REPO_ROOT })
   if (result.status !== 0 || !result.stdout) return null
-  return crypto.createHash('sha256').update(result.stdout).digest('hex')
+  return 'sha256:' + crypto.createHash('sha256').update(result.stdout).digest('hex')
+}
+
+function withHashPrefix(hash) {
+  const raw = String(hash || '').trim()
+  if (!raw) return raw
+  return raw.startsWith('sha256:') ? raw : `sha256:${raw}`
 }
 
 function loadProtectedPaths() {
@@ -172,12 +177,13 @@ function buildMigrations({ renames, renameDirs, deletes, prevTag }) {
     const allowed = allowedHashes[normalized]
     if (Array.isArray(allowed) && prevTag) {
       const actualHash = sha256OfGitPath(prevTag, from)
-      if (actualHash && allowed.includes(actualHash)) {
-        migrations.push({ type: 'safe-file-delete', from: normalized, allowed_hashes: allowed })
+      const normalizedAllowed = allowed.map((h) => withHashPrefix(h))
+      if (actualHash && normalizedAllowed.includes(actualHash)) {
+        migrations.push({ type: 'safe-file-delete', path: normalized, allowed_hashes: normalizedAllowed })
         continue
       }
     }
-    migrations.push({ type: 'delete', from: normalized, reason: 'removed in this release' })
+    migrations.push({ type: 'delete', path: normalized, reason: 'removed in this release' })
   }
 
   return { migrations, protectedPaths }
@@ -187,9 +193,36 @@ function normalize(p) {
   return String(p || '').split(path.sep).join('/')
 }
 
+// v3 Stage C: 合并人工维护的 rename-section / delete-section 条目，避免自动生成覆盖。
+// 若 manifest 文件已存在，读取其 migrations 中这两种类型的条目保留下来；
+// protected_paths 同样走人工手写优先（自动生成只产出空 / 最小保护列表）。
+function mergeManualManifestEdits(outPath, generated) {
+  if (!fs.existsSync(outPath)) return generated
+  let existing
+  try {
+    existing = JSON.parse(fs.readFileSync(outPath, 'utf8'))
+  } catch {
+    return generated
+  }
+  const manualTypes = new Set(['rename-section', 'delete-section'])
+  const manualMigrations = Array.isArray(existing.migrations)
+    ? existing.migrations.filter((m) => m && manualTypes.has(m.type))
+    : []
+  const manualProtected = Array.isArray(existing.protected_paths) ? existing.protected_paths : null
+  return {
+    ...generated,
+    migrations: [...manualMigrations, ...generated.migrations],
+    protected_paths: manualProtected && manualProtected.length
+      ? manualProtected
+      : generated.protected_paths,
+    recommendMigrate: generated.recommendMigrate || manualMigrations.length > 0,
+  }
+}
+
 function writeManifest({ version, previous, migrations, protectedPaths, breaking, notes, recommendMigrate, changelog }) {
   fs.mkdirSync(MANIFESTS_DIR, { recursive: true })
-  const manifest = {
+  const outPath = path.join(MANIFESTS_DIR, `v${version}.json`)
+  const generated = {
     version,
     previous,
     recommendMigrate,
@@ -199,8 +232,8 @@ function writeManifest({ version, previous, migrations, protectedPaths, breaking
     protected_paths: protectedPaths,
     changelog,
   }
-  const outPath = path.join(MANIFESTS_DIR, `v${version}.json`)
-  fs.writeFileSync(outPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const merged = mergeManualManifestEdits(outPath, generated)
+  fs.writeFileSync(outPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf8')
   return outPath
 }
 

@@ -1,50 +1,34 @@
 ---
 name: code-specs-local
-description: "项目级 code-specs 定制与升级基线。记录本项目对 canonical 模板的裁剪与每次 /spec-update 的 Changelog。升级 canonical 模板时用此文件做合并基线。"
+description: "项目级 code-specs 定制记录与 /spec-update Changelog。模板漂移治理已迁移至 .template-hashes.json + manifests/。"
 ---
 
 # Code Specs Local
 
-## Template Baseline
+<!--
+v2.2 重构说明：
 
-> `/spec-review --check-upgrade` 通过对比这里和 canonical manifest 判断是否需要手动合并。
+- **模板漂移治理** 改由 `.template-hashes.json`（记录本次 bootstrap 使用的模板 sha256）+ `core/specs/spec-templates/manifests/` 承载，本文件不再维护 Template Baseline 表。
+- **Topic Coverage Snapshot** 已移除；Trellis 的理念是渐进填充，覆盖率不是核心指标。
+- 本文件只保留两类信息：
+  1. 项目对默认规范的显式裁剪（如某个 package 不走 frontend）
+  2. /spec-update 的 Changelog（时间线）
+-->
 
-| Template | Baseline Version / Date | Customized? |
-|----------|-------------------------|-------------|
-| code-spec-template.md | {{canonical_date}} | no |
-| guide-template.md | {{canonical_date}} | no |
-| layer-index-template.md | {{canonical_date}} | no |
-| guides-index-template.md | {{canonical_date}} | no |
-| index-template.md | {{canonical_date}} | no |
+## Customizations
 
-## Package × Layer Customizations
+<!-- 显式的项目裁剪记录，例如"reelmate 包不需要 backend layer"。无则保留 (none yet)。 -->
 
-### Active Packages
-
-- [ ] {{package_name}}
-  - [ ] frontend — 生成原因：{{reason_or_none}}
-  - [ ] backend — 生成原因：{{reason_or_none}}
-
-### Shared
-
-- [x] guides — 始终生成
-
-### Merges / Exclusions
-
-记录本项目对默认分层的裁剪。
-
-- {{none_yet}}
-
-## Section Trimming
-
-7 段 code-spec 中某些段在本项目可裁剪（例如无 DB 变更的项目可省略 Validation 表的 SQL 错误条目）。
-
-- {{none_yet}}
+- (none yet)
 
 ## Changelog
 
-> 每次 `/spec-update` 追加一条。`Type` 列对齐 Trellis 的 6 类分类（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha）；bootstrap 行留 `—`。
+<!--
+每次 /spec-update 追加一条。
+Type 列对齐 Trellis 6 类语义标签（Design Decision / Convention / Pattern / Forbidden / Common Mistake / Gotcha），仅作阅读辅助，不约束段落位置。
+bootstrap 行的 Type 留 —。
+-->
 
-| Date | Command | Package / Layer | Type | Title | Source |
-|------|---------|-----------------|------|-------|--------|
-| {{date}} | bootstrap | — | — | initial skeleton | /scan |
+| Date | Command | Package / Layer | Type | Title |
+|------|---------|-----------------|------|-------|
+| {{date}} | bootstrap | — | — | initial skeleton |
