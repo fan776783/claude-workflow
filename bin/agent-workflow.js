@@ -189,9 +189,6 @@ if (process.argv.length === 2) {
           const status = agentResult.success ? '✓' : '✗';
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
-          if (agentResult.worktreeHooks) {
-            console.log(`      worktree hooks -> ${formatHookResult(agentResult.worktreeHooks)}`);
-          }
           if (agentResult.workflowHooks) {
             console.log(`      workflow hooks -> ${formatHookResult(agentResult.workflowHooks)}`);
           }
@@ -252,9 +249,6 @@ if (process.argv.length === 2) {
           const status = agentResult.success ? '✓' : '✗';
           const mode = agentResult.skills?.rootMode || 'unknown';
           console.log(`    ${status} ${displayName} (${mode})`);
-          if (agentResult.worktreeHooks) {
-            console.log(`      worktree hooks -> ${formatHookResult(agentResult.worktreeHooks)}`);
-          }
           if (agentResult.workflowHooks) {
             console.log(`      workflow hooks -> ${formatHookResult(agentResult.workflowHooks)}`);
           }
@@ -446,10 +440,9 @@ if (process.argv.length === 2) {
 
             console.log(`    ${statusIcon} ${displayName.padEnd(16)} ${statusText}`);
             if (name === 'claude-code') {
-              const worktreeInstalled = agentStatus.managedDirs?.hooks?.installed === true;
-              console.log(`      hooks managed dir -> ${worktreeInstalled ? '已同步' : '未同步'}`);
+              const hooksInstalled = agentStatus.managedDirs?.hooks?.installed === true;
+              console.log(`      hooks managed dir -> ${hooksInstalled ? '已同步' : '未同步'}`);
               if (global) {
-                console.log(`      worktree hooks -> ${formatHookInspection(agentStatus.worktreeHooks)}`);
                 console.log(`      workflow hooks -> ${formatHookInspection(agentStatus.workflowHooks)}`);
               } else {
                 console.log('      hooks 注册 -> 项目级安装不修改 settings.json');
@@ -557,12 +550,6 @@ if (process.argv.length === 2) {
             if (!global) {
               ok.push('Claude Code: 项目级安装按契约跳过 hooks 注册检查');
             } else {
-              if (!agentStatus.worktreeHooks?.complete) {
-                issues.push(`Claude Code: worktree hooks 未完整注册 (${(agentStatus.worktreeHooks?.issues || ['未注册']).join('; ')})`);
-              } else {
-                ok.push('Claude Code: worktree hooks 已注册');
-              }
-
               if (!agentStatus.workflowHooks?.complete) {
                 issues.push(`Claude Code: workflow hooks 未完整注册 (${(agentStatus.workflowHooks?.issues || ['未注册']).join('; ')})`);
               } else {
