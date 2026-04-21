@@ -1,6 +1,6 @@
 # Stage 1 Code Specs Check（Advisory）
 
-> workflow-review Stage 1 的 per-change 子步。对齐 Trellis `/check` 的诊断语义：按 diff 文件反查 `{pkg}/{layer}/` 下的 code-spec，列出缺失 / 偏差 / 建议，**不参与 Stage 1 pass/fail 判定**。
+> workflow-review Stage 1 的 per-change 子步。诊断语义：按 diff 文件反查 `{pkg}/{layer}/` 下的 code-spec，列出缺失 / 偏差 / 建议，**不参与 Stage 1 pass/fail 判定**。
 >
 > 诊断条数写入 `state.quality_gates[taskId].stage1.code_specs_check.findings_count`；是否执行写入 `performed`；`advisory: true` 固定。
 

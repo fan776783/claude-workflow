@@ -3,8 +3,6 @@
 > {{one_line_description}}
 
 <!--
-本模板对齐 Trellis live 实战风格（见 .trellis/spec/cli/backend/error-handling.md、docs-site/docs/style-guide.md）。
-
 写作原则：
 - Document Reality, Not Ideals — 记录项目真实做法，而不是理想规范
 - 每条规则配真实代码示例（从本仓库挑，不虚构）

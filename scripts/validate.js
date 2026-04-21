@@ -449,7 +449,7 @@ async function validateTeamContracts(repoRoot, packageRoot, errors) {
 
 /**
  * 校验 code-specs-template manifests 的 schema（若存在）。
- * Schema 对齐 Trellis migrations.md + v3 Stage C 扩展：
+ * Schema（v3 Stage C）：
  *   - migrations[].type ∈ { rename, rename-dir, rename-section, delete-section, safe-file-delete, delete }
  *   - 统一 from / path 字段（具体看 type；详见 manifests/README.md）
  *   - top-level 可选 protected_paths（glob 数组）
@@ -558,7 +558,7 @@ async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
 
 /**
  * 校验 code-specs canonical 模板的段标题是否完整（7/4/6 段契约）。
- * Trellis 对齐的 Stage 1 Code Specs Check 与 Probe E 依赖这些段存在，
+ * Stage 1 Code Specs Check 与 Probe E 依赖这些段存在，
  * 段落改名或层级漂移会让 advisory/blocking 判定读不到内容。
  * @param {string[]} errors
  */
@@ -592,7 +592,7 @@ function validatePlatformParityContract(errors) {
 
 /**
  * 在 prepublish 时跑契约测试。限定在专门标注为 *_contracts.js 的测试文件，
- * 避免拖慢发布流程，并保证 Trellis 对齐的表面不会在未跑全量测试的情况下发版。
+ * 避免拖慢发布流程，并保证 code-spec 段标题契约在未跑全量测试时也能兜底拦截。
  * @param {string} repoRoot
  * @param {string[]} errors
  */

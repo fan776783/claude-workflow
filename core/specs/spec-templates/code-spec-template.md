@@ -12,8 +12,7 @@
 - 要写"请求/响应字段清单 + 错误码矩阵 + 测试断言点"？→ 用本模板（7 段）
 - 要写"代码风格 / 目录约定 / 命名规则 / 常见错误"？→ 改用 convention-template.md（更轻量）
 
-对齐 Trellis：Trellis 实战里大部分 topic 文件走 convention 风格，只有少数涉及严格字段契约时才接近本模板。
-详见 /Users/ws/dev/Trellis/.trellis/spec/cli/backend/error-handling.md（convention 风格范例）。
+实战经验：大部分 topic 文件走 convention 风格（更轻量），只有少数涉及严格字段契约时才用本模板。
 -->
 
 > **必填字段说明**

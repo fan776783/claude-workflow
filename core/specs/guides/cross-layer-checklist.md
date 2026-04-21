@@ -1,7 +1,5 @@
 # 跨层检查清单
 
-> 借鉴自 Trellis `spec/guides/cross-layer-thinking-guide.md`
-
 ## 触发条件
 
 在以下场景中必须执行此检查：

@@ -1,7 +1,5 @@
 # 代码复用检查清单
 
-> 借鉴自 Trellis `spec/guides/code-reuse-thinking-guide.md`
-
 ## 触发条件
 
 在以下场景中必须执行此检查：

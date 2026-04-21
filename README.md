@@ -39,7 +39,7 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 
 ### 项目 Code Specs
 
-`.claude/code-specs/` 是项目自己的"活文档"，布局对齐 Trellis：
+`.claude/code-specs/` 是项目自己的"活文档"，按 `{pkg}/{layer}/` + 共享 `guides/` 分层：
 
 1. **code-spec**（`{pkg}/{layer}/*.md`）— 具体该怎么写代码，采用 7 段合约：Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct
 2. **guides**（`guides/*.md`）— 写代码前该想什么：思考清单、常见陷阱、决策思路，不重复 code-spec 的具体规则
@@ -50,7 +50,7 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 - `/scan` Part 5 首次扫描时引导初始化；已有 code-specs 时汇总 filled/draft 状态
 - `/workflow-plan` Step 1.5 作为 advisory constraints 供 Spec 生成参考
 - `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性
-- `/spec-before-dev` 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist，对齐 Trellis `$before-dev`
+- `/spec-before-dev` 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist，把 hook 注入的 advisory 摘要展开成一次具体阅读动作
 - `/workflow-review` Stage 1 做 3 层 advisory：人工对照 code-spec + Code Specs Check（按 diff 文件反查 code-spec，记录 advisory findings 到 `stage1.code_specs_check`）+ 跨层 A/B/C/D advisory。Probe E Infra 深度 Gate（阻塞）仅在 infra / cross-layer 关键路径 + 关联 code-spec 存在但 7 段深度不足时触发，写入 `stage1.cross_layer_depth_gap` + `blocking_issues`
 
 #### 三个命令的分工
@@ -58,7 +58,7 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 | 命令 | 什么时候用 |
 |------|-----------|
 | `/spec-bootstrap` | 项目首次启用 code-specs 时，或 `/scan` 提示未初始化时。按 `project-config.json.monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；`--reset` 清空重建 |
-| `/spec-before-dev` | 刚切换到某个 package/layer，准备动手写代码之前。按当前作用域展开 `index.md` Pre-Development Checklist，把 hook 注入的 advisory 摘要展开成一次具体的阅读动作，对齐 Trellis `$before-dev` |
+| `/spec-before-dev` | 刚切换到某个 package/layer，准备动手写代码之前。按当前作用域展开 `index.md` Pre-Development Checklist，把 hook 注入的 advisory 摘要展开成一次具体的阅读动作 |
 | `/spec-update` | 完成一次有沉淀价值的实现、修完一个 bug、做完一个设计决策之后。交互式按 7 段 code-spec 或 thinking guide 形态写入 |
 | `/spec-review` | 定期维护（例如每周 / 每次大版本前）。只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，生成报告让人决定后续动作 |
 

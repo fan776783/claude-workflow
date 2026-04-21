@@ -108,7 +108,7 @@ Notes:
 Skills are the portable unit shipped to each AI tool. The authoritative list lives under `core/skills/` — every directory there is a published skill. A few skill families worth knowing when navigating the repo:
 
 - **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
-- **Code Specs** (`spec-bootstrap`, `spec-before-dev`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract aligned with Trellis; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
+- **Code Specs** (`spec-bootstrap`, `spec-before-dev`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
 - **Lightweight planning & review** — `/quick-plan` command (4-step planning, defined in `core/commands/quick-plan.md`), `session-review`, `diff-review`, `fix-bug`, `bug-batch`, `write-tests`.
 - **Dispatch & research** — `dispatching-parallel-agents`, `search-first`, `deep-research`, `collaborating-with-codex`.
 - **Other** — `scan`, `figma-ui`.

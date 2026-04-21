@@ -1,7 +1,5 @@
 # AI 审查误报指南
 
-> 借鉴自 Trellis `spec/guides/index.md` 中的 AI 审查纪律
-
 ## 核心原则
 
 > **"Most bugs come from 'didn't think of that', not from lack of skill."**

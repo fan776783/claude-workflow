@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Generate canonical spec-template migration manifest.
-// Schema aligns with Trellis D:/code/Trellis/.trellis/spec/cli/backend/migrations.md:
+// Schema:
 //   migrations[].type ∈ { rename, rename-dir, safe-file-delete, delete }
 //   uses `from` uniformly (not `path`)
 //   NO top-level `update.skip` — skip logic is a downstream .claude/config.yaml setting.

@@ -6,7 +6,7 @@
 本文件由 stack-template vue-nuxt 预生成。
 请按 `.claude/tasks/00-bootstrap-guidelines.md` 的执行步骤，从 apps/{{package_name}}/components/ 挑 2–3 段真实代码替换下方 (To be filled)。
 
-对齐 Trellis live 风格：H3 标题用具体语义名（如 `### 使用 <script setup>`），不要保留 "Rule:" / "Mistake:" 前缀。
+H3 标题用具体语义名（如 `### 使用 <script setup>`），不要保留 "Rule:" / "Mistake:" 前缀。
 -->
 
 ---

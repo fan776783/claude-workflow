@@ -1,11 +1,11 @@
 ---
 name: spec-bootstrap
-description: "初始化项目级 code-specs 骨架（v2.2 对齐 Trellis live）。按 codeSpecs.packages.include 决定 package 范围，按栈模板（--stack）拷贝 core 主题文件，生成 .template-hashes.json 与 00-bootstrap-guidelines 首任务。"
+description: "初始化项目级 code-specs 骨架（v2.2）。按 codeSpecs.packages.include 决定 package 范围，按栈模板（--stack）拷贝 core 主题文件，生成 .template-hashes.json 与 00-bootstrap-guidelines 首任务。"
 ---
 
 # /spec-bootstrap
 
-在项目中建立 `.claude/code-specs/` 骨架，结构对齐 Trellis live：`{package}/{layer}/` 二维布局 + 共享 `guides/`。
+在项目中建立 `.claude/code-specs/` 骨架，采用 `{package}/{layer}/` 二维布局 + 共享 `guides/`。
 
 ## 职责
 
@@ -14,8 +14,8 @@ description: "初始化项目级 code-specs 骨架（v2.2 对齐 Trellis live）
 - 若指定 `--stack <name>`，从 `core/specs/stack-templates/<name>/` 拷贝 core 主题文件（含 convention 模板段落），让 00-task 有真实文件靶子
 - 生成 `guides/index.md`
 - 生成 `local.md`（只保留 Customizations + Changelog；模板漂移治理已切到 `.template-hashes.json`）
-- 生成 `.template-hashes.json`（记录本次使用的模板 sha256 + canonical version，对齐 Trellis 模板治理机制）
-- 生成 `.claude/tasks/00-bootstrap-guidelines.md` 首任务（对齐 Trellis `create_bootstrap.py`）
+- 生成 `.template-hashes.json`（记录本次使用的模板 sha256 + canonical version，用于模板漂移治理）
+- 生成 `.claude/tasks/00-bootstrap-guidelines.md` 首任务
 - 更新 `project-config.json` 的 `codeSpecs.bootstrapStatus`
 - 不负责填充具体规范内容（那是 00-task + `/spec-update` 的职责）
 
@@ -38,7 +38,7 @@ description: "初始化项目级 code-specs 骨架（v2.2 对齐 Trellis live）
 
 ### 单包项目（无 monorepo 声明）
 
-仍走单例 package 布局（对齐 Trellis 单包写法）：
+仍走单例 package 布局：
 
 ```
 .claude/code-specs/
@@ -130,7 +130,7 @@ CLI `init` 返回里带有 `nextActions` 字段（`primary` / `firstTargetFile` 
 ## 与其他命令的关系
 
 - `/scan` 在检测到未初始化时会引导调用本命令，或用户选择跳过（`bootstrapStatus: "skipped"`）
-- `00-bootstrap-guidelines` 任务是本命令的主要后续动作，对齐 Trellis `create_bootstrap.py`
+- `00-bootstrap-guidelines` 任务是本命令的主要后续动作，引导用户按 Document Reality 原则逐步填充骨架
 - `/spec-update` 在第一次写入 code-spec 时会要求骨架已存在
 - `/spec-review` 检查骨架完整性、convention 必备段 lint、`.template-hashes.json` 漂移
 
@@ -154,13 +154,13 @@ CLI `init` 返回里带有 `nextActions` 字段（`primary` / `firstTargetFile` 
 
 bootstrap 默认在 monorepo 首次落地时写 `"active_task"`；单包项目不写。用户可以手工改成 allowlist 或显式 `null`。`scopeDenied` 时 reader 不回退全树，调用方（hook / skill）各自决定输出 paths-only / 空段 / 提示文案。
 
-## 与 Trellis 对齐说明（v2.2）
+## 设计原则（v2.2）
 
 经 3 轮 Codex review 收敛后的设计原则：
 
-- **有** `{package}/{layer}/` + `guides/`（对齐 live Trellis）
-- **无** frontmatter 驱动的模板分型（Trellis 真实文件直接 H1 起头）
-- **有** 栈模板完整目录 + 00-bootstrap 任务（对齐 `create_bootstrap.py`）
-- **有** `.template-hashes.json` 模板漂移治理（对齐 Trellis migrations 机制）
-- **无** `shared/` 默认生成（Trellis live 已清除 phantom `spec/shared/`）
-- **无** Topic Coverage Snapshot（Trellis 理念是渐进填充）
+- **有** `{package}/{layer}/` + `guides/` 分层布局
+- **无** frontmatter 驱动的模板分型（主题文件直接 H1 起头）
+- **有** 栈模板完整目录 + 00-bootstrap 任务引导渐进填充
+- **有** `.template-hashes.json` 模板漂移治理
+- **无** `shared/` 默认生成（避免 phantom 目录）
+- **无** Topic Coverage Snapshot（贯彻渐进填充理念）

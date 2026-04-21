@@ -13,7 +13,7 @@
 ## Guidelines Index
 
 <!--
-表头对齐 Trellis live（见 .trellis/spec/cli/backend/index.md）：严格三列，不要自定义列。
+表头严格三列（Guide / Description / Status），不要自定义列。
 Status 合法值：Not Started / Draft / Done
 -->
 

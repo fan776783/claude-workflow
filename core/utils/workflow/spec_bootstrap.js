@@ -39,7 +39,7 @@ function resolveTemplatesDir() {
   return candidates[0]
 }
 
-// v2.2: 栈模板根目录（完整目录模板，对齐 Trellis 形态）
+// v2.2: 栈模板根目录（完整目录模板）
 function resolveStackTemplatesDir() {
   const candidates = [
     path.resolve(__dirname, '..', '..', 'specs', 'stack-templates'),
@@ -65,7 +65,7 @@ function loadStackTemplate(stackName) {
   }
 }
 
-// 根据 layer 名生成叙事化标题（对齐 Trellis live 风格，如 "Backend Development Guidelines"）
+// 根据 layer 名生成叙事化标题（如 "Backend Development Guidelines"）
 function narrativeLayerTitle(layer) {
   const map = {
     frontend: 'Frontend Development Guidelines',
@@ -154,7 +154,7 @@ function classifyFrameworks(frameworks = []) {
 }
 
 // v2.2: layer 解析拆分为 bootstrap 期和 runtime 期两套优先级
-// 对齐 Trellis 03-09 PRD:161/170/219：runtime 以真实目录发现优先，bootstrap 以模板声明优先
+// runtime 以真实目录发现优先，bootstrap 以模板声明优先
 function resolveLayersForBootstrap({ stack, frameworks = [] } = {}) {
   // 1. 栈模板 manifest 显式声明
   if (stack && stack.layers && typeof stack.layers === 'object') {
@@ -787,7 +787,7 @@ function detectCanonicalVersion() {
 }
 
 // v2.2 Change 1d: 生成 00-bootstrap-guidelines.md 任务文件
-// 对齐 Trellis .trellis/scripts/create_bootstrap.py 的核心原则（Document Reality, Not Ideals）
+// 核心原则：Document Reality, Not Ideals
 function writeBootstrapTask({ root, stack, stackName, generated, packages, layers, config }) {
   const tasksDir = path.join(root, '.claude', 'tasks')
   // 若已有 workflow tasks，放到子目录避免冲突
@@ -985,7 +985,7 @@ function buildDefaultBootstrapTask(values) {
   } = values
   return `# 00 Bootstrap Guidelines
 
-> 首任务：把 bootstrap 生成的骨架填成真实规范。对齐 Trellis \`create_bootstrap.py\` 机制。
+> 首任务：把 bootstrap 生成的骨架填成真实规范。
 
 ## 本次生成的文件
 

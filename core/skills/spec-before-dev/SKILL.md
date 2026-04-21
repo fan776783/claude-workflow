@@ -1,6 +1,6 @@
 ---
 name: spec-before-dev
-description: "动手写代码前显式读一遍当前 package/layer 的 code-specs 检查清单。触发条件：用户调用 /spec-before-dev，或刚切换到某个 package/layer 准备开始实现时主动调用。对齐 Trellis `$before-dev`，把 index.md 的 Pre-Development Checklist 展开成一次具体的阅读动作，而不是依赖 hook 里的 advisory 摘要。"
+description: "动手写代码前显式读一遍当前 package/layer 的 code-specs 检查清单。触发条件：用户调用 /spec-before-dev，或刚切换到某个 package/layer 准备开始实现时主动调用。把 index.md 的 Pre-Development Checklist 展开成一次具体的阅读动作，而不是依赖 hook 里的 advisory 摘要。"
 ---
 
 # /spec-before-dev
@@ -44,7 +44,7 @@ layer 解析走 `resolveLayersForRuntime({ baseDir, pkg, layersHint })`（来自
 2. `project-config.json.codeSpecs.runtime.layersHint[pkg]`（配置显式提示）
 3. 返回空 + soft warning → 提示用户 `--layer`
 
-**不再**硬编码 frontend/backend；也**不**回退到 bootstrap 期的 frameworks 推断（runtime 以事实为准，对齐 Trellis 03-09 PRD:161/170/219）。
+**不再**硬编码 frontend/backend；也**不**回退到 bootstrap 期的 frameworks 推断（runtime 以真实目录为准）。
 
 ### Step 2. 旧布局检测（soft warning）
 

@@ -1,6 +1,6 @@
 # 00 Bootstrap Guidelines
 
-> 首任务：把 bootstrap 生成的骨架填成真实规范。对齐 Trellis `create_bootstrap.py` 机制（参见 `.trellis/scripts/create_bootstrap.py`）。
+> 首任务：把 bootstrap 生成的骨架填成真实规范。
 
 ## 本次生成的文件
 

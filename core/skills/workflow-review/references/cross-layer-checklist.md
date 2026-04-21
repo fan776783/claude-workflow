@@ -7,7 +7,7 @@
 >
 > Probe E 依赖 Code Specs Check（执行流程第 5 项）产出的 code-spec 映射，必须在其之后执行。
 >
-> 对齐 Trellis `$check-cross-layer` 的 4 个维度，A–D 只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
+> A–D 共 4 个维度，只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
 
 ## 如何使用
 
