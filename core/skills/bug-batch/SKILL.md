@@ -10,21 +10,20 @@ description: "批量缺陷修复 - 从蓝鲸项目管理平台拉取缺陷清单
 ## 用法
 
 ```bash
-/bug-batch <operator_user>
-/bug-batch fanjj
+/bug-batch                                        # 使用保存的经办人
+/bug-batch <operator_user>                        # 显式指定经办人（并更新配置）
 /bug-batch fanjj --state 待处理 --priority HIGH
 ```
 
 参数：
-- `operator_user`：经办人用户名，必填
+- `operator_user`：经办人用户名，使用公司邮箱 `@` 前的部分。显式传入时覆盖当前会话取值，并写回用户配置
 - `--state`：缺陷状态筛选，默认 `待处理`
 - `--priority`：优先级筛选，默认全部
 
 ## 前置条件
 
-读取 `.claude/config/project-config.json` 中的 `project.bkProjectId` 作为蓝鲸项目 ID。
-
-若 `project.bkProjectId` 为空或不存在，提示用户先执行 `/scan` 完成项目关联并终止。
+- 读取 `.claude/config/project-config.json` 中的 `project.bkProjectId` 作为蓝鲸项目 ID。若为空或不存在，提示用户先执行 `/scan` 完成项目关联并终止。
+- 解析经办人，顺序为：CLI 参数 > 用户配置 `~/.claude/agent-workflow/config.json` 的 `bugBatch.operatorUser` > 首次交互询问并回写到该文件。详见 Phase 0。
 
 ## 核心概念
 
@@ -84,7 +83,7 @@ description: "批量缺陷修复 - 从蓝鲸项目管理平台拉取缺陷清单
 每个 Phase 开始时输出对应标签，用于定位当前阶段：
 
 ```
-[PHASE:0/CONFIG]       读取项目配置
+[PHASE:0/CONFIG]       读取项目配置与经办人
 [PHASE:1/FETCH]        拉取缺陷清单
 [PHASE:2/NORMALIZE]    标准化 IssueRecord
 [PHASE:3/ANALYZE]      全量分析
@@ -168,6 +167,24 @@ Phase 8:   输出汇总报告
 1. 读取 `.claude/config/project-config.json`
 2. 提取 `project.bkProjectId` 作为 `project_id`
 3. 若为空，提示 `蓝鲸项目未关联，请先执行 /scan 完成项目关联` 并终止
+4. 解析经办人 `operator_user`，来源优先级如下：
+   1. CLI 参数：若 `/bug-batch` 传入了 `operator_user`，使用该值，并在本次执行末尾回写用户配置（首次写入或值变更时）
+   2. 用户配置：读取 `~/.claude/agent-workflow/config.json`，取 `bugBatch.operatorUser`
+   3. 交互询问：两者均缺失时，输出提示 `未检测到经办人账号，请输入蓝鲸经办人用户名（公司邮箱 @ 前的部分；将保存到 ~/.claude/agent-workflow/config.json）`，收到用户输入后写回文件。若用户误填完整邮箱，自动截取 `@` 前的部分再写入
+5. 写入用户配置时使用以下结构，保留文件中其它字段不覆盖：
+
+```json
+{
+  "bugBatch": {
+    "operatorUser": "<username>"
+  }
+}
+```
+
+读取与写入规则：
+- 目录不存在时自动创建 `~/.claude/agent-workflow/`
+- 文件不存在或 JSON 解析失败时视为空对象，按上述结构写入
+- 仅更新 `bugBatch.operatorUser`，不得覆盖其它顶层键
 
 ## Phase 1: 拉取缺陷清单
 
