@@ -61,6 +61,8 @@ issue_number: "p328_600"
 - `commit_sha`（未 commit 时为空）
 - `manual_intervention_reason`（未进入 manual_intervention 时为空）
 - `residual_risks`
+- `code_specs_impact`：`spec_violation` / `spec_gap` / `contract_misread` / `spec_unrelated` 四档之一
+- `code_specs_advisory`：除 `spec_unrelated` 档留空外，其它三档都填一句话——`spec_violation` 指段落路径、`spec_gap` 给 Bad/Good 草案 + `/spec-update` 提示、`contract_misread` 指 contract 文件的 `§ Validation & Error Matrix` 或 `§ Wrong vs Correct`
 
 ## 执行流程
 
@@ -86,6 +88,12 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 1. 调用 `mcp__auggie-mcp__codebase-retrieval` 检索相关代码
 2. 收集错误日志、堆栈信息、复现步骤
+3. 按问题代码所在目录定位对应 code-spec（本层经验库激活）：
+   - 从 codebase-retrieval 定位到的文件路径中提取 `pkg` 与 `layer`（按项目 `.claude/code-specs/` 实际布局识别）
+   - 此处的 `layer` 仅用于**定位 spec 目录**（可能是 frontend / backend / unit-test / docs 等 spec 子目录名），与 1.3 的"前端/后端/全栈"**审查路由判断**互不相关
+   - 读 `.claude/code-specs/{pkg}/{layer}/index.md` 的 Guidelines Index 表，按关键词匹配到具体 convention/contract 文件
+   - 读该文件的 **Common Mistakes** + **Rules** 段（单文件 200 行预算）
+   - 未命中或 `.claude/code-specs/` 不存在 → 记录"code-spec 未覆盖该模块"，不阻断流程
 
 ### 1.3 识别问题类型
 
@@ -186,6 +194,11 @@ Phase 4: 模型审查 + 状态流转就绪判断
 **直接影响**：<文件/函数>
 **测试覆盖**：<现有测试 / 需补充>
 
+### Code Specs 对照
+- 相关 spec：`<pkg>/<layer>/<file>.md`（或 "未找到对应 spec"）
+- 命中已有 Common Mistake：`<file>.md § <H3 子标题>`（或 "未命中"）
+- 对照结论（初判）：spec_violation / spec_gap / contract_misread / spec_unrelated（Phase 4 最终定档）
+
 ### 可能的重复缺陷（来自 1.7）
 - <候选 issue_number>：<简述> — 建议：一起修 / 作为重复覆盖 / 忽略
 ```
@@ -249,7 +262,7 @@ mcp__mcp-router__transition_issue(
 )
 ```
 
-进入任何 `manual_intervention` 分支时跳过。流转失败的降级处理见 4.2.3。
+进入任何 `manual_intervention` 分支时跳过。流转失败的降级处理见 4.3.3。
 
 ### 3.4 Commit
 
@@ -285,7 +298,26 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 
 **降级策略**：Codex 不可用时由当前模型直接审查。
 
-### 4.1 状态流转就绪判断
+### 4.1 Code Specs Impact 定档（强制）
+
+审查完成后、状态流转就绪判断前，必须按本次根因与 code-spec 的关系显式输出 `code_specs_impact`，四档必选其一：
+
+| 档位 | 含义 | 输出动作 |
+|------|------|----------|
+| `spec_violation` | 违反了已有 spec 的 Common Mistake / Rule | 指出具体段落路径 `{pkg}/{layer}/{file}.md § {H3 子标题}`，附"spec-before-dev 未生效或流程断点，建议追溯为何未遵守" |
+| `spec_gap` | spec 里未覆盖这种情况 | 填充 `code_specs_advisory`：一条预填 Common Mistake 草案（Bad/Good 对比 + Why），并附一句"建议运行 `/spec-update` 写入 `{pkg}/{layer}/{file}.md` 的 Common Mistakes 段" |
+| `contract_misread` | 契约误解（API/DB/字段） | 指向对应 contract 文件的 `§ Validation & Error Matrix` 或 `§ Wrong vs Correct` 段落 |
+| `spec_unrelated` | 环境/第三方/偶发，与 spec 无关 | 明确标注"与 code-spec 无关"，`code_specs_advisory` 留空，避免用户误以为每次都要动 spec |
+
+定档说明：
+
+- 本次根因若涉及 spec 已明示但未遵守的行为（Common Mistake 或 Rule 的反例），判 `spec_violation`
+- 本次根因是 spec 范围内但未记录的新坑 → `spec_gap`，此时主会话直接把 Bad/Good 对比草拟成文字，交由用户触发 `/spec-update`
+- 若根因是环境/第三方依赖/偶发，不要为了"看起来有闭环"强行判为 `spec_gap`
+
+兜底：`.claude/code-specs/` 整个目录不存在 → 统一判 `spec_unrelated`，`code_specs_advisory` 留空（此时没有 spec 结构，"缺口"概念不成立，强判 `spec_gap` 会产生虚假 advisory）。`.claude/code-specs/` 存在时，只要该坑未被任何段落覆盖都判 `spec_gap`——Phase 1.2 命中具体文件的，advisory 指向该文件的 Common Mistakes 段；未命中具体文件的，advisory 里的 `{file}.md` 换成建议新建的文件路径（由 `/spec-update` 最终决定落点）。
+
+### 4.2 状态流转就绪判断
 
 审查完成后，必须显式给出：
 - `review_summary`
@@ -303,9 +335,9 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 - 输出 `status_transition_ready = false`，明确说明原因
 - 审查发现 P0/P1 问题时，额外标记 `manual_intervention` + `reason: review_rejected`
 
-### 4.2 状态流转动作
+### 4.3 状态流转动作
 
-#### 4.2.1 审查通过
+#### 4.3.1 审查通过
 
 `status_transition_ready = true` 时，把缺陷从"处理中"推进到"待验证"：
 
@@ -319,13 +351,13 @@ mcp__mcp-router__transition_issue(
 
 `included_issues` / `issues_covered_as_duplicates` 里的缺陷与 `primary_issue` 一起流转，MCP 不支持一次多选时按顺序逐条调用。
 
-#### 4.2.2 审查未通过 / manual_intervention
+#### 4.3.2 审查未通过 / manual_intervention
 
 - 不调用 `transition_issue`
 - 在最终摘要里填 `manual_intervention_reason`
 - 已在 3.3 推进到"处理中"的缺陷保留原状态（让人工介入者能看到代码已落地），不回滚
 
-#### 4.2.3 流转失败处理
+#### 4.3.3 流转失败处理
 
 与 bug-batch 一致的轻量策略：
 
@@ -350,6 +382,8 @@ mcp__mcp-router__transition_issue(
 - Status Transition Ready: true / false
 - Manual Intervention Reason: <reason 或 空>
 - Residual Risks: <残余风险>
+- Code Specs Impact: spec_violation / spec_gap / contract_misread / spec_unrelated
+- Code Specs Advisory: <spec_violation 指段落路径；spec_gap 给 Bad/Good 草案 + /spec-update 提示；contract_misread 指 contract 文件的 § Validation & Error Matrix 或 § Wrong vs Correct；spec_unrelated 留空>
 ```
 
 ## 关键原则

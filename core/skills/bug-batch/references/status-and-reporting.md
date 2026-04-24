@@ -171,4 +171,10 @@ fix: p003 p001 p002 p004 修复了登录态刷新失效和接口超时问题
 ### 待人工处理项
 - FU-003 / p005,p006: review 不通过，worktree 保留在 ../bug-batch-worktrees/FU-003，分支 fix/FU-003
 - FU-004 / p008: 根因已不存在，请人工确认后关闭缺陷
+
+### Code Specs 归纳
+
+- 跨单元命中 Common Mistake: <`{file}.md § {H3 子标题}` 及涉及 FU，或 "无">
+- 跨单元 spec gap: <`{file}.md` 及涉及 FU，或 "无">
+- 建议沉淀的 spec 条目: <路径 + 草案一句话，或 "无">
 ```
