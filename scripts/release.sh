@@ -98,6 +98,11 @@ main() {
     exit 0
   fi
 
+  # Abort if any npm-published version lacks a local manifest.
+  echo ""
+  echo "→ Checking manifest continuity with npm..."
+  node scripts/check-manifest-continuity.js
+
   # Bump version (without git tag from npm)
   echo ""
   echo "[1/5] Bumping version..."

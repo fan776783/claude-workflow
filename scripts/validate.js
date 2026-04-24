@@ -554,6 +554,13 @@ async function validateCodeSpecsManifests(repoRoot, packageRoot, errors) {
   if (files.length > 0) {
     console.log(`  ✅ code-specs manifests: ${files.length} 个文件 schema 校验通过`);
   }
+
+  // 当前版本必须有对应 manifest——防止 generate-manifest.js 跑失败却走到 publish。
+  const pkgJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+  const currentManifest = path.join(manifestsDir, `v${pkgJson.version}.json`);
+  if (!(await fs.pathExists(currentManifest))) {
+    errors.push(`code-specs manifest 缺失当前版本: v${pkgJson.version}.json（检查 scripts/generate-manifest.js 是否已运行）`);
+  }
 }
 
 /**
