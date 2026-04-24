@@ -1,6 +1,6 @@
 ---
 name: figma-ui
-description: "Implements UI from a Figma node with 1:1 visual fidelity. Use when given a Figma URL, asked to implement/restore a design, turn a Figma frame into production code, build components matching Figma specs, or when user says things like '还原设计稿', '照着 Figma 写', 'convert this design to code'. For Figma canvas operations (create/edit/delete nodes), switch to figma-use skill."
+description: "Implements or restores UI from a Figma design with visual fidelity. Use when: (1) user provides a Figma URL (figma.com/design|file|proto) and asks to implement/restore/build the UI; (2) user references an existing file (e.g. '@components/xxx.vue') and asks to update its UI with phrases like '按设计稿还原', '按照设计', '按这个还原/调整'; (3) user asks to replace icons/images/empty-state assets with ones from the design ('换成设计稿里的 icon/图'); (4) user says things like '还原设计稿', '按设计稿还原/检查/调整', '照着 Figma 写', '参考/对照设计稿', 'convert this design to code', 'restore the design'. Also triggers when a Figma design is referenced from earlier context without a fresh URL. For Figma canvas operations (create/edit/delete nodes), switch to figma-use skill."
 ---
 # Figma UI 实现工作流
 
