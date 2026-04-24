@@ -58,6 +58,8 @@ issue_number: "p328_600"
 - `issues_fixed_directly`
 - `issues_covered_as_duplicates`
 - `status_transition_ready`
+- `commit_sha`（未 commit 时为空）
+- `manual_intervention_reason`（未进入 manual_intervention 时为空）
 - `residual_risks`
 
 ## 执行流程
@@ -71,12 +73,21 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 ## Phase 1: 检索上下文 + 问题分析
 
-### 1.1 检索上下文
+### 1.1 输入归一化
+
+先判断入参形态，标准化为 `IssueRecord` 后再进入后续步骤：
+
+- 入参是 `issue_number`：按 [references/issue-intake.md](references/issue-intake.md) 读项目配置 + 调用 `mcp__mcp-router__get_issue` 拉详情
+- 入参是自由描述 `bug`：构造只含 `description` 的最小 IssueRecord；`status_transition_ready` 恒为 `false`，最终摘要标注"无缺陷单可流转"
+
+完整字段表和失败路径见 issue-intake.md。
+
+### 1.2 检索上下文
 
 1. 调用 `mcp__auggie-mcp__codebase-retrieval` 检索相关代码
 2. 收集错误日志、堆栈信息、复现步骤
 
-### 1.2 识别问题类型
+### 1.3 识别问题类型
 
 | 关键词 | 类型 | 审查方式 |
 |--------|------|----------|
@@ -84,7 +95,7 @@ Phase 4: 模型审查 + 状态流转就绪判断
 | API、数据库、500、超时、权限 | 后端 | Codex 审查 |
 | 混合特征 | 全栈 | Codex 审查（后端逻辑优先） |
 
-### 1.3 假设驱动的根因追溯
+### 1.4 假设驱动的根因追溯
 
 **Step 1: 反向追踪**
 - 从错误现象出发，沿数据流/调用链反向追踪
@@ -100,25 +111,50 @@ Phase 4: 模型审查 + 状态流转就绪判断
 - 主假设被证伪 → 验证备选假设 → 都被证伪则回到 Step 1
 - 假设被证实 → 进入 Phase 2
 
-### 1.4 失败计数器
+主/备假设均被证伪时，标记为 `manual_intervention` + `reason: root_cause_mismatch`，不继续推进到 Phase 2。
 
-- 计数对象：Phase 3 中修复后验证仍失败的次数
-- 连续 3 次失败 → Hard Stop，输出：`已尝试 3 次修复均失败，问题可能不在表层。建议重新审视 {相关模块} 的架构设计或重新拆分修复单元。`
-- 用户确认后重置计数器，可选择继续修复或转为架构重构
+### 1.5 失败与中止处理
 
-### 1.5 红旗清单
+- Phase 3 验证失败按连续次数计数；连续 3 次失败 → 标记为 `manual_intervention` + `reason: verification_failed`，Hard Stop 输出：`已尝试 3 次修复均失败，问题可能不在表层。建议重新审视 {相关模块} 的架构设计或切分修复范围。`
+- 用户若选择继续修复，需要重新走一遍 1.4 假设阶段（修改假设或拆小问题），计数器重置；直接放弃则保留 `manual_intervention` 标记。
+- 任何进入 `manual_intervention` 的路径，`status_transition_ready` 强制为 `false`，不调用状态流转 MCP。
+
+### 1.6 红旗清单
 
 - `先试试改这个看看` — 没有假设就动手
 - `可能是这里的问题` — 模糊定位，没有追踪证据
 - `改了好几个地方应该能修好` — 散弹枪式修复
 - `这些缺陷看起来差不多就合并吧` — 没有关系证据就合并
 
-### 1.6 Phase 1 输出
+### 1.7 重复缺陷识别（可选）
+
+仅在入参为 `issue_number` 时做一次 best-effort 扫描，用于发现可能被"顺手修掉"的同源缺陷。没有命中就留空，不强求。
+
+- 按 `module_hint` / 关键错误码 / 主要复现路径，在项目缺陷列表中查找同经办人或同模块下未关闭的缺陷（可复用 `mcp__mcp-router__list_issues`）。
+- 命中时在 Phase 2 的 Hard Stop 里把候选列出来，由用户决定是否纳入 `included_issues`（一起修）或 `issues_covered_as_duplicates`（判定为重复）。
+- 禁止自动合并。不确定时保持空数组，与 bug-batch 的 `needs_manual_judgement` 策略保持一致。
+
+### 1.8 Phase 1 输出
 
 分析完成后输出：
 1. 根因假设及验证证据
 2. 修复方案（至少 2 个）
 3. 推荐方案及理由
+4. 候选的 `included_issues` / `issues_covered_as_duplicates`（若 1.7 有命中）
+
+### 1.9 manual_intervention 原因表
+
+单缺陷流程下，可能命中的 reason 枚举（与 bug-batch 保持同名，仅取单缺陷相关项）：
+
+| reason | 触发点 |
+|--------|--------|
+| `root_cause_mismatch` | Phase 1.4 主/备假设均被证伪 |
+| `verification_failed` | Phase 3 验证连续 3 次失败 |
+| `out_of_scope` | Phase 3 实际改动超出确认方案的文件范围 |
+| `review_rejected` | Phase 4 审查发现 P0/P1 问题 |
+| `user_rejected` | Phase 2 Hard Stop 用户拒绝方案 |
+
+命中任何一条时：在最终摘要里填 `manual_intervention_reason`，不调用 `transition_issue`，并在 `residual_risks` 里说明后续需要人工介入的方向。
 
 ## Phase 2: 影响分析 + 确认方案（Hard Stop）
 
@@ -133,6 +169,10 @@ Phase 4: 模型审查 + 状态流转就绪判断
 ```markdown
 ## 诊断结果
 
+### 缺陷单
+**issue_number**：<若有，否则标注 "无缺陷单（自由描述）">
+**标题 / 经办人**：<来自 IssueRecord>
+
 ### 问题分析
 **根本原因**：<具体诊断>
 **问题类型**：前端 / 后端 / 全栈
@@ -146,16 +186,20 @@ Phase 4: 模型审查 + 状态流转就绪判断
 **直接影响**：<文件/函数>
 **测试覆盖**：<现有测试 / 需补充>
 
+### 可能的重复缺陷（来自 1.7）
+- <候选 issue_number>：<简述> — 建议：一起修 / 作为重复覆盖 / 忽略
+
 ## 是否继续执行此修复方案？(Y/N)
 ```
 
-**立即终止，禁止继续执行任何操作。**
+**立即终止，禁止继续执行任何操作。** 若用户拒绝该方案，标记为 `manual_intervention` + `reason: user_rejected` 并结束流程。
 
 ## Phase 3: 修复实施 + 验证方案
 
 用户确认后执行：
 - 遵循推荐方案，最小化改动
 - 处理边界条件
+- 改动文件应落在 Phase 2 已确认的范围内；若被迫扩大范围，停下来标记 `manual_intervention` + `reason: out_of_scope`，由用户决定是否新开一次 fix-bug
 
 ### 3.1 验证方案输出
 
@@ -189,6 +233,36 @@ Phase 4: 模型审查 + 状态流转就绪判断
 - `residual_risks`
 - `status_transition_ready` 的初步判断
 
+### 3.3 状态流转（处理中）
+
+仅在入参有 `issue_number` 且验证通过时执行——把缺陷推进到"处理中"，表明代码已落地、等待最终审查：
+
+```
+mcp__mcp-router__transition_issue(
+  issue_number: "<issue_number>",
+  target_state: "处理中",
+  comment: "已完成代码修复与验证"
+)
+```
+
+进入任何 `manual_intervention` 分支时跳过。流转失败的降级处理见 4.2.3。
+
+### 3.4 Commit
+
+验证通过且（若适用）流转到"处理中"后，创建单个 commit 作为最终交付的载体：
+
+- 不使用 `--no-verify`；pre-commit hook 失败 → 修复后重新 commit（不 amend）
+- message 模板：
+
+  ```
+  fix: <issue_number> <一句话问题摘要>
+  ```
+
+  无 `issue_number` 时退化为 `fix: <一句话摘要>`。摘要来自 Phase 1 确认的根因，不包含文件路径或行号。
+
+- 单 commit，不拆分；若改动跨多个关注点以至于难以用一句话概括，说明范围超出了单缺陷，回到 3.1 顶部按 `out_of_scope` 处理
+- 记录 commit SHA 到 `commit_sha`，供 Phase 4 引用
+
 ## Phase 4: 模型审查 + 状态流转就绪判断
 
 修复完成后，根据 Phase 1 识别的问题类型选择审查方式。
@@ -219,10 +293,41 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 - 推荐方案已落地
 - 验证结果与预期一致
 - 审查未发现阻断问题
+- 入参有 `issue_number`（自由描述的 bug 无缺陷单可流转）
 
 若任一条件不满足：
-- 输出 `status_transition_ready = false`
-- 明确说明原因
+- 输出 `status_transition_ready = false`，明确说明原因
+- 审查发现 P0/P1 问题时，额外标记 `manual_intervention` + `reason: review_rejected`
+
+### 4.2 状态流转动作
+
+#### 4.2.1 审查通过
+
+`status_transition_ready = true` 时，把缺陷从"处理中"推进到"待验证"：
+
+```
+mcp__mcp-router__transition_issue(
+  issue_number: "<issue_number>",
+  target_state: "待验证",
+  comment: "Commit <commit_sha> 已提交"
+)
+```
+
+`included_issues` / `issues_covered_as_duplicates` 里的缺陷与 `primary_issue` 一起流转，MCP 不支持一次多选时按顺序逐条调用。
+
+#### 4.2.2 审查未通过 / manual_intervention
+
+- 不调用 `transition_issue`
+- 在最终摘要里填 `manual_intervention_reason`
+- 已在 3.3 推进到"处理中"的缺陷保留原状态（让人工介入者能看到代码已落地），不回滚
+
+#### 4.2.3 流转失败处理
+
+与 bug-batch 一致的轻量策略：
+
+- 网络或接口错误 → 重试 1 次，仍失败则记录到 `residual_risks`，流程继续不 Hard Stop
+- 状态不允许转换（如当前已在"待验证"）→ 记录实际状态后跳过
+- MCP 不可用 → 记录原因，提醒用户手动流转
 
 ## 推荐的最终结果摘要格式
 
@@ -237,7 +342,9 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 - Issues Covered As Duplicates: <作为重复问题覆盖的缺陷>
 - Verification Summary: <验证结果>
 - Review Summary: <审查结论>
+- Commit SHA: <commit_sha 或 空>
 - Status Transition Ready: true / false
+- Manual Intervention Reason: <reason 或 空>
 - Residual Risks: <残余风险>
 ```
 

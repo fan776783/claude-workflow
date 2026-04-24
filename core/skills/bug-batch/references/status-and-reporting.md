@@ -1,27 +1,30 @@
 # 状态流转与汇总模板
 
-当所有 `FixUnit` 完成修复后，`bug-batch` 需要批量推进到 `处理中`，全量确认后提交 Commit，再批量推进到 `待验证`。此文件沉淀状态流转示例和最终汇总模板。
+`bug-batch` 在每个 `FixUnit` 完成单元级 review + 物化 + 存在实际代码修改后，立即把该单元覆盖缺陷推进到 `处理中`；全量确认并提交 Commit 后再批量推进到 `待验证`。此文件沉淀状态流转示例和最终汇总模板。
 
 ## 0. 分层 review 汇总（Phase 5.5 完成后展示）
 
 ```markdown
-## 分层 codex review 汇总
+## 分层 review 汇总
 
-### 单元级 review 结果
-| FixUnit | 问题类型 | review 方式 | 结论 | 主要发现 |
-|---------|---------|------------|------|---------|
-| FU-001 | 后端 | codex adversarial | 通过 | 无重大问题 |
-| FU-002 | 前端 | 主会话直接审查 | 通过 | 无重大问题 |
-| FU-003 | 全栈 | codex adversarial | 不通过 | P1: token 刷新未覆盖并发场景 |
+### 单元级 review 结果（主会话直接审查，不调用 codex）
+| FixUnit | 修改文件 | 结论 | 主要发现 |
+|---------|---------|------|---------|
+| FU-001 | auth.ts, session-store.ts | 通过 | 无重大问题 |
+| FU-002 | api-client.ts | 通过 | 无重大问题 |
+| FU-003 | token-refresh.ts | 不通过 | P1: token 刷新未覆盖并发场景 |
 
 ### 批量级 review 结论
-- 执行方式: 同步 / 后台（jobId: <jobId>）
+- 影响评估: <文件交集 / 共享依赖 / 敏感面命中情况>
+- 建议: recommended / optional / skip
+- 用户决定: Y / N
+- 执行方式: codex 同步 / codex 后台（jobId: <jobId>）/ 主会话直接审查
 - 跨单元冲突: 无 / 存在（详见下方）
 - 整体结论: 通过 / 不通过
 
 ### 影响决策
-- FU-003 因单元级 review 不通过 → 标记 manual_intervention，移出本轮提交
-- FU-001、FU-002 → 正常推进 Phase 6
+- FU-003 → manual_intervention (review_rejected)，移出本轮提交
+- FU-001、FU-002、FU-004 → 正常推进 Phase 6
 ```
 
 ## 1. 跨单元交叉影响分析
@@ -59,19 +62,11 @@
 - 整体回归验证：通过
 ```
 
-## 2. 批量流转到处理中
+## 2. 单元即时流转到处理中
 
-所有 `status_transition_ready = true`、且已物化到协调分支的 FixUnit 覆盖缺陷统一流转：
+流转前置条件、判定规则、失败级联见 SKILL.md Phase 5.5.3 与 `references/coverage-graph.md`。下面只提供展示模板。
 
-```text
-batch_update_issue_states(
-  issue_numbers: ["p003", "p001", "p002", "p004"],
-  target_state: "处理中",
-  comment: "批量修复已完成代码修复与验证，等待全量确认后流转待验证"
-)
-```
-
-若只支持单条更新，可顺序执行等价调用：
+**单元流转调用示例**：
 
 ```text
 update_issue_state(
@@ -81,6 +76,20 @@ update_issue_state(
 )
 ```
 
+**单元流转汇总展示**：
+
+```markdown
+## 单元即时流转结果
+
+| FixUnit | 覆盖缺陷 | files_changed | 状态 | 流转结果 | 说明 |
+|---------|----------|---------------|------|----------|------|
+| FU-001 | p003, p001, p002 | auth.ts, session-store.ts | completed | 已流转处理中 | - |
+| FU-002 | p004 | api-client.ts | completed | 已流转处理中 | - |
+| FU-004 | p008 | - | no_change_needed | 未流转 | 根因不存在，建议人工确认后关闭 |
+| FU-005 | p009 | - | covered_by_other | 未流转 | covered_by_unit: FU-001 |
+| FU-006 | p010 | - | manual_intervention | 未流转 | reason: ambiguous_empty_change |
+```
+
 ## 3. 全量确认卡点
 
 ```markdown
@@ -88,15 +97,16 @@ update_issue_state(
 
 ### FixUnit 修复汇总
 
-| FixUnit | 主缺陷 | 覆盖缺陷 | 重复缺陷 | 状态 | 根因摘要 | 修改文件 | 剩余风险 |
-|---------|--------|----------|----------|------|----------|----------|----------|
-| FU-001 | p003 | p003,p001 | p002 | 已修复 | token 刷新链路失效 | auth.ts, session-store.ts | 低 |
-| FU-002 | p004 | p004 | - | 已修复 | 接口超时未重试 | api-client.ts | 低 |
-| FU-003 | p005 | p005 | p006 | 人工介入 | 根因需重新评估 | - | - |
+| FixUnit | 主缺陷 | 覆盖缺陷 | 重复缺陷 | 状态 | 当前蓝鲸状态 | 根因摘要 | 修改文件 | 剩余风险 |
+|---------|--------|----------|----------|------|-------------|----------|----------|----------|
+| FU-001 | p003 | p003,p001 | p002 | 已修复 | 处理中 | token 刷新链路失效 | auth.ts, session-store.ts | 低 |
+| FU-002 | p004 | p004 | - | 已修复 | 处理中 | 接口超时未重试 | api-client.ts | 低 |
+| FU-003 | p005 | p005 | p006 | 人工介入 | 待处理 | 根因需重新评估 | - | - |
+| FU-004 | p008 | p008 | - | 无需修改 | 待处理 | 根因已不存在 | - | - |
 
 ### 待提交范围
-- 本次提交仅包含: FU-001, FU-002
-- 不纳入本次提交: FU-003（人工介入，保持在“处理中”）
+- 本次提交仅包含: FU-001, FU-002（已在”处理中”，Commit 后流转到”待验证”）
+- 不纳入本次提交: FU-003（人工介入，保持当前状态），FU-004（无实际修改，建议关闭）
 
 ### 建议人工验证
 - FU-001: 验证主流程登录刷新，验证历史重复问题 p002 是否一并消失
@@ -108,22 +118,7 @@ update_issue_state(
 
 ## 4. 提交 Commit
 
-确认后提交 commit，message 格式：
-
-```text
-fix: <issue_number_1> <issue_number_2> ... 修复了 <问题摘要>
-```
-
-示例：
-
-```text
-fix: p328_7489 p328_7488 p328_7490 修复了登录态刷新失效和会话过期问题
-```
-
-规则：
-- 固定前缀 `fix:`
-- 缺陷编号列表：仅包含实际纳入本次 commit 的已确认 FixUnit 覆盖的 `included_issues` 与 `duplicate_issues` 的 `issue_number`，空格分隔
-- 问题摘要：一句话概括本次修复内容
+重建流程、commit message 格式与示例见 `references/commit-rebuild.md` 第 2、4 节。
 
 ## 5. 批量流转到待验证
 
@@ -144,28 +139,36 @@ batch_update_issue_states(
 
 ### 修复单元统计
 - 总单元数: N
-- 成功完成: X
-- 人工介入: Y
-- 阻塞未执行: Z
+- 成功完成并流转待验证: X
+- 无需修改 (no_change_needed): A
+- 已被其他单元覆盖 (covered_by_other): B
+- 人工介入 (manual_intervention): Y
+- 阻塞未执行 (blocked): Z
 
 ### FixUnit 视图
-| FixUnit | 主缺陷 | 覆盖缺陷 | 状态 | 修改文件 | 根因摘要 |
-|---------|--------|----------|------|----------|----------|
-| FU-001 | p003 | p003,p001,p002 | 已流转待验证 | auth.ts | token 刷新链路失效 |
-| FU-002 | p004 | p004 | 已流转待验证 | api-client.ts | 接口超时未重试 |
-| FU-003 | p005 | p005,p006 | 人工介入 | - | 根因需重新评估 |
+| FixUnit | 主缺陷 | 覆盖缺陷 | 状态 | 原因 | 修改文件 | 根因摘要 | 待介入资产 |
+|---------|--------|----------|------|------|----------|----------|-----------|
+| FU-001 | p003 | p003,p001,p002 | completed | - | auth.ts | token 刷新链路失效 | - |
+| FU-002 | p004 | p004 | completed | - | api-client.ts | 接口超时未重试 | - |
+| FU-003 | p005 | p005,p006 | manual_intervention | review_rejected | token-refresh.ts | 并发场景未覆盖 | worktree: ../bug-batch-worktrees/FU-003, 分支: fix/FU-003 |
+| FU-004 | p008 | p008 | no_change_needed | - | - | 根因已不存在 | - |
+| FU-005 | p009 | p009 | covered_by_other | covered_by_unit: FU-001 | - | 同根因已修复 | - |
 
 ### Issue 视图
-| 工单号 | 所属单元 | 角色 | 最终状态 | 说明 |
-|--------|----------|------|----------|------|
+| 工单号 | 所属单元 | 角色 | 最终蓝鲸状态 | 说明 |
+|--------|----------|------|-------------|------|
 | p003 | FU-001 | 主缺陷 | 待验证 | 直接修复 |
 | p001 | FU-001 | 关联缺陷 | 待验证 | 共享根因一并覆盖 |
 | p002 | FU-001 | 重复缺陷 | 待验证 | 继承主修复结果 |
 | p004 | FU-002 | 主缺陷 | 待验证 | 接口超时重试已修复 |
+| p009 | FU-005 (covered by FU-001) | 被覆盖主缺陷 | 待验证 | 随 FU-001 一起流转 |
+| p005 | FU-003 | 主缺陷 | 待处理 | 单元级 review 不通过，需人工接手 |
+| p008 | FU-004 | 主缺陷 | 待处理 | 建议人工确认后关闭 |
 
 ### Commit 信息
 fix: p003 p001 p002 p004 修复了登录态刷新失效和接口超时问题
 
-### 失败 / 阻塞项
-- FU-003 / p005: 根因需人工重新评估后再处理
+### 待人工处理项
+- FU-003 / p005,p006: review 不通过，worktree 保留在 ../bug-batch-worktrees/FU-003，分支 fix/FU-003
+- FU-004 / p008: 根因已不存在，请人工确认后关闭缺陷
 ```

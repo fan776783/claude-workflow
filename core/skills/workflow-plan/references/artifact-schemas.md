@@ -7,9 +7,16 @@
 | 工件 | 产出阶段 | 创建方式 | 路径 |
 |------|---------|---------|------|
 | analysis-result.json | Step 2 代码分析 | **AI 写入** | `~/.claude/workflows/{projectId}/` |
-| discussion-artifact.json | Step 3 需求讨论 | CLI `start` 自动创建 | `~/.claude/workflows/{projectId}/` |
-| ux-design-artifact.json | Step 4 UX 设计 | CLI `start` 自动创建 | `~/.claude/workflows/{projectId}/` |
-| prd-spec-coverage.json | Step 5 Spec 生成 | CLI `start` 自动创建 | `~/.claude/workflows/{projectId}/` |
+| discussion-artifact.json | Step 3 需求讨论 | CLI `plan` 自动创建骨架，AI 按 schema 填值 | `~/.claude/workflows/{projectId}/` |
+| ux-design-artifact.json | Step 4 UX 设计 | CLI `plan` 自动创建骨架，AI 按 schema 填值 | `~/.claude/workflows/{projectId}/` |
+| prd-spec-coverage.json | Step 5 Spec 扩写 | CLI `plan` / `spec-review` 自动创建与刷新，AI 不直接写 | `~/.claude/workflows/{projectId}/` |
+
+**职责边界**（与 `SKILL.md` Step 1-7 对齐）：
+
+- Step 1 的 CLI `plan` 调用已经创建以上 3 个骨架文件；AI 不需要调 Write 从零构造 JSON。
+- `discussion` / `ux-design` 两个工件由 AI 在 Step 3 / Step 4 读取骨架后**按 canonical schema 填入业务内容**，顶层 key 不得改名或新增。
+- `prd-spec-coverage` 完全由 CLI 管理，AI 只读不写；Step 5 扩写 spec 后下次调 `spec-review --choice "Spec 正确，生成 Plan"` 时由 CLI 刷新。
+- `analysis-result.json` 由 AI 全权产出，自由 Write。
 
 ---
 

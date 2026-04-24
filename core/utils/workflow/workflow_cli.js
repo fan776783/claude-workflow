@@ -18,7 +18,7 @@ const {
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock, recoverArchiveTombstone } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock, recoverArchiveTombstone, planLegacyProjectIdMigration, applyLegacyProjectIdMigration } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
@@ -693,6 +693,10 @@ function main() {
       result = cmdArchive(args.includes('--summary'), pid, projectRoot)
     } else if (command === 'migrate-state') {
       result = cmdMigrateState({ dryRun: args.includes('--dry-run') })
+    } else if (command === 'migrate-project-id') {
+      const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+      if (args.includes('--apply')) result = applyLegacyProjectIdMigration(root)
+      else result = planLegacyProjectIdMigration(root)
     } else if (command === 'unblock') {
       result = cmdUnblock(args[0], pid, projectRoot)
     } else if (command === 'advance') {
@@ -771,7 +775,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state|migrate-project-id> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n  migrate-project-id - 检测并迁移 legacy 纯 hex projectId（默认 dry-run，--apply 执行）\n')
       process.exitCode = 1
       return
     }

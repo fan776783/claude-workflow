@@ -123,7 +123,18 @@ function buildBatchView(state) {
 function buildExecuteEntry(command, intent, explicitMode, projectRoot, options = {}) {
   const { force = false } = options
   const config = loadProjectConfig(projectRoot)
-  const projectId = extractProjectId(config) || detectProjectId(String(projectRoot))
+  const projectId = extractProjectId(config)
+  if (!projectId) {
+    return {
+      entry_action: 'none',
+      resolved_mode: null,
+      project_id: null,
+      state_status: null,
+      can_resume: false,
+      reason: 'missing_project_config',
+      message: '缺少 project-config.json 或 project.id 无效，请先执行 /scan（空项目使用 /scan --init）。',
+    }
+  }
   const context = loadExecutionContext(projectId, String(projectRoot))
   let state = !context.error ? context.state : null
   let gateViolation = state ? getSpecReviewGateViolation(state) : null

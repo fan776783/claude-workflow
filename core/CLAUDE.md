@@ -25,6 +25,7 @@
 - **代码风格**：精简高效、无冗余；注释/文档遵循**非必要不形成**原则
 - **针对性改动**：严禁影响现有功能
 - **上下文检索**：优先用 `mcp__auggie-mcp__codebase-retrieval`，减少 search/find/grep
+- **外部文档链接**：遇到钉钉 / 飞书 / Notion / Confluence 等平台 URL，优先用对应 MCP 读取（如 `mcp__mcp-router__get_document_content`），WebFetch 只作为兜底
 - **判断依据**：以代码和工具搜索结果为准，禁止猜测
 - **异步执行**：是否后台执行、如何等待结果与超时策略，统一以 `collaborating-with-codex` skill contract 为准
 - **输出文风**：详见下方「输出文风约束」小节

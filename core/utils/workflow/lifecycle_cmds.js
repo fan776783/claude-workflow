@@ -3,6 +3,7 @@
 const { spawnSync } = require('child_process')
 const crypto = require('crypto')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 const { getWorkflowStatePath, getWorkflowsDir, validateProjectId } = require('./path_utils')
@@ -81,8 +82,21 @@ function slugifyFilename(value) {
   return slug ? slug.slice(0, 80) : ''
 }
 
+function projectNameSlug(projectRoot) {
+  const base = path.basename(path.resolve(projectRoot))
+  const slug = String(base || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug ? slug.slice(0, 32).replace(/-+$/g, '') : ''
+}
+
 function stableProjectId(projectRoot) {
-  return crypto.createHash('md5').update(String(path.resolve(projectRoot)).toLowerCase()).digest('hex').slice(0, 12)
+  const resolved = path.resolve(projectRoot)
+  const hash = crypto.createHash('md5').update(String(resolved).toLowerCase()).digest('hex').slice(0, 12)
+  const slug = projectNameSlug(resolved)
+  return slug ? `${slug}-${hash}` : hash
+}
+
+function isLegacyStableProjectId(projectId) {
+  return /^[a-f0-9]{12}$/.test(String(projectId || ''))
 }
 
 function detectGitHead(projectRoot) {
@@ -120,6 +134,55 @@ function buildProjectConfig(projectRoot, existing = null, forcedProjectId = null
   current.workflow = workflow
   current._scanMode = current._scanMode || 'auto-healed'
   return current
+}
+
+function planLegacyProjectIdMigration(projectRoot) {
+  const root = path.resolve(projectRoot)
+  const config = loadProjectConfig(root)
+  const currentId = extractProjectId(config)
+  if (!currentId || !isLegacyStableProjectId(currentId)) return { needed: false }
+
+  const newId = stableProjectId(root)
+  if (newId === currentId) return { needed: false }
+
+  const workflowsRoot = path.join(os.homedir(), '.claude', 'workflows')
+  const oldDir = path.join(workflowsRoot, currentId)
+  const newDir = path.join(workflowsRoot, newId)
+  return {
+    needed: true,
+    currentId,
+    newId,
+    oldDir,
+    newDir,
+    oldDirExists: fs.existsSync(oldDir),
+    newDirExists: fs.existsSync(newDir),
+    configPath: path.join(root, '.claude', 'config', 'project-config.json'),
+  }
+}
+
+function applyLegacyProjectIdMigration(projectRoot) {
+  const root = path.resolve(projectRoot)
+  const plan = planLegacyProjectIdMigration(root)
+  if (!plan.needed) return { migrated: false, reason: 'not_legacy' }
+
+  if (plan.newDirExists) {
+    return { migrated: false, reason: 'target_state_dir_exists', ...plan }
+  }
+
+  const config = loadProjectConfig(root) || {}
+  const project = { ...(config.project || {}) }
+  project.id = plan.newId
+  const updated = { ...config, project }
+  if (typeof config.projectId === 'string') updated.projectId = plan.newId
+  fs.mkdirSync(path.dirname(plan.configPath), { recursive: true })
+  fs.writeFileSync(plan.configPath, `${JSON.stringify(updated, null, 2)}\n`)
+
+  if (plan.oldDirExists) {
+    fs.mkdirSync(path.dirname(plan.newDir), { recursive: true })
+    fs.renameSync(plan.oldDir, plan.newDir)
+  }
+
+  return { migrated: true, ...plan }
 }
 
 function ensureProjectConfig(projectRoot, forcedProjectId = null) {
@@ -174,7 +237,7 @@ function buildTechStackSummary(config) {
 function resolveWorkflowRuntime(projectId = null, projectRoot = null) {
   const root = detectProjectRoot(projectRoot)
   const config = loadProjectConfig(root)
-  const resolvedProjectId = projectId || extractProjectId(config) || detectProjectId(root)
+  const resolvedProjectId = projectId || extractProjectId(config)
   if (!resolvedProjectId || !validateProjectId(resolvedProjectId)) return [null, root, null, null, null]
 
   const workflowDir = getWorkflowsDir(resolvedProjectId)
@@ -525,9 +588,18 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
 
-  const [config, , configHealed] = ensureProjectConfig(root, projectId)
-  const resolvedProjectId = extractProjectId(config)
-  if (!resolvedProjectId) return { error: '无法初始化项目配置' }
+  const config = loadProjectConfig(root)
+  if (!config) {
+    return { error: '缺少 project-config.json，请先执行 /scan（空项目使用 /scan --init）。', reason: 'missing_project_config' }
+  }
+  const configProjectId = extractProjectId(config)
+  if (!configProjectId) {
+    return { error: 'project-config.json 未提供合法 project.id，请执行 /scan --force 重新生成。', reason: 'invalid_project_config' }
+  }
+  if (projectId && projectId !== configProjectId) {
+    return { error: `--project-id 与 project-config.json 中的 project.id 不一致（CLI: ${projectId} vs config: ${configProjectId}）`, reason: 'project_id_mismatch' }
+  }
+  const resolvedProjectId = configProjectId
 
   const workflowDir = getWorkflowsDir(resolvedProjectId)
   if (!workflowDir) return { error: `无法解析工作流目录: ${resolvedProjectId}` }
@@ -752,7 +824,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   return {
     started: true,
     project_id: resolvedProjectId,
-    config_healed: configHealed,
+    config_healed: false,
     workflow_status: state.status,
     spec_file: specRelative.replace(/\\/g, '/'),
     plan_file: shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null,
@@ -1419,6 +1491,10 @@ module.exports = {
   summarizeText,
   slugifyFilename,
   stableProjectId,
+  projectNameSlug,
+  isLegacyStableProjectId,
+  planLegacyProjectIdMigration,
+  applyLegacyProjectIdMigration,
   buildProjectConfig,
   ensureProjectConfig,
   renderTemplate,

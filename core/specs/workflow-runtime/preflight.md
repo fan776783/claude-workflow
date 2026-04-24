@@ -26,26 +26,26 @@
 
 ---
 
-## Step 2: 项目配置检查与自愈（强制）
+## Step 2: 项目配置检查（强制）
 
 确保 `project-config.json` 存在，保障 `project.id` 可用，状态机可初始化。
 
 **配置文件路径**：`.claude/config/project-config.json`
 
 **行为**：
-- **存在且有效** → 加载配置，使用 `project.id`
-- **存在但 id 无效** → 提示用户重新执行 `/scan`
-- **不存在** → 自动生成最小配置：
-  - `project.id`：必须通过 CLI 计算，禁止手动 shell 命令（如 `echo | md5sum`）拼接。CLI 内部对路径执行 `path.resolve()` + `.toLowerCase()` 后再取 MD5 前 12 位，手动计算极易因路径规范化差异产生不一致。自动生成最小配置时使用：
-    ```bash
-    node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds');console.log(stableProjectId(process.cwd()))"
-    ```
-  - `project.name`：当前目录名
-  - `tech`：全部标记为 `unknown`
-  - `_scanMode`：标记为 `auto-healed`
-  - 提示用户后续可执行 `/scan --force` 更新完整配置
+- **存在且有效** → 加载配置，直接使用 `project.id`，不再重新计算
+- **存在但 id 无效或缺失** → 报错并提示执行 `/scan --force`
+- **不存在** → 报错并提示执行 `/scan`（空项目使用 `/scan --init`）
 
-> 不再因缺少配置而阻塞。自动生成最小配置确保 workflow 可启动。
+**projectId 生成规则（仅 /scan 内部使用）**：格式 `{name-slug}-{12位 hash}`；slug 取目录名 ASCII 部分并 lowercase 统一 `-`，slug 为空时退回纯 hash。必须通过 CLI 计算：
+```bash
+node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds');console.log(stableProjectId(process.cwd()))"
+```
+禁止手动 shell 哈希，禁止在运行时入口（cmdPlan、buildExecuteEntry、resolveWorkflowRuntime 等）重新计算 —— 任何运行时重算都会在 worktree / 子目录 / symlink 场景引发 projectId 漂移。
+
+**Legacy 迁移**：v5.2.x 及之前的纯 12 位 hex id（如 `8c5fd4f4930b`）由 `/scan` Part -1 检测并提示迁移，用户确认后改写 config 并 `mv` `~/.claude/workflows/{旧id}/` 为新 id 目录。
+
+> 不再自动生成最小配置。缺失配置视为用户显式操作前置不足，必须先跑 `/scan`。
 
 ---
 
