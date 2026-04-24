@@ -161,8 +161,6 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
 |  pre-execute-inject.js  Task 派发前门控 + 任务上下文注入           |
-|  worktree-serialize.js  worktree 创建串行化                       |
-|  worktree-cleanup.js    worktree 清理与锁释放                     |
 +-----------------------------------------------------------------+
                             | 读写
 +-----------------------------------------------------------------+
@@ -303,20 +301,18 @@ npm run sync -- -a claude-code
 当同阶段存在 2+ 独立任务且平台支持子 Agent 时，`workflow-execute` 会通过 `batch_orchestrator.js` 选出可并行批次，再委托 `dispatching-parallel-agents` 落地。两类批次：
 
 - **只读批次**（analysis / review）：不 provision worktree，子 Agent 产物写入 `~/.claude/workflows/{projectId}/artifacts/{groupId}/`
-- **写文件批次**：串行 provision worktree → 并行启子 Agent → 合流到集成 worktree → stage2 审查 → 合入主分支；失败则由 `merge_strategist.js discard-integration` 丢弃集成 worktree，任务回 `pending`
+- **写文件批次**：provision worktree → 并行启子 Agent → 合流到集成 worktree → stage2 审查 → 合入主分支；失败则由 `merge_strategist.js discard-integration` 丢弃集成 worktree，任务回 `pending`
 
 含 `git_commit` / `quality_review` action 的任务不会进入并行批次。详细接口参见 `core/specs/workflow/state-machine.md` 的 `ParallelExecution` / `ParallelGroupRecord` / `BatchQualityGateResult` 定义。
 
 ### Hook 流程控制
 
-工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails** 和 **worktree 并发安全**。hooks 不替代 command + skill 驱动的状态机，而是在其外围提供自动化的上下文注入、执行门控和资源管理。
+工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails**。hooks 不替代 command + skill 驱动的状态机，而是在其外围提供自动化的上下文注入和执行门控。
 
-当前共 **6 个 hook 脚本**，按职责分为三类：
+当前共 **4 个 hook 脚本**，按职责分为两类：
 
 | 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
 |------|-----------|------|----------|------|
-| **Worktree Hooks** | `WorktreeCreate` | `worktree-serialize.js` | ✅ 随 `sync` 自动注入 | 串行化 worktree 创建，防止并行竞争 `.git/config.lock` |
-| | `WorktreeRemove` | `worktree-cleanup.js` | ✅ 随 `sync` 自动注入 | 清理孤立 worktree 引用、回收托管目录、释放串行锁 |
 | **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文、next action 与 guardrail |
 | | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | Task 派发前检查 workflow 状态并注入任务上下文 |
 | **Team Hooks** | `TeammateIdle` | `team-idle.js` | ✅ 随 `sync` 自动注入 | 任务板仍有未完成任务时阻止队友 idle；任务板清空时提示队友给 Lead 发 message 后退出 |
@@ -326,15 +322,13 @@ npm run sync -- -a claude-code
 
 - **`SessionStart`**：会话启动时读取项目配置和 workflow 状态，注入当前进度、next action 提示、guardrail 规则和 team 隔离边界
 - **`PreToolUse(Task)`**：在 Task 派发前做 5 重检查（workflow 存在 → spec_review 门控 → status 合法 → active task → 文件齐全），通过后将当前 task block、verification commands、spec context 注入到 Task description 前缀
-- **`WorktreeCreate`**：通过 `mkdir` 原子锁串行化 `git worktree add`；锁 10 秒自动过期，30 秒总超时强制放行
-- **`WorktreeRemove`**：执行 `git worktree prune`，回收 `.claude/worktrees/` 下孤立目录，释放串行化锁
 - **`TeammateIdle`**：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 留住队友；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行 idle（Lead 侧收到后自行执行 `clean up team`）
 - **`TaskCreated` / `TaskCompleted`**：任务粒度守门，缺 `task_subject` / 交付物或遗留 TODO / 待验证 类字眼时退码 2 拒绝
 
 #### 启用方式
 
 ```bash
-# 默认注入 worktree + workflow hooks
+# 默认注入 workflow + team hooks
 npm run sync -- -y
 ```
 
@@ -348,12 +342,6 @@ npm run sync -- -y
     ],
     "PreToolUse": [
       { "matcher": "Task", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/pre-execute-inject.js\"" }] }
-    ],
-    "WorktreeCreate": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\"" }] }
-    ],
-    "WorktreeRemove": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\"" }] }
     ],
     "TeammateIdle": [
       { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-idle.js\"" }] }
@@ -370,15 +358,13 @@ npm run sync -- -y
 
 #### 职责边界
 
-hooks **负责**：注入 workflow 上下文、在状态非法 / 上下文缺失时阻断、串行化 worktree 创建  
+hooks **负责**：注入 workflow 上下文、在状态非法 / 上下文缺失时阻断  
 hooks **不负责**：决定 planning / execute / delta / archive 的阶段流转、替代 `/workflow-execute` 的 shared resolver、创建第二套状态机
 
 #### 故障排查
 
 ```bash
 cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
-rm -rf $(git rev-parse --git-common-dir)/worktree-serialize.lock  # 清理残留锁
-git worktree list && git worktree prune              # 检查 worktree 状态
 ```
 
 ---
@@ -594,7 +580,6 @@ flowchart TD
 
 如需查看更完整说明，可参考：
 
-- `docs/worktree-hooks.md`（WorktreeCreate / WorktreeRemove 串行化与清理）
 - `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) guardrails）
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/team.md`（独立 team command 入口）

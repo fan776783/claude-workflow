@@ -279,7 +279,7 @@ Layer N: 依赖 Layer 0..N-1 中单元的 FixUnit
 | 同层 2+ FixUnit 但存在文件交集 | 有交集的 FixUnit 降级串行 |
 | 同层仅 1 个 FixUnit | 主工作树直接执行，不需要 worktree |
 
-worktree provisioning 必须串行完成（避免 `.git/config.lock` 竞争），再并行启动子 agent。
+worktree provisioning 完成后，再并行启动子 agent。
 
 **路径与命名**：
 - 根目录：`<repo_root>/../bug-batch-worktrees/`（与仓库同级）

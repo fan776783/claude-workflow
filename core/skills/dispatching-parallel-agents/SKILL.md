@@ -174,14 +174,13 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 - UI 优先更偏前端/交互的执行者
 - `auto` 边界根据任务名称和文件类型动态选择
 
-### Step 6a：串行 provisioning 与隔离准备
+### Step 6a：provisioning 与隔离准备
 
 在真正启动并行子 agent 之前，先完成本批次的隔离准备。这里的目标不是开始执行任务，而是**只处理会触发共享 Git 元数据写入的 provisioning**。
 
 - 若任务会写文件、修改测试或语义上无法证明只读，则默认需要 worktree
 - 若任务是明确的 analysis / review / investigation / trace / diagnose / plan / document 类只读任务，可跳过 worktree
 - 无法证明只读时，一律按需要 worktree 处理
-- 所有 `git worktree add/remove/prune` 必须使用 repo 级串行保护，避免并发触发 `.git/config.lock` 竞争
 - provisioning 完成后，再进入并行子 agent 启动阶段
 
 ### Step 6b：构造最小上下文并并行分派
@@ -233,7 +232,7 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 1. `execute` 的 Step 3：识别是否存在 2+ 独立问题域 / 任务域
 2. `execute` 的 ContextGovernor：主会话已进入 warning 区，且可证明边界独立时，优先评估 `parallel-boundaries`
-3. `execute` 的 Step 6：先完成串行 provisioning，再把已确认独立的并行批次路由到多子 agent
+3. `execute` 的 Step 6：完成 provisioning 后，再把已确认独立的并行批次路由到多子 agent
 4. 任意需要“one agent per domain + 并行执行 + 主会话汇总验证”的场景
 
 如果只是单个任务的普通 subagent 执行，或 `quality_review` Stage 2 的单 reviewer 审查，则不应把它们强行归入本 skill。

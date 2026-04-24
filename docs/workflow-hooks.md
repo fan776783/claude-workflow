@@ -109,16 +109,6 @@ agent-workflow link -a claude-code
 - critical constraints / must-preserve
 - 当前 `quality_gates[taskId]` 摘要
 
-## 与 Worktree Hooks 的区别
-
-- `worktree hooks`：处理 `WorktreeCreate` / `WorktreeRemove` 的串行化与清理
-- `workflow hooks`：处理 Session / Task 级别的运行时守门
-
-两者都属于 Claude Code hooks，但目标不同：
-
-- worktree hooks 保护工作区与 Git 运行时安全
-- workflow hooks 保护 workflow 执行边界
-
 ## 相关文件
 
 - `core/hooks/session-start.js`

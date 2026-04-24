@@ -204,7 +204,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 
 - `batch_orchestrator.js config` 返回 `enabled: false` 或 `maxConcurrency <= 1` → 跳过并行
 - 含 `git_commit` 或 `quality_review` action 的任务**禁止**编入并行批次（写共享状态会产生真正竞争）
-- 分派层面复用 `dispatching-parallel-agents` skill；只读批次不 provision worktree，写文件批次串行 provision 后再并行启动 subagent
+- 分派层面复用 `dispatching-parallel-agents` skill；只读批次不 provision worktree，写文件批次 provision 后再并行启动 subagent
 
 批次判定、只读 / 写文件两种分派路径的详细 CLI 与返回字段，见 [`references/parallel-dispatch.md`](references/parallel-dispatch.md)。分派内部的平台检测、结果回收、冲突降级由 `../dispatching-parallel-agents/SKILL.md` 负责。
 

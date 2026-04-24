@@ -17,18 +17,16 @@
 | `workflow-delta` | 增量变更分析与 apply | 无专属 hook |
 | `workflow-status` | `status` 运行时状态查看 | 无专属 hook |
 | `workflow-archive` | `archive` 工作流归档 | 无专属 hook |
-| `dispatching-parallel-agents` | 并行执行规则来源 | 间接依赖 `WorktreeCreate` / `WorktreeRemove` |
+| `dispatching-parallel-agents` | 并行执行规则来源 | 无专属 hook |
 | `/team` 命令 | Claude Code 原生 Agent Teams | `TeammateIdle` / `TaskCreated` / `TaskCompleted` 由 `team-idle.js` / `team-task-guard.js` 守门 |
 
 ## Hook 列表
 
 - `SessionStart` → `session-start.js`
 - `PreToolUse(Task)` → `pre-execute-inject.js`
-- `WorktreeCreate` / `WorktreeRemove` → `worktree-serialize.js` / `worktree-cleanup.js`
 - `TeammateIdle` → `team-idle.js`
 - `TaskCreated` / `TaskCompleted` → `team-task-guard.js`
 
 职责：
 - workflow hooks：显示 workflow 状态、阻断非法 `Task`、注入当前 task / spec / quality gate 摘要
-- worktree hooks：串行化 `git worktree add`、清理孤立目录
 - team hooks：守门任务板粒度、守门完成证据、任务板清空时让队友通知 Lead 去执行 `clean up team`

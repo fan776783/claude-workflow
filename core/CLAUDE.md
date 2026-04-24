@@ -6,9 +6,7 @@
 >
 > `workflow` 现已区分 planning side review loops 与 execution quality gates：Phase 1.2 / Phase 2.5 为 `machine_loop`，Phase 1.4 为 `human_gate`，Phase 1.5 为 `conditional_human_gate`；执行阶段 `quality_review` 则作为 shared review loop contract 的 execution adapter 写入 `quality_gates.*`。
 >
-> 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。并行批次中仅为会写文件的任务 provision worktree，provisioning 串行完成后再并行启动 agent；明确只读的分析/审查任务优先避免不必要的 worktree。
->
-> **Claude Code worktree guardrail**：即使**没有显式触发** `/dispatching-parallel-agents`，也不要在同一仓库里同时启动多个 `isolation: "worktree"` 的并行子 agent。只读搜索 / 分析 / 审查任务优先不使用 worktree；若多个子 agent 都需要写隔离，必须先串行准备 worktree（或串行启动），再并行执行实际任务，避免触发 Git `.git/config.lock` 竞争。
+> 当执行阶段涉及**同阶段 2+ 独立任务 / 独立问题域的并行分派**时，优先复用 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 子 agent 不属于该 skill 的适用场景。并行批次中仅为会写文件的任务 provision worktree，provisioning 完成后再并行启动 agent；明确只读的分析/审查任务优先避免不必要的 worktree。
 
 > **/team 命令说明**：`/team` 直接调用 Claude Code 原生 Agent Teams，行为由 `core/commands/team.md` 定义；命令要求 Claude Code ≥ v2.1.32 且 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，启动前做 preflight，不满足就拒绝。官方硬约束要一并遵守：一会话一个 team、不可嵌套、Lead 固定不可转移、权限 spawn 时继承且不能按队友设置；cleanup 必须由 Lead 执行，有活跃队友时先 shutdown 再 `clean up team`。不要因为检测到 2+ 独立任务、Broad Request Detection、`/workflow-execute`、`/quick-plan` 或自然语言宽泛请求而自动切入 team；并行分派继续走 `/dispatching-parallel-agents`，独立分析继续走 subagent。
 
@@ -28,45 +26,7 @@
 - **外部文档链接**：遇到钉钉 / 飞书 / Notion / Confluence 等平台 URL，优先用对应 MCP 读取（如 `mcp__mcp-router__get_document_content`），WebFetch 只作为兜底
 - **判断依据**：以代码和工具搜索结果为准，禁止猜测
 - **异步执行**：是否后台执行、如何等待结果与超时策略，统一以 `collaborating-with-codex` skill contract 为准
-- **输出文风**：详见下方「输出文风约束」小节
-
-### 输出文风约束
-
-#### 语气与用词
-
-- 默认温和、自然、像协作说明的中文，不要写成命令式、审查式或技术汇报式。
-- 少用偏硬表达（如"我这一层负责""主链路收敛成""不再负责这些"），优先用"现在可以这样理解""这版先这样约定""这里主要是在做"。
-- 少用拟物化 / 口癖化动词（如"接住、吃掉、吃进去、收住、收下来、兜住、打穿、喂给"），优先用朴素词汇：`读取、接收、整理、使用、生成、更新、传入、显示、保存`。
-- 避免抽象流程或模块被写成口语化的动作主体。
-
-#### 禁止项
-
-- 不堆砌函数名、代码行号、文件路径等底层细节，也不用晦涩黑话。
-- 不用明显的 AI 套话和空泛开头，如"值得注意的是""总而言之""在当今快速发展的环境中"。
-- 不用过于工整、圆滑、像自动生成摘要的句子；优先直接说结论，再补必要说明。
-- 完成任务后直接汇报结果，不加"如果你愿意，我下一步可以……""需要的话我可以继续……"这类收尾句。
-
-#### 输出结构
-
-- 默认先给一句结论，再补最多 3 个短点。
-- 每次只回答用户当前的问题，不主动扩展到下一个问题。
-- 除非用户明确说"展开"，否则不写成长篇方案树。
-- 如果回答超过 150 字，先压缩再输出。
-- 当用户说"一个一个来"时，后续每次只讨论一个决策点。
-
-#### 文件路径与引用
-
-- 文件路径只写正常可读的文本，不要做成可点击链接。
-- 如果需要引用依据，尽量写出原文内容，而非只贴链接。
-
-#### 文档写作
-
-- 写 README、说明文档、汇报文档时，先参考同目录下用户自己写过的文档语气，尽量贴近用户文风。
-
-#### 默认工作方式
-
-- 默认一次性完成当前任务，再汇报结果。
-- 除非用户明确要求分步确认 / 暂停 / 只讨论方案，或任务本身有关键不确定点，否则不把任务拆成"先做一点，再问要不要继续"。
+- **输出文风**：不堆砌函数名/行号等底层细节；不用"值得注意的是""总而言之"等 AI 套话；完成任务后直接汇报结果，不加"如果你需要我可以继续……"这类收尾句；写文档前先参考同目录已有文档的语气风格
 
 ### 协作架构
 

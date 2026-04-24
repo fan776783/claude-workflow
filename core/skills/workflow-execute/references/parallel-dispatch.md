@@ -50,14 +50,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/batch_orchestrator.js select-b
 - 子 agent 产物写到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/{taskId}.json`
 - 任一子 agent 失败 → 结果为空，降级为串行分析；工作流状态不受影响
 
-只读批次不 provision worktree（避免在同仓库中触发 `.git/config.lock` 竞争），这点在 CLAUDE.md 的 Claude Code worktree guardrail 里也强调过。
+只读批次不 provision worktree。
 
 ### 4. 写文件批次（worktree 路径）
 
 独立性复检通过后：
 
 - 调用 `dispatch_runner.dispatchGroup(tasks, groupId, platform, useWorktree=true)`
-- 分派内部**串行** provision worktree + registerAgent，然后由主 agent **并行**启动 subagent
+- 分派内部 provision worktree + registerAgent，然后由主 agent **并行**启动 subagent
 - 各 subagent 在各自 worktree 内完成，合流汇聚到一个 **集成 worktree**
 - stage2 审查在集成 worktree 中进行，通过后才 merge 到主分支
 - stage2 失败则丢弃集成 worktree，任务回 pending
