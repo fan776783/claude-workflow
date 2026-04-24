@@ -18,11 +18,12 @@
 1. 当前目录是否在 git 仓库中（`git rev-parse --is-inside-work-tree`）
 2. 是否有至少一次提交（`git log --oneline -1`）
 
-**未通过时**：提示用户选择：
-- **"我来初始化 git"** → 暂停工作流，用户执行 `git init && git add . && git commit -m "Initial commit"` 后重试
-- **"无子代理继续"** → ⚠️ 用户显式选择降级。写隔离审查降级为主会话内执行，只读分析不受影响。记录 `git_status.user_acknowledged_degradation = true`
+**未通过时**：调用 `AskUserQuestion` 收集决策，`question` 写"Git 仓库未就绪，如何继续？"，`options` 给两条：
 
-> 不得静默跳过 Git 检查。用户必须显式确认降级。
+- `init_git` — 我来初始化 git：暂停工作流，用户执行 `git init && git add . && git commit -m "Initial commit"` 后重试
+- `continue_without_subagent` — 无子代理继续：⚠️ 用户显式选择降级。写隔离审查降级为主会话内执行，只读分析不受影响。记录 `git_status.user_acknowledged_degradation = true`
+
+> 不得静默跳过 Git 检查。用户必须通过 AskUserQuestion 显式确认降级。
 
 ---
 
@@ -69,18 +70,26 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
    │   → 归档完成后自动继续
    │
    ├─ status: running / paused
-   │   → 提示用户选择：
-   │     a) 恢复当前工作流：`/workflow-execute`
-   │     b) 归档并新建：`/workflow-archive` + 继续
-   │     c) 强制覆盖（需 --force）
+   │   → 调用 AskUserQuestion（见下）
    │
    ├─ status: failed / blocked
-   │   → 提示用户选择：
-   │     a) 重试：`/workflow-execute --retry`
-   │     b) 归档并新建
+   │   → 调用 AskUserQuestion（见下）
    │
    └─ status: archived
        → 等同于"不存在"，继续
 ```
 
-> 覆盖时必须要求 `--force` 标志或用户显式确认，防止误删进行中的工作流。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。
+**AskUserQuestion 选项**：
+
+`running` / `paused`，`question` 写"检测到进行中的工作流，如何处理？"，`options`：
+
+- `resume` — 恢复当前工作流（使用 `/workflow-execute`）
+- `archive_and_new` — 归档并新建（调用 `/workflow-archive` 后继续）
+- `force_overwrite` — 强制覆盖（等同 `--force`；备份现状到 `workflow-state.backup-{timestamp}.json` 后覆盖）
+
+`failed` / `blocked`，`question` 写"上次工作流未正常结束，如何处理？"，`options`：
+
+- `retry` — 重试（使用 `/workflow-execute --retry`）
+- `archive_and_new` — 归档并新建
+
+> 覆盖时必须要求 `--force` 标志或用户通过 AskUserQuestion 显式确认，防止误删进行中的工作流。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。

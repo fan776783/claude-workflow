@@ -223,11 +223,14 @@ canonical schema 顶层字段（来自 `planning_gates.js` `buildDiscussionArtif
    - **L1 功能页**：需要导航切换的独立页面
    - **L2 辅助面板**：内嵌在 L1 中的辅助区域
 
-3. **HARD-GATE 用户审批** — 展示流程图和分层设计，请用户确认：
-   - ✅ 设计合理，继续 → 进入 Spec 生成
-   - 🔄 需要调整流程 → 用户描述修改，重新生成
-   - 🔄 需要调整分层 → 修改信息架构后重审
-   - 🔄 需要补充场景 → 添加遗漏场景后重审
+3. **HARD-GATE 用户审批** — 展示流程图和分层设计后，调用 `AskUserQuestion` 收集决策，`question` 写"UX 设计是否可进入 Spec 生成？"，`options` 给 4 条：
+
+   - `approve` — 设计合理，进入 Spec 生成
+   - `revise_flow` — 需要调整流程，用户描述修改后重新生成流程图
+   - `revise_hierarchy` — 需要调整分层，修改信息架构后重审
+   - `add_scenarios` — 需要补充场景，添加遗漏场景后重审
+
+   用户选择 `revise_*` / `add_scenarios` 时，按对应路径重做设计再发起一次 AskUserQuestion。
 
 **持久化**：`ux-design-artifact.json` 已由 Step 1 的 CLI `plan` 调用创建骨架，本 Step 读取该骨架后**按 canonical schema 填充业务内容**，不改顶层 key。
 
@@ -337,7 +340,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **用户回复归一化 → CLI 调用**：
 
-用户的自然语言快捷回复**必须由本 skill 归一化为下面 7 个 canonical choice 之一**，再调用 CLI 推进状态机。禁止把用户原话直接塞给 `--choice`（精确匹配失败会报错）。
+展示完 Spec 摘要 / 覆盖率 / Codex 审查后，调用 `AskUserQuestion` 收集决策，`question` 写"Spec 审批结果？"，`options` 给 4 条常用分支，每个 `description` 写结果：
+
+- `approve_generate_plan` → canonical `Spec 正确，生成 Plan`，进入 Step 7
+- `revise_spec` → canonical `需要修改 Spec`，回到 Step 5
+- `revise_ux` → UX 需要调整（流程 / 分层），进入第二轮 AskUserQuestion 拆分为 `缺少用户流程` / `页面分层需要调整`
+- `other` — 其他情况（保留需求细节 / 继续流程不重渲染 / 拆分范围）
+
+选 `other` 时用 AskUserQuestion 二次询问或让用户自然语言描述，再按下表映射表归一化。映射由本 skill 维护，禁止把用户自由文本直接塞给 `--choice`：
 
 | 用户意图 | 快捷回复样例 | canonical choice（精确字符串） | 结果 |
 |---|---|---|---|
@@ -349,7 +359,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 | 缺需求细节 | `需求不全` / `细节再说` | `缺少需求细节` | 回到 Step 5，保留细节 |
 | 范围要拆 | `拆分` / `太大` / `范围太广` | `需要拆分范围` | 状态回 idle，缩小范围后重启 |
 
-无法匹配时询问用户明确选择，不要猜。
+无法匹配时重新 AskUserQuestion，不要猜。
 
 **必调 CLI**：
 

@@ -42,12 +42,12 @@ examples:
 ```
 
 ### 4. Hard Stop 等待确认
-```
-**是否使用增强版本？(Y/N/M)**
-- Y: 使用增强版本继续
-- N: 使用原始版本
-- M: 手动修改后使用
-```
+
+调用 `AskUserQuestion` 收集决策，`question` 写"如何使用增强结果？"，`options` 给三条：
+
+- `use_enhanced` — 使用增强版本继续
+- `use_original` — 使用原始版本
+- `manual_edit` — 手动修改后使用（暂停等待用户贴回修改稿）
 
 ---
 

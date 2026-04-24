@@ -135,11 +135,13 @@ argument-hint: <需求描述 | path/to/requirement.md>
 - 文件数 + 任务数
 - 主要风险
 
-用户选择：
+展示后调用 `AskUserQuestion` 收集决策，`question` 写"如何处理这份 quick-plan？"，`options` 给三条：
 
-1. **确认** → 用户自行执行或交给 `/workflow-execute`
-2. **修改** → 回到 Step 3 调整
-3. **切换到 /workflow-plan** → 用户明确需要完整管线
+- `confirm` — 确认计划，用户自行执行或交给 `/workflow-execute`
+- `revise` — 修改计划，回到 Step 3 根据反馈调整
+- `upgrade_workflow_plan` — 切换到 `/workflow-plan` 完整管线（含 spec + 状态机）
+
+收到用户选择前不得继续。
 
 ## Confidence Score 规则
 

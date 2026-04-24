@@ -188,11 +188,15 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 ### 可能的重复缺陷（来自 1.7）
 - <候选 issue_number>：<简述> — 建议：一起修 / 作为重复覆盖 / 忽略
-
-## 是否继续执行此修复方案？(Y/N)
 ```
 
-**立即终止，禁止继续执行任何操作。** 若用户拒绝该方案，标记为 `manual_intervention` + `reason: user_rejected` 并结束流程。
+展示后调用 `AskUserQuestion` 收集决策，`question` 写"是否执行此修复方案？"，`options` 给三条：
+
+- `confirm` — 按推荐方案进入 Phase 3 修复实施
+- `use_alternative` — 切换到备选方案后再进入 Phase 3
+- `reject` — 终止流程，标记 `manual_intervention` + `reason: user_rejected`
+
+**立即终止，禁止继续执行任何操作。** 用户选择 `reject` 时按对应原因结束流程。
 
 ## Phase 3: 修复实施 + 验证方案
 
