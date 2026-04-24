@@ -50,8 +50,12 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 - `/scan` Part 5 首次扫描时引导初始化；已有 code-specs 时汇总 filled/draft 状态
 - `/workflow-plan` Step 1.5 作为 advisory constraints 供 Spec 生成参考
 - `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性
-- `/spec-before-dev` 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist，把 hook 注入的 advisory 摘要展开成一次具体阅读动作
+- `/spec-before-dev` 动手前显式读一遍当前 package/layer 的 Pre-Development Checklist；v5.3.1 起 Step 5.5 主动抽取每个 convention/contract 的 Common Mistakes H3 子标题（`{文件名} § {H3 子标题}`，单文件 ≤5 条、总量 ≤10 条），让即将写代码的人先看一眼本层踩过什么坑
 - `/workflow-review` Stage 1 做 3 层 advisory：人工对照 code-spec + Code Specs Check（按 diff 文件反查 code-spec，记录 advisory findings 到 `stage1.code_specs_check`）+ 跨层 A/B/C/D advisory。Probe E Infra 深度 Gate（阻塞）仅在 infra / cross-layer 关键路径 + 关联 code-spec 存在但 7 段深度不足时触发，写入 `stage1.cross_layer_depth_gap` + `blocking_issues`
+- `/fix-bug` Phase 4.1 强制定档 `code_specs_impact`（四档：`spec_violation` / `spec_gap` / `contract_misread` / `spec_unrelated`），判定 `spec_gap` 时附 Bad/Good 草案 + `/spec-update` 提示；`.claude/code-specs/` 不存在时统一判 `spec_unrelated` 避免虚假 advisory
+- `/bug-batch` 单元级定档 + Phase 8 跨单元归纳：同一文件被 2+ FixUnit 标 `spec_gap` → 输出强信号 advisory 建议 `/spec-update`，同一段落被 2+ FixUnit 标 `spec_violation` → 建议审视执行机制
+
+完整闭环流程图见 `Claude-Code-工作流体系指南.md § 8A` 的"Code Specs 闭环流程图"。
 
 #### 三个命令的分工
 
@@ -194,7 +198,7 @@ core/
 +-- specs/
 |   +-- workflow-runtime/         # 状态机、共享工具、外部依赖语义
 |   +-- workflow-templates/       # spec / plan 模板
-+-- hooks/                        # workflow / worktree / team 运行时 hook 脚本
++-- hooks/                        # workflow / team 运行时 hook 脚本
 +-- utils/
     +-- workflow/                  # workflow_cli.js、execution_sequencer.js、batch_orchestrator.js、merge_strategist.js、spec_* 等
 ```
@@ -255,7 +259,7 @@ npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest syn
 
 ```bash
 # 全局安装（默认）：会同步模板到用户目录
-# Claude Code 的 Worktree hooks 也会自动注入到 ~/.claude/settings.json
+# SessionStart / PreToolUse(Task) / TeammateIdle / TaskCreated / TaskCompleted 5 个 hook 会自动注入到 ~/.claude/settings.json
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
 
 # 同步到指定 Agent
@@ -436,7 +440,8 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - Stage 1 以人工对照 code-spec / guides 的方式检查实现是否符合项目约定（声明式审查，无机读硬卡）
 - Stage 1 附带 Code Specs Check（按 diff 文件反查 `{pkg}/{layer}/` code-spec）和跨层 A/B/C/D advisory，均不消耗 4 次共享预算、不影响 pass/fail
 - Stage 1 Probe E（阻塞）：命中 infra / cross-layer 关键路径，且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail
-- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算
+- Stage 2 审查模式三选一（由 `role_injection.js` 的 `resolveStage2ReviewMode` 统一路由，互斥）：命中 `security` / `backend_heavy` / `data` → `dual_reviewer`（Codex + 子 Agent 并行）；命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`
+- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算（`multi_angle` 三路合并后只计 1 次 attempt）
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
 
 ---

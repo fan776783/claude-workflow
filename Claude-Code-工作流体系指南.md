@@ -164,8 +164,8 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 |                  Hooks 层 (运行时守门)                             |
 |  session-start.js       会话启动上下文注入 + guardrail             |
 |  pre-execute-inject.js  Task 派发前门控 + 任务上下文注入           |
-|  worktree-serialize.js  worktree 创建串行化                       |
-|  worktree-cleanup.js    worktree 清理与锁释放                     |
+|  team-idle.js           原生 Agent Teams 任务板守门（TeammateIdle）|
+|  team-task-guard.js     任务粒度守门（TaskCreated / TaskCompleted）|
 +-----------------------------------------------------------------+
                             | 读写
 +-----------------------------------------------------------------+
@@ -307,6 +307,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 - `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
 - 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查
+- Stage 2 审查模式由 `role_injection.js` 的 `resolveStage2ReviewMode` 根据信号路由，三选一：命中 `security` / `backend_heavy` / `data` → `dual_reviewer`（Codex + 子 Agent 并行）；命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`。三路并行的 `multi_angle` 合并后只计 1 次 attempt，不突破 4 次共享预算
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`
 - 详见 `core/skills/workflow-review/SKILL.md`
 
@@ -417,7 +418,7 @@ flowchart TD
 flowchart TD
     subgraph Step1["Step 1: 解析参数 + 预检"]
         A1["解析命令参数"] --> A2["Git 状态检查"]
-        A2 --> A3["项目配置自愈"]
+        A2 --> A3["项目配置检查（缺失直接报错，引导 /scan）"]
         A3 --> A4["工作流状态检测"]
     end
 
@@ -778,7 +779,7 @@ stateDiagram-v2
 
 | 脚本 | 职责 | 关键命令 |
 |------|------|----------|
-| `workflow_cli.js` | 统一 CLI 入口 | `plan`, `execute`, `status`, `delta`, `archive`, `advance` 等 |
+| `workflow_cli.js` | 统一 CLI 入口 | `plan`, `execute`, `status`, `delta`, `archive`, `advance`, `migrate-project-id` 等 |
 | `execution_sequencer.js` | 执行治理（ContextGovernor） | `decide`, `apply-decision`, `retry`, `retry-reset`, `skip` |
 | `state_manager.js` | 状态文件读写 | `writeState`, `readState` |
 | `task_manager.js` | 任务管理与进度统计 | `cmdNext`, `cmdComplete`, `cmdStatus`, `cmdProgress` |
@@ -814,7 +815,7 @@ stateDiagram-v2
 启动前执行预检（详见 `core/specs/workflow-runtime/preflight.md`）：
 
 1. **Git 状态检查** — 确认 git 仓库已初始化且有初始提交
-2. **项目配置自愈** — 确保 `project-config.json` 存在，缺失时自动生成最小配置
+2. **项目配置检查** — `project-config.json` 必须存在且 `project.id` 合法；缺失或无效时直接报错并引导用户先执行 `/scan`（空项目 `/scan --init`），不再自动生成最小配置。`/scan` 还会检测 v5.2.x 及之前的纯 12 位 hex `project.id` 并提示迁移为新格式 `{name-slug}-{12位 hash}`
 3. **工作流状态检测** — 检查是否存在未归档的工作流，避免意外覆盖
 
 ### 7.3 Phase 0：代码分析（强制）
@@ -992,7 +993,7 @@ Task 完成 → ①验证 → ②自审查 → ③更新 plan.md → ④更新 s
 两类批次：
 
 - **只读批次**（analysis / review）：不 provision worktree，子 Agent 产物写到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/{taskId}.json`；任一子 Agent 失败 → 降级为串行分析
-- **写文件批次**：先串行 provision worktree + registerAgent，再并行启动子 Agent；各子 Agent 完成后合流到集成 worktree（由 `merge_strategist.js` 管理），在集成 worktree 中跑 stage2 审查，通过才 `finalMergeToMain`；失败则 `discardIntegrationWorktree` 丢弃集成 worktree，任务回 `pending`
+- **写文件批次**：provision worktree + registerAgent 完成后，并行启动子 Agent；各子 Agent 完成后合流到集成 worktree（由 `merge_strategist.js` 管理），在集成 worktree 中跑 stage2 审查，通过才 `finalMergeToMain`；失败则 `discardIntegrationWorktree` 丢弃集成 worktree，任务回 `pending`
 
 状态字段扩展（详见 `core/specs/workflow/state-machine.md`）：
 
@@ -1082,9 +1083,76 @@ code-spec 的 7 段：
 
 - **`workflow-plan` Step 1.5（advisory）**：读取 `.claude/code-specs/` 目录汇总 Constraints；Spec 模板保留 `3.x Project Code Specs Constraints` 小节承载该内容；未初始化且用户未 skip 时输出 advisory 提示
 - **`workflow-execute` task-aware 预注入（advisory）**：`plan-template.md` 新增可选字段 `Target Layer`；`task_runtime` 按任务声明的 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 标签带 `layer="..."` 与 `hints="N"` 属性，不阻塞
+- **`spec-before-dev` Step 5.5 Active Common Mistakes**（v5.3.1）：对 Step 5 读过的每个 convention/contract 文件主动抽取 Common Mistakes 段下的 H3 子标题，按"轮询填充"（不按时间排序）分配到各文件，单文件最多 5 条、总量最多 10 条；digest 只输出 `{文件名} § {H3 子标题}` 不复制 Bad/Good 代码；触达 4096 字符预算上限则退化为"文件名 + 条数"
 - **`workflow-review` Stage 1 Code Specs Check（advisory）**：按 diff 文件反查 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议，写入 `stage1.code_specs_check.findings_count`，不消耗 Stage 1 / Stage 2 的 4 次共享预算，不影响 pass/fail
 - **`workflow-review` Stage 1 跨层 advisory（A/B/C/D）**：数据流 / 代码复用 / import 路径 / 同层一致性 4 维度启发式，按 diff 命中条件触发，仅做早期警示
 - **`workflow-review` Stage 1 Probe E Infra 深度 Gate（阻塞）**：命中 infra / cross-layer 关键路径（`src/api/**`、`src/migrations/**`、`auth/**`、`services/**` 等），且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 fail，并把阻塞项写入 `stage1.cross_layer_depth_gap` + `blocking_issues`；关联 code-spec 不存在时降级为 advisory，不升级成阻塞
+- **`fix-bug` Phase 4.1 Code Specs Impact 四档定档**（v5.3.1）：审查完成后必须显式输出 `code_specs_impact` ∈ `{spec_violation, spec_gap, contract_misread, spec_unrelated}`；`spec_violation` 指段落路径 `{pkg}/{layer}/{file}.md § {H3 子标题}`；`spec_gap` 附 Bad/Good 草案 + `/spec-update` 提示；`contract_misread` 指向 contract 的 `§ Validation & Error Matrix` 或 `§ Wrong vs Correct`；`spec_unrelated` 留空 advisory。`.claude/code-specs/` 不存在时统一判 `spec_unrelated` 避免虚假 advisory
+- **`bug-batch` 单元级定档 + 跨单元归纳**（v5.3.1）：Phase 3 分析阶段为每个 `IssueRecord` 附加 `spec_hint`；Phase 5.5.1 单元级 review 通过后主会话按 fix-bug 四档规则为每个 FixUnit 附加 `code_specs_impact`；Phase 8 汇总时聚合全批次字段——同一文件被 2+ 单元标 `spec_gap` → 强建议 `/spec-update`，同一段落被 2+ 单元 `spec_violation` → 建议审视执行机制
+
+### Code Specs 闭环流程图
+
+把上面的命令链和 workflow 注入点合成一张图，便于快速定位"现在该调哪个命令 / 该读哪个文件"。
+
+```mermaid
+flowchart TD
+    subgraph Bootstrap["初始化（仅首次）"]
+        Z1["/scan Part 5"] --> Z2{"code-specs<br/>是否初始化"}
+        Z2 -->|否| Z3["/spec-bootstrap<br/>按 pkg × layer 生成骨架"]
+        Z2 -->|是| Z4["写 bootstrapStatus=done"]
+        Z3 --> Z4
+    end
+
+    subgraph DailyLoop["日常开发闭环"]
+        L1["/spec-before-dev<br/>--package X --layer Y"] --> L2["读 index.md<br/>Pre-Dev Checklist"]
+        L2 --> L3["读匹配的 code-spec<br/>+ Active Common Mistakes"]
+        L3 --> L4["实现 / 修 bug / 设计决策"]
+        L4 --> L5{"有沉淀价值？"}
+        L5 -->|是| L6["/spec-update<br/>按 7 段 code-spec 或 guide 写入"]
+        L5 -->|否| L7["跳过"]
+        L6 --> L8[".claude/code-specs/ 更新"]
+        L7 --> L8
+    end
+
+    subgraph WorkflowHooks["workflow 主线的注入点"]
+        direction LR
+        P1["workflow-plan Step 1.5<br/>汇总 Constraints<br/>→ Spec 3.x 段"]
+        P2["workflow-execute 预注入<br/>&lt;project-code-specs layer hints&gt;"]
+        P3["workflow-review Stage 1<br/>Code Specs Check<br/>+ 跨层 A/B/C/D advisory"]
+        P4["workflow-review Stage 1<br/>Probe E Infra 深度 Gate<br/>（阻塞）"]
+    end
+
+    subgraph BugIntake["缺陷反哺回路"]
+        direction LR
+        B1["fix-bug Phase 4.1<br/>定档 code_specs_impact"]
+        B2["bug-batch Phase 5.5.1<br/>单元级定档"]
+        B3["bug-batch Phase 8<br/>跨单元归纳"]
+        B1 -->|spec_gap| L6
+        B2 -->|spec_gap| L6
+        B3 -->|2+ spec_gap 指同文件| L6
+    end
+
+    subgraph Maintenance["定期维护"]
+        M1["/spec-review<br/>扫 7 段完整性 / 过期<br/>/ 冲突 / canonical 对账"] --> M2[".claude/reports/<br/>spec-review-{date}.md"]
+    end
+
+    Bootstrap --> DailyLoop
+    L8 --> P1
+    L8 --> P2
+    L8 --> P3
+    L8 --> P4
+    P3 -.findings.-> L6
+    P4 -.7 段深度不足.-> L6
+    L8 --> Maintenance
+    L8 --> BugIntake
+```
+
+**读图要点**：
+
+- **实线**：命令触发的主路径（用户显式调用 / workflow 阶段流转）
+- **虚线**：advisory / 阻塞信号反哺回 `/spec-update` 的建议回路，不是自动写入
+- **`fix-bug` / `bug-batch` 只产 advisory**，`/spec-update` 是否实际落盘由用户决定；避免仪式感式的"每个 bug 都要动 spec"
+- **Probe E 是目前唯一的阻塞路径**：code-spec 存在但 7 段深度不足 + 命中 infra 关键路径时 Stage 1 fail；其余接入点都是 advisory
 
 ### 端到端示例：沉淀一条 API 契约
 
@@ -1313,16 +1381,14 @@ code-spec 的 7 段：
 
 ## 12. Hooks 流程控制
 
-工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails** 和 **worktree 并发安全**。hooks 不替代 `/workflow` command 和 skill 驱动的状态机，而是在其外围提供自动化的上下文注入、执行门控和资源管理。
+工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails**。hooks 不替代 `/workflow` command 和 skill 驱动的状态机，而是在其外围提供自动化的上下文注入与执行门控。
 
 ### 12.1 Hook 分类
 
-当前共 **6 个 hook 脚本**，按职责分为三类：
+当前共 **4 个 hook 脚本**，按职责分为两类（worktree 串行化 hook 已于 v5.3.0 移除）：
 
 | 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
 |------|-----------|------|----------|------|
-| **Worktree Hooks** | `WorktreeCreate` | `worktree-serialize.js` | ✅ 随 `sync` 自动注入 | 串行化 `git worktree add`，防止并行竞争 `.git/config.lock` |
-| | `WorktreeRemove` | `worktree-cleanup.js` | ✅ 随 `sync` 自动注入 | 清理孤立 worktree 引用、回收托管目录、释放串行锁 |
 | **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文与 guardrail |
 | | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | 在 Task 派发前检查状态并注入任务上下文 |
 | **Team Hooks**（Claude Code 原生 Agent Teams）| `TeammateIdle` | `team-idle.js` | ✅ 随 `sync` 自动注入 | 任务板未清空时阻止队友 idle；清空时提示队友给 Lead 发 message 后退出 |
@@ -1345,11 +1411,9 @@ flowchart TD
         T4 --> T6["Task 执行"]
     end
 
-    subgraph WorktreeLevel["Worktree 级"]
-        W1["创建 Worktree"] --> W2["WorktreeCreate hook"]
-        W2 --> W3["获取排他锁 → 放行"]
-        W4["删除 Worktree"] --> W5["WorktreeRemove hook"]
-        W5 --> W6["prune + 回收 + 释放锁"]
+    subgraph TeamLevel["Team 级（原生 Agent Teams）"]
+        G1["队友 idle / 任务板变化"] --> G2["team-idle.js / team-task-guard.js"]
+        G2 --> G3["任务粒度 / 未完成项守门"]
     end
 ```
 
@@ -1399,40 +1463,34 @@ flowchart TD
 **放行时输出**：`{ "continue": true, "tool_input": { "description": "<injected-context>\n\n---\n\n<original-description>" } }`
 
 
-#### 12.3.3 `WorktreeCreate` — 串行化 worktree 创建
+#### 12.3.3 `TeammateIdle` — 原生 Agent Teams 任务板守门
 
-**触发时机**：Claude Code 创建新 worktree 前触发。
-
-**行为**：
-
-1. 获取 git common dir（主仓库 `.git` 目录）
-2. 尝试通过 `mkdir` 原子操作获取排他锁（`<git-common-dir>/worktree-serialize.lock/`）
-3. 若锁已被持有：
-   - 检查是否过期（10 秒自动过期）
-   - 检查持锁进程是否存活（同机器 PID 检测）
-   - 可清理则清理后重试；否则指数退避等待
-4. 30 秒总超时后强制放行
-5. 获取锁后**不主动释放**——锁通过自动过期机制释放，确保 hook 退出后 `git worktree add` 执行期间其他请求仍被串行化
-
-#### 12.3.4 `WorktreeRemove` — worktree 清理
-
-**触发时机**：Claude Code 删除 worktree 时触发。
+**触发时机**：某位队友空闲（Claude Code 发出 `TeammateIdle` 事件）时触发。
 
 **行为**：
 
-1. 执行 `git worktree prune`，清理孤立 worktree 引用
-2. 扫描 `.claude/worktrees/` 目录，回收未被 Git 注册的孤立目录
-3. 释放串行化锁目录，加速后续 worktree 创建
-4. 始终返回 `{ "continue": true }`，绝不阻断
+1. 仅在 payload 带 `team_name` 时生效；否则放行
+2. 任务板仍有未完成任务 → 退码 2 留住队友，输出 `[team-idle] 任务板仍有 N/M 个未完成任务` 让队友继续认领
+3. 任务板已清空 → 通过 stderr 指示队友给 Lead 发一条 message 后放行 idle（Lead 收到后自行执行 `clean up team`）
+
+#### 12.3.4 `TaskCreated` / `TaskCompleted` — 任务粒度守门
+
+**触发时机**：队友创建或完成任务时触发（`team-task-guard.js` 通过参数区分 `created` / `completed`）。
+
+**行为**：
+
+1. `TaskCreated` 时校验 `task_subject` 是否给出明确交付；缺失退码 2，提示补上任务标题
+2. `TaskCompleted` 时校验 `task_subject` / `task_description` 是否含 TODO / FIXME / 待验证 / 待补充 类字眼；命中则退码 2 拒绝"完成"标记
+3. 校验通过 → 放行
 
 ### 12.4 启用与配置
 
 #### 自动启用（推荐）
 
-Worktree hooks 和 Workflow hooks 在全局 `sync` 时默认注入：
+Workflow hooks 和 Team hooks 在全局 `sync` 时默认注入：
 
 ```bash
-npm run sync          # 默认注入 worktree + workflow hooks
+npm run sync          # 默认注入 workflow + team hooks
 npm run sync -- -y    # 同上，跳过确认
 ```
 
@@ -1457,22 +1515,6 @@ npm run sync -- -y    # 同上，跳过确认
         "hooks": [{
           "type": "command",
           "command": "node \"$HOME/.claude/.agent-workflow/hooks/pre-execute-inject.js\""
-        }]
-      }
-    ],
-    "WorktreeCreate": [
-      {
-        "hooks": [{
-          "type": "command",
-          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-serialize.js\""
-        }]
-      }
-    ],
-    "WorktreeRemove": [
-      {
-        "hooks": [{
-          "type": "command",
-          "command": "node \"$HOME/.claude/.agent-workflow/hooks/worktree-cleanup.js\""
         }]
       }
     ],
@@ -1512,7 +1554,6 @@ Hooks **负责**：
 
 - 注入 workflow 状态、当前 task、验证命令、关键约束信息
 - 在状态非法、上下文不完整时阻断继续
-- 串行化 worktree 创建，回收孤立目录
 - 为 `/team` 原生 Agent Teams 做任务板守门与 idle 收尾协调
 
 Hooks **不负责**：
@@ -1528,19 +1569,13 @@ Hooks **不负责**：
 ```bash
 # 检查 hook 是否已注册
 cat ~/.claude/settings.json | jq '.hooks'
-
-# 清理残留 worktree 锁
-rm -rf $(git rev-parse --git-common-dir)/worktree-serialize.lock
-
-# 检查 worktree 状态
-git worktree list
-git worktree prune
 ```
 
 常见诊断日志：
 - `[workflow-hook] 未发现活动 workflow，跳过上下文注入。` — 无活动工作流，hook 正常跳过
 - `[workflow-hook] 已注入任务上下文 (N 字符)` — 成功注入上下文
-- `[worktree-serialize] 获取锁超时(30000ms)，强制放行` — worktree 锁超时
+- `[team-idle] 任务板仍有 N/M 个未完成任务` — 队友被留住，需继续认领任务
+- `[team-task-guard:completed]` — 任务完成时带 TODO / 待验证 类字眼，已拒绝标记 completed
 
 ---
 
@@ -1617,7 +1652,7 @@ git worktree prune
 
 ### 14.6 为什么必须先 `/scan`？
 
-因为 `workflow` 依赖项目配置识别项目 ID、工作流目录和上下文信息；没有项目配置会影响状态持久化和后续 skill 协作。不过当前版本支持项目配置自愈，缺失时会自动生成最小配置。
+因为 `workflow` 依赖项目配置识别项目 ID、工作流目录和上下文信息；没有项目配置会影响状态持久化和后续 skill 协作。v5.3.0 起 preflight 不再自动生成最小配置——缺失或 `project.id` 无效会直接报错，要求先执行 `/scan`（空项目使用 `/scan --init`）。`/scan` 同时会检测 v5.2.x 及之前的纯 12 位 hex `project.id` 并提示迁移为新格式 `{name-slug}-{12位 hash}`（也可用 CLI `workflow_cli.js migrate-project-id --apply` 手动触发）。
 
 ### 14.7 什么时候需要 `dispatching-parallel-agents`？
 
@@ -1729,4 +1764,3 @@ git worktree prune
 - `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js`、`core/hooks/team-task-guard.js`（原生 Agent Teams 的任务板守门与自动清理）
 - `docs/workflow-hooks.md`（Workflow Hook Guardrails 详细文档）
-- `docs/worktree-hooks.md`（Worktree 串行化 Hook 详细文档）

@@ -11,6 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 （无待发布项）
 
+## [5.3.1] - 2026-04-24
+
+### Changed
+
+- **fix-bug 新增 Code Specs Impact 四档强制定档（Phase 4.1）**：审查完成后必须显式输出 `code_specs_impact` ∈ `{spec_violation, spec_gap, contract_misread, spec_unrelated}`，并按档位填充 `code_specs_advisory`。`spec_violation` 需指向 `{pkg}/{layer}/{file}.md § {H3 子标题}`；`spec_gap` 附 Bad/Good 草案 + `/spec-update` 提示；`contract_misread` 指向 contract 的 `§ Validation & Error Matrix` 或 `§ Wrong vs Correct`；`spec_unrelated` 留空 advisory。兜底规则：`.claude/code-specs/` 不存在 → 统一判 `spec_unrelated`（避免虚假 advisory）。
+- **fix-bug Phase 1.2 新增 code-spec 定位步**：按 codebase-retrieval 命中的文件路径提取 `{pkg}/{layer}`，读 `.claude/code-specs/{pkg}/{layer}/index.md` 的 Guidelines Index 表，定位相关 convention/contract 文件后读取 Common Mistakes + Rules 段（单文件 200 行预算）。未命中或 `.claude/code-specs/` 不存在时仅记录"未覆盖"，不阻断流程。Phase 1.8 输出、Phase 2 方案表均同步新增 `Code Specs 对照` 段
+- **bug-batch 新增跨单元 Code Specs 归纳**：Phase 3 分析阶段为每个 `IssueRecord` 定位 `spec_hint`；Phase 5.5.1 单元级 review 通过后由主会话为每个 FixUnit 附加 `code_specs_impact` 字段（规则与 fix-bug 一致）；Phase 8 汇总时聚合全批次字段输出批量 advisory（同一文件被 2+ 单元标 `spec_gap` → 强建议 `/spec-update`；同一段落被 2+ 单元 `spec_violation` → 建议审视执行机制）。`references/status-and-reporting.md` 报告模板新增 `### Code Specs 归纳` 段
+- **spec-before-dev 新增 Step 5.5 Active Common Mistakes**：对 Step 5 读过的每个 convention/contract 文件主动抽取 Common Mistakes 段下的 H3 子标题，按"轮询填充"策略（不按时间排序，spec 文件无 timestamp）分配到各文件，单文件最多 5 条、总量最多 10 条，只输出 `{文件名} § {H3 子标题}` 不复制 Bad/Good 代码。命中 digest 4096 字符预算上限时退化为"文件名 + 条数"
+- **fix-bug Phase 4 章节编号调整**：4.1 原"状态流转就绪判断"下沉为 4.2，新的 4.1 承担"Code Specs Impact 定档"；4.2.x 相应重编号为 4.3.x（引用链同步更新）
+
+## [5.3.0] - 2026-04-24
+
+### Added
+
+- **Legacy projectId 自动迁移（/scan Part -1 + CLI `migrate-project-id`）**：v5.2.x 及之前版本的纯 12 位 hex `project.id`（如 `8c5fd4f4930b`）在下次 `/scan` 时检测并提示迁移为新格式 `{name-slug}-{12位 hash}`（如 `claude-workflow-8c5fd4f4930b`）；用户确认后自动改写 `project-config.json` 并把 `~/.claude/workflows/{旧id}/` 重命名为新目录。新 CLI 子命令 `workflow_cli.js migrate-project-id`，默认 dry-run，`--apply` 执行；新 id 目录已存在时报错 `target_state_dir_exists`，不自动合并
+- **workflow-review 新增 `multi_angle` 审查模式**：当 Stage 2 信号命中 `large_scope` 或 `refactor`（且未命中 dual_reviewer 前置信号 security / backend_heavy / data）时，分派 Reuse / Quality / Efficiency 三路只读子 Agent 并行审查，dedup 后合并为统一 finding 结构。任一角度 verified Critical/Important → Stage 2 fail；任一 Agent 5 分钟未返回 → 降级为 `single_reviewer (multi_angle degraded)`。三角度合并后只计 1 次 Stage 2 attempt，不突破 4 次共享预算。`role_injection.js` 新增 `resolveStage2ReviewMode(signals)` 统一路由，signals 新增 `refactor` / `large_scope` 标签（`large_scope` 触发：diff 文件 ≥10 或跨 3+ 层）
+- **Stage 2 审查模式路由常量化**：`role_injection.js` 导出 `resolveStage2ReviewMode`，调用方直接消费返回值，不再在 SKILL 内做等价判断；`deriveSignalTags` 同步追加 `refactor` / `large_scope` 两个 tag
+- **workflow-plan CLI 写入口契约**：SKILL.md 新增 `<CLI-CONTRACT>` 小节明确 `workflow_cli.js plan` 是规划状态机唯一写入口，Step 1 必须先调 CLI 建立 state 与骨架文件（`workflow-state.json` / spec.md / discussion-artifact.json / prd-spec-coverage.json / role-context.json，ux-design-artifact.json 按 `ux_gate_required` 条件创建），Step 5 / 7 只能 Edit 扩写骨架，禁止 Write 全量覆盖 spec.md / plan.md。HARD-GATE 从 3 条扩为 4 条，新增"Step 1 必调 CLI"硬约束
+- **spec-review `--choice` canonical 枚举固化**：SKILL.md 显式列出 7 个精确匹配字符串（`Spec 正确，生成 Plan` / `Spec 正确，继续` / `需要修改 Spec` / `页面分层需要调整` / `缺少用户流程` / `缺少需求细节` / `需要拆分范围`），禁止把用户原话直接塞给 `--choice`，必须先归一化
+- **Manifest 连续性预发布 gate**：新增 `scripts/check-manifest-continuity.js`，`scripts/release.sh` 在 `npm version` 前调用该脚本校验 npm 上每个已发布版本都有对应 `core/specs/spec-templates/manifests/v*.json`（pre-v5.1.0 的 4.0.0/4.1.0/5.0.0-5.0.3 在 `KNOWN_GAPS` 白名单内）。缺口会阻断 release；紧急情况可用 `SKIP_MANIFEST_CONTINUITY=1` 绕过，会打印黄色告警 banner
+- **Validate 新增当前版本 manifest 存在性校验**：`scripts/validate.js` 在 prepublish 尾部检查 `core/specs/spec-templates/manifests/v${package.json.version}.json` 必须存在，防止 `scripts/generate-manifest.js` 静默失败仍走到 publish
+- **fix-bug 入参归一化分支（Phase 1.1）**：支持两种入参形态——`issue_number`（按 `references/issue-intake.md` 读项目配置 + `mcp__mcp-router__get_issue`）、自由描述 bug（构造最小 IssueRecord，`status_transition_ready` 恒为 false，摘要标注"无缺陷单可流转"）
+- **fix-bug 重复缺陷 best-effort 识别（Phase 1.7）**：仅在入参为 `issue_number` 时扫描同经办人或同模块下未关闭的缺陷（`mcp__mcp-router__list_issues`），候选放入 `included_issues` / `issues_covered_as_duplicates`，由用户决定合并与否。禁止自动合并；不确定时保持空数组
+- **bug-batch FixUnit 新增元数据**：`merge_reason`（`primary` / `same_root_cause` / `coupled_with`）标注合并动机；`manual_intervention_reason` 必填于 `execution_status = manual_intervention`；`covered_by_unit` 指向覆盖它的 FixUnit
+- **bug-batch `manual_intervention` 原因枚举**：9 档显式原因（`root_cause_mismatch` / `verification_failed` / `out_of_scope` / `review_rejected` / `materialization_failed` / `cross_unit_conflict` / `user_rejected` / `ambiguous_empty_change` / `cover_unit_failed`），覆盖 Phase 5 / 5.5 / 6 / 7 各触发点
+- **AskUserQuestion 集成**：`workflow-delta` Step 1（变更类型识别）/ Step 5（应用决策）、`workflow-plan` Step 4（UX 审批）/ Step 6（Spec 审批）、`bug-batch` Phase 4（编排确认）/ 5.5.3（批量 review 方式）/ 5.5.5（BLOCKER 决策）、`fix-bug` 分支选择、`quick-plan` 决策点、`enhance` 改用 AskUserQuestion 取代自然语言自由回复
+
+### Changed
+
+- **projectId 生成规则**：从纯 12 位 hex 切换为 `{name-slug}-{12位 hash}`，slug 取 `path.basename(cwd)` 的 ASCII 字母数字 lowercase、`[^a-z0-9]+` 压为 `-`、截断 32 字符；slug 为空（如全中文目录名）时退回纯 hash 以保证跨平台可用
+- **workflow runtime projectId 漂移修复**：`resolveWorkflowRuntime` / `buildExecuteEntry` / `cmdPlan` 不再 fallback 调用 `detectProjectId` / `stableProjectId` 重新计算，统一直读 `project-config.json` 的 `project.id`。CLI 传入的 `--project-id` 与 config 不一致时报 `project_id_mismatch`。根因：worktree / 子目录 / symlink 场景下运行时重算会与 /scan 时的 id 漂移
+- **preflight Step 2 由"自愈"改为"硬性检查"**：`project-config.json` 不存在或 `project.id` 无效时直接报错引导用户执行 `/scan`（空项目 `/scan --init`），不再自动生成最小配置。理由：自动生成配置会在 worktree 场景产生新 id 漂移，应由用户显式触发
+- **workflow-plan Step 2-4 工件契约反转**：`discussion-artifact.json` / `ux-design-artifact.json` / `prd-spec-coverage.json` 改由 CLI `plan` 创建骨架，AI 只按 canonical schema 填值（顶层 key 不得改名或新增）。`analysis-result.json` 仍由 AI 全权 Write。`prd-spec-coverage.json` 完全由 CLI 管理，AI 只读不写
+- **core/CLAUDE.md v4.1 瘦身**：从 v4.0 的 173 行压缩到 34 行，抽取"Global Protocols / 协作路由 / 并行与 Team / 输出文风"四段；`Codex 调用`（sandbox、session、后台执行、review 模式）统一以 `collaborating-with-codex` skill contract 为准，不再在 CLAUDE.md 重复约定。`workflow` / `协作架构` / `动态协作模式` / `输出文风约束` 四大小节移除
+- **bug-batch `execution_status` 重排**：旧 8 档（`analysis_pending` / `awaiting_batch_confirmation` / `ready_to_fix` / `fixing` / `awaiting_manual_verification` / `completed` / `manual_intervention` / `blocked`）压缩为 7 档并与 Phase 对齐（`pending` / `blocked` / `in_progress` / `completed` / `no_change_needed` / `covered_by_other` / `manual_intervention`）
+- **bug-batch description 改口**：从"批量缺陷修复 — 拉取缺陷清单后，先完成全量诊断、重复/关联关系识别与修复单元编排..."改为更口语化的"批量修缺陷——从蓝鲸项目管理平台一次性拉一批 Bug，先做全量分析找出重复和共享根因再成组修..."
+- **fix-bug Phase 1 重排**：1.1 输入归一化 / 1.2 检索上下文 / 1.3 识别问题类型 / 1.4 假设驱动根因追溯 / 1.5 失败与中止处理 / 1.6 红旗清单 / 1.7 重复缺陷识别 / 1.8 Phase 1 输出 / 1.9 manual_intervention 原因表。旧"失败计数器"小节升级为显式的 `manual_intervention` + `verification_failed` 触发路径
+- **team.md 启动决策扩为 4 项**：新增"队友命名"（显式指定名字否则系统随机，影响后续 SendMessage 可预测性）；spawn 初始 message 新增 6 条必含项（任务上下文自带 / 直连规则 / 任务板自认领 / 完成交付格式 / 权限申请 / subagent 行为告知）；补充"显示模式由 `~/.claude.json` 的 `teammateMode` 决定"、"官方已知限制"、"故障排除"三段
+- **README.md Hook 说明清理**：从"6 个 hook 脚本 / 三类"改为"4 个 hook 脚本 / 两类"，删除 `WorktreeCreate` / `WorktreeRemove` 相关配置示例与故障排查；参考文档移除 `docs/worktree-hooks.md`
+
+### Removed
+
+- **删除 worktree 串行化 hooks**：`core/hooks/worktree-serialize.js` / `core/hooks/worktree-cleanup.js` / `docs/worktree-hooks.md` 整体删除（共 -605 行）。理由：并行批次 provisioning 不再需要内核级串行锁，`merge_strategist.js` + `dispatching-parallel-agents` 已经覆盖并发安全
+- **移除 Hook 配置中的 WorktreeCreate / WorktreeRemove 注册**：新装项目 `sync` 不再注入这两类 hook；已有项目本次升级不自动清理 `settings.json`（保留用户历史配置），建议手动删除对应条目
+- **execution_sequencer / lifecycle_cmds 移除 projectId fallback**：`buildExecuteEntry` 与 `cmdPlan` 不再走 `detectProjectId(String(projectRoot))` 兜底；缺 config 直接返回 `missing_project_config` + `reason` 字段
+- **workflow-plan 预检不再"配置自愈"**：旧 `ensureProjectConfig` 调用链在 `cmdPlan` 中改为 `loadProjectConfig` + 显式校验；`started.config_healed` 字段恒为 `false`
+
 ## [5.2.0] - 2026-04-20
 
 ### Changed
