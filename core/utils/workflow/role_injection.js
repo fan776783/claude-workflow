@@ -112,6 +112,9 @@ function classifyInfraDepth(files = []) {
   }
 }
 
+const LARGE_SCOPE_FILES_THRESHOLD = 10
+const LARGE_SCOPE_LAYER_THRESHOLD = 3
+
 function classifyRoleSignals(requirementContent = '', analysisPatterns = [], discussionArtifact = null, extra = {}) {
   const text = [requirementContent, extra.taskName, extra.summary, safeArray(extra.requirementIds).join(' '), safeArray(extra.criticalConstraints).join(' ')].filter(Boolean).join('\n')
   const frameworksText = safeArray(analysisPatterns).map((pattern) => String((pattern || {}).name || '')).join(' ')
@@ -121,6 +124,11 @@ function classifyRoleSignals(requirementContent = '', analysisPatterns = [], dis
   const security = /auth|token|session|permission|role|credential|secret|oauth|jwt|鉴权|认证|授权|权限|密钥/i.test(combined)
   const data = /database|schema|migration|repository|sql|orm|prisma|query|数据层|数据库|迁移/i.test(combined)
   const backend_heavy = /api|controller|handler|route|service|repository|backend|server|接口|后端|服务/i.test(combined) || data
+  const refactor = /重构|refactor|cleanup|清理|simplify|dedup|去重|提取|抽取|rename|重命名/i.test(combined)
+  const filesChanged = Number(extra.filesChanged || 0)
+  const diffFiles = safeArray(extra.diffFiles)
+  const depth = diffFiles.length ? classifyInfraDepth(diffFiles) : { layerCount: 0 }
+  const large_scope = filesChanged >= LARGE_SCOPE_FILES_THRESHOLD || depth.layerCount >= LARGE_SCOPE_LAYER_THRESHOLD
   const clarificationCount = safeArray((discussionArtifact || {}).clarifications).length
   return {
     ui,
@@ -128,6 +136,8 @@ function classifyRoleSignals(requirementContent = '', analysisPatterns = [], dis
     security,
     data,
     backend_heavy,
+    refactor,
+    large_scope,
     clarification_count: clarificationCount,
   }
 }
@@ -139,8 +149,16 @@ function deriveSignalTags(signals = {}) {
   if (signals.backend_heavy) tags.push('backend_heavy')
   if (signals.ui) tags.push('ui')
   if (signals.workspace) tags.push('workspace')
+  if (signals.refactor) tags.push('refactor')
+  if (signals.large_scope) tags.push('large_scope')
   tags.push('default')
   return [...new Set(tags)]
+}
+
+function resolveStage2ReviewMode(signals = {}) {
+  if (signals.security || signals.backend_heavy || signals.data) return 'dual_reviewer'
+  if (signals.large_scope || signals.refactor) return 'multi_angle'
+  return 'single_reviewer'
 }
 
 function defaultRoleForPhase(phase = '') {
@@ -235,6 +253,7 @@ module.exports = {
   classifyRoleSignals,
   classifyInfraDepth,
   deriveSignalTags,
+  resolveStage2ReviewMode,
   defaultRoleForPhase,
   resolveRoleProfile,
   buildInjectedContext,

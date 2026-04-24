@@ -166,12 +166,15 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ### 审查模式路由
 
-根据 `state.context_injection.signals` 选择审查模式：
+根据 `state.context_injection.signals` 选择审查模式（优先级从高到低，互斥）：
 
 | 条件 | 模式 | 说明 |
 |------|------|------|
 | 满足任一信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行审查 |
+| 未命中上行，且满足 `large_scope` 或 `refactor` | `multi_angle` | Reuse / Quality / Efficiency 三子 Agent 并行 |
 | 其他 | `single_reviewer` | 子 Agent 单路径 |
+
+路由逻辑封装在 `role_injection.js` 的 `resolveStage2ReviewMode(signals)`，调用方直接使用返回值，不要在 SKILL 里做等价判断。`large_scope` 触发条件：diff 文件数 ≥10 或跨 3+ 层；`refactor` 触发条件：需求文本命中 `重构|refactor|cleanup|simplify|dedup|提取|抽取|rename` 等关键字。
 
 ### single_reviewer 模式（默认）
 
@@ -180,6 +183,28 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 通过 `Task` 工具分派审查子 Agent，审查清单参见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md)。
 
 子 Agent 的平台路由遵循 `../dispatching-parallel-agents/SKILL.md` 的平台检测规则，但 Stage 2 走的是**单 reviewer 子 agent 路径**，不使用并行分派。
+
+### multi_angle 模式（三角度并行）
+
+当信号命中 `large_scope` 或 `refactor`（且未命中 dual_reviewer 的前置信号）时启用。把 Stage 2 拆成 Reuse / Quality / Efficiency 三路子 Agent 并行审查，合并后走一次 CLI。
+
+**执行流程**：
+
+1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`（与 dual_reviewer 同构）
+2. **串行 provision**：三个 reviewer 均为只读任务，**不使用 worktree**（遵守 `core/CLAUDE.md` 的 worktree guardrail：只读分析不预置 worktree）
+3. **并行 dispatch 三个子 Agent**（Task 工具路径）：
+   - Reuse Agent：prompt 注入 `references/stage2-review-checklist.md` § Reuse 角度
+   - Quality Agent：注入 § Quality 角度
+   - Efficiency Agent：注入 § Efficiency 角度
+   每个 Agent 拿到完整 diff，但只负责本角度的 findings。
+4. **Join barrier**：三者都完成后合并；任一 Agent 超过 5 分钟未返回 → 降级为 `single_reviewer`（使用已完成部分 + 剩余 checklist），在 review mode 标注 `(multi_angle degraded)`。
+5. **结果合并**：
+   - 归一化为统一 finding 结构（见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md) § 统一 Finding 结构）
+   - dedup：相同 file + line range + category 合并为 `source: "multi"`
+   - 任一角度有 verified Critical/Important → Stage 2 fail
+6. **与 dual_reviewer 互斥**：本次执行若已走 multi_angle，则不再额外调用 Codex；需要 Codex 的场景请在 spec 里补全 security / backend_heavy / data 关键字让路由回到 dual_reviewer。
+
+**预算影响**：三个角度合并后只算 1 次 Stage 2 attempt。4 次共享预算不变。
 
 ### dual_reviewer 模式（Codex 增强）
 
@@ -268,11 +293,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 
 记录结果前，先标注本次执行模式：
 ```
-📋 Review mode: hybrid | dual-reviewer | degraded-inline
+📋 Review mode: hybrid | dual-reviewer | multi-angle | degraded-inline
 ```
 
 - `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认 single_reviewer）
 - `dual-reviewer`：Stage 2 通过 Codex + 子 Agent 并行审查后合并结果
+- `multi-angle`：Stage 2 通过 Reuse / Quality / Efficiency 三子 Agent 并行后合并结果
 - `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
 
 ### 预算遥测
