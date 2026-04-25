@@ -180,7 +180,6 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
   const markdownRoots = [
     path.join(packageRoot, 'skills'),
     path.join(packageRoot, 'commands'),
-    path.join(packageRoot, 'docs'),
     path.join(packageRoot, 'specs'),
   ];
   const markdownFiles = [];
@@ -656,7 +655,6 @@ async function validate() {
     path.join(packageRoot, 'utils'),
     path.join(packageRoot, 'specs'),
     path.join(packageRoot, 'hooks'),
-    path.join(packageRoot, 'docs'),
   ];
 
   for (const projectionRoot of projectionRoots) {

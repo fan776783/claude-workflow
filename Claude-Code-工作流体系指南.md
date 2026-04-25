@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v15.3.0  
-**最后更新**：2026-04-20  
+**文档版本**：v15.4.0  
+**最后更新**：2026-04-25  
 **适用仓库**：`@justinfan/agent-workflow`
 
 ---
@@ -75,17 +75,6 @@ npm run sync
 
 ```bash
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
-```
-
-常用变体：
-
-```bash
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -a claude-code,cursor -y
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
-
-npm run sync -- -a claude-code,cursor
-npm run sync -- --project
-npm run sync -- -y
 ```
 
 ### 2.2 同步动作会做什么

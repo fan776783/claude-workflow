@@ -12,13 +12,13 @@
 |------|--------------|---------------------|
 | Skills | `core/skills/<skill>/` | `{agentBaseDir}/skills/<skill>/` |
 | Commands | `core/commands/*.md` | `{agentBaseDir}/commands/<name>.md` |
-| Managed resources | `core/{docs,hooks,specs,utils}/` | `{agentBaseDir}/.agent-workflow/<subdir>/` |
+| Managed resources | `core/{hooks,specs,utils}/` | `{agentBaseDir}/.agent-workflow/<subdir>/` |
 
 Canonical 源的枚举规则：
 
 - **Skills**：`core/skills/` 下每个直接子目录，且目录中包含 `SKILL.md`。
 - **Commands**：`core/commands/` 下每个 `*.md` 文件。
-- **Managed resources**：`core/docs`、`core/hooks`、`core/specs`、`core/utils` 四个目录的根路径。
+- **Managed resources**：`core/hooks`、`core/specs`、`core/utils` 三个目录的根路径。
 
 ## Agents 配置契约
 
@@ -38,8 +38,8 @@ Canonical 源的枚举规则：
 
 `lib/installer.js` 必须满足：
 
-1. `TEMPLATE_DIRS` 包含 `core/` 下所有实际存在的一级目录（目前：`agents, commands, docs, hooks, skills, specs, utils`）。若 `core/` 新增一级目录但未登记 `TEMPLATE_DIRS`，视为漏挂载。
-2. `MANAGED_DIRS` 包含 `docs, hooks, specs, utils`。skills 和 commands 走单独 mount 路径，不在 MANAGED_DIRS 里。
+1. `TEMPLATE_DIRS` 包含 `core/` 下所有实际存在的一级目录（目前：`agents, commands, hooks, skills, specs, utils`）。若 `core/` 新增一级目录但未登记 `TEMPLATE_DIRS`，视为漏挂载。
+2. `MANAGED_DIRS` 包含 `hooks, specs, utils`。skills 和 commands 走单独 mount 路径，不在 MANAGED_DIRS 里。
 3. `COMMANDS_DIR === 'commands'`、`SKILLS_DIR === 'skills'`、`MANAGED_NAMESPACE_DIR === '.agent-workflow'`。
 
 ## CI 失败条件（由 validator 实施）

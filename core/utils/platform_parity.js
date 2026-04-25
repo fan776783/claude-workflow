@@ -33,8 +33,8 @@ const INSTALLER_EXPECTED_CONSTANTS = {
   MANAGED_NAMESPACE_DIR: '.agent-workflow',
 }
 
-const INSTALLER_REQUIRED_TEMPLATE_DIRS = ['agents', 'commands', 'docs', 'hooks', 'skills', 'specs', 'utils']
-const INSTALLER_REQUIRED_MANAGED_DIRS = ['docs', 'hooks', 'specs', 'utils']
+const INSTALLER_REQUIRED_TEMPLATE_DIRS = ['agents', 'commands', 'hooks', 'skills', 'specs', 'utils']
+const INSTALLER_REQUIRED_MANAGED_DIRS = ['hooks', 'specs', 'utils']
 
 function listCoreTopLevelDirs() {
   if (!fs.existsSync(CORE_DIR)) return []

@@ -600,7 +600,6 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 
 如需查看更完整说明，可参考：
 
-- `docs/workflow-hooks.md`（SessionStart / PreToolUse(Task) guardrails）
 - `Claude-Code-工作流体系指南.md`
 - `core/commands/team.md`（独立 team command 入口）
 - `core/commands/quick-plan.md`
