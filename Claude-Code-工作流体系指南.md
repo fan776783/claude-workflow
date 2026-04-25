@@ -1294,7 +1294,7 @@ flowchart TD
 
 ### 5.2 Skills 体系总览
 
-仓库当前提供 21 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
+仓库当前提供 20 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
 
 #### 5.2.1 用户直接调用的专项 Skills
 
@@ -1304,7 +1304,6 @@ flowchart TD
 | `fix-bug` | `/fix-bug` | 单问题结构化修复 |
 | `diff-review` | `/diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `session-review` | `/session-review` | 审查当前会话内由本模型产生的改动，压缩/清空检测，不回退到 git diff |
-| `write-tests` | `/write-tests` | 补测试、修测试 |
 | `bug-batch` | `/bug-batch` | 批量缺陷分析与分组修复 |
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
 | `search-first` | `/search-first` | 先搜后写，输出 Adopt / Extend / Build 决策 |
@@ -1705,7 +1704,6 @@ cat ~/.claude/settings.json | jq '.hooks'
 /diff-review                 # Quick：单模型 + finding verification + impact analysis
 /diff-review --deep          # Deep：Codex 候选问题 + 统一裁决 + impact-aware report
 /session-review              # 仅审本会话内由本模型改过的文件
-/write-tests
 /bug-batch
 /figma-ui <URL>
 /search-first "功能需求"

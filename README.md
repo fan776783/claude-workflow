@@ -26,7 +26,7 @@
 - **Workflow 主线**（6 个专项 skills）：从需求推进到可执行任务，支持中断恢复、增量变更与两阶段审查
 - **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
 
-此外还有专项 skills（`/fix-bug`、`/diff-review`、`/session-review`、`/write-tests`、`/bug-batch`、`/figma-ui`、`/search-first`、`/deep-research` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/quick-plan`、`/enhance`、`/git-rollback`）。
+此外还有专项 skills（`/fix-bug`、`/diff-review`、`/session-review`、`/bug-batch`、`/figma-ui`、`/search-first`、`/deep-research` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/quick-plan`、`/enhance`、`/git-rollback`）。
 
 优先使用 `workflow` 的场景：
 
@@ -42,7 +42,6 @@
 - 单 Bug：`/fix-bug`
 - 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
 - 当前会话审查：`/session-review`（只审本模型在本会话里改过的文件，避免扫入上游或他人改动）
-- 单次补测：`/write-tests`
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`
 - 沉淀规范：`/spec-update` / `/spec-review`
@@ -503,7 +502,6 @@ flowchart TD
 | `fix-bug` | 结构化定位与修复单点问题 |
 | `diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
 | `session-review` | 审查当前会话内由本模型产生的改动；压缩/清空检测，避免扫入上游或他人改动 |
-| `write-tests` | 补齐单元测试 / 集成测试 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
 | `figma-ui` | Figma 设计稿到代码 |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |

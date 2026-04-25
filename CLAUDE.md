@@ -58,11 +58,10 @@ Notes:
     │   ├── workflow-archive/ # Archive entry for /workflow-archive
     │   ├── scan/            # Project scanning
     │   ├── fix-bug/         # Bug fixing workflow
-    │   ├── write-tests/     # Test writing
     │   ├── diff-review/     # Code review
     │   ├── bug-batch/       # Batch bug fixing
     │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
-    │   ├── spec-*/          # Code-specs compliance engine (bootstrap/before-dev/review/update)
+    │   ├── spec-*/          # Code-specs compliance engine (bootstrap/review/update)
     │   └── figma-ui/        # Figma to code
     ├── commands/            # Command entry definitions
     ├── utils/               # Internal runtime utilities
@@ -109,7 +108,7 @@ Skills are the portable unit shipped to each AI tool. The authoritative list liv
 
 - **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
 - **Code Specs** (`spec-bootstrap`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
-- **Lightweight planning & review** — `/quick-plan` command (4-step planning, defined in `core/commands/quick-plan.md`), `session-review`, `diff-review`, `fix-bug`, `bug-batch`, `write-tests`.
+- **Lightweight planning & review** — `/quick-plan` command (4-step planning, defined in `core/commands/quick-plan.md`), `session-review`, `diff-review`, `fix-bug`, `bug-batch`.
 - **Dispatch & research** — `dispatching-parallel-agents`, `search-first`, `deep-research`, `collaborating-with-codex`.
 - **Other** — `scan`, `figma-ui`.
 
