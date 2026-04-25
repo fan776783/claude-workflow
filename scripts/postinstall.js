@@ -18,6 +18,7 @@ const {
   getCanonicalDir,
   parseAgentArg,
 } = require('../lib/agents');
+const { AUMID: NOTIFY_AUMID } = require('../core/hooks/notify-backends');
 
 const CLI_NAME = 'agent-workflow';
 const LOG_PREFIX = '[agent-workflow]';
@@ -38,6 +39,24 @@ function hasCommand(command) {
     shell: false,
   });
   return !result.error && result.status === 0;
+}
+
+/**
+ * Windows 上一次性注册 AppUserModelID，保证 notify.js 的 WinRT toast
+ * 能正常显示应用名；幂等（/f 覆盖）。非 Windows 环境 / 失败都静默。
+ */
+function registerWindowsAumid() {
+  if (process.platform !== 'win32') return;
+  const key = `HKCU\\Software\\Classes\\AppUserModelId\\${NOTIFY_AUMID}`;
+  try {
+    spawnSync(
+      'reg',
+      ['add', key, '/v', 'DisplayName', '/t', 'REG_SZ', '/d', 'Claude Code', '/f'],
+      { stdio: 'ignore', windowsHide: true }
+    );
+  } catch {
+    // best-effort，注册失败不阻塞安装
+  }
 }
 
 /**
@@ -213,6 +232,8 @@ async function main() {
       runtimeWarnings: runtimeCheck.warnings,
       pythonCommand: runtimeCheck.pythonCommand,
     }, { spaces: 2 });
+
+    registerWindowsAumid();
 
     console.log(`\n${LOG_PREFIX} 安装位置: ${installStatus.canonicalDir || canonicalDir}`);
     if (installStatus.errors.length > 0) {
