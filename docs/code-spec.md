@@ -1,19 +1,18 @@
-# Code Spec vs CodeWiki:两种"项目知识"方案的架构对比
+# Code Spec:为 AI 编程设计的项目约束库
 
 > 作者:justinfan · 2026-04-25
-> 对比对象:本项目 `@justinfan/agent-workflow` 的 `code-specs`、Google CodeWiki、Qoder Repo Wiki。
+> 主题:介绍本项目 `@justinfan/agent-workflow` 的 `code-specs` 设计;附与 Google CodeWiki、Qoder Repo Wiki 的方案对比作为背景补充。
 > 读者:写 AI 编码工作流、做项目知识库、或者正在做选型的工程师。
 
 ---
 
-## 0. 为什么要做这个对比
+## 0. 这份文档在讲什么
 
-AI 编码发展到了 2026 年,"项目知识"这件事情基本上被分成两拨人来做:
+本项目 `@justinfan/agent-workflow` 的 `code-specs` 是一套**项目级的编码约束以及契约库**。它把代码里写不出来的规则——命名约定、被禁用的模式、踩过的坑、字段契约的 Why——沉淀成结构化的 spec 文件,再喂回到 plan / execute / review 三个阶段的 AI 工作流里。这篇文档的主要任务就是把 code-specs 的设计讲清楚:二维布局为什么是 `{pkg}/{layer}/`、模板为什么分 convention 以及 contract 两档、审查为什么只做声明式 lint、bug 修复怎么和 spec 形成闭环。
 
-- **一拨把 AI 当成读者**:让 LLM 去读代码,自动地生成 wiki 给人看,或者给到下一轮 AI 用来吃上下文。代表性的有 Google CodeWiki、Qoder Repo Wiki、DeepWiki 系列。
-- **另一拨把 AI 当成协作者**:让人和 AI 一起来沉淀约束、契约以及经验,再把这些内容喂回到执行链路里。代表性的就是本项目里的 `code-specs/`。
+与此同时,2026 年同一赛道上还有另一拨方案——Google CodeWiki、Qoder Repo Wiki、DeepWiki 这类"让 AI 读代码,自动生成 wiki"的派生文档产品。它们和 code-specs 都在说"项目知识库",可是解决的根本就不是同一个问题。文档后半部分会借助这两个方案做横向对比,把 code-specs 在这个谱系里的位置讲清楚,作为设计背景的补充。
 
-这两拨想要去解决的并不是同一个问题。可是由于都在说"知识库",就很容易被人混为一谈。这篇文档用同一套维度把它们摆在一起,把差异说清楚,也顺带讲一下本项目 `code-specs` 在这个谱系里的位置,以及我们为什么要这么去设计。
+**一句话版本**:code-specs 规定代码**必须**要去满足什么,CodeWiki 描述代码**是**什么。两者是互补的,前者在 AI 编程场景里是 must-have。
 
 ---
 
