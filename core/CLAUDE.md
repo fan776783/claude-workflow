@@ -29,6 +29,14 @@
 - 执行阶段遇到**同阶段 2+ 独立任务 / 独立问题域**，走 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 不属于该 skill。
 - `/team` 的准入条件、preflight、权限继承和 cleanup 协议由 `core/commands/team.md` 定义。不要因为检测到"多任务 / broad request / `/workflow-execute` / `/quick-plan`"就自动切 team——并行分派继续走 `dispatching-parallel-agents`，独立分析继续走 subagent。
 
+## Code Specs 切换 package/layer
+
+无活跃 workflow 时，SessionStart hook 只注入 code-specs overview。遇到需要落代码到具体 `{pkg}/{layer}` 的任务时按此规则处理：
+
+- **触发**：无活跃 workflow，且即将用 Edit / Write 改动可以从文件路径反推到某个 `.claude/code-specs/{pkg}/{layer}/` 的场景。走 workflow 的任务由 PreToolUse(Task) hook 自动按 active task 注入 scoped context，**不重复处理**。
+- **动作**：本会话尚未读过目标 `{pkg}/{layer}/index.md` 时，先用 Read 读该 index，再按其 `## Pre-Development Checklist` 点名的 code-spec 文件按需跟读；已读过则跳过。直接使用 Read 即可，不需要额外命令。
+- **豁免**：单行修复 / typo / 纯研究 / 只做 code review / 目标文件路径无法落到具体 package/layer / `.claude/code-specs/` 不存在 → 跳过。
+
 ## 输出文风
 
 不堆砌函数名/行号等底层细节；不用"值得注意的是""总而言之"等 AI 套话；完成任务后直接汇报结果，不加"如果你需要我可以继续……"这类收尾句；写文档前先参考同目录已有文档的语气风格。

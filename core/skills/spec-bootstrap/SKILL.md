@@ -142,7 +142,7 @@ CLI `init` 返回里带有 `nextActions` 字段（`primary` / `firstTargetFile` 
 
 ## codeSpecs.runtime.scope 说明（v3 Stage A3）
 
-用于让 `session-start` hook、`pre-execute-inject` hook 以及 `/spec-before-dev` 在 monorepo 下按活动任务自动收窄 code-specs 读取范围，避免多包项目会话启动就读整棵 spec 树。
+用于让 `session-start` hook 与 `pre-execute-inject` hook 在 monorepo 下按活动任务自动收窄 code-specs 读取范围，避免多包项目会话启动就读整棵 spec 树。
 
 取值：
 

@@ -564,7 +564,7 @@ const COLLECTOR_DEFAULTS = Object.freeze({
   layerIndexBudget: 150,
   perFileBudget: 600,
   mode: 'digest',
-  pathsOnlyHint: '调用 /spec-before-dev 按 package/layer 展开内容',
+  pathsOnlyHint: '按 package/layer 用 Read 读取对应 index.md 展开 Pre-Development Checklist',
 })
 
 function resolveCollectorOptions(options = {}) {

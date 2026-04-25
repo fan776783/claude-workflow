@@ -304,7 +304,7 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 
 | 档位 | 含义 | 输出动作 |
 |------|------|----------|
-| `spec_violation` | 违反了已有 spec 的 Common Mistake / Rule | 指出具体段落路径 `{pkg}/{layer}/{file}.md § {H3 子标题}`，附"spec-before-dev 未生效或流程断点，建议追溯为何未遵守" |
+| `spec_violation` | 违反了已有 spec 的 Common Mistake / Rule | 指出具体段落路径 `{pkg}/{layer}/{file}.md § {H3 子标题}`，附"code-spec 已明示但未被读取或未遵守，建议追溯流程断点" |
 | `spec_gap` | spec 里未覆盖这种情况 | 填充 `code_specs_advisory`：一条预填 Common Mistake 草案（Bad/Good 对比 + Why），并附一句"建议运行 `/spec-update` 写入 `{pkg}/{layer}/{file}.md` 的 Common Mistakes 段" |
 | `contract_misread` | 契约误解（API/DB/字段） | 指向对应 contract 文件的 `§ Validation & Error Matrix` 或 `§ Wrong vs Correct` 段落 |
 | `spec_unrelated` | 环境/第三方/偶发，与 spec 无关 | 明确标注"与 code-spec 无关"，`code_specs_advisory` 留空，避免用户误以为每次都要动 spec |

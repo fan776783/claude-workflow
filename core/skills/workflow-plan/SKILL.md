@@ -437,7 +437,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 - `## Tn: [组件名]` — 标题
 - **阶段**: implement / test / config
-- **Package**: 任务归属的 package。plan 生成器按以下顺序推断：单包→`project.name` / `package.json#name` / 仓库目录名；monorepo→`monorepo.defaultPackage` / `monorepo.packages[0]`。推断错的场景由写 plan 的人手动覆盖。用于 `/spec-before-dev` 与 hook code-specs 注入的 scope 决定。
+- **Package**: 任务归属的 package。plan 生成器按以下顺序推断：单包→`project.name` / `package.json#name` / 仓库目录名；monorepo→`monorepo.defaultPackage` / `monorepo.packages[0]`。推断错的场景由写 plan 的人手动覆盖。用于 hook code-specs 注入的 scope 决定。
 - **创建/修改/测试文件**: 精确路径
 - **Spec 参考**: 对应的 spec 章节编号
 - **验收项**: AC-xxx

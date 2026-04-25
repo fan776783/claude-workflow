@@ -35,7 +35,7 @@
 
 ## Task Profiles
 
-按任务类型收窄预读范围。`/spec-before-dev --change-type <slug-or-alias>` 命中后只展开"必读 + 可选"主题。
+按任务类型收窄预读范围。当前任务若能识别对应 slug / alias，只展开命中 Profile 的"必读 + 可选"主题；否则全读。
 
 ### Profile: 新增功能
 

@@ -35,8 +35,8 @@ Status 合法值：Not Started / Draft / Done
 
 <!--
 可选段，用于按任务类型收窄 Pre-Development Checklist 的预读范围。
-`/spec-before-dev --change-type <slug-or-alias>` 会按 slug / aliases 做归一化精确匹配，
-命中后只展开"必读 + 可选"里列出的主题文件；未命中时退回全读并列出可选 slug。
+读本 index 时若能识别当前任务对应的 slug / alias，只展开命中 Profile 的"必读 + 可选"主题；
+未命中时退回全读并列出可选 slug。
 
 每条 Profile 三字段：
 - slug: 稳定标识（英文 kebab-case），不要改

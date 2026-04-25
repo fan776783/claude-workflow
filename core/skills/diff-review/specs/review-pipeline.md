@@ -57,6 +57,7 @@ Codex prompt 必须明确：
 - 响应式设计、暗色模式支持
 - 交互状态（hover、focus、loading、error、empty）
 - 前后端 / 跨层契约匹配
+- 反模式锚点：对照 [`anti-patterns-three-angle.md`](anti-patterns-three-angle.md) 的 Reuse / Quality / Efficiency 三段自查
 
 两路并行，主任务不得等 Codex 结果才开始自审。
 

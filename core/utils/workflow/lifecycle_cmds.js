@@ -489,7 +489,7 @@ function buildPRDCoverageReport(items, specContent) {
 // Monorepo 回退链：config.monorepo.defaultPackage → config.monorepo.packages[0]。
 // 两条链都是"给 plan 生成器一个**可落地**的默认值，避免生成出无 Package 的任务块"；
 // 与 runtime resolver 的"monorepo 不推断默认包"契约区别是：plan 阶段是一次性编译，无 active task，
-// 选错了的代价是 `/spec-before-dev` 读错 subtree（soft-fail 到全树），不是破坏状态机。
+// 选错了的代价是 hook 注入的 code-specs scope 偏到错误 subtree（soft-fail 到全树），不是破坏状态机。
 function inferTaskPackage(projectRoot, config) {
   const type = ((config || {}).project || {}).type
   if (type === 'monorepo') {

@@ -193,7 +193,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`（与 dual_reviewer 同构）
 2. **串行 provision**：三个 reviewer 均为只读任务，**不使用 worktree**（遵守 `core/CLAUDE.md` 的 worktree guardrail：只读分析不预置 worktree）
 3. **并行 dispatch 三个子 Agent**（Task 工具路径）：
-   - Reuse Agent：prompt 注入 `references/stage2-review-checklist.md` § Reuse 角度
+   - Reuse Agent：prompt 注入 `../diff-review/specs/anti-patterns-three-angle.md` § Reuse 角度
    - Quality Agent：注入 § Quality 角度
    - Efficiency Agent：注入 § Efficiency 角度
    每个 Agent 拿到完整 diff，但只负责本角度的 findings。

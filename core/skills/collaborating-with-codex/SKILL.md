@@ -15,6 +15,32 @@ description: Proactively use when Claude Code is stuck, wants a second implement
 - You may rewrite the prompt to be clearer and provide necessary context, but do not execute any actual modifications.
 - Sit back and wait for the `node` script to return Codex's response.
 
+## Result Triage (Filter Over-Engineering)
+
+Codex output — especially from `--review` and `--adversarial-review` — tends to over-index on defensive coding and speculative abstraction. Before acting on findings or landing code, filter the response against the bars below. Treat Codex as a "dirty prototype" (per the Global `代码主权` protocol), not a verdict.
+
+**Downgrade or discard these finding patterns:**
+- Null / undefined / type guards on values that originate from internal code with known shape (trusted inputs, framework guarantees, type-checked boundaries).
+- `try`/`catch`, fallbacks, or retries for failure modes that are not actually reachable given the call site.
+- Defensive branches for "what if the caller passes X" when no caller does, and no public API contract requires it.
+- New abstractions, indirections, config knobs, or helpers introduced for hypothetical future requirements the task did not ask for.
+- Refactors, renames, or cleanup bundled into a bug fix or a narrowly scoped change.
+- Backwards-compatibility shims, feature flags, or deprecation paths when the change can simply land.
+- Style, naming, comment-density, or "readability" feedback without a concrete defect behind it.
+- Findings that restate the diff or the task description without naming a failure mode.
+
+**Keep these:**
+- Boundary validation (user input, external APIs, deserialization, IPC).
+- Concrete failure modes tied to a real code path — race, ordering, partial failure, data loss, auth/tenant boundary, migration hazard.
+- Invariants the change violates, or guards the change removed without justification.
+- Observability gaps that would hide a real failure the reviewer can name.
+
+**Triage procedure before you act:**
+1. For each Codex finding, ask: *is this a reachable failure, or a hypothetical?* Discard hypotheticals.
+2. For each suggested edit, ask: *was this in the task scope?* Strip out-of-scope refactors before landing.
+3. If Codex proposes adding a guard/handler, confirm the unguarded path can actually be hit from real callers. If not, skip it.
+4. When summarizing Codex's response to the user, report the filtered set and note what you dropped and why — do not pass raw findings through.
+
 ## Quick Start
 
 ```bash
