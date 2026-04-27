@@ -112,7 +112,7 @@ description: "批量修缺陷——从蓝鲸项目管理平台一次性拉一批
 [HARD-STOP:BATCH-REVIEW-BLOCKER]* 批量级 review 发现阻断性问题（条件性）
 [PHASE:6/CROSS]                   跨单元交叉影响分析
 [HARD-STOP:CROSS-CONFLICT]*       交叉影响分析发现严重冲突（条件性）
-[HARD-STOP:CONFIRM-COMMIT]        等待用户确认全量结果
+[HARD-STOP:CONFIRM-COMMIT]*       全量结果存在异常单元时确认（条件性）
 [HARD-STOP:REJECTED-UNIT-ACTION]* 用户不认可某 FixUnit 时的处理选择（条件性）
 [HARD-STOP:DEPENDENCY-CONFLICT]*  拒绝单元与确认单元存在依赖冲突（条件性）
 [HARD-STOP:REBUILD-CONFLICT]*     Phase 7 重建 cherry-pick 冲突或验证失败（条件性）
@@ -144,7 +144,7 @@ Hard Stop 是强制交互节点。输出 `[HARD-STOP:...]` 标签后：
 | Phase 5 | 用户已在 `[HARD-STOP:CONFIRM-PLAN]` 处给出明确确认 |
 | Phase 5.5 | Phase 5 所有 Task 已达终态，结果已收集 |
 | Phase 6 | Phase 5.5 单元级 review、即时流转、批量级 review 均已完成，`batch_review_summary` 已记录 |
-| Phase 7 | 用户已在 `[HARD-STOP:CONFIRM-COMMIT]` 处给出明确确认 |
+| Phase 7 | Phase 6 跨单元分析已完成且无严重冲突；若存在异常单元，用户已在 `[HARD-STOP:CONFIRM-COMMIT]` 处给出明确确认 |
 
 ### 子 agent 执行纪律
 
@@ -576,7 +576,14 @@ node scripts/codex-bridge.mjs \
 
 ### 全量确认
 
-展示所有 FixUnit 的修复结果汇总（模板见 `references/status-and-reporting.md`），等待用户一次性确认。收到确认前不得继续。
+展示所有 FixUnit 的修复结果汇总（模板见 `references/status-and-reporting.md`）。
+
+**Happy path 自动通过**：当所有已物化 FixUnit 的状态均为 `completed`，且批量级 review 无未修复的 P0/P1 findings，则**跳过 `[HARD-STOP:CONFIRM-COMMIT]`**，直接输出汇总后进入"提交 Commit"。汇总中标注"全部通过，自动进入重建"。
+
+**条件性 Hard Stop**：当存在以下任一情况时，触发 `[HARD-STOP:CONFIRM-COMMIT]`，等待用户一次性确认后再继续：
+- 任何 FixUnit 状态为 `manual_intervention`、`no_change_needed` 或 `covered_by_other`
+- 批量级 review 存在未完全修复的 P0/P1 findings
+- Phase 6 跨单元分析发现兼容性问题（已降级但未触发 `CROSS-CONFLICT` Hard Stop 的情况）
 
 若用户对某个 FixUnit 不认可，调用 `AskUserQuestion` 收集处理方式，`question` 写"FU-<unit_id> 不认可，如何处理？"，`options` 给三条：
 

@@ -92,6 +92,27 @@ update_issue_state(
 
 ## 3. 全量确认卡点
 
+全量确认分两种路径，根据批次状态自动选择。
+
+### 3a. Happy path（自动通过）
+
+当所有已物化 FixUnit 状态均为 `completed` 且无未修复 P0/P1 findings 时，跳过 Hard Stop，直接输出汇总后进入 commit 重建：
+
+```markdown
+## 全量确认：全部通过，自动进入重建
+
+### FixUnit 修复汇总
+
+| FixUnit | 覆盖缺陷 | stage commit | 修改文件 | 单元级 review | 批量 review |
+|---------|----------|-------------|----------|-------------|------------|
+| FU-001 | p003,p001,p002 | 6c20909f5 | auth.ts, session-store.ts | 通过 | 通过 |
+| FU-002 | p004 | e136d009e | api-client.ts | 通过 | 通过 |
+```
+
+### 3b. 存在异常单元（触发 `[HARD-STOP:CONFIRM-COMMIT]`）
+
+当存在 `manual_intervention` / `no_change_needed` / `covered_by_other` 单元，或有未修复 P0/P1 时，展示完整汇总并等待用户确认：
+
 ```markdown
 ## 批量修复已完成，等待全量确认
 
