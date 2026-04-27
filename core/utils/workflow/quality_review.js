@@ -5,12 +5,20 @@ const { readState, resolveStatePath, writeState } = require('./state_manager')
 const { createEvidence } = require('./verification')
 const { assertCanonicalWorkflowStatePath, detectProjectIdFromRoot } = require('./path_utils')
 const { ensureStateDefaults, getReviewResult } = require('./workflow_types')
-const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile } = require('./role_injection')
+const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile, STAGE2_REVIEW_MODE_SET } = require('./role_injection')
 
 const GATE_BUDGET = {
   max_total_loops: 4,
   max_diff_context_chars: 50000,
   cache_stage1: true,
+}
+
+function normalizeStage2ReviewMode(value, fallback = 'single_reviewer') {
+  if (!value) return fallback
+  const str = String(value).trim()
+  if (STAGE2_REVIEW_MODE_SET.has(str)) return str
+  process.stderr.write(`[quality_review] unknown --review-mode "${str}", falling back to "${fallback}"\n`)
+  return fallback
 }
 
 function isoNow() {
@@ -299,7 +307,7 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
       completed_at: now,
       role: reviewerPrompt.role,
       profile: reviewerPrompt.profile,
-      review_mode: (lastResult || {}).review_mode || 'single_reviewer',
+      review_mode: normalizeStage2ReviewMode((lastResult || {}).review_mode),
       codex_status: (lastResult || {}).codex_status || null,
       review_cycle_id: (lastResult || {}).review_cycle_id || null,
       raw_results: (lastResult || {}).raw_results || null,
@@ -524,7 +532,7 @@ function main() {
         return
       }
       const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, option('--review-mode') || 'single_reviewer', option('--codex-status') || null, option('--review-cycle-id') || null, { codeSpecsCheck: buildCodeSpecsCheck() })
+      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, normalizeStage2ReviewMode(option('--review-mode')), option('--codex-status') || null, option('--review-cycle-id') || null, { codeSpecsCheck: buildCodeSpecsCheck() })
       if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
       process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
       return

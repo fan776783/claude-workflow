@@ -170,7 +170,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 | 条件 | 模式 | 说明 |
 |------|------|------|
-| 满足任一信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行审查 |
+| 同时命中风险信号（`security` / `backend_heavy` / `data`）**且** scale 信号（`large_scope` / `refactor`） | `quad_review` | Codex(Correctness) + Reuse / Quality / Efficiency 子 Agent 四路并行 |
+| 满足任一风险信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行审查 |
 | 未命中上行，且满足 `large_scope` 或 `refactor` | `multi_angle` | Reuse / Quality / Efficiency 三子 Agent 并行 |
 | 其他 | `single_reviewer` | 子 Agent 单路径 |
 
@@ -232,6 +233,58 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 **预算影响**：Codex 调用本身不消耗 Stage 2 retry 预算。合并后的最终判定算 1 次 attempt。
 
+### quad_review 模式（4 路并行，scale + 风险交集）
+
+当信号**同时**命中 scale（`large_scope` / `refactor`）和风险（`security` / `backend_heavy` / `data`）时启用。把 Stage 2 拆成 Codex(Correctness) + Reuse / Quality / Efficiency 四路并行审查，每路独占一个 category，合并后走一次 CLI。
+
+**与 `dual_reviewer` / `multi_angle` 的区别**：
+- 不是两种模式的叠加，而是第四种互斥模式；路由表命中 quad 后不会再触发 dual / multi。
+- 通过 **category 独占** 规避跨路 finding 去重爆炸：Codex 只报 `correctness`（含 security subtype），三子 Agent 各自只报 `reuse` / `quality` / `efficiency`。
+
+**执行流程**：
+
+1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`（与 dual / multi 同构）
+2. **串行 provision**：所有路均为只读任务，**不使用 worktree**（遵守 `core/CLAUDE.md` 的 worktree guardrail）
+3. **后台启动 Codex**（Correctness 路，独立进程，不阻塞子 Agent 派发）：复用 `dual_reviewer` 模式 Step 2 的 `codex-bridge.mjs --adversarial-review "working-tree"` 调用，仅替换 `--prompt` 为以下 Correctness-only 版本：
+
+   ```
+   You are the CORRECTNESS reviewer in a 4-way parallel review.
+   Focus ONLY on: logic correctness, edge cases, error handling, security vulnerabilities, concurrency, changed contracts and downstream impact.
+   Report ONLY findings with category="correctness" (security issues use subtype="security").
+   Any observations outside correctness (reuse / quality / efficiency) MUST go into out_of_scope_observations, NOT into main findings — three other reviewers cover those angles.
+   If claiming impact, specify exact code paths and callers.
+   ```
+
+   桥接契约（超时、session、sandbox）以 `../collaborating-with-codex/SKILL.md` 为准。
+4. **同时通过 Task 工具并行 dispatch 三个子 Agent**（一次消息内三个 Task 调用；平台路由遵循 `../dispatching-parallel-agents/SKILL.md`）：
+   - **Reuse Agent**：prompt 注入 `../diff-review/specs/anti-patterns-three-angle.md` § Reuse；声明"只报 `category: reuse` 的问题，超域发现写入 `out_of_scope_observations`"
+   - **Quality Agent**：注入 § Quality；只报 `category: quality`
+   - **Efficiency Agent**：注入 § Efficiency；只报 `category: efficiency`
+5. **Join barrier**：4 路均完成后进入合并；任一路超过 5 分钟未返回触发降级矩阵（见下文）
+6. **结果合并**：
+   - 归一化为统一 finding 结构（见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md) § 统一 Finding 结构）
+   - category 独占 → 不同 category 的同位置 finding 全部保留；同 category 兜底 dedup（重叠 ≥50%）
+   - Codex 候选仍执行 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE
+   - 超域发现（`out_of_scope_observations`）合并后由主任务裁决是否采纳为 advisory；不直接计入 Critical/Important 判定
+   - 任一路有 verified Critical/Important → Stage 2 fail
+7. **与 `dual_reviewer` / `multi_angle` 互斥**：路由命中 quad 后不得再额外调用 dual / multi；需要切换模式请在 spec 里调整信号关键字让路由表重新决策。
+
+**降级矩阵**（客观事件触发，不靠模型判断）：
+
+| 失败路 | 降级结果 | review mode 标注 | `--codex-status` |
+|--------|----------|-----------------|-----------------|
+| Codex 超时/失败（三子 Agent 正常） | 降为 `multi_angle`（3 子 Agent 继续） | `quad-review → multi-angle (codex degraded)` | `codex_degraded` |
+| 1 个子 Agent 超时/失败（Codex 与其余 2 子 Agent 正常） | `quad_review` 继续（3 路合并，缺失角度标明） | `quad-review (angle degraded: {reuse\|quality\|efficiency} missing)` | `ok` |
+| 2+ 子 Agent 超时/失败（Codex 正常） | 降为 `dual_reviewer`（Codex + 1 剩余视角） | `quad-review → dual-reviewer (angles degraded)` | `ok` |
+| Codex + 1+ 子 Agent 失败 | 降为 `single_reviewer`（剩余 1 子 Agent 或当前会话内执行） | `quad-review → single-reviewer (severely degraded)` | `codex_degraded` |
+
+降级决策落地方式：
+- 主任务在 Join barrier 侧观察每路返回状态（超时 / 非零退出 / 异常），据上表选择最终 mode。
+- 写 CLI 时的 `--review-mode` 传入**降级后**的实际模式（例如降级到 multi 就传 `multi_angle`），并在 `--codex-status` 传入对应值；review mode 标注字符串通过 Step 4 的模式标注行输出给用户。
+- 绝不在降级时保留 `quad_review` 作为 `--review-mode`：降级后模式必须是真实执行路径，否则会破坏后续 state 审计。
+
+**预算影响**：4 路合并判定算 1 次 Stage 2 attempt。Codex 调用本身不消耗 retry 预算。4 次共享预算不变。
+
 ### 判定
 
 | 结果 | 处理 |
@@ -266,7 +319,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass <taskId
   --project-id {projectId} \
   --base-commit <baseCommit> --current-commit <currentCommit> \
   --from-task <fromTask> --to-task <toTask> --files-changed <n> \
-  --stage1-attempts <n> --stage2-attempts <n>
+  --stage1-attempts <n> --stage2-attempts <n> \
+  --review-mode <single_reviewer|dual_reviewer|multi_angle|quad_review> \
+  --codex-status <ok|codex_degraded|null>  # quad/dual 时必填，其他模式可省
 
 # 审查未通过
 node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail <taskId> \
@@ -293,13 +348,16 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 
 记录结果前，先标注本次执行模式：
 ```
-📋 Review mode: hybrid | dual-reviewer | multi-angle | degraded-inline
+📋 Review mode: hybrid | dual-reviewer | multi-angle | quad-review | degraded-inline
 ```
 
 - `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认 single_reviewer）
 - `dual-reviewer`：Stage 2 通过 Codex + 子 Agent 并行审查后合并结果
 - `multi-angle`：Stage 2 通过 Reuse / Quality / Efficiency 三子 Agent 并行后合并结果
+- `quad-review`：Stage 2 通过 Codex(Correctness) + Reuse / Quality / Efficiency 四路并行（category 独占），合并后统一判定
 - `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
+
+降级时在模式名后括号注明，例如 `quad-review (codex degraded)` / `quad-review → multi-angle (codex degraded)`。
 
 ### 预算遥测
 

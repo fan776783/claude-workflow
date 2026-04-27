@@ -155,9 +155,15 @@ function deriveSignalTags(signals = {}) {
   return [...new Set(tags)]
 }
 
+const STAGE2_REVIEW_MODES = Object.freeze(['single_reviewer', 'dual_reviewer', 'multi_angle', 'quad_review'])
+const STAGE2_REVIEW_MODE_SET = new Set(STAGE2_REVIEW_MODES)
+
 function resolveStage2ReviewMode(signals = {}) {
-  if (signals.security || signals.backend_heavy || signals.data) return 'dual_reviewer'
-  if (signals.large_scope || signals.refactor) return 'multi_angle'
+  const hasRisk = signals.security || signals.backend_heavy || signals.data
+  const hasScale = signals.large_scope || signals.refactor
+  if (hasScale && hasRisk) return 'quad_review'
+  if (hasRisk) return 'dual_reviewer'
+  if (hasScale) return 'multi_angle'
   return 'single_reviewer'
 }
 
@@ -248,6 +254,8 @@ module.exports = {
   PROFILE_DIR,
   INFRA_PATH_PATTERNS,
   LAYER_HINTS,
+  STAGE2_REVIEW_MODES,
+  STAGE2_REVIEW_MODE_SET,
   parseFrontmatter,
   readRoleProfiles,
   classifyRoleSignals,

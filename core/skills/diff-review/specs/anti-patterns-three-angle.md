@@ -2,7 +2,7 @@
 
 > 代码审查共享锚点。参照 Claude Code 内置 `simplify` skill 的三角度分类，适用于本仓库的所有 review skill：
 > - `diff-review` / `session-review`：当前模型自审（`review-pipeline.md` Layer C）读取本清单作为反模式锚点
-> - `workflow-review`：Stage 2 `single_reviewer` / `dual_reviewer` 作为锚点；`multi_angle` 模式下三段分别作为 Reuse / Quality / Efficiency 三个子 Agent 的专属 prompt 片段
+> - `workflow-review`：Stage 2 `single_reviewer` / `dual_reviewer` 作为锚点；`multi_angle` 与 `quad_review` 模式下，三段分别作为 Reuse / Quality / Efficiency 三个子 Agent 的专属 prompt 片段（`quad_review` 另有一路 Codex 走 `correctness` category，不使用本文档）
 
 ## Reuse 角度
 

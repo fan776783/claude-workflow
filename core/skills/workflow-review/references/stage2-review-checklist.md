@@ -22,6 +22,7 @@
 
 - `single_reviewer` / `dual_reviewer` 模式：把三段作为整体锚点
 - `multi_angle` 模式：三段分别作为 Reuse / Quality / Efficiency 三个子 Agent 的专属 prompt 片段
+- `quad_review` 模式：三段分别作为 quad 中 Reuse / Quality / Efficiency 三个子 Agent 的专属 prompt 片段（Codex 另走 `correctness` category，不使用本文档）
 
 ## 问题严重级别
 
@@ -60,19 +61,19 @@
 - [Minor 级别建议]
 ```
 
-## 统一 Finding 结构（dual_reviewer / multi_angle 共用）
+## 统一 Finding 结构（dual_reviewer / multi_angle / quad_review 共用）
 
-Stage 2 走 `dual_reviewer`（Codex + 子 Agent）或 `multi_angle`（Reuse / Quality / Efficiency 三子 Agent）时，各路结果须归一化为以下结构后再合并判定：
+Stage 2 走 `dual_reviewer`（Codex + 子 Agent）、`multi_angle`（Reuse / Quality / Efficiency 三子 Agent）或 `quad_review`（Codex + 三子 Agent 四路）时，各路结果须归一化为以下结构后再合并判定：
 
 ```json
 {
   "id": "F-01",
-  "source": "codex | subagent | reuse_agent | quality_agent | efficiency_agent | both | multi",
+  "source": "codex | subagent | reuse | quality | efficiency | both | multi",
   "file": "path/to/file.ts",
   "line_start": 10,
   "line_end": 24,
   "severity": "critical | important | minor",
-  "category": "logic | security | performance | architecture | test | style | reuse | efficiency",
+  "category": "correctness | logic | security | performance | architecture | test | style | reuse | quality | efficiency",
   "description": "...",
   "suggestion": "...",
   "verification": {
@@ -83,8 +84,11 @@ Stage 2 走 `dual_reviewer`（Codex + 子 Agent）或 `multi_angle`（Reuse / Qu
 ```
 
 **合并规则**：
-- 相同 file + line range（重叠 ≥50%）+ 相同 category → 合并；`dual_reviewer` 下记为 `source: "both"`，`multi_angle` 下记为 `source: "multi"`
+- `dual_reviewer`：相同 file + line range（重叠 ≥50%）+ 相同 category → 合并为 `source: "both"`
+- `multi_angle`：相同条件 → 合并为 `source: "multi"`
+- `quad_review`：**category 独占**——Codex 专属 `correctness`（含 security subtype），三子 Agent 分别独占 `reuse` / `quality` / `efficiency`；不同 category 同位置 finding 全部保留；同 category 重叠兜底 dedup（理论上不发生，因独占纪律）
 - 任一来源有 verified Critical/Important → 最终判定为 Issues Found
 - `partially_verified` 不能作为 Critical/Important 的依据
 - Codex 候选必须经过 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE 验证流程
-- multi_angle 的角度子 Agent 输出不走 LOCATE→…→DECIDE，但 category 字段必须显式标注（reuse / efficiency / 其它）以便去重
+- 子 Agent（multi_angle / quad_review）输出不走 LOCATE→…→DECIDE，但 category 字段必须显式标注以便去重
+- quad_review 中超域发现（例如 Reuse agent 发现 correctness 问题）写入各路的 `out_of_scope_observations`，不进主 finding 列表；主任务可在合并阶段评估是否采纳
