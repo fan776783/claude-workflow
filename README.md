@@ -65,42 +65,18 @@
 
 #### 方式 A —— Claude Code Plugin（推荐）
 
-在 Claude Code 会话里两行命令直接安装，不依赖 npm 包、不依赖私有 registry：
+在 Claude Code 会话里安装：
 
 ```
 /plugin marketplace add fan776783/claude-workflow
 /plugin install agent-workflow@agent-workflow-marketplace
 ```
 
-或在命令行执行（需要 `claude` CLI 在 PATH）：
-
-```bash
-claude plugin marketplace add fan776783/claude-workflow
-claude plugin install agent-workflow@agent-workflow-marketplace
-```
-
-开发者模式（直接从本地仓库 `core/` 加载）：
-
-```bash
-git clone <repo-url> claude-workflow && cd claude-workflow
-claude --plugin-dir ./core
-```
-
-**更新到最新版本**：在 Claude Code 会话里执行
+更新到最新版本：
 
 ```
-/plugin marketplace update agent-workflow-marketplace
 /plugin update agent-workflow@agent-workflow-marketplace
 ```
-
-或在命令行：
-
-```bash
-claude plugin marketplace update agent-workflow-marketplace
-claude plugin update agent-workflow@agent-workflow-marketplace
-```
-
-第一行刷新 marketplace 元数据，第二行按 marketplace 里声明的版本拉取/升级 plugin 本体。
 
 #### 方式 B —— 通过 npx sync（次选）
 
