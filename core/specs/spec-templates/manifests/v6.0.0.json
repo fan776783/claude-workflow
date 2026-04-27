@@ -1,0 +1,16 @@
+{
+  "version": "6.0.0",
+  "previous": "5.3.3",
+  "recommendMigrate": true,
+  "notes": "Claude Code 迁移到 Plugin 机制。其他 8 个工具（Cursor/Codex/Antigravity/Droid/Gemini CLI/GitHub Copilot/OpenCode/Qoder）安装路径不变。",
+  "breaking": [
+    "Claude Code 不再通过 installer 分发，改走 Claude Code Plugin（~/.claude/plugins/）",
+    "~/.claude/settings.json 中的 workflow/team/notify hooks 不再由 installer 注入，由 Plugin 的 hooks.json 声明",
+    "~/.claude/.agent-workflow/{hooks,utils,specs,agents} 对 Claude Code 用户不再必需",
+    "lib/installer.js 移除 ensureWorkflowHooks / ensureTeamHooks / ensureNotifyHooks / syncAgentFiles / inspectManagedAgentFiles 等函数",
+    "agents['claude-code'] 配置精简：移除 skillsDir / agentsDir / globalSkillsDir / globalAgentsDir，新增 managedViaPlugin: true"
+  ],
+  "migrations": [],
+  "protected_paths": [],
+  "changelog": "v6.0.0: Claude Code 激进迁移到 Plugin 机制（breaking）。运行 `agent-workflow sync -a claude-code -y` 自动清理 v5.x 残留并安装 Plugin。"
+}

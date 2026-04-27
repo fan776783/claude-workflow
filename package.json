@@ -1,7 +1,7 @@
 {
   "name": "@justinfan/agent-workflow",
-  "version": "5.3.3",
-  "description": "AI 编码工具通用工作流系统 - Skills 架构支持 9 个 AI 工具 (Claude Code, Cursor, Codex, Gemini 等)",
+  "version": "6.0.0",
+  "description": "AI 编码工具通用工作流系统 - Skills 架构，Claude Code 通过 Plugin 机制分发，其他 8 个工具（Cursor, Codex, Gemini 等）通过 installer 分发",
   "bin": {
     "agent-workflow": "bin/agent-workflow.js"
   },
@@ -20,6 +20,7 @@
     "lib/",
     "scripts/",
     "core/",
+    ".claude-plugin/",
     "!core/**/__pycache__/",
     "README.md",
     "CHANGELOG.md"

@@ -1,0 +1,10 @@
+{
+  "version": "6.0.0",
+  "previous": "6.0.0",
+  "recommendMigrate": false,
+  "notes": "placeholder (created by accidental invocation of generate-manifest.js --help)",
+  "breaking": [],
+  "migrations": [],
+  "protected_paths": [],
+  "changelog": "no-op; manually clean this file"
+}

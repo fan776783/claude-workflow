@@ -11,6 +11,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 （无待发布项）
 
+## [6.0.0] - 2026-04-27
+
+### Fixed (pre-release iteration)
+
+- **`core/.claude-plugin/plugin.json` 移除 `skills` / `commands` / `agents` / `hooks` 四个字段**：这四者都位于 Claude Code Plugin 的约定默认路径（`./skills`、`./commands`、`./agents`、`./hooks/hooks.json`），Plugin loader 自动扫描；显式声明反而触发 `agents: Invalid input` schema 校验失败（应为结构而非字符串路径）以及 `Duplicate hooks file detected` 重复加载错误。只保留元数据字段（name/version/author/...）。
+- **manifest 顶层移除 `displayName` / `description`**：`claude plugin validate` 拒绝这两个 plugin.json/marketplace.json 顶层字段；marketplace.json 的 description 移到 `metadata.description`，displayName 完全移除（schema 不支持）。
+- **CLAUDE.md 同步（覆盖语义 + 时间戳备份）**：Plugin 安装完成后调用 `claudeCodePlugin.syncClaudeMd`，把 `<canonical>/core/CLAUDE.md` 的内容同步到 `~/.claude/CLAUDE.md`。内容一致跳过；目标存在且内容不同 → 备份到 `~/.claude/CLAUDE.md.bak.<ISO-timestamp-ms>`（毫秒级时间戳，每次覆盖都产生新备份，历史不丢）。所有操作记入 `~/.claude/.claude-workflow/migration.log`。
+- **`bin/agent-workflow.js` doctor 不再误报旧版安装**：检测到 Plugin 已装时跳过 `~/.claude/skills` symlink 模式检查（v6.0.0 用户的 skills 由 Plugin cache 承载，不再是 symlink）。
+- **`lib/agents.js::getAgentBaseDir` 对 `managedViaPlugin` 返回 null**：避免 `getInstallationStatus` 对 claude-code 执行 `path.dirname(undefined)` 崩溃。`getInstallationStatus` 对 managedViaPlugin 的 agent 写入 `mode: 'plugin'` 占位结构，交由调用方用 `claudeCodePlugin.inspectStatus` 获取真实状态。
+
+### ⚠️ BREAKING CHANGES
+
+v6.0.0 把 Claude Code 的分发路径从 installer 迁移到 **Claude Code Plugin 机制**。
+其他 8 个 AI 工具（Cursor / Codex / Antigravity / Droid / Gemini CLI / GitHub Copilot / OpenCode / Qoder）安装路径不变。
+
+**行为变化**：
+- Claude Code 不再通过 `agent-workflow sync` 的 installer 路径分发，改走官方 Plugin 机制（`~/.claude/plugins/cache/`）
+- `~/.claude/settings.json` 中的 workflow/team/notify hooks 不再由 installer 注入，改由 Plugin 的 `hooks/hooks.json` 声明
+- `~/.claude/.agent-workflow/{hooks,utils,specs,agents}` 对 Claude Code 用户不再必需（Plugin 自包含这些资源）
+- `~/.claude/CLAUDE.md` 不再由 installer 同步（Plugin 不接管用户 memory 文件）
+
+**升级路径**：
+```bash
+# 升级后运行一次 sync，会自动：
+# 1. 检测 v5.x 残留（settings.json 中 7 个受管 hook、.agent-workflow/ 下 4 个 legacy 目录）
+# 2. 清理残留（保留用户自定义 hook 和 ~/.claude/CLAUDE.md）
+# 3. 调用 claude CLI 自动安装 Plugin
+agent-workflow sync -a claude-code -y
+```
+
+如果 `claude` CLI 不在 PATH，sync 会打印手动指引（/plugin marketplace add + /plugin install）。
+
+**CI / 容器环境**：设置 `AGENT_WORKFLOW_SKIP_CC_PLUGIN=1` 跳过 Claude Code Plugin 分支。
+
+### Added
+
+- **Claude Code Plugin 资源文件**：`core/.claude-plugin/plugin.json`（plugin 清单）、`.claude-plugin/marketplace.json`（仓库根 marketplace 清单）、`core/hooks/hooks.json`（7 个 hook 清单，event + matcher + command 三元组）、`core/hooks/notify.config.default.json`（Plugin 自带默认通知配置）
+- **`lib/claude-code-plugin.js` 新模块**：导出 `ensurePluginInstalled` / `detectLegacyResidue` / `cleanupLegacyResidue` / `inspectStatus` / `diagnose` / `printGuidance` 六个函数。`cleanupLegacyResidue` 按 5 个受管脚本名精确匹配剔除 settings.json 中的 hook 条目，用户自定义 hook 保留；清理日志写入 `~/.claude/.claude-workflow/migration.log`（JSONL）
+- **`scripts/claude-cli.js` CLI 封装**：`detectClaudeCli` / `marketplaceAdd` / `marketplaceUpdate` / `pluginInstall` / `pluginUpdate` / `pluginList`，全部走 execFile + timeout（60s），失败返回 `{ success: false, stderr }` 不抛异常
+- **`scripts/sync-plugin-version.js`**：release.sh `[1.5/5]` 调用，把 `package.json` 的版本同步写入 `core/.claude-plugin/plugin.json`
+- **`scripts/validate.js` 扩展 plugin manifest 校验**：plugin.json 存在 + version 匹配 package.json、marketplace.json 存在 + 含 agent-workflow 条目、hooks.json 引用的脚本全部存在、notify.config.default.json 存在、installer.js 在 `STEP_4_DONE` 锚标记下不能再 export 已迁移函数
+- **`agents['claude-code']` 新增 `managedViaPlugin: true` 标记**：`platform_parity.js` 据此跳过 skillsDir/globalSkillsDir 必填字段校验；CLI / interactive installer 据此分叉路径
+- **`AGENT_WORKFLOW_SKIP_CC_PLUGIN` 环境变量**：CI 场景下跳过 Claude Code Plugin 自动安装
+
+### Changed
+
+- **`bin/agent-workflow.js` sync/link/status/doctor 分叉**：所有命令内部按 agent 类型 partition 成 claude-code 和其他 8 个工具两路；claude-code 走 `claude-code-plugin.js`，其他走原 installer。`--legacy` 模式拒绝 claude-code 目标
+- **`lib/interactive-installer.js` 同步分叉**：交互模式下 claude-code 的 choice hint 标注 "via Claude Code Plugin"；`initialValues` fallback 从 `['claude-code']` 改为 `[]`；安装阶段按 partition 分别调用；状态视图使用 `claudeCodePlugin.inspectStatus()`
+- **`lib/installer.js` 删减约 500 行**：删除 `ensureWorkflowHooks` / `ensureTeamHooks` / `ensureNotifyHooks` / `ensureManagedHooks` / `inspectManagedHooks` / `sweepLegacyNotifyShell` / `loadSettingsJson` / `WORKFLOW_BASE_HOOK_DEFS` / `TEAM_HOOK_DEFS` / `NOTIFY_HOOK_DEFS` / `syncAgentFiles` / `inspectManagedAgentFiles` / `readManagedAgentsManifest` / `writeManagedAgentsManifest` 等函数和常量；`linkToAgents` 加防御性跳过（误传 claude-code 时返回错误而不是继续处理）
+- **`lib/installer.js::installToCanonical` 增强**：除复制 `core/` 的 6 个 TEMPLATE_DIRS 外，额外复制 `core/.claude-plugin/plugin.json` 到 canonical 的 `core/.claude-plugin/`、仓库根 `.claude-plugin/marketplace.json` 到 canonical 根的 `.claude-plugin/`，让 canonical 目录本身就是合法的 Claude Code plugin marketplace
+- **`core/hooks/notify.js` config 路径三层 fallback**：`~/.claude/notify.config.json`（用户覆盖，新路径）→ `~/.claude/.agent-workflow/notify.config.json`（legacy 路径兼容）→ `${CLAUDE_PLUGIN_ROOT}/hooks/notify.config.default.json`（Plugin 自带默认）
+- **`scripts/postinstall.js` 移除 claude-code fallback**：未检测到任何 agent 时不再默认安装 Claude Code；检测到 v5.x 残留时只打印迁移提示，不自动运行 sync（避免 npm install 时未经用户同意改动 ~/.claude/）
+- **`scripts/release.sh` `[1.5/5]` 步骤**：在 `npm version` 之后调用 `sync-plugin-version.js`，把 package.json 版本同步到 plugin.json；git add 同步加入 `core/.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json`
+
+### Removed
+
+- **installer 中的 Claude Code 特化代码** ~500 行（见上方 Changed 详细列表）
+- **agents.js 中的 AGENTS_DIR 常量** 及 claude-code 的 skillsDir/agentsDir/globalSkillsDir/globalAgentsDir 字段（Plugin 自管，无须 installer 知晓）
+- **installer.js module.exports 移除**：`ensureWorkflowHooks` / `ensureTeamHooks` / `ensureNotifyHooks` / `syncAgentFiles` / `inspectManagedAgentFiles` / `AGENTS_DIR`
+
 ## [5.3.1] - 2026-04-24
 
 ### Changed

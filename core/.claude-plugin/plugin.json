@@ -1,0 +1,18 @@
+{
+  "name": "agent-workflow",
+  "version": "6.0.0",
+  "description": "Multi-tool AI workflow: workflow/team/spec/code-review skills, commands, subagents, hooks",
+  "author": {
+    "name": "justinfan"
+  },
+  "homepage": "https://github.com/fan776783/claude-workflow",
+  "repository": "https://github.com/fan776783/claude-workflow",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "spec",
+    "team",
+    "code-review",
+    "agent-workflow"
+  ]
+}

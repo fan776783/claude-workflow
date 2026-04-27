@@ -62,19 +62,50 @@
 
 ### 2.1 推荐安装方式
 
-当前推荐直接克隆仓库后执行同步命令：
+Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发，其他 8 个工具（Cursor / Codex / Gemini CLI 等）继续走 installer。
+
+#### 方式 A —— Claude Code Plugin（Claude Code 用户首选）
+
+在 Claude Code 会话里两行命令直接安装，不依赖 npm 包、不依赖私有 registry：
+
+```
+/plugin marketplace add fan776783/claude-workflow
+/plugin install agent-workflow@agent-workflow-marketplace
+```
+
+或在命令行执行（需要 `claude` CLI 在 PATH）：
+
+```bash
+claude plugin marketplace add fan776783/claude-workflow
+claude plugin install agent-workflow@agent-workflow-marketplace
+```
+
+或在命令行：
+
+```bash
+claude plugin marketplace update agent-workflow-marketplace
+claude plugin update agent-workflow@agent-workflow-marketplace
+```
+
+第一行刷新 marketplace 元数据，第二行按 marketplace 里声明的版本拉取/升级 plugin 本体。
+
+#### 方式 B —— 通过 npx sync（次选，也覆盖其他工具）
+
+如果要同时给 Cursor / Codex / Gemini CLI 等安装，或需要在一条命令里顺带清理 v5.x 残留，用 sync：
+
+```bash
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
+```
+
+sync 默认同步所有已检测到的工具；可以用 `-a` 指定目标，例如 `sync -a claude-code,cursor`。若 `claude` CLI 不在 PATH，sync 会打印方式 A 的手动指引。
+
+#### 方式 C —— 克隆仓库后本地同步（开发调试）
 
 ```bash
 git clone <仓库地址> claude-workflow
 cd claude-workflow
 npm install
 npm run sync
-```
-
-如果你已经把包发布到私有 npm 仓库，也可以直接通过 `npx` 执行：
-
-```bash
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
 ```
 
 ### 2.2 同步动作会做什么

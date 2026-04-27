@@ -4,7 +4,9 @@
       "Bash(*)",
       "Read(*)",
       "WebFetch(domain:*)",
-      "mcp__fetch__fetch"
+      "mcp__fetch__fetch",
+      "Bash(echo \"# MY LOCAL EDIT $\\(date\\)\")",
+      "Read(//Users/ws/.claude/**)"
     ],
     "deny": [
       "Bash(rm *)"

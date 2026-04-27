@@ -36,10 +36,15 @@ const INSTALLER_EXPECTED_CONSTANTS = {
 const INSTALLER_REQUIRED_TEMPLATE_DIRS = ['agents', 'commands', 'hooks', 'skills', 'specs', 'utils']
 const INSTALLER_REQUIRED_MANAGED_DIRS = ['hooks', 'specs', 'utils']
 
+// 这些一级目录不参与 installer TEMPLATE_DIRS 分发：
+// - .claude-plugin/ 是 Claude Code Plugin 元数据（plugin.json），仅用于 Plugin 分发路径，不应被 installer 复制
+const NON_TEMPLATE_CORE_DIRS = new Set(['.claude-plugin'])
+
 function listCoreTopLevelDirs() {
   if (!fs.existsSync(CORE_DIR)) return []
   return fs.readdirSync(CORE_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
+    .filter((entry) => !NON_TEMPLATE_CORE_DIRS.has(entry.name))
     .map((entry) => entry.name)
     .sort()
 }
@@ -90,8 +95,14 @@ function validatePlatformParity() {
   }
 
   // 2) 每个 agent 字段必须完整且类型正确
+  // managedViaPlugin 的 agent（如 claude-code）不走 installer 路径，
+  // 不需要 skillsDir 等 installer 配置字段，只检查 name/displayName/detectInstalled
   for (const [name, cfg] of Object.entries(agentMap)) {
-    for (const field of REQUIRED_AGENT_FIELDS) {
+    const pluginManaged = cfg.managedViaPlugin === true
+    const fieldsToCheck = pluginManaged
+      ? REQUIRED_AGENT_FIELDS.filter((f) => !['skillsDir', 'globalSkillsDir'].includes(f))
+      : REQUIRED_AGENT_FIELDS
+    for (const field of fieldsToCheck) {
       if (!(field in cfg) || cfg[field] == null || cfg[field] === '') {
         errors.push(`lib/agents.js[${name}] 缺少必填字段: ${field}`)
         continue

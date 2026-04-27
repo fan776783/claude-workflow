@@ -113,6 +113,11 @@ main() {
   [[ -z "$new_version" ]] && { echo "Error: failed to read new version" >&2; exit 1; }
   echo "      $current_version -> $new_version"
 
+  # Sync Claude Code Plugin manifest version (v6.0.0+)
+  echo ""
+  echo "[1.5/5] Syncing plugin.json version..."
+  node scripts/sync-plugin-version.js "$new_version"
+
   # Generate knowledge-template migration manifest + docs-site changelog
   echo ""
   echo "[2/5] Generating knowledge-template manifest..."
@@ -132,6 +137,7 @@ main() {
     git add package.json
     [[ -f package-lock.json ]] && git add package-lock.json
     [[ -f npm-shrinkwrap.json ]] && git add npm-shrinkwrap.json
+    git add core/.claude-plugin/plugin.json .claude-plugin/marketplace.json 2>/dev/null || true
     git add core/specs/spec-templates/manifests/ 2>/dev/null || true
     if [[ -d docs-site ]]; then
       git add docs-site/changelog docs-site/zh/changelog docs-site/docs.json 2>/dev/null || true

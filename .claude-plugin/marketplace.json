@@ -1,0 +1,17 @@
+{
+  "name": "agent-workflow-marketplace",
+  "owner": {
+    "name": "justinfan"
+  },
+  "metadata": {
+    "description": "Agent Workflow Plugin distribution marketplace",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "agent-workflow",
+      "source": "./core",
+      "description": "Multi-tool AI workflow: workflow/team/spec/code-review skills, commands, subagents, hooks"
+    }
+  ]
+}

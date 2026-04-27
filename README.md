@@ -59,46 +59,86 @@
 
 ## 2. 安装与同步
 
-当前推荐直接克隆仓库后执行同步命令：
+### 2.1 Claude Code 用户（v6.0.0+ 走 Plugin 机制）
+
+从 **v6.0.0** 起，Claude Code 通过官方 Plugin 机制分发，其他 8 个工具继续走 installer。
+
+#### 方式 A —— Claude Code Plugin（推荐）
+
+在 Claude Code 会话里两行命令直接安装，不依赖 npm 包、不依赖私有 registry：
+
+```
+/plugin marketplace add fan776783/claude-workflow
+/plugin install agent-workflow@agent-workflow-marketplace
+```
+
+或在命令行执行（需要 `claude` CLI 在 PATH）：
 
 ```bash
+claude plugin marketplace add fan776783/claude-workflow
+claude plugin install agent-workflow@agent-workflow-marketplace
+```
+
+开发者模式（直接从本地仓库 `core/` 加载）：
+
+```bash
+git clone <repo-url> claude-workflow && cd claude-workflow
+claude --plugin-dir ./core
+```
+
+**更新到最新版本**：在 Claude Code 会话里执行
+
+```
+/plugin marketplace update agent-workflow-marketplace
+/plugin update agent-workflow@agent-workflow-marketplace
+```
+
+或在命令行：
+
+```bash
+claude plugin marketplace update agent-workflow-marketplace
+claude plugin update agent-workflow@agent-workflow-marketplace
+```
+
+第一行刷新 marketplace 元数据，第二行按 marketplace 里声明的版本拉取/升级 plugin 本体。
+
+#### 方式 B —— 通过 npx sync（次选）
+
+如果需要在同一条命令里顺带清理 v5.x 残留、或同时安装其他工具，用 sync：
+
+```bash
+npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -a claude-code -y
+```
+
+sync 做的事：
+1. 清理 `~/.claude/settings.json` 中 7 个受管 hook 条目（用户自定义 hook 保留）
+2. 删除 `~/.claude/.agent-workflow/{hooks,utils,specs,agents}` 遗留目录
+3. 调用 `claude plugin marketplace add` + `claude plugin install` 完成 Plugin 安装
+4. 不动 `~/.claude/CLAUDE.md`（用户自己的 memory 文件）
+
+清理和安装日志写入 `~/.claude/.claude-workflow/migration.log`。若 `claude` CLI 不在 PATH，sync 会打印方式 A 的手动指引。
+
+**CI / 容器环境**：设置 `AGENT_WORKFLOW_SKIP_CC_PLUGIN=1` 跳过 Claude Code Plugin 分支（其他工具正常安装）。
+
+### 2.2 其他 8 个 AI 工具（Cursor / Codex / Gemini CLI 等）
+
+```bash
+# 克隆仓库同步
 git clone <repo-url> claude-workflow
 cd claude-workflow
 npm install
 npm run sync
-```
 
-如果你已经把包发布到私有 npm 仓库，也可以直接通过 `npx` 执行：
-
-```bash
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
-```
-
-常用变体：
-
-```bash
-# 全局安装（默认）：会同步模板到用户目录
-# SessionStart / PreToolUse(Task) / TeammateIdle / TaskCreated / TaskCompleted 5 个 hook 会自动注入到 ~/.claude/settings.json
+# 或通过 npm 包
 npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
 
-# 同步到指定 Agent
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -a claude-code,cursor -y
+# 指定目标
+npm run sync -- -a cursor,codex
+npm run sync -- --project   # 项目级安装
+npm run sync -- -y          # 跳过确认
 
-# 项目级安装：只同步当前仓库下的模板，不会修改 ~/.claude/settings.json
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync --project -y
-
-
-
-# 从源码仓库同步
-npm run sync -- -a claude-code,cursor
-npm run sync -- --project
-npm run sync -- -y
-
-# 本地开发调试：直接把受管目录链接到当前仓库 core/
-npm run link -- -a claude-code
-
-# 结束调试后恢复标准 canonical 模式
-npm run sync -- -a claude-code
+# 本地开发调试：把受管目录链接到当前仓库 core/（claude-code 不支持 link，开发者请用 --plugin-dir）
+npm run link -- -a cursor
 ```
 
 同步完成后，建议先执行：

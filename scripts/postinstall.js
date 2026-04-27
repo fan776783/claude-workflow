@@ -122,10 +122,12 @@ async function main() {
       targetAgents = parseAgentArg(configuredAgents);
       console.log(`${LOG_PREFIX} 使用环境变量指定的 Agent: ${targetAgents.join(', ')}`);
     } else {
-      targetAgents = detectInstalledAgents();
+      // Claude Code 从 v6.0.0 起通过 Plugin 分发，不再参与 installer 自动路径。
+      // postinstall 只为其他 8 个工具复制模板；Claude Code 需要用户显式执行
+      // `agent-workflow sync -a claude-code` 触发 Plugin 安装。
+      targetAgents = detectInstalledAgents().filter(a => a !== 'claude-code');
       if (targetAgents.length === 0) {
-        targetAgents = ['claude-code'];
-        console.log(`${LOG_PREFIX} 未检测到已安装的 Agent，默认安装到 Claude Code`);
+        console.log(`${LOG_PREFIX} 未检测到需要自动 sync 的 Agent`);
       } else {
         console.log(`${LOG_PREFIX} 检测到 ${targetAgents.length} 个 Agent: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
       }
@@ -136,25 +138,30 @@ async function main() {
     let previousVersion = null;
     let requiresMigration = false;
 
+    // v6.0.0 起 Claude Code 走 Plugin 机制。postinstall 只检测 v5.x 残留并打印迁移提示，
+    // 不自动触发 sync（避免 npm install 时未经用户同意改动 ~/.claude/）
     if (await fs.pathExists(oldMetaFile)) {
       try {
         const oldMeta = await fs.readJson(oldMetaFile);
         previousVersion = oldMeta.version || null;
-
-        const status = await getInstallationStatus(true);
-        const claudeStatus = status.agents['claude-code'];
-        const skillsDir = path.join(claudeDir, 'skills');
-        if (await fs.pathExists(skillsDir)) {
-          const stats = await fs.lstat(skillsDir);
-          requiresMigration = !claudeStatus?.installed
-            || claudeStatus.mode === 'legacy-root-symlink'
-            || !stats.isSymbolicLink();
-          if (requiresMigration) {
-            console.log(`${LOG_PREFIX} 检测到旧版安装 v${previousVersion}，将迁移到新架构`);
-          }
-        }
       } catch {
         previousVersion = null;
+      }
+
+      // 残留检测：用 claudeCodePlugin.detectLegacyResidue 统一判断
+      try {
+        const claudeCodePlugin = require('../lib/claude-code-plugin');
+        const residue = await claudeCodePlugin.detectLegacyResidue();
+        if (residue.hasResidue) {
+          console.log('');
+          console.log(`${LOG_PREFIX} ⚠️  检测到 Claude Code v5.x 残留安装${previousVersion ? ` (v${previousVersion})` : ''}`);
+          console.log(`${LOG_PREFIX}    v6.0.0 起 Claude Code 已迁移到 Plugin 机制`);
+          console.log(`${LOG_PREFIX}    运行 \`${CLI_NAME} sync -a claude-code\` 清理残留并安装 Plugin`);
+          console.log(`${LOG_PREFIX}    详见 CHANGELOG.md 的 v6.0.0 条目`);
+          console.log('');
+        }
+      } catch {
+        // 残留检测失败不阻塞 postinstall
       }
     }
 

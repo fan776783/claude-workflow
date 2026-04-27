@@ -35,7 +35,23 @@ const EVENT_MAP = {
   },
 };
 
-const CONFIG_PATH = path.join(os.homedir(), '.claude', '.agent-workflow', 'notify.config.json');
+// Config 查找顺序（优先级高 → 低）：
+//   1. ~/.claude/notify.config.json                              （Plugin 模式下用户覆盖）
+//   2. ~/.claude/.agent-workflow/notify.config.json              （legacy installer 留下的用户覆盖）
+//   3. ${CLAUDE_PLUGIN_ROOT}/hooks/notify.config.default.json    （Plugin 自带默认，无用户覆盖时使用）
+function resolveConfigPath() {
+  const candidates = [
+    path.join(os.homedir(), '.claude', 'notify.config.json'),
+    path.join(os.homedir(), '.claude', '.agent-workflow', 'notify.config.json'),
+  ];
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    candidates.push(path.join(process.env.CLAUDE_PLUGIN_ROOT, 'hooks', 'notify.config.default.json'));
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 function readHookPayload() {
   try {
@@ -47,8 +63,10 @@ function readHookPayload() {
 }
 
 function loadConfig() {
+  const configPath = resolveConfigPath();
+  if (!configPath) return {};
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const raw = fs.readFileSync(configPath, 'utf8');
     return JSON.parse(raw) || {};
   } catch {
     return {};

@@ -623,6 +623,132 @@ function runContractTests(repoRoot, errors) {
 }
 
 /**
+ * 校验 Claude Code Plugin 相关契约（v6.0.0 起）：
+ *   - core/.claude-plugin/plugin.json 存在且 version 与 package.json 一致
+ *   - .claude-plugin/marketplace.json 存在且含 agent-workflow 条目
+ *   - core/hooks/hooks.json 存在，引用的脚本全部在 core/hooks/ 下
+ *   - core/hooks/notify.config.default.json 存在
+ *   - lib/installer.js 不再 export 已迁移到 Plugin 的函数（防止误 import）
+ * @param {string} repoRoot
+ * @param {string} packageRoot
+ * @param {string[]} errors
+ */
+async function validatePluginManifests(repoRoot, packageRoot, errors) {
+  const pkgJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
+
+  // 1. plugin.json 存在 + version 匹配
+  const pluginManifestPath = path.join(packageRoot, '.claude-plugin', 'plugin.json');
+  if (!(await fs.pathExists(pluginManifestPath))) {
+    errors.push('core/.claude-plugin/plugin.json 不存在');
+    return;
+  }
+  let pluginManifest;
+  try {
+    pluginManifest = JSON.parse(await fs.readFile(pluginManifestPath, 'utf8'));
+  } catch (err) {
+    errors.push(`core/.claude-plugin/plugin.json 解析失败: ${err.message}`);
+    return;
+  }
+  if (pluginManifest.version !== pkgJson.version) {
+    errors.push(
+      `plugin.json version (${pluginManifest.version}) 与 package.json version (${pkgJson.version}) 不一致，` +
+      `请运行 node scripts/sync-plugin-version.js ${pkgJson.version}`
+    );
+  }
+  if (pluginManifest.name !== 'agent-workflow') {
+    errors.push(`plugin.json name 必须为 "agent-workflow"（当前：${pluginManifest.name}）`);
+  }
+
+  // 2. marketplace.json 存在 + 含 agent-workflow 条目
+  const marketplaceManifestPath = path.join(repoRoot, '.claude-plugin', 'marketplace.json');
+  if (!(await fs.pathExists(marketplaceManifestPath))) {
+    errors.push('.claude-plugin/marketplace.json 不存在');
+  } else {
+    try {
+      const marketplaceManifest = JSON.parse(await fs.readFile(marketplaceManifestPath, 'utf8'));
+      const plugins = Array.isArray(marketplaceManifest.plugins) ? marketplaceManifest.plugins : [];
+      const hasEntry = plugins.some((p) => p && p.name === 'agent-workflow');
+      if (!hasEntry) {
+        errors.push('.claude-plugin/marketplace.json plugins 数组未声明 agent-workflow 条目');
+      }
+    } catch (err) {
+      errors.push(`.claude-plugin/marketplace.json 解析失败: ${err.message}`);
+    }
+  }
+
+  // 3. hooks.json 存在 + 引用脚本都在 core/hooks/
+  const hooksJsonPath = path.join(packageRoot, 'hooks', 'hooks.json');
+  if (!(await fs.pathExists(hooksJsonPath))) {
+    errors.push('core/hooks/hooks.json 不存在');
+  } else {
+    try {
+      const hooksManifest = JSON.parse(await fs.readFile(hooksJsonPath, 'utf8'));
+      const referencedScripts = new Set();
+      const hooksDef = hooksManifest.hooks || {};
+      for (const eventName of Object.keys(hooksDef)) {
+        const entries = Array.isArray(hooksDef[eventName]) ? hooksDef[eventName] : [];
+        for (const entry of entries) {
+          const configs = Array.isArray(entry.hooks) ? entry.hooks : [];
+          for (const hookConfig of configs) {
+            if (hookConfig && typeof hookConfig.command === 'string') {
+              // 匹配 ${CLAUDE_PLUGIN_ROOT}/hooks/<script>.js 中的 <script>.js
+              const match = hookConfig.command.match(/hooks\/([A-Za-z0-9_-]+\.js)/);
+              if (match) referencedScripts.add(match[1]);
+            }
+          }
+        }
+      }
+      for (const script of referencedScripts) {
+        const scriptPath = path.join(packageRoot, 'hooks', script);
+        if (!(await fs.pathExists(scriptPath))) {
+          errors.push(`hooks.json 引用了不存在的脚本: ${script}`);
+        }
+      }
+    } catch (err) {
+      errors.push(`core/hooks/hooks.json 解析失败: ${err.message}`);
+    }
+  }
+
+  // 4. notify.config.default.json 存在
+  const notifyDefaultPath = path.join(packageRoot, 'hooks', 'notify.config.default.json');
+  if (!(await fs.pathExists(notifyDefaultPath))) {
+    errors.push('core/hooks/notify.config.default.json 不存在');
+  }
+
+  // 5. installer.js 不再 export 已迁移函数
+  const installerPath = path.join(repoRoot, 'lib', 'installer.js');
+  if (await fs.pathExists(installerPath)) {
+    const installerContent = await fs.readFile(installerPath, 'utf8');
+    // 只在清理 Step 4 之后启用这条校验；用 STEP_4_DONE 锚注释作为 opt-in 触发开关。
+    // 未清理前校验不应阻塞开发。
+    if (installerContent.includes('// @installer-plugin-migration: STEP_4_DONE')) {
+      const forbiddenExports = [
+        'ensureWorkflowHooks',
+        'ensureTeamHooks',
+        'ensureNotifyHooks',
+        'syncAgentFiles',
+        'inspectManagedAgentFiles',
+      ];
+      const exportsMatch = installerContent.match(/module\.exports\s*=\s*\{([\s\S]*?)\};?\s*$/m);
+      if (exportsMatch) {
+        const exportedNames = exportsMatch[1];
+        for (const name of forbiddenExports) {
+          if (new RegExp(`\\b${name}\\b`).test(exportedNames)) {
+            errors.push(
+              `Step 4 已标记完成但 lib/installer.js 仍 export "${name}"；该函数应迁移到 lib/claude-code-plugin.js`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  if (errors.filter(e => e.includes('plugin')).length === 0) {
+    console.log('  ✅ plugin manifests: plugin.json / marketplace.json / hooks.json 全部就绪');
+  }
+}
+
+/**
  * 发布前验证主流程：检查目录结构、workflow/team 契约、路径引用
  * @returns {Promise<void>}
  */
@@ -667,6 +793,7 @@ async function validate() {
   await validateTeamContracts(repoRoot, packageRoot, errors);
   await validatePathReferences(repoRoot, packageRoot, errors);
   await validateCodeSpecsManifests(repoRoot, packageRoot, errors);
+  await validatePluginManifests(repoRoot, packageRoot, errors);
   validateCodeSpecsTemplateContracts(errors);
   validatePlatformParityContract(errors);
   runContractTests(repoRoot, errors);
