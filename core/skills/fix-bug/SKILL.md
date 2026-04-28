@@ -79,7 +79,7 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 先判断入参形态，标准化为 `IssueRecord` 后再进入后续步骤：
 
-- 入参是 `issue_number`：按 [references/issue-intake.md](references/issue-intake.md) 读项目配置 + 调用 `mcp__mcp-router__get_issue` 拉详情
+- 入参是 `issue_number`：按 [references/issue-intake.md](references/issue-intake.md) 读项目配置 + 通过 `bk` skill 的 `get_issue` CLI 拉详情
 - 入参是自由描述 `bug`：构造只含 `description` 的最小 IssueRecord；`status_transition_ready` 恒为 `false`，最终摘要标注"无缺陷单可流转"
 
 完整字段表和失败路径见 issue-intake.md。
@@ -138,7 +138,7 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 仅在入参为 `issue_number` 时做一次 best-effort 扫描，用于发现可能被"顺手修掉"的同源缺陷。没有命中就留空，不强求。
 
-- 按 `module_hint` / 关键错误码 / 主要复现路径，在项目缺陷列表中查找同经办人或同模块下未关闭的缺陷（可复用 `mcp__mcp-router__list_issues`）。
+- 按 `module_hint` / 关键错误码 / 主要复现路径，在项目缺陷列表中查找同经办人或同模块下未关闭的缺陷（通过 `bk` skill 的 `list_issues` CLI）。
 - 命中时在 Phase 2 的 Hard Stop 里把候选列出来，由用户决定是否纳入 `included_issues`（一起修）或 `issues_covered_as_duplicates`（判定为重复）。
 - 禁止自动合并。不确定时保持空数组，与 bug-batch 的 `needs_manual_judgement` 策略保持一致。
 
@@ -252,14 +252,13 @@ Phase 4: 模型审查 + 状态流转就绪判断
 
 ### 3.3 状态流转（处理中）
 
-仅在入参有 `issue_number` 且验证通过时执行——把缺陷推进到"处理中"，表明代码已落地、等待最终审查：
+仅在入参有 `issue_number` 且验证通过时执行——把缺陷推进到"处理中"，表明代码已落地、等待最终审查。通过 `bk` skill 的 `transition_issue` CLI：
 
-```
-mcp__mcp-router__transition_issue(
-  issue_number: "<issue_number>",
-  target_state: "处理中",
-  comment: "已完成代码修复与验证"
-)
+```bash
+node <bk-skill>/cli/bk.mjs transition_issue \
+  --issue_number <issue_number> \
+  --target_state 处理中 \
+  --comment "已完成代码修复与验证"
 ```
 
 进入任何 `manual_intervention` 分支时跳过。流转失败的降级处理见 4.3.3。
@@ -339,14 +338,13 @@ PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sor
 
 #### 4.3.1 审查通过
 
-`status_transition_ready = true` 时，把缺陷从"处理中"推进到"待验证"：
+`status_transition_ready = true` 时，把缺陷从"处理中"推进到"待验证"。通过 `bk` skill 的 `transition_issue` CLI：
 
-```
-mcp__mcp-router__transition_issue(
-  issue_number: "<issue_number>",
-  target_state: "待验证",
-  comment: "Commit <commit_sha> 已提交"
-)
+```bash
+node <bk-skill>/cli/bk.mjs transition_issue \
+  --issue_number <issue_number> \
+  --target_state 待验证 \
+  --comment "Commit <commit_sha> 已提交"
 ```
 
 `included_issues` / `issues_covered_as_duplicates` 里的缺陷与 `primary_issue` 一起流转，MCP 不支持一次多选时按顺序逐条调用。

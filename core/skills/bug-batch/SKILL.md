@@ -196,7 +196,7 @@ Phase 8:   输出汇总报告
 
 ## Phase 1: 拉取缺陷清单
 
-调用 `mcp__mcp-router__list_issues` 拉取缺陷列表，筛选规则：
+通过 `bk` skill 的 `list_issues` CLI 拉取缺陷列表（`node <bk-skill>/cli/bk.mjs list_issues ...`），筛选规则：
 
 | 筛选维度 | 调用策略 |
 |---------|---------|
@@ -208,7 +208,7 @@ Phase 8:   输出汇总报告
 
 ## Phase 2: 获取详情并标准化 IssueRecord
 
-对每个缺陷调用 `mcp__mcp-router__get_issue(issue_number)`，提取标题、描述、复现步骤、优先级、状态、创建时间、创建人、经办人、截图、链接、日志片段、模块关键词、接口名、页面路径、错误码等上下文线索。多个 `get_issue` 调用在单条消息里并行发起，批量拉取时按 ~10 个一组并发。
+对每个缺陷通过 `bk` skill 的 `get_issue` CLI 拉详情（`node <bk-skill>/cli/bk.mjs get_issue --issue_number <issue_number>`），提取标题、描述、复现步骤、优先级、状态、创建时间、创建人、经办人、截图、链接、日志片段、模块关键词、接口名、页面路径、错误码等上下文线索。多个 `get_issue` 调用在单条消息里并行发起，批量拉取时按 ~10 个一组并发。
 
 标准化时补充：`symptom_summary` / `entry_point` / `module_hint` / `risk_hint` / `suspected_root_cause`。
 

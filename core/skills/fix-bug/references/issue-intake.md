@@ -5,7 +5,7 @@ fix-bug 的入参有两种形态，落到后续 Phase 之前统一归一化成 `
 ## 入参是 `issue_number`（例：`p328_600`）
 
 1. 读 `.claude/config/project-config.json`，取 `project.bkProjectId`。为空或文件不存在时终止，输出与 bug-batch 一致的提示：`蓝鲸项目未关联，请先执行 /scan 完成项目关联`。
-2. 调用 `mcp__mcp-router__get_issue(issue_number)` 拉取详情。
+2. 通过 `bk` skill 的 CLI 拉取详情：`node <bk-skill>/cli/bk.mjs get_issue --issue_number <issue_number>`。
 3. 标准化为 IssueRecord（字段表见下方）。
 4. 后续 Phase 的现象描述、根因假设、影响分析均基于这份 IssueRecord。
 
