@@ -1,22 +1,18 @@
 # 工件参考
 
-> 规划阶段产出的 JSON 工件概览。除 `analysis-result.json` 外，其余工件由 CLI 自动创建和管理。
+> 规划阶段产出的 JSON 工件概览。当前仅保留 `analysis-result.json` 一份工件；讨论记录、UX 设计、PRD 覆盖率已改为写入 spec.md 或即时计算，不再落盘为独立 JSON。
 
 ## 工件总览
 
 | 工件 | 产出阶段 | 创建方式 | 路径 |
 |------|---------|---------|------|
 | analysis-result.json | Step 2 代码分析 | **AI 写入** | `~/.claude/workflows/{projectId}/` |
-| discussion-artifact.json | Step 3 需求讨论 | CLI `plan` 自动创建骨架，AI 按 schema 填值 | `~/.claude/workflows/{projectId}/` |
-| ux-design-artifact.json | Step 4 UX 设计 | CLI `plan` 自动创建骨架，AI 按 schema 填值 | `~/.claude/workflows/{projectId}/` |
-| prd-spec-coverage.json | Step 5 Spec 扩写 | CLI `plan` / `spec-review` 自动创建与刷新，AI 不直接写 | `~/.claude/workflows/{projectId}/` |
 
-**职责边界**（与 `SKILL.md` Step 1-7 对齐）：
+**已废弃工件**（历史归档，不再生成）：
 
-- Step 1 的 CLI `plan` 调用已经创建以上 3 个骨架文件；AI 不需要调 Write 从零构造 JSON。
-- `discussion` / `ux-design` 两个工件由 AI 在 Step 3 / Step 4 读取骨架后**按 canonical schema 填入业务内容**，顶层 key 不得改名或新增。
-- `prd-spec-coverage` 完全由 CLI 管理，AI 只读不写；Step 5 扩写 spec 后下次调 `spec-review --choice "Spec 正确，生成 Plan"` 时由 CLI 刷新。
-- `analysis-result.json` 由 AI 全权产出，自由 Write。
+- ~~`discussion-artifact.json`~~ → 合并入 spec.md § 9 Open Questions & Dependencies
+- ~~`ux-design-artifact.json`~~ → 合并入 spec.md § 4.4 UX Design；触发标记通过 `workflow-state.json` 的 `ux_design.ux_gate_required` 读取
+- ~~`prd-spec-coverage.json`~~ → self-review 时即时计算 PRD ↔ Spec 覆盖率，不再持久化
 
 ---
 
@@ -46,26 +42,3 @@
 
 `relatedFiles[].reuseType`: `modify | reference | extend`。`dependencies[].type`: `internal | external`。
 
----
-
-## CLI 自动管理的工件
-
-以下工件由 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js start` 自动创建，AI **不需要手动构造 JSON**。
-
-### discussion-artifact.json
-
-需求讨论产物。CLI 通过 `planning_gates.js → buildDiscussionArtifact()` 创建。
-
-包含：`clarifications`（澄清列表，每项有 dimension/question/answer/impact）、`selectedApproach`（选定方案，含 rejectedAlternatives）、`unresolvedDependencies`（未就绪依赖）。
-
-### ux-design-artifact.json
-
-UX 设计审批产物。CLI 自动创建骨架，含 `flowchart`（Mermaid 流程图 + ≥3 场景）、`pageHierarchy`（L0/L1/L2 页面分层 + 导航结构）、`detectedWorkspaces`。
-
-### prd-spec-coverage.json
-
-PRD↔Spec 覆盖率报告。CLI 通过 `lifecycle_cmds.js → buildPRDCoverageReport()` 创建。
-
-包含：`totalSegments`、`covered`/`partial`/`uncovered` 统计、`coverageRate`（目标 ≥ 0.9）、`segments[]`（每段的状态、匹配章节、缺失细节、高风险标记）。
-
-> 读取这些工件时直接 `JSON.parse()` 即可。字段结构见 CLI 源码 `utils/workflow/planning_gates.js` 和 `utils/workflow/lifecycle_cmds.js`。

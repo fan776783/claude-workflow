@@ -3,6 +3,10 @@ name: workflow-review
 description: "workflow-review 入口。独立的全量完成审查步骤 — execute 完成后手动执行 /workflow-review 触发。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。Stage 1(规格合规)直接依赖最新的 code-specs 和 glossary——即使 workflow 很小也别跳过。
+</PRE-FLIGHT>
+
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
 该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。

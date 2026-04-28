@@ -4,7 +4,6 @@ requirement_source: "{{requirement_source}}"
 created_at: "{{created_at}}"
 status: draft
 role: spec
-prd_coverage: "prd-spec-coverage.json"
 ---
 
 # Spec: {{task_name}}
@@ -76,6 +75,34 @@ prd_coverage: "prd-spec-coverage.json"
 - 页面 / 接口 / 日志 / 状态变化：
 - 用户可感知反馈：
 
+### 4.4 UX Design（前端任务适用）
+
+<!-- 后端/CLI 项目删除本节 -->
+
+#### User Flow（Mermaid）
+
+```mermaid
+flowchart TD
+  A[Start] --> B[Complete]
+```
+
+**场景覆盖**（≥ 3 个）：
+
+| 场景 | 描述 | 覆盖节点 |
+|------|------|---------|
+| 首次使用 | 新用户引导路径 | |
+| 核心操作 | 入口到完成核心功能 | |
+| 异常/边界 | 操作失败、数据为空、权限不足 | |
+
+#### Page Hierarchy
+
+| 层级 | 页面名 | 功能模块 | 导航方式 |
+|------|--------|---------|---------|
+| L0 | | | |
+| L1 | | | |
+
+> L0 模块不超过 4 个。
+
 ---
 
 ## 5. Architecture and Module Design
@@ -129,7 +156,37 @@ prd_coverage: "prd-spec-coverage.json"
 
 ---
 
-## 9. Open Questions
+## 9. Open Questions & Dependencies
+
+### 9.1 需求澄清记录
+
+<!-- 讨论阶段的澄清结果。每项格式：维度 / 问题 / 答案 / 影响级别 -->
+
+| 维度 | 问题 | 答案 | 影响 |
+|------|------|------|------|
+| | | | |
+
+### 9.2 方案选择
+
+<!-- 仅当存在互斥实现路径时填写 -->
+
+**选定方案**：
+
+**被排除方案**：
+
+| 方案 | 排除原因 |
+|------|---------|
+| | |
+
+### 9.3 未解决依赖
+
+<!-- 外部依赖未就绪时填写。对应需求在 § 2 Scope 中标记为 blocked -->
+
+| 依赖 | 类型 | 状态 | 影响 |
+|------|------|------|------|
+| | | | |
+
+### 9.4 Open Questions
 
 - 问题 1：
 - 问题 2：

@@ -3,6 +3,10 @@ name: fix-bug
 description: "Bug 修复流程：问题定位 → 影响分析 → 确认方案 → 修复 → Codex 审查。用于处理单个缺陷，包含完整的 4 Phase 流程和 Hard Stop 确认。批量场景请使用 bug-batch，其内部修复协议不经过本 skill。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。没有最新 code-specs 和 glossary 做 bug 分析,容易误判 layer;纯 typo 级修复可走跳过条件。
+</PRE-FLIGHT>
+
 # 调试与修复
 
 从问题定位到修复验证的完整流程。该 skill 用于处理单个 Bug，包含完整的分析、确认、修复、审查四阶段流程。

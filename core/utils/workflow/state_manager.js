@@ -165,21 +165,21 @@ function markDependencyUnblocked(state, dependency, tasksToUnblock = null) {
   return normalized
 }
 
-function updateDiscussionRecord(state, artifactPath, clarificationCount, completed = true) {
+function updateDiscussionRecord(state, clarificationCount, completed = true) {
   const normalized = normalizeStateInPlace(state)
   normalized.discussion = {
     completed,
-    artifact_path: artifactPath,
     clarification_count: clarificationCount,
+    unresolved_dependencies: (normalized.discussion || {}).unresolved_dependencies || [],
   }
   return normalized.discussion
 }
 
-function updateUxDesignRecord(state, artifactPath, flowchartScenarios = 0, pageCount = 0, approved = false) {
+function updateUxDesignRecord(state, flowchartScenarios = 0, pageCount = 0, approved = false, gateRequired = false) {
   const normalized = normalizeStateInPlace(state)
   normalized.ux_design = {
     completed: approved,
-    artifact_path: artifactPath,
+    ux_gate_required: gateRequired,
     flowchart_scenarios: flowchartScenarios,
     page_count: pageCount,
     approved_at: approved ? isoNow() : null,

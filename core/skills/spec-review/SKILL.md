@@ -3,6 +3,10 @@ name: spec-review
 description: "审查 code-specs 库（v2.2）。按文件类型分档 lint：convention 查必备 4 段 + 代码示例 + Why；contract 查 7 段；通用维度查过期/冲突。模板漂移走 .template-hashes.json。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。冲突检测和 glossary drift 识别都需要先把 canonical glossary 加载到会话。
+</PRE-FLIGHT>
+
 # /spec-review
 
 只读的 code-specs 库审查命令。走声明式审查模型：按文件类型分档 lint + 过期 + 冲突 + 模板漂移对账，输出报告供用户决定后续动作。

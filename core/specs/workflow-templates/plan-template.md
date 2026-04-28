@@ -69,7 +69,7 @@ context_profile: "{{context_profile}}"
 > 下列 checkbox 仅用于自审展示，不是任务解析格式；plan parser 仍以 `## Tn:` 的 WorkflowTaskV2 任务块为准。
 
 - [ ] **Requirement coverage** — 逐条 spec 需求，确认每条都有对应 task
-- [ ] **PRD 覆盖率** — 检查 prd-spec-coverage.json 中 partial/uncovered 段落是否有对应 task
+- [ ] **PRD 覆盖率** — 即时计算 PRD 段落覆盖率，检查 partial/uncovered 段落是否有对应 task
 - [ ] **Placeholder scan** — 搜索 TBD/TODO/模糊描述，全部替换为实际内容
 - [ ] **Type consistency** — 跨 task 的类型名、函数名、属性名是否一致
 - [ ] **Command accuracy** — 验证命令语法和文件路径是否正确（语义正确性在执行阶段验证）

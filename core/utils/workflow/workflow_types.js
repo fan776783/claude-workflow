@@ -162,9 +162,9 @@ function ensureStateDefaults(state) {
   if (!normalized.context_injection) normalized.context_injection = copyJson(MINIMUM_CONTEXT_INJECTION)
   if (!normalized.review_status) normalized.review_status = {}
   if (!normalized.api_context) normalized.api_context = copyJson(MINIMUM_API_CONTEXT)
-  if (!normalized.discussion) normalized.discussion = { completed: false, artifact_path: null, clarification_count: 0 }
+  if (!normalized.discussion) normalized.discussion = { completed: false, clarification_count: 0, unresolved_dependencies: [] }
 
-  if (!normalized.ux_design) normalized.ux_design = { completed: false, artifact_path: null, flowchart_scenarios: 0, page_count: 0, approved_at: null }
+  if (!normalized.ux_design) normalized.ux_design = { completed: false, ux_gate_required: false, flowchart_scenarios: 0, page_count: 0, approved_at: null }
   if (!normalized.review_status.user_spec_review) normalized.review_status.user_spec_review = { status: 'pending', review_mode: 'human_gate', reviewed_at: null, reviewer: 'user', next_action: null }
   if (!normalized.review_status.codex_spec_review) normalized.review_status.codex_spec_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 1, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }

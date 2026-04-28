@@ -3,6 +3,10 @@ name: workflow-execute
 description: "workflow-execute 入口。完整行动指南：状态读取 → 治理决策 → 任务执行 → 后置管线 → 循环控制。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。单 task 的 scoped code-specs 仍由 PreToolUse hook 注入;这段前置只保证 skill 入口处读过 project-config、glossary 和治理伙伴文件。
+</PRE-FLIGHT>
+
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
 该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。

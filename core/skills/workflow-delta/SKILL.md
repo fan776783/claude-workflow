@@ -3,6 +3,10 @@ name: workflow-delta
 description: "/workflow-delta 入口。增量变更的影响分析、用户确认与应用。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。当 delta 跨到新的 `{pkg}/{layer}` 时,必须重新读新涉及 layer 的 code-specs index。
+</PRE-FLIGHT>
+
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
 该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。

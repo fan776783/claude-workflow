@@ -3,6 +3,10 @@ name: bug-batch
 description: "批量修缺陷——从蓝鲸项目管理平台一次性拉一批 Bug，先做全量分析找出重复和共享根因再成组修，避免逐条打补丁。适合清积压、集中处理同一模块多个相关问题，或需要统一验证一组接口改动。项目 ID 从 project-config.json 的 project.bkProjectId 读取。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。批量分析会跨多个 `{pkg}/{layer}`,Phase 3 开始前把每个涉及 layer 的 code-specs index 都读一遍。
+</PRE-FLIGHT>
+
 # 批量缺陷修复
 
 先分析全部缺陷，再按修复单元顺序执行。不要在缺少关系判断时直接逐条修复。
