@@ -96,9 +96,11 @@ main() {
   fi
   echo "  ${MASTER_BRANCH} is ${ahead} commit(s) ahead of ${PUBLIC_REMOTE}/${PUBLIC_BRANCH}"
 
-  # Build the list of master files minus internal paths
+  # Build the list of master files minus internal paths.
+  # -z is critical: without it git ls-tree quotes non-ASCII paths (e.g. CJK
+  # filenames become "docs/internal/\345...md"), breaking ^prefix matching.
   local master_files
-  master_files="$(git ls-tree -r --name-only "$MASTER_BRANCH")"
+  master_files="$(git ls-tree -r -z --name-only "$MASTER_BRANCH" | tr '\0' '\n')"
 
   # Filter out internal paths
   local filter_expr=""
@@ -128,26 +130,23 @@ main() {
   # the user stranded on main.
   trap 'git checkout "$original_branch" >/dev/null 2>&1 || true; echo "Error: publish-public aborted; restored branch $original_branch" >&2' ERR
 
-  # Overlay master's public files onto main
+  # Overlay master's public files onto main. Use NUL-delimited xargs so
+  # paths with spaces or non-ASCII bytes survive intact.
   echo "→ Applying ${MASTER_BRANCH} tree (excluding internal paths)..."
-  local tmp_list
-  tmp_list="$(mktemp)"
-  echo "$sync_files" > "$tmp_list"
-  # shellcheck disable=SC2046
-  git checkout "$MASTER_BRANCH" -- $(cat "$tmp_list")
-  rm -f "$tmp_list"
+  printf '%s\n' "$sync_files" | tr '\n' '\0' | \
+    xargs -0 git checkout "$MASTER_BRANCH" --
 
   # Delete any files that exist on main but are no longer on master
   # (excluding internal & keep-main paths)
   local main_files stale_files
-  main_files="$(git ls-tree -r --name-only HEAD)"
+  main_files="$(git ls-tree -r -z --name-only HEAD | tr '\0' '\n')"
   stale_files="$(comm -23 \
     <(echo "$main_files" | grep -Ev "$filter_expr" | sort) \
     <(echo "$sync_files" | sort))"
   if [[ -n "$stale_files" ]]; then
     echo "→ Removing files that no longer exist on ${MASTER_BRANCH}:"
-    echo "$stale_files" | sed 's/^/    /'
-    echo "$stale_files" | xargs -r git rm --quiet
+    printf '%s\n' "$stale_files" | sed 's/^/    /'
+    printf '%s\n' "$stale_files" | tr '\n' '\0' | xargs -0 -r git rm --quiet
   fi
 
   # Safety check: no internal path should be staged
