@@ -84,7 +84,7 @@ Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发，其他 8 个
 如果要同时给 Cursor / Codex / Gemini CLI 等安装，或需要在一条命令里顺带清理 v5.x 残留，用 sync：
 
 ```bash
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
+npx --yes --registry http://10.10.19.68:4873 @justinfan/agent-workflow@latest sync -y
 ```
 
 sync 默认同步所有已检测到的工具；可以用 `-a` 指定目标，例如 `sync -a claude-code,cursor`。若 `claude` CLI 不在 PATH，sync 会打印方式 A 的手动指引。
