@@ -23,6 +23,11 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
     5. Integration risks - conflicts with existing code paths?
     6. Test coverage - are proposed tests sufficient?
 
+    HARD CONSTRAINTS:
+    (1) Ignore hypothetical scenarios without a concrete code path or caller — trust internal code with known shape.
+    (2) Do not propose spec-scope changes, new features, or cleanup outside the plan's stated tasks.
+    (3) Report only critical/important findings; collapse all minor items into a single advisory line, do not expand.
+
     Output ONLY candidate issues. Each issue:
     - task_ref: which task (e.g. T3)
     - severity: critical | important | minor

@@ -292,7 +292,7 @@ node <bk-skill>/cli/bk.mjs transition_issue \
 按 `collaborating-with-codex` skill 调用（后台执行，不设 timeout）：
 
 ```
-PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sorted by P0→P3. Review bug fix: Bug: {{问题描述}}. Root cause: {{根本原因}}. Fix: {{方案摘要}}. Diff: {{git diff 内容}}. Evaluate: root cause resolution, regression risk, edge cases, code quality. OUTPUT FORMAT: Review comments only, sort by P0→P3."
+PROMPT: "ROLE: Code Reviewer. CONSTRAINTS: READ-ONLY, output review comments sorted by P0→P3. Review bug fix: Bug: {{问题描述}}. Root cause: {{根本原因}}. Fix: {{方案摘要}}. Diff: {{git diff 内容}}. Evaluate: root cause resolution, regression risk, edge cases, code quality. HARD CONSTRAINTS: (1) Ignore hypothetical scenarios without a named caller or reachable code path — trust internal code with known shape. (2) Do not recommend refactors, renames, or cleanup outside the diff. (3) Report only P0 (must-fix) and P1 (should-fix); collapse all P2/P3 into a single advisory line, do not expand. OUTPUT FORMAT: Review comments only, sort by P0→P3."
 ```
 
 **降级策略**：Codex 不可用时由当前模型直接审查。

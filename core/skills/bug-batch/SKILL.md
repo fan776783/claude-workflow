@@ -515,7 +515,7 @@ node scripts/codex-bridge.mjs \
   --cd "<repo_root>" \
   --adversarial-review working-tree \
   [--background] \
-  --prompt "FOCUS: Cross-unit batch review. Units: <unit_ids>. Evaluate: inter-unit conflicts, shared dependency compatibility, interface contract breaks, regression coverage."
+  --prompt "FOCUS: Cross-unit batch review. Units: <unit_ids>. Evaluate: inter-unit conflicts, shared dependency compatibility, interface contract breaks, regression coverage. HARD CONSTRAINTS: (1) Ignore hypothetical scenarios without a named caller or reachable code path — trust internal code with known shape. (2) Do not recommend refactors, renames, or cleanup outside the diff. (3) Report only Critical/Important findings; collapse minor/nit items into a single advisory line, do not expand."
 ```
 
 按用户选择分支：

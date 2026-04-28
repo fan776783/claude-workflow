@@ -23,6 +23,11 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
     5. Data model issues - schema design, migration safety, constraint coverage
     6. Cross-cutting concerns - caching strategy, concurrency, state consistency
 
+    HARD CONSTRAINTS:
+    (1) Ignore hypothetical scenarios without a concrete code path or caller implied by the spec.
+    (2) Do not propose scope expansion, new features, or concerns outside the spec's stated requirements.
+    (3) Report only critical/important findings; collapse all minor items into a single advisory line, do not expand.
+
     Output ONLY candidate issues as structured list. Each issue:
     - spec_section: which section of the spec
     - severity: critical | important | minor
