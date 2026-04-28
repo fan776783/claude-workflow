@@ -3,6 +3,10 @@ name: scan
 description: "智能项目扫描 - 检测技术栈、生成配置文件和项目上下文报告。触发条件：用户调用 /scan，或首次使用工作流前需要初始化项目配置，或项目架构变更后需要更新配置。输出 project-config.json 和 repo-context.md。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。本 skill 自己会产出 project-config.json 和 repo-context.md,首次运行时协议的第 1-2 步缺失属于预期——第 4 步(glossary)仍要读,让产出报告使用 canonical 术语。
+</PRE-FLIGHT>
+
 # 智能项目扫描
 
 自动检测项目结构、技术栈，并通过语义代码检索生成项目上下文报告。

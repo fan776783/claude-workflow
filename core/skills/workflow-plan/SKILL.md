@@ -1,7 +1,11 @@
 ---
 name: workflow-plan
-description: "/workflow-plan 入口。代码分析 → 需求讨论 → UX 设计 → Spec 生成 → 用户审批 → Plan 生成。"
+description: "/workflow-plan 入口。代码分析 → 需求讨论 → Spec 生成（含条件 UX）→ 用户审批 → Plan 生成。"
 ---
+
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行(project-config → repo-context → 受影响的 code-specs → glossary)。只有跳过条件成立时才可跳过。运行时启动检查走 `core/specs/workflow-runtime/preflight.md`(不同文件,不同问题)。
+</PRE-FLIGHT>
 
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
@@ -15,21 +19,19 @@ Step → 必调命令映射：
 
 | Step | 必调子命令 | 作用 |
 |------|----------|------|
-| Step 1 | `plan "<需求>"` | 创建 workflow-state.json（status=`spec_review`）+ spec.md 骨架 + discussion / prd-spec-coverage / role-context 骨架（ux-design 骨架按需） |
-| Step 5 开始前 | `status` | 健康检查：`spec_file` 就绪、`status=spec_review` |
-| Step 6 | `spec-review --choice "<canonical>"` | 推进状态机；approve 分支会生成 plan.md 骨架并推到 `planned` |
-| Step 7 开始前 | `status` | 健康检查：`plan_file` 就绪、`status=planned`、`current_tasks` 非空 |
+| Step 1 | `plan "<需求>"` | 创建 workflow-state.json（status=`spec_review`）+ spec.md 骨架 + role-context 骨架 + `ux_gate_required` 标记按需写入 state |
+| Step 4 开始前 | `status` | 健康检查：`spec_file` 就绪、`status=spec_review` |
+| Step 5 | `spec-review --choice "<canonical>"` | 推进状态机；approve 分支会生成 plan.md 骨架并推到 `planned` |
+| Step 6 开始前 | `status` | 健康检查：`plan_file` 就绪、`status=planned`、`current_tasks` 非空 |
 
-`spec-review` 的 `--choice` 只接受下面 7 个 canonical 字符串之一（精确匹配，来自 `planning_gates.js:142`）。**禁止把用户原话直接塞给 `--choice`，必须先归一化**：
+`spec-review` 的 `--choice` 只接受下面 5 个 canonical 字符串之一（精确匹配，来自 `planning_gates.js:142`）。**禁止把用户原话直接塞给 `--choice`，必须先归一化**：
 
 | canonical 字符串 | 分支含义 |
 |---|---|
 | `Spec 正确，生成 Plan` | approve，继续 Plan 生成 |
 | `Spec 正确，继续` | approve，继续流程 |
-| `需要修改 Spec` | 回到 Phase 1 Spec 生成 |
-| `页面分层需要调整` | 回到 Phase 0.3 UX 审批 |
-| `缺少用户流程` | 回到 Phase 0.3 UX 审批 |
-| `缺少需求细节` | 回到 Phase 1，保留需求细节 |
+| `需要修改 Spec` | 回到 Step 4 Spec 扩写（含 UX 修订） |
+| `缺少需求细节` | 回到 Step 4，保留需求细节 |
 | `需要拆分范围` | 拒绝，状态回 idle |
 
 ⚠️ `init` 子命令是**执行期**状态丢失时的自愈入口，**规划期禁用**。规划期应通过 `plan` 建立 state，`init` 在发现多个历史 plan 时会直接报错。
@@ -42,7 +44,7 @@ Step → 必调命令映射：
 <HARD-GATE>
 四条不可违反的规则：
 1. Spec 未经用户确认，不得进入 Plan 扩写
-2. 讨论/UX 设计产物必须持久化为 JSON 文件，不得仅在对话中存在
+2. 讨论结果必须写入 spec.md § 9 对应章节，不得仅在对话中存在
 3. Plan 中不允许任何 TBD/TODO/占位符
 4. **Step 1 必须先调 `workflow_cli.js plan` 建立 state 与骨架文件，后续 Step 只能在骨架上 Edit 扩写，禁止 Write 全量覆盖 spec.md / plan.md**
 </HARD-GATE>
@@ -54,13 +56,12 @@ Step → 必调命令映射：
 1. ☐ 解析参数 + 基础设施预检
 2. ☐ 代码库分析（强制）
 3. ☐ 需求讨论（条件）
-4. ☐ UX 设计审批（条件 HARD-GATE）
-5. ☐ Spec 扩写（在 CLI 骨架上）+ Self-Review
-5.5. ☐ Codex Spec Review（条件，advisory）
-6. ☐ 🛑 用户审批 Spec
-7. ☐ Plan 扩写（在 CLI 骨架上）+ Self-Review
-7.5. ☐ Codex Plan Review（条件，bounded-autofix）
-8. ☐ 🛑 规划完成（Hard Stop）
+4. ☐ Spec 扩写（在 CLI 骨架上，含条件 UX 设计）+ Self-Review
+4.5. ☐ Codex Spec Review（条件，advisory）
+5. ☐ 🛑 用户审批 Spec
+6. ☐ Plan 扩写（在 CLI 骨架上）+ Self-Review
+6.5. ☐ Codex Plan Review（条件，bounded-autofix）
+7. ☐ 🛑 规划完成（Hard Stop）
 
 ---
 
@@ -92,15 +93,15 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 - `workflow-state.json`（status=`spec_review`）
 - `spec.md` 骨架（带模板 front matter）—— 注意 plan.md **不在此时生成**
-- `discussion-artifact.json` / `prd-spec-coverage.json` / `role-context.json` 骨架
-- `ux-design-artifact.json` 骨架（仅当 `ux_gate_required=true` 时，由 CLI 按需求关键词与代码分析结果判断）
+- `role-context.json` 骨架
+- `ux_gate_required` 标记写入 workflow-state.json（仅当需求涉及 UI 关键词或检测到前端框架时为 true）
 
 **何时生成 plan.md**：Step 6 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时，CLI 读取已扩写好的 spec.md，调用 `buildRequirementCoverageFromSpec` + `buildPlanTasks` 首次生成 plan.md 骨架，并把状态推进到 `planned`。
 
 **后续 Step 的契约**：
 
-- Step 2-4 不是"从零写 JSON 工件"，而是**读取骨架按 canonical schema 填值**。若 `ux_gate_required=false` 跳过了 ux 骨架创建，Step 4 触发时再判断是否需要手动补一份最小骨架。
-- Step 5 在 spec.md 骨架上 Edit 扩写；Step 7 在 spec-review approve 后生成的 plan.md 骨架上 Edit 扩写。**禁止 Write 全量覆盖**，禁止删除或重命名 front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` / `role_profile` / `context_profile` / `prd_coverage`），禁止变更 CLI 已生成的 task ID，尤其首个 task ID。
+- Step 2-3 不是"从零写 JSON 工件"，而是**读取骨架按 canonical schema 填值**。
+- Step 4 在 spec.md 骨架上 Edit 扩写（含条件 UX § 4.4）；Step 6 在 spec-review approve 后生成的 plan.md 骨架上 Edit 扩写。**禁止 Write 全量覆盖**，禁止删除或重命名 front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` / `role_profile` / `context_profile`），禁止变更 CLI 已生成的 task ID，尤其首个 task ID。
 
 **错误处理**：
 
@@ -167,7 +168,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **讨论流程**：
 
-1. **需求预分析** — 基于代码分析结果，识别待澄清事项。检查维度：
+1. **需求预分析** — 基于代码分析结果识别待澄清事项，并按 P0/P1/P2 分层（P0=阻塞 Spec、P1=交互细节、P2=非功能性）。检查维度：
    - 范围边界（模糊范围词如"等功能"、"相关"）
    - 行为定义（导入导出、通知、审批、搜索的细节）
    - 边界场景（空状态、删除策略、失败处理）
@@ -176,81 +177,30 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
    - 技术约束冲突
    - 外部依赖就绪度
    - UX 导航结构与首次使用
+   - **文档内部一致性** — PRD 不同段落字段/命名/范围是否冲突（如详细版 vs 补充版、接口文档 vs 原型图）。发现冲突时以 Markdown 字段差异表写入对应 `clarifications[].impact` 或 `question` 文本，不新增 schema 字段。
 
-2. **逐个澄清** — 按优先级排序，每次只问一个问题。优先使用选择题。每轮最多 5 题，用户可随时「跳过此问题」或「结束讨论」。
+2. **探索优先（定向）** — 凡是可通过已有工件回答的问题，不得提问用户。**职责边界**：Step 2 做广谱代码库分析产出 `analysis-result.json`；本 Step 只做为回答具体澄清问题的**定向**补查——先读 `analysis-result.json`，不足再 Read/Grep 具体文件，不重复全量扫描。提问 budget 只留给真正的业务决策。
 
-3. **方案探索（条件）** — 仅在存在互斥实现路径或显著技术 tradeoff 时触发。展示 2-3 个方案，含优劣分析和推荐。
+3. **分流澄清** — 按**决策依赖树**排序（上游决策阻塞下游即为依赖），先问根节点。按阻塞性分流：
+   - **P0 阻塞问题**：逐个 AskUserQuestion；**强默认：每题必带「推荐答案 + 一句 why」**写入 `question` 文本（不新增 `recommended` 字段），用户决定写入 `answer`。**例外子句**：对目标用户 / 合规范围 / 业务责任归属 / 成本投入 等用户主权决策，改为提供「推荐决策框架 + 该推荐基于的假设」并要求用户确认假设；禁止以「请用户决定」空手接球。
+   - **P1 交互/细节问题**：写入 `clarifications[]` 并附 self-recommended，在 Spec 的 Open Questions / Risks 章节标注，不阻塞推进。
+   - **P2 非功能性问题**：仅在 Spec 风险章节留痕，由 Step 7 Plan 扩写时按需补问。
+   - 用户可随时「跳过此问题」或「结束讨论」。
 
-4. **技术决策反写** — 讨论中确认的技术选型（框架、包管理器等）反写到 `project-config.json`。
+4. **方案探索（条件）** — 仅在存在互斥实现路径或显著技术 tradeoff 时触发。展示 2-3 个方案，含优劣分析和推荐。
 
-**持久化**：`discussion-artifact.json` 已由 Step 1 的 CLI `plan` 调用创建骨架，本 Step 读取该骨架后**按 canonical schema 填充业务内容**，不改顶层 key。
+5. **技术决策反写** — 讨论中确认的技术选型（框架、包管理器等）反写到 `project-config.json`。
 
-canonical schema 顶层字段（来自 `planning_gates.js` `buildDiscussionArtifact`）：
+**持久化**：讨论结果写入 spec.md § 9（Open Questions & Dependencies）：
+- § 9.1 需求澄清记录 — 每项包含维度/问题/答案/影响
+- § 9.2 方案选择 — 选定方案 + 被排除方案及原因
+- § 9.3 未解决依赖 — 外部依赖的类型/状态/影响，对应需求在 § 2 Scope 标记为 blocked
 
-```json
-{
-  "requirementSource": "...",
-  "clarifications": [ /* 澄清问答条目 */ ],
-  "selectedApproach": { /* 方案探索命中时填 */ },
-  "unresolvedDependencies": [ /* 未就绪的外部依赖 */ ]
-}
-```
-
-> ⚠️ 不得仅依赖对话上下文记忆。Phase 1 Spec 扩写会读取此文件。即使无待澄清项，骨架也必须保留，只在各字段填空或 `[]`。
->
-> 工件结构参见 [`references/artifact-schemas.md`](references/artifact-schemas.md) § discussion-artifact.json
+> ⚠️ 不得仅依赖对话上下文记忆。讨论结果必须落盘到 spec.md，Step 4 Spec 扩写会读取这些章节。
 
 ---
 
-## Step 4: UX 设计审批（条件 HARD-GATE）
-
-**目的**：Spec 生成前完成用户操作流程图和页面分层设计。
-
-**宣告**：`🎨 Phase 0.3: UX 设计审批`
-
-**触发条件**：需求涉及页面/界面/交互/GUI/桌面应用关键词，或代码分析检测到前端框架，或讨论中涉及交互行为/边界场景。纯后端/CLI 项目自动跳过。
-
-**设计流程**：
-
-1. **生成用户操作流程图** — Mermaid 格式，必须覆盖至少 3 个场景：
-   - **首次使用**：新用户的引导路径
-   - **核心操作**：从入口到完成核心功能
-   - **异常/边界**：操作失败、数据为空、权限不足
-   - 返回/取消路径
-
-2. **页面分层设计** — 明确每个功能放在哪个层级：
-   - **L0 首页**：用户打开应用的第一个页面（≤ 4 个功能模块）
-   - **L1 功能页**：需要导航切换的独立页面
-   - **L2 辅助面板**：内嵌在 L1 中的辅助区域
-
-3. **HARD-GATE 用户审批** — 展示流程图和分层设计后，调用 `AskUserQuestion` 收集决策，`question` 写"UX 设计是否可进入 Spec 生成？"，`options` 给 4 条：
-
-   - `approve` — 设计合理，进入 Spec 生成
-   - `revise_flow` — 需要调整流程，用户描述修改后重新生成流程图
-   - `revise_hierarchy` — 需要调整分层，修改信息架构后重审
-   - `add_scenarios` — 需要补充场景，添加遗漏场景后重审
-
-   用户选择 `revise_*` / `add_scenarios` 时，按对应路径重做设计再发起一次 AskUserQuestion。
-
-**持久化**：`ux-design-artifact.json` 已由 Step 1 的 CLI `plan` 调用创建骨架，本 Step 读取该骨架后**按 canonical schema 填充业务内容**，不改顶层 key。
-
-canonical schema 顶层字段（来自 `lifecycle_cmds.js cmdPlan` ux 分支）：
-
-```json
-{
-  "flowchart": { "mermaidCode": "...", "scenarios": [ /* 至少 3 个场景 */ ] },
-  "pageHierarchy": { "pages": [ /* L0/L1/L2 分层 */ ], "navigation": { ... } },
-  "detectedWorkspaces": [ /* 工作区检测结果，无则 [] */ ]
-}
-```
-
-> ⚠️ 设计审批通过但骨架未被填值 = 执行违规。Phase 1 Spec 扩写会读取此文件。
->
-> 工件结构参见 [`references/artifact-schemas.md`](references/artifact-schemas.md) § ux-design-artifact.json
-
----
-
-## Step 5: Spec 扩写（在 CLI 骨架上）+ Self-Review
+## Step 4: Spec 扩写（在 CLI 骨架上，含条件 UX 设计）+ Self-Review
 
 **目的**：在 Step 1 CLI 创建的 `spec.md` 骨架上扩写业务内容，完成需求范围判定、架构设计、验收标准和关键约束。
 
@@ -263,19 +213,27 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
   --project-root "$PWD" status
 ```
 
-确认返回结果中 `spec_file` 字段已就绪、`status=spec_review`（Step 5 发生在 Step 6 approve 之前，此阶段状态只能是 `spec_review`；若见到 `planned` 说明流程已越过 Step 6，应改走 Step 7）。若异常，回到 Step 1 调 `plan` 重建骨架——**禁止直接读 `workflow-state.json` 或用 `cat | jq` 判断**，状态路径与 legacy 兼容统一由 CLI 处理。
+确认返回结果中 `spec_file` 字段已就绪、`status=spec_review`（Step 4 发生在 Step 5 approve 之前，此阶段状态只能是 `spec_review`；若见到 `planned` 说明流程已越过 Step 5，应改走 Step 6）。若异常，回到 Step 1 调 `plan` 重建骨架——**禁止直接读 `workflow-state.json` 或用 `cat | jq` 判断**，状态路径与 legacy 兼容统一由 CLI 处理。
+
+**UX 设计（条件，前端任务内联）**：
+
+若 `workflow-state.json` 的 `ux_design` 显示 `ux_gate_required=true`（需求涉及页面/界面/交互/GUI/桌面应用关键词，或检测到前端框架），在扩写 spec.md § 4.4 时须：
+
+1. 生成 Mermaid 用户操作流程图，覆盖 ≥ 3 个场景（首次使用、核心操作、异常/边界）
+2. 填写页面分层（L0 ≤ 4 个功能模块，L1 功能页，L2 辅助面板）
+3. UX 内容随 spec 整体在 Step 5 一并审批，不单独设门
+
+纯后端/CLI 项目删除 § 4.4 整节。
 
 **扩写硬约束**：
 
 - 用 Edit 逐节扩写骨架内容，**禁止 Write 全量覆盖 spec.md**
-- 不得删除或重命名 YAML front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` / `prd_coverage` 等）
+- 不得删除或重命名 YAML front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` 等）
 - 不得改动模板章节标题或锚点；只在正文内扩展
 
 **输入**：
 - 需求内容（PRD 或内联）
 - `analysis-result.json`（代码分析结果）
-- `discussion-artifact.json`（已在 Step 3 按 schema 填值）
-- `ux-design-artifact.json`（已在 Step 4 按 schema 填值）
 - `.claude/code-specs/` 下与当前需求相关的规范文件（如有，作为 Constraints 参考输入）
 
 **输出**：在既有 `.claude/specs/{task-name}.md` 骨架上 Edit 扩写（路径由 CLI 生成，不得手动改名）
@@ -296,13 +254,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **Self-Review**：生成后立即执行。详见 [`references/spec-self-review.md`](references/spec-self-review.md)。必须输出执行摘要：覆盖率（`X/Y 段覆盖`）+ placeholder 扫描（`0 个` / `N 个已修复`）+ 一致性结果。不得仅标记完成而无实际检查输出。
 
-**覆盖率报告持久化**：`prd-spec-coverage.json`，供 User Spec Review 展示。
-
-> 工件结构参见 [`references/artifact-schemas.md`](references/artifact-schemas.md) § prd-spec-coverage.json
+**覆盖率计算**：self-review 时即时计算（PRD 原文逐段比对 Spec），结果直接展示给用户，不持久化为独立文件。
 
 ---
 
-## Step 5.5: Codex Spec Review（条件，advisory-to-human）
+## Step 4.5: Codex Spec Review（条件，advisory-to-human）
 
 **目的**：引入 Codex 作为独立审查视角，在用户审批前发现架构盲区和技术可行性问题。
 
@@ -312,7 +268,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **触发条件**：从 `workflow-state.json` 的 `context_injection.planning.codex_spec_review.triggered` 读取。触发逻辑由 `planning_gates.js shouldRunCodexSpecReview()` 在 CLI 生成阶段预计算，基于结构化信号（security / backend_heavy / data）+ 补充关键词匹配。
 
-**未触发时**：输出 `⏭️ Codex Spec Review: skipped`，直接进入 Step 6。
+**未触发时**：输出 `⏭️ Codex Spec Review: skipped`，直接进入 Step 5。
 
 **执行流程**：详见 [`references/codex-spec-review.md`](references/codex-spec-review.md)。
 
@@ -321,11 +277,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 🔍 Codex Spec Review: {n} issues found (critical: {x}, important: {y})
 ```
 
-**与 Step 6 的衔接**：Step 6 Human Gate 展示时增加一栏 "Codex 审查发现"，用户可选择"采纳 Codex 建议并修改 Spec"回到 Step 5。
+**与 Step 5 的衔接**：Step 5 Human Gate 展示时增加一栏 "Codex 审查发现"，用户可选择"采纳 Codex 建议并修改 Spec"回到 Step 4。
 
 ---
 
-## Step 6: 🛑 User Spec Review（Hard Stop）
+## Step 5: 🛑 User Spec Review（Hard Stop）
 
 **目的**：让用户确认 Spec 的范围、架构和验收标准。
 
@@ -333,8 +289,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **展示内容**：
 1. Spec 关键章节摘要（Scope、Constraints、Acceptance Criteria）
-2. PRD 覆盖率报告（若有 partial/uncovered 段落，列出需关注项）
-3. Codex 审查发现（若 Step 5.5 已执行且有 verified issues，列出 critical/important 条目及建议修订）
+2. PRD 覆盖率（即时计算，若有 partial/uncovered 段落，列出需关注项）
+3. Codex 审查发现（若 Step 4.5 已执行且有 verified issues，列出 critical/important 条目及建议修订）
 
 **审查时必须将 spec.md 与需求原文逐段对照**，不能只依据摘要判断。
 
@@ -342,21 +298,18 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 展示完 Spec 摘要 / 覆盖率 / Codex 审查后，调用 `AskUserQuestion` 收集决策，`question` 写"Spec 审批结果？"，`options` 给 4 条常用分支，每个 `description` 写结果：
 
-- `approve_generate_plan` → canonical `Spec 正确，生成 Plan`，进入 Step 7
-- `revise_spec` → canonical `需要修改 Spec`，回到 Step 5
-- `revise_ux` → UX 需要调整（流程 / 分层），进入第二轮 AskUserQuestion 拆分为 `缺少用户流程` / `页面分层需要调整`
+- `approve_generate_plan` → canonical `Spec 正确，生成 Plan`，进入 Step 6
+- `revise_spec` → canonical `需要修改 Spec`，回到 Step 4（含 UX 修订）
 - `other` — 其他情况（保留需求细节 / 继续流程不重渲染 / 拆分范围）
 
 选 `other` 时用 AskUserQuestion 二次询问或让用户自然语言描述，再按下表映射表归一化。映射由本 skill 维护，禁止把用户自由文本直接塞给 `--choice`：
 
 | 用户意图 | 快捷回复样例 | canonical choice（精确字符串） | 结果 |
 |---|---|---|---|
-| 通过，生成 Plan | `ok` / `通过` / `LGTM` / `approve` | `Spec 正确，生成 Plan` | 进入 Step 7 Plan 扩写 |
+| 通过，生成 Plan | `ok` / `通过` / `LGTM` / `approve` | `Spec 正确，生成 Plan` | 进入 Step 6 Plan 扩写 |
 | 通过，继续流程 | `继续` / `行` | `Spec 正确，继续` | 继续流程（不重渲染 plan） |
-| Spec 内容要改 | 以 `修改 spec` / `改内容` 开头 | `需要修改 Spec` | 回到 Step 5 |
-| UX 分层要调 | `分层不对` / `改分层` | `页面分层需要调整` | 回到 Step 4 UX 审批 |
-| 缺用户流程 | `流程补下` / `漏了 xx 场景` | `缺少用户流程` | 回到 Step 4 UX 审批 |
-| 缺需求细节 | `需求不全` / `细节再说` | `缺少需求细节` | 回到 Step 5，保留细节 |
+| Spec 内容要改 | 以 `修改 spec` / `改内容` / `改分层` / `改流程` 开头 | `需要修改 Spec` | 回到 Step 4（含 UX 修订） |
+| 缺需求细节 | `需求不全` / `细节再说` | `缺少需求细节` | 回到 Step 4，保留细节 |
 | 范围要拆 | `拆分` / `太大` / `范围太广` | `需要拆分范围` | 状态回 idle，缩小范围后重启 |
 
 无法匹配时重新 AskUserQuestion，不要猜。
@@ -369,7 +322,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
   spec-review --choice "<上表中的 canonical 字符串>"
 ```
 
-approve 分支 CLI 会**重新读取 spec.md 并刷新 plan.md 骨架**（调用 `buildRequirementCoverageFromSpec` + `buildPlanTasks`），状态推进到 `planned`。后续 Step 7 的工作是在这份刷新后的骨架上 Edit 扩写。
+approve 分支 CLI 会**重新读取 spec.md 并刷新 plan.md 骨架**（调用 `buildRequirementCoverageFromSpec` + `buildPlanTasks`），状态推进到 `planned`。后续 Step 6 的工作是在这份刷新后的骨架上 Edit 扩写。
 
 revise 分支 CLI 只改 state，不动 spec.md / plan.md；修完后**再次调 `spec-review`** 才能推进。
 
@@ -377,13 +330,13 @@ revise 分支 CLI 只改 state，不动 spec.md / plan.md；修完后**再次调
 
 ---
 
-## Step 7: Plan 扩写（在 CLI 骨架上）+ Self-Review
+## Step 6: Plan 扩写（在 CLI 骨架上）+ Self-Review
 
-**目的**：在 Step 6 approve 分支 CLI 刷新后的 `plan.md` 骨架上扩写详细实施计划。
+**目的**：在 Step 5 approve 分支 CLI 刷新后的 `plan.md` 骨架上扩写详细实施计划。
 
 **宣告**：`📋 Phase 2: Plan 扩写`
 
-**前置状态**：Step 6 审批通过，CLI 已刷新 plan.md 骨架与 `current_tasks`。
+**前置状态**：Step 5 审批通过，CLI 已刷新 plan.md 骨架与 `current_tasks`。
 
 **健康检查**（开始扩写前执行）：
 
@@ -405,8 +358,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 **输入**：
 - `spec.md`（**唯一规范输入**）
 - `analysis-result.json`（仅作为文件规划与复用提示的辅助上下文）
-- `discussion-artifact.json`（仅做一致性校验，不从中生成新任务）
-- `prd-spec-coverage.json`（覆盖率 drift check）
+- spec.md § 9（仅做一致性校验，不从中生成新任务）
 
 **输出**：在 CLI 已生成的 `.claude/plans/{task-name}.md` 骨架上 Edit 扩写（骨架使用 [`plan-template.md`](../../specs/workflow-templates/plan-template.md)，由 Step 6 approve 分支产出，不得手动改名或新建）
 
@@ -454,11 +406,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 ### Discussion Drift Check
 
-若有 `discussion-artifact.json`：
-- `selectedApproach` 存在 → 验证 Spec Architecture 章节是否反映该方案。偏差 → **回退 Step 5 修订 Spec**
-- `unresolvedDependencies` 存在 → 验证 Spec Scope 对应需求标记为 `blocked`。缺失 → **回退 Step 5**
+若 spec.md § 9 包含方案选择或未解决依赖：
+- § 9.2 方案选择存在 → 验证 Spec Architecture 章节是否反映该方案。偏差 → **回退 Step 4 修订 Spec**
+- § 9.3 未解决依赖存在 → 验证 Spec Scope 对应需求标记为 `blocked`。缺失 → **回退 Step 4**
 
-> ⚠️ Plan 阶段不得基于 discussion-artifact 发明 spec 中不存在的任务。发现偏差一律回退 Spec 修订。
+> ⚠️ Plan 阶段不得基于 § 9 讨论记录发明 spec 中不存在的任务。发现偏差一律回退 Spec 修订。
 
 ### Self-Review
 
@@ -466,7 +418,7 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 
 ---
 
-## Step 7.5: Codex Plan Review（条件，bounded-autofix）
+## Step 6.5: Codex Plan Review（条件，bounded-autofix）
 
 **目的**：从技术可行性角度审查 Plan，发现实现顺序问题、缺失步骤和集成风险。
 
@@ -489,13 +441,13 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 
 ---
 
-## Step 8: 🛑 规划完成（Hard Stop）
+## Step 7: 🛑 规划完成（Hard Stop）
 
 **状态结果**：
 
 - 走完 approve 分支的默认终态：`status=planned`，`plan_file` / `current_tasks` 就绪
-- 用户在 Step 6 选择 revise 分支时停在 `spec_review`，spec 修订完成后再次调 `spec-review` 才能推进
-- 用户在 Step 6 选择 `需要拆分范围` 时 `status` 回 `idle`，需缩小范围后重启
+- 用户在 Step 5 选择 revise 分支时停在 `spec_review`，spec 修订完成后再次调 `spec-review` 才能推进
+- 用户在 Step 5 选择 `需要拆分范围` 时 `status` 回 `idle`，需缩小范围后重启
 - 后续由 `workflow-execute` skill 接管执行
 
 **输出摘要**：展示 Spec 路径、Plan 路径、需求统计、任务数量、Confidence Score。
@@ -515,9 +467,6 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 | Plan 文档 | `.claude/plans/{task-name}.md` |
 | 状态文件 | `~/.claude/workflows/{projectId}/workflow-state.json` |
 | 代码分析 | `~/.claude/workflows/{projectId}/analysis-result.json` |
-| 讨论工件 | `~/.claude/workflows/{projectId}/discussion-artifact.json` |
-| UX 设计 | `~/.claude/workflows/{projectId}/ux-design-artifact.json` |
-| PRD 覆盖率 | `~/.claude/workflows/{projectId}/prd-spec-coverage.json` |
 
 ## 协同 Skills
 

@@ -3,6 +3,10 @@ name: workflow-archive
 description: "/workflow-archive 入口。归档已完成的工作流。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。archive 只动元数据,第 1-3 步(project-config / repo-context / code-specs)可按跳过条件跳过,但第 4 步(glossary)要读一下,保证 summary 用 canonical 术语。
+</PRE-FLIGHT>
+
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
 该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。

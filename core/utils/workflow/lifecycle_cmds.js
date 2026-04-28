@@ -34,19 +34,15 @@ const { getCodeSpecsContext, getCodeSpecsContextScoped, getCodeSpecsFiles } = re
 const { buildMinimumState, deriveEffectiveStatus, ensureStateDefaults } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const {
-  buildDiscussionArtifact,
-  buildSpecReviewSummary,
   deriveRoleSignals,
   detectAgentWorkspaces,
-  estimateGapCount,
   mapSpecReviewChoice,
-  needsWorkspaceDetection,
   shouldRunCodexPlanReview,
   shouldRunCodexSpecReview,
-  shouldRunDiscussion,
-  shouldRunUxDesignGate,
-  validateUxArtifact,
 } = require('./planning_gates')
+
+const UI_KEYWORDS_REGEX = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i
+const UI_BROAD_KEYWORDS_REGEX = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i
 const {
   buildInjectedContext,
   buildAgentPrompt,
@@ -627,10 +623,10 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     if (fs.existsSync(planPath)) return { error: `Plan 已存在: ${planRelative.replace(/\\/g, '/')}` }
   }
 
-  const gapCount = estimateGapCount(requirementText, requirementSource)
-  const discussionRequired = shouldRunDiscussion(requirementText, requirementSource, noDiscuss, gapCount)
-  const discussionArtifact = buildDiscussionArtifact(requirementSource)
-  const discussionPath = path.join(workflowDir, 'discussion-artifact.json')
+  const trimmed = String(requirementText || '').trim()
+  const gapCount = (requirementSource === 'inline' && trimmed.length <= 100) ? 0 : (trimmed ? 1 : 0)
+  const discussionRequired = !noDiscuss && !(requirementSource === 'inline' && trimmed.length <= 100 && gapCount === 0)
+  const discussionArtifact = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: [] }
 
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
   const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
@@ -671,29 +667,9 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
       },
     },
   }
-  const uxRequired = shouldRunUxDesignGate(requirementText, analysisPatterns, discussionArtifact)
-  const uxPath = path.join(workflowDir, 'ux-design-artifact.json')
-
-  let uxArtifact = null
-  let uxValidation = { ok: true, missing: [], scenario_count: 0, page_count: 0 }
-  if (uxRequired) {
-    uxArtifact = {
-      flowchart: {
-        mermaidCode: 'flowchart TD\n  A[Start] --> B[Complete]',
-        scenarios: [
-          { name: '首次使用', description: '初始进入', coveredNodes: ['A'] },
-          { name: '核心操作', description: '执行主路径', coveredNodes: ['B'] },
-          { name: '异常处理', description: '处理边界情况', coveredNodes: ['B'] },
-        ],
-      },
-      pageHierarchy: {
-        pages: [{ level: 'L0', name: taskName, features: [summary], navigation: 'direct' }],
-        navigation: { type: 'router', routes: ['/'] },
-      },
-      detectedWorkspaces: needsWorkspaceDetection(requirementText) ? detectAgentWorkspaces(require('os').homedir()) : [],
-    }
-    uxValidation = validateUxArtifact(uxArtifact)
-  }
+  const reqContent = String(requirementText || '')
+  const hasFrontend = (analysisPatterns || []).some((p) => /react|vue|angular|svelte|tauri|electron|next\.?js|nuxt|vite/i.test(String((p || {}).name || '')))
+  const uxRequired = UI_KEYWORDS_REGEX.test(reqContent) || (hasFrontend && UI_BROAD_KEYWORDS_REGEX.test(reqContent))
 
   const now = new Date().toISOString()
   const templateRoot = path.resolve(__dirname, '..', '..', 'specs', 'workflow-templates')
@@ -759,10 +735,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     fs.writeFileSync(planPath, planContent)
   }
   const prdCoverageReport = buildPRDCoverageReport(requirementItems, specContent)
-  fs.writeFileSync(path.join(workflowDir, 'prd-spec-coverage.json'), `${JSON.stringify(prdCoverageReport, null, 2)}\n`)
-  fs.writeFileSync(discussionPath, `${JSON.stringify(discussionArtifact, null, 2)}\n`)
   fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
-  if (uxArtifact) fs.writeFileSync(uxPath, `${JSON.stringify(uxArtifact, null, 2)}\n`)
 
   const finalWorkflowStatus = shouldGeneratePlan ? 'planned' : specReview.workflow_status
   const state = ensureStateDefaults(buildMinimumState(
@@ -778,7 +751,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   state.task_name = taskName
   state.requirement_source = requirementSource
   state.requirement_text = requirementText
-  updateDiscussionRecord(state, discussionPath, (discussionArtifact.clarifications || []).length, !discussionRequired)
+  updateDiscussionRecord(state, (discussionArtifact.clarifications || []).length, !discussionRequired)
 
   const codexSpecResult = shouldRunCodexSpecReview(specContent, roleSignals)
   const codexPlanResult = shouldRunCodexPlanReview(planContent || '', specContent, roleSignals)
@@ -814,9 +787,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
       next_action: 'compile_tasks',
     })
   }
-  if (uxArtifact) {
-    updateUxDesignRecord(state, uxPath, uxValidation.scenario_count, uxValidation.page_count, uxValidation.ok)
-  }
+  updateUxDesignRecord(state, 0, 0, false, uxRequired)
   updateUserSpecReview(state, specReview.status, specReview.next_action)
   if (!shouldGeneratePlan) state.current_tasks = []
   writeState(statePath, state)
@@ -833,7 +804,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     discussion_required: discussionRequired,
     ux_gate_required: uxRequired,
     awaiting_user_spec_review: !shouldGeneratePlan,
-    spec_review_summary: buildSpecReviewSummary(specContent),
+    spec_review_summary: String(specContent || '').split(/^(?=## \d)/m).filter((s) => ['## 2.', '## 3.', '## 7.'].some((p) => s.trimStart().startsWith(p))).map((s) => s.trim()).join('\n\n'),
   }
 }
 
@@ -886,9 +857,10 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
 
   const planRelative = inferPlanRelativeFromSpec(normalizedState.plan_file || specRelative, taskName)
   const planPath = path.join(root, planRelative)
-  const discussionArtifact = buildDiscussionArtifact(requirementSource)
+  const discussionState = normalizedState.discussion || {}
+  const discussionForSignals = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: discussionState.unresolved_dependencies || [] }
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
-  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
+  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionForSignals, { taskName, summary })
   const planProfile = resolveRoleProfile('plan_generation', roleSignals)
   const planReviewProfile = resolveRoleProfile('plan_review', roleSignals)
   const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)

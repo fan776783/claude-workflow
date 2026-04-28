@@ -235,7 +235,6 @@ function buildInjectedContext(subject = {}, profile = {}, signals = {}, artifact
     artifacts: {
       spec_file: artifacts.spec_file || null,
       plan_file: artifacts.plan_file || null,
-      discussion_artifact: artifacts.discussion_artifact || null,
       diff_window: artifacts.diff_window || null,
     },
   }

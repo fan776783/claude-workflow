@@ -31,11 +31,7 @@
 
 ## Code Specs 切换 package/layer
 
-无活跃 workflow 时，SessionStart hook 只注入 code-specs overview。遇到需要落代码到具体 `{pkg}/{layer}` 的任务时按此规则处理：
-
-- **触发**：无活跃 workflow，且即将用 Edit / Write 改动可以从文件路径反推到某个 `.claude/code-specs/{pkg}/{layer}/` 的场景。走 workflow 的任务由 PreToolUse(Task) hook 自动按 active task 注入 scoped context，**不重复处理**。
-- **动作**：本会话尚未读过目标 `{pkg}/{layer}/index.md` 时，先用 Read 读该 index，再按其 `## Pre-Development Checklist` 点名的 code-spec 文件按需跟读；已读过则跳过。直接使用 Read 即可，不需要额外命令。
-- **豁免**：单行修复 / typo / 纯研究 / 只做 code review / 目标文件路径无法落到具体 package/layer / `.claude/code-specs/` 不存在 → 跳过。
+完整协议见 `core/specs/shared/pre-flight.md`（required reads + skip conditions + 与 runtime preflight 的职责分界）。无活跃 workflow 时 SessionStart hook 只注入 code-specs overview，由 pre-flight 协议负责按需跟读具体 `{pkg}/{layer}/index.md`；走 workflow 的任务由 PreToolUse(Task) hook 按 active task 注入 scoped context，不重复处理。
 
 ## 输出文风
 

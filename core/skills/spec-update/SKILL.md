@@ -3,6 +3,10 @@ name: spec-update
 description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）。按主题写入 convention 或 contract 文件，分基础/深度更新两条路径。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。沉淀新 convention 前不读 glossary 容易引入术语 drift(比如写成 "子 agent" 而不是 `subagent`)。
+</PRE-FLIGHT>
+
 # /spec-update
 
 显式、用户驱动的 code-specs 沉淀入口，走交互式模式引导用户落笔。

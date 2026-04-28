@@ -752,6 +752,178 @@ async function validatePluginManifests(repoRoot, packageRoot, errors) {
  * 发布前验证主流程：检查目录结构、workflow/team 契约、路径引用
  * @returns {Promise<void>}
  */
+/**
+ * 解析 glossary.md，抽取 canonical → forbidden synonym 映射
+ * @param {string} glossaryPath - glossary.md 的绝对路径
+ * @returns {Promise<Array<{ canonical: string, forbidden: string[] }>>}
+ */
+async function parseGlossary(glossaryPath) {
+  if (!(await fs.pathExists(glossaryPath))) {
+    return [];
+  }
+  const content = await fs.readFile(glossaryPath, 'utf8');
+  const entries = [];
+  let current = null;
+
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const headerMatch = line.match(/^### ([a-zA-Z0-9_\-]+)\s*$/);
+    if (headerMatch) {
+      if (current) entries.push(current);
+      current = { canonical: headerMatch[1], forbidden: [] };
+      continue;
+    }
+    if (!current) continue;
+
+    const forbiddenMatch = line.match(/^\*\*Forbidden synonyms\*\*:\s*(.+)$/);
+    if (forbiddenMatch) {
+      const raw = forbiddenMatch[1].trim();
+      if (/^\(none/.test(raw)) continue;
+      // 提取所有反引号包裹的词以及裸 CJK/英文词
+      const tokens = [];
+      // 反引号包裹形式：`word` 或 `word` (备注)
+      const tickRe = /`([^`]+)`/g;
+      let m;
+      while ((m = tickRe.exec(raw)) !== null) {
+        tokens.push(m[1].trim());
+      }
+      // 兜底：逗号分隔裸词，去掉附注括号内容
+      if (tokens.length === 0) {
+        raw.split(/[,，]/).forEach(t => {
+          const clean = t.replace(/[（(].*?[)）]/g, '').trim();
+          if (clean && clean !== '—') tokens.push(clean);
+        });
+      }
+      current.forbidden.push(...tokens);
+    }
+  }
+  if (current) entries.push(current);
+  return entries;
+}
+
+/**
+ * 判断某一行是否处于 fenced code block 内
+ * 调用方负责维护 inCodeBlock 状态
+ */
+function isFencePending(line, state) {
+  if (/^```/.test(line.trim())) {
+    state.inCode = !state.inCode;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 判断某个匹配位置是否落在行内反引号代码段中
+ */
+function inInlineCode(line, index) {
+  let ticks = 0;
+  for (let i = 0; i < index; i++) {
+    if (line[i] === '`') ticks++;
+  }
+  return ticks % 2 === 1;
+}
+
+/**
+ * 术语漂移 lint（warning-only，不阻塞发布）
+ * @param {string} repoRoot
+ * @param {string} packageRoot
+ */
+async function validateGlossaryDrift(repoRoot, packageRoot) {
+  const glossaryPath = path.join(packageRoot, 'specs', 'shared', 'glossary.md');
+  const entries = await parseGlossary(glossaryPath);
+  if (entries.length === 0) {
+    return;
+  }
+
+  // 构建 forbidden → canonical 映射（对反义条目）
+  const rules = [];
+  for (const entry of entries) {
+    for (const forbidden of entry.forbidden) {
+      rules.push({ forbidden, canonical: entry.canonical });
+    }
+  }
+  if (rules.length === 0) return;
+
+  // 预编译：英文词用 \b 边界；CJK 词直接字面匹配
+  const compiled = rules.map(r => {
+    const isAscii = /^[\x00-\x7F]+$/.test(r.forbidden);
+    const escaped = r.forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = isAscii
+      ? new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'g')
+      : new RegExp(escaped, 'g');
+    return { ...r, pattern };
+  });
+
+  // 收集 normative 文件：core/skills/**/SKILL.md、core/skills/**/references/**.md、core/commands/*.md、core/specs/**/*.md
+  const normativeFiles = [];
+  const skillsRoot = path.join(packageRoot, 'skills');
+  if (await fs.pathExists(skillsRoot)) {
+    for (const entry of await fs.readdir(skillsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = path.join(skillsRoot, entry.name);
+      const skillFile = path.join(skillDir, 'SKILL.md');
+      if (await fs.pathExists(skillFile)) normativeFiles.push(skillFile);
+      const refsDir = path.join(skillDir, 'references');
+      if (await fs.pathExists(refsDir)) {
+        normativeFiles.push(...await collectMarkdownFiles(refsDir));
+      }
+    }
+  }
+  const commandsRoot = path.join(packageRoot, 'commands');
+  if (await fs.pathExists(commandsRoot)) {
+    const cmdEntries = await fs.readdir(commandsRoot, { withFileTypes: true });
+    for (const e of cmdEntries) {
+      if (e.isFile() && e.name.endsWith('.md')) {
+        normativeFiles.push(path.join(commandsRoot, e.name));
+      }
+    }
+  }
+  const specsRoot = path.join(packageRoot, 'specs');
+  if (await fs.pathExists(specsRoot)) {
+    normativeFiles.push(...await collectMarkdownFiles(specsRoot));
+  }
+
+  // glossary.md 本身自然包含 forbidden 词，排除
+  const selfPath = path.resolve(glossaryPath);
+  const scanFiles = normativeFiles.filter(f => path.resolve(f) !== selfPath);
+
+  let warningCount = 0;
+  for (const file of scanFiles) {
+    const stat = await fs.stat(file);
+    if (stat.size > 200 * 1024) continue;
+    const content = await fs.readFile(file, 'utf8');
+    const rel = path.relative(repoRoot, file);
+    const state = { inCode: false };
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isFencePending(line, state)) continue;
+      if (state.inCode) continue;
+      if (/\/\/\s*glossary-allow\b/.test(line)) continue;
+
+      for (const rule of compiled) {
+        rule.pattern.lastIndex = 0;
+        let match;
+        while ((match = rule.pattern.exec(line)) !== null) {
+          if (inInlineCode(line, match.index)) continue;
+          // 跳过 URL / 路径中的命中
+          const pre = line.slice(Math.max(0, match.index - 8), match.index);
+          if (/https?:\/\/|file:|\.\w+$/.test(pre + match[0])) continue;
+          warningCount++;
+          console.error(`[glossary-drift] ${rel}:${i + 1} — "${match[0]}" should be "${rule.canonical}"`);
+        }
+      }
+    }
+  }
+
+  if (warningCount > 0) {
+    console.error(`[glossary-drift] ${warningCount} warning(s) — not blocking release`);
+  } else {
+    console.log('  ✅ glossary-drift: 0 warnings');
+  }
+}
+
 async function validate() {
   const repoRoot = path.join(__dirname, '..');
   const templatesDir = path.join(repoRoot, 'templates');
@@ -797,6 +969,7 @@ async function validate() {
   validateCodeSpecsTemplateContracts(errors);
   validatePlatformParityContract(errors);
   runContractTests(repoRoot, errors);
+  await validateGlossaryDrift(repoRoot, packageRoot);
 
   if (errors.length > 0) {
     console.log('\n❌ 验证失败:\n');

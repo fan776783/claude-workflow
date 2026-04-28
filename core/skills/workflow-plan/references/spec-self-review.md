@@ -33,10 +33,11 @@
 - 需求中的硬约束（字段名、数量限制、条件分支等）是否都在 §3 Constraints 出现
 - 讨论阶段确认的技术决策是否体现在 Architecture 中
 
-### 5. UX 一致性（仅当有 UX 设计工件时）
+### 5. UX 一致性（仅当 spec § 4.4 存在时）
 
 - 流程图中的每个步骤是否在 §4 User-facing Behavior 有对应描述
-- 页面分层中单个页面不超过 4 个独立功能模块
+- flowchart scenarios ≥ 3（首次使用、核心操作、异常/边界）
+- L0 模块 ≤ 4 个独立功能模块
 
 ### 6. 首次使用体验
 
@@ -44,6 +45,4 @@
 
 ## 持久化
 
-覆盖率报告写入 `prd-spec-coverage.json`，供 Step 6 User Spec Review 展示。
-
-> 工件结构参见 [`artifact-schemas.md`](artifact-schemas.md) § prd-spec-coverage.json
+覆盖率在 self-review 时即时计算（将 PRD 原文按语义段落逐段比对 Spec 内容），结果直接展示给用户，不持久化为独立文件。

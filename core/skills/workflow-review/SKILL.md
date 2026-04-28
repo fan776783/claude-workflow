@@ -3,6 +3,10 @@ name: workflow-review
 description: "workflow-review 入口。独立的全量完成审查步骤 — execute 完成后手动执行 /workflow-review 触发。"
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。Stage 1(规格合规)直接依赖最新的 code-specs 和 glossary——即使 workflow 很小也别跳过。
+</PRE-FLIGHT>
+
 <PATH-CONVENTION>
 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
 该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。
@@ -219,7 +223,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
    node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex-bridge.mjs \
      --adversarial-review "working-tree" \
      --cd "{projectRoot}" \
-     --prompt "Focus on: logic correctness, edge cases, error handling, security vulnerabilities, performance issues, concurrency, changed contracts and downstream impact. If claiming impact, specify exact code paths and callers."
+     --prompt "Focus on: logic correctness, edge cases, error handling, security vulnerabilities, performance issues, concurrency, changed contracts and downstream impact. If claiming impact, specify exact code paths and callers. HARD CONSTRAINTS: (1) Ignore hypothetical scenarios without a named caller or reachable code path — trust internal code with known shape. (2) Do not recommend refactors, renames, or cleanup outside the diff. (3) Report only Critical/Important findings; collapse minor/nit items into a single advisory line, do not expand."
    ```
 3. **同时 dispatch 子 Agent**（Task 工具路径）
 4. **Join barrier**：两者都完成后才进入合并。超时策略：Codex 超过 5 分钟未返回 → 降级为 single_reviewer 结果。
@@ -253,6 +257,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
    Report ONLY findings with category="correctness" (security issues use subtype="security").
    Any observations outside correctness (reuse / quality / efficiency) MUST go into out_of_scope_observations, NOT into main findings — three other reviewers cover those angles.
    If claiming impact, specify exact code paths and callers.
+   HARD CONSTRAINTS: (1) Ignore hypothetical scenarios without a named caller or reachable code path — trust internal code with known shape. (2) Do not recommend refactors, renames, or cleanup outside the diff. (3) Report only Critical/Important findings; collapse minor/nit items into a single advisory line, do not expand.
    ```
 
    桥接契约（超时、session、sandbox）以 `../collaborating-with-codex/SKILL.md` 为准。
