@@ -148,10 +148,22 @@ main() {
     echo "[5/5] Creating git tag v$new_version..."
     git tag "v$new_version"
 
-    if confirm "Push to origin?"; then
-      git push origin HEAD
-      git push origin "v$new_version"
-      echo "      Pushed to origin"
+    local current_branch push_remote
+    current_branch="$(git rev-parse --abbrev-ref HEAD)"
+    case "$current_branch" in
+      master) push_remote="gitlab" ;;
+      main)   push_remote="origin" ;;
+      *)
+        echo "      Skipping push: current branch '$current_branch' has no configured release remote" >&2
+        echo "      (master -> gitlab, main -> origin). Push manually if needed." >&2
+        push_remote=""
+        ;;
+    esac
+
+    if [[ -n "$push_remote" ]] && confirm "Push to $push_remote?"; then
+      git push "$push_remote" HEAD
+      git push "$push_remote" "v$new_version"
+      echo "      Pushed to $push_remote"
     fi
   else
     echo ""
