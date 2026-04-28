@@ -1,0 +1,18 @@
+{
+  "_comment": "本地文件 -> 钉钉 nodeId 全量覆盖映射。PostToolUse(Edit|Write|MultiEdit) 命中 path 时提醒 Claude 调 mcp__mcp-router__update_document 全量同步。path 为相对仓库根的 POSIX 路径。",
+  "bindings": [
+    {
+      "path": "docs/internal/Claude-Code-工作流体系指南.md",
+      "targets": [
+        {
+          "nodeId": "np9zOoBVBYwB2OZBI5eYexzbW1DK0g6l",
+          "name": "Claude-Code-工作流体系指南"
+        },
+        {
+          "nodeId": "yQod3RxJKGdBzY3Bcd4mpD52Jkb4Mw9r",
+          "name": "AI编程 工作流-skills"
+        }
+      ]
+    }
+  ]
+}

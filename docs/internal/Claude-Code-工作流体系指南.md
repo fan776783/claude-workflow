@@ -69,7 +69,7 @@ Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发，其他 8 个
 在 Claude Code 会话里安装：
 
 ```
-/plugin marketplace add fan776783/claude-workflow
+/plugin marketplace add https://git.wondershare.cn/skills-public/pic-claude-workflow.git
 /plugin install agent-workflow@agent-workflow-marketplace
 ```
 
@@ -77,6 +77,26 @@ Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发，其他 8 个
 
 ```
 /plugin update agent-workflow@agent-workflow-marketplace
+```
+
+在 Claude Code 会话外（终端）安装（需要 `claude` CLI 在 PATH）：
+
+```bash
+claude plugin marketplace add https://git.wondershare.cn/skills-public/pic-claude-workflow.git
+claude plugin install agent-workflow@agent-workflow-marketplace
+```
+
+更新到最新版本：
+
+```bash
+claude plugin marketplace update agent-workflow-marketplace
+claude plugin update agent-workflow@agent-workflow-marketplace
+```
+
+查看当前已安装的 Plugin：
+
+```bash
+claude plugin list --json
 ```
 
 #### 方式 B —— 通过 npx sync（次选，也覆盖其他工具）
@@ -92,7 +112,7 @@ sync 默认同步所有已检测到的工具；可以用 `-a` 指定目标，例
 #### 方式 C —— 克隆仓库后本地同步（开发调试）
 
 ```bash
-git clone <仓库地址> claude-workflow
+git clone http://git.wondershare.cn/skills-public/pic-claude-workflow claude-workflow
 cd claude-workflow
 npm install
 npm run sync
@@ -1302,11 +1322,51 @@ flowchart TD
 
 共享管线：Layer C-H（Candidate Discovery → Normalization → Verification → Impact Analysis → Severity Calibration → Report Synthesis）复用 `core/skills/diff-review/specs/review-pipeline.md`，两者在 prompt 里都会对 Codex 显式限定审查范围。
 
-### 5.2 Skills 体系总览
+### 5.2 `bk`（蓝鲸项目管理 CLI）
+
+把 bk-mcp（MCP Streamable HTTP）封装为 Node 单文件 CLI（`core/skills/bk/cli/bk.mjs`，Node ≥ 18，无需安装依赖），用于日常开发里直接操作蓝鲸（CTeam / vTeam）项目管理平台。`bug-batch` 拉取缺陷批次时也走同一条链路（`project_id` 统一读 `project-config.json` 的 `project.bkProjectId`）。
+
+**触发方式**：出现"蓝鲸 / bk / 待办 / 缺陷流转 / 需求流转 / 工作项 / Issue / 创建任务 / 拆分任务 / 给 Issue 评论 / 看我今天有什么要做的"等关键词时，AI 自动调用；也可以由 `/bug-batch` 间接使用。
+
+**初始化由 agent 接管**（不要让用户自己敲 CLI）：
+
+- **Token 缺失**：引导用户到 <https://mcp.300624.cn/api-keys> 申请 token（形如 `ak_xxxx.yyyy...`），用户把 token 粘贴到对话后，agent 调 `bk auth "$TOKEN" --verify` 落盘到 `~/.config/bk-mcp/token`（权限 0600），失败时不写入；成功后再跑 `bk doctor` 自检。
+- **Project ID 缺失**：引导用户直接给 `v10125` 形式的 vTeam ID（**不是** `p328` 那种 Issue 前缀），或给任一 `p328_8729` 形式的 issue_number 让 agent 用 `get_issue` 反查；拿到 ID 后调 `bk project set v10125` 写入 `.claude/config/project-config.json`（保留其它字段）。
+- **首次使用全流程自检**：`bk auth … --verify` → `bk project set …` → `bash cli/smoke-test.sh`（15 个只读检查点，全绿即可交付）。
+- **不要用 `search_projects` 做项目发现**，服务端维表目前不可用。
+
+**日常 6 个高频命令**（参数一律 snake_case，数组参数推荐 `--json`）：
+
+| 命令 | 用途 |
+|------|------|
+| `bk get_todolist --page 1 --size 10` | 看今天的待办 |
+| `bk list_issues --json '{"states":["待处理","处理中"],"type_classify":"BUG"}'` | 按项目/经办人/状态拉 Issue 列表（`project_id` 缺省从 config 自动回填） |
+| `bk get_issue --issue_number p328_8729` | 查单条 Issue；加 `--include_all_fields true` 拉全量 93+ 字段 |
+| `bk transition_issue --issue_number … --list_states true` 然后 `--target_state 处理中 --comment "…"` | 流转状态；合法状态集按工作项类型（BUG / Task / …）分裂，先预览再流转 |
+| `bk add_issue_comment --issue_number … --comment "…"`（或 `--at_users ["lixia"]`） | 写评论 / 留 PR 链接 / @ 人 |
+| `bk update_issue --issue_number … --dry_run true --list_fields true` 然后真改 | 改字段，注意 TEXT/TEXTAREA 是 **replace 语义**，追加要先 `get_issue` 读原值再拼 |
+
+**必懂的约束**：
+
+1. `project_id` 必须是 `v10125`（vTeam 内部 ID），**不是** `p328`（Issue 前缀）。
+2. 枚举大小写分裂：**建**（`create_issue`）`priority` 用英文 `URGENT / HIGH / CENTRAL / LOW`；**改**（`update_issue` / `transition_issue`）`priority` / `target_state` 用中文（"高"/"处理中"）。
+3. `update = 覆盖`；TEXT/TEXTAREA 追加前必须先 `get_issue` 读原值。
+4. **无删除 API**：`add_issue_comment` / `create_issue` / `create_blueking_task` / `upload_files` 写入后只能平台 UI 手工处理；"试一下"类动作先问用户。
+5. CLI 退出码：`0` 成功 / `1` 本地错（缺 token / 参数错 / 网络不通）/ `2` 服务端 tool 业务错（`isError:true`）。调用方先看 exit code 再解析 stdout。
+
+**配置优先级**（统一"命令行 → 环境变量 → 文件"，`bk doctor` 查实际生效值）：
+
+- Token：`env MCPR_TOKEN` → `~/.config/bk-mcp/token`
+- 端点：默认 `http://192.168.82.121:3088/bk/mcp`（内网地址，需 VPN / 办公网），`env BK_MCP_URL` 覆盖
+- `project_id`：`--project_id` → `env BK_PROJECT_ID` → `${cwd}/.claude/config/project-config.json` 的 `project.bkProjectId`
+
+低频 / 进阶用法（建工作项 / AI 拆任务 / 上传附件 / 服务端怪象排查）参见 `core/skills/bk/references/create-and-breakdown.md` 与 `references/troubleshooting.md`。
+
+### 5.3 Skills 体系总览
 
 仓库当前提供 20 个 skill 目录，按职责分为四类（`/team` 已下沉为 Claude Code 原生命令，不再作为 skill）：
 
-#### 5.2.1 用户直接调用的专项 Skills
+#### 5.3.1 用户直接调用的专项 Skills
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
@@ -1318,9 +1378,10 @@ flowchart TD
 | `figma-ui` | `/figma-ui` | Figma 设计稿到代码 |
 | `search-first` | `/search-first` | 先搜后写，输出 Adopt / Extend / Build 决策 |
 | `deep-research` | `/deep-research` | 面向外部信息的多源引文研究 |
+| `bk` | 关键词/CLI 触发 | 蓝鲸（CTeam / vTeam）项目管理 CLI：看待办、查/改/流转工作项、写评论、AI 拆任务、上传附件 |
 | `collaborating-with-codex` | 主动触发 | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
 
-#### 5.2.2 Workflow 主线 Skills（6 个）
+#### 5.3.2 Workflow 主线 Skills（6 个）
 
 以下 skill 直接作为命令入口；`/team` 直接走 Claude Code 原生 Agent Teams，不再有独立 skill：
 
@@ -1335,14 +1396,14 @@ flowchart TD
 
 `/team` 命令不再是 skill；它直接走 Claude Code 原生 Agent Teams，入口由 `core/commands/team.md` 定义，伴随 `team-idle.js` / `team-task-guard.js` 两个 hook 做守门与 idle 收尾协调。
 
-#### 5.2.3 规划与研究辅助 Skills（2 个）
+#### 5.3.3 规划与研究辅助 Skills（2 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
 | `plan` | `/quick-plan` | 轻量快速规划，只产出可执行 `plan.md`，不进入 workflow 状态机 |
 | `dispatching-parallel-agents` | workflow/team 内部按需触发 | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
 
-#### 5.2.4 Code Specs Skills（3 个）
+#### 5.3.4 Code Specs Skills（3 个）
 
 | Skill | 触发方式 | 功能 |
 |-------|---------|------|
@@ -1352,7 +1413,7 @@ flowchart TD
 
 > 动手前的预读由 `core/CLAUDE.md` 的 "Code Specs 切换 package/layer" 声明驱动 AI 直接用 Read 完成，不再作为独立 skill。
 
-#### 5.2.5 基础设施说明
+#### 5.3.5 基础设施说明
 
 - **共享运行时**（`core/specs/workflow-runtime/`）：状态机、共享工具、外部依赖语义、预检逻辑等运行时资源
 - **共享模板**（`core/specs/workflow-templates/`）：spec / plan 模板
@@ -1360,12 +1421,13 @@ flowchart TD
 - **Commands**（`core/commands/`）：`team`、`quick-plan`、`enhance`、`git-rollback`
 - **Node.js helpers**：workflow 位于 `core/utils/workflow/`
 
-#### 5.2.6 使用原则
+#### 5.3.6 使用原则
 
 - 主线问题走 `workflow`
 - 显式多边界团队编排走 `/team`
 - 简单到中等复杂度任务可先走 `/quick-plan`
 - 单域问题走专项 skill
+- 蓝鲸 / CTeam / vTeam 项目管理操作走 `bk`；`/bug-batch` 会自动复用
 - 需要 Codex 协作时，相关 skill 会自动通过 `collaborating-with-codex` 委派任务
 - 同阶段 2+ 独立任务由 `dispatching-parallel-agents` 负责并行分派
 
@@ -1719,6 +1781,17 @@ cat ~/.claude/settings.json | jq '.hooks'
 /search-first "功能需求"
 /deep-research "研究主题"
 
+# 蓝鲸项目管理（bk skill CLI；用法 = node <skill>/bk/cli/bk.mjs …，文中以 bk … 简写）
+bk doctor                                                   # token / 端点 / project_id / 连通性 自检
+bk auth "$TOKEN" --verify                                   # 写入 token（先到 https://mcp.300624.cn/api-keys 领取）
+bk project set v10125                                       # 绑定 vTeam ID 到 .claude/config/project-config.json
+bk get_todolist --page 1 --size 10                          # 看待办
+bk list_issues --json '{"states":["待处理","处理中"]}'        # 按状态筛 Issue
+bk get_issue --issue_number p328_8729                       # 查单条 Issue
+bk transition_issue --issue_number p328_8729 --list_states true   # 预览可达状态再流转
+bk add_issue_comment --issue_number p328_8729 --comment "…"  # 写评论
+bk update_issue --issue_number p328_8729 --dry_run true --list_fields true   # 改字段前先预览
+
 # 知识库
 /spec-bootstrap         # 初始化 .claude/code-specs/ 骨架（支持 monorepo）
 /spec-update            # 交互式沉淀 7 段 code-spec 或 thinking guide
@@ -1743,6 +1816,9 @@ cat ~/.claude/settings.json | jq '.hooks'
 - `core/skills/search-first/SKILL.md`
 - `core/skills/deep-research/SKILL.md`
 - `core/skills/session-review/SKILL.md`
+- `core/skills/bk/SKILL.md`（蓝鲸 CLI 主体）
+- `core/skills/bk/references/create-and-breakdown.md`、`core/skills/bk/references/troubleshooting.md`
+- `core/skills/bk/cli/bk.mjs`、`core/skills/bk/cli/smoke-test.sh`
 - `core/skills/spec-bootstrap/SKILL.md`
 - `core/skills/spec-update/SKILL.md`
 - `core/skills/spec-review/SKILL.md`
