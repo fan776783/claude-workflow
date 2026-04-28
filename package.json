@@ -13,7 +13,9 @@
     "link": "node bin/agent-workflow.js link",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
-    "release:major": "./scripts/release.sh major"
+    "release:major": "./scripts/release.sh major",
+    "publish:public": "./scripts/publish-public.sh",
+    "publish:public:dry": "./scripts/publish-public.sh --dry-run"
   },
   "files": [
     "bin/",
