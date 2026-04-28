@@ -445,7 +445,7 @@ flowchart TD
 - `/fix-bug` Phase 4.1 强制定档 `code_specs_impact`（四档：`spec_violation` / `spec_gap` / `contract_misread` / `spec_unrelated`），判定 `spec_gap` 时附 Bad/Good 草案 + `/spec-update` 提示；`.claude/code-specs/` 不存在时统一判 `spec_unrelated` 避免虚假 advisory
 - `/bug-batch` 单元级定档 + Phase 8 跨单元归纳：同一文件被 2+ FixUnit 标 `spec_gap` → 输出强信号 advisory 建议 `/spec-update`，同一段落被 2+ FixUnit 标 `spec_violation` → 建议审视执行机制
 
-完整闭环流程图见 `Claude-Code-工作流体系指南.md § 4.6` 的"Code Specs 闭环流程图"。
+完整闭环流程图见 `docs/internal/Claude-Code-工作流体系指南.md § 4.6` 的"Code Specs 闭环流程图"。
 
 ### 4.4 典型使用链路
 
@@ -616,7 +616,7 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 
 如需查看更完整说明，可参考：
 
-- `Claude-Code-工作流体系指南.md`
+- `docs/internal/Claude-Code-工作流体系指南.md`
 - `core/commands/team.md`（独立 team command 入口）
 - `core/commands/quick-plan.md`
 - `core/commands/enhance.md`
