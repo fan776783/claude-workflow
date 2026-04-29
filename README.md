@@ -219,8 +219,9 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 - Stage 1 以人工对照 code-spec / guides 的方式检查实现是否符合项目约定（声明式审查，无机读硬卡）
 - Stage 1 附带 Code Specs Check（按 diff 文件反查 `{pkg}/{layer}/` code-spec）和跨层 A/B/C/D advisory，均不消耗 4 次共享预算、不影响 pass/fail
 - Stage 1 Probe E（阻塞）：命中 infra / cross-layer 关键路径，且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail
-- Stage 2 审查模式三选一（由 `role_injection.js` 的 `resolveStage2ReviewMode` 统一路由，互斥）：命中 `security` / `backend_heavy` / `data` → `dual_reviewer`（Codex + 子 Agent 并行）；命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`
-- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算（`multi_angle` 三路合并后只计 1 次 attempt）
+- Stage 2 审查模式四选一（由 `role_injection.js` 的 `resolveStage2ReviewMode` 统一路由，互斥，优先级从高到低）：scale 信号（`large_scope` / `refactor`）**与** 风险信号（`security` / `backend_heavy` / `data`）**同时命中** → `quad_review`（Codex(Correctness) + Reuse / Quality / Efficiency 子 Agent 四路并行，category 独占去重）；只命中任一风险信号 → `dual_reviewer`（Codex + 子 Agent 并行）；未命中风险、仅命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`
+- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算（`quad_review` / `multi_angle` 合并后只计 1 次 attempt）
+- `quad_review` 降级矩阵：Codex 失败 → 降到 `multi_angle`；1 子 Agent 失败 → `quad_review` 继续 3 路合并；2+ 子 Agent 失败 → 降到 `dual_reviewer`；Codex + 子 Agent 同时失败 → 降到 `single_reviewer`。CLI 的 `--review-mode` 必须传降级后的真实模式
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
 
 ### 3.2 系统分层架构

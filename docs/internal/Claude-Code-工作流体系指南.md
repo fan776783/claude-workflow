@@ -2,8 +2,8 @@
 
 > 以 `workflow` command 入口为核心的 AI 编码工作流说明文档
 
-**文档版本**：v15.4.0  
-**最后更新**：2026-04-25  
+**文档版本**：v15.5.0  
+**最后更新**：2026-04-29  
 **适用仓库**：`@justinfan/agent-workflow`
 
 ---
@@ -346,7 +346,7 @@ node bin/agent-workflow.js sync -a claude-code,cursor
 
 - `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
 - 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查
-- Stage 2 审查模式由 `role_injection.js` 的 `resolveStage2ReviewMode` 根据信号路由，三选一：命中 `security` / `backend_heavy` / `data` → `dual_reviewer`（Codex + 子 Agent 并行）；命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`。三路并行的 `multi_angle` 合并后只计 1 次 attempt，不突破 4 次共享预算
+- Stage 2 审查模式由 `role_injection.js` 的 `resolveStage2ReviewMode` 根据信号路由，四选一（互斥，优先级从高到低）：同时命中风险信号（`security` / `backend_heavy` / `data`）**且** scale 信号（`large_scope` / `refactor`）→ `quad_review`（Codex(Correctness) + Reuse / Quality / Efficiency 三路子 Agent 四路并行，category 独占去重）；只命中任一风险信号 → `dual_reviewer`（Codex + 子 Agent 并行）；未命中风险、仅命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`。`quad_review` / `multi_angle` 多路合并后只计 1 次 attempt，不突破 4 次共享预算；`quad_review` 按降级矩阵可降到 `multi_angle` / `dual_reviewer` / `single_reviewer`，CLI 的 `--review-mode` 必须传入降级后的真实模式
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`
 - 详见 `core/skills/workflow-review/SKILL.md`
 
