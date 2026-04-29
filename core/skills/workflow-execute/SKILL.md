@@ -86,7 +86,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js next
 ```
 
 **状态预检查**：
-- `planned` → 转换为 `running`（首次执行）
+- `planned` → 首次调用 `advance` 时 CLI 自动升为 `running`（返回载荷含 `status_transition: "planned->running"`）；无需手动转换
 - `failed` → 提示使用 `--retry` 或 `--skip`
 - `blocked` → 提示使用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <dep>`
 - 渐进式workflow：检查是否所有任务都被阻塞
@@ -249,7 +249,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 | ① | **验证** | 运行验证命令，读取输出，确认通过。失败 → 标记 `failed`，后续跳过 |
 | ② | **自review（强制输出）** | 检查内容参见 [`references/self-review-checklist.md`](references/self-review-checklist.md)。检查本身建议性不阻塞，但**必须输出一行证据**（复制下方模板）。静默省略即为管线违规 |
 | ③ | **更新 plan.md** | 逐 task 立即更新，禁止批量回写。更新后**必须输出 checkpoint 行** |
-| ④ | **更新 state.json（HARD-GATE #4）** | 更新 `progress.completed` + `current_tasks` + `updated_at`。更新后**必须输出 checkpoint 行** |
+| ④ | **更新 state.json（HARD-GATE #4）** | 更新 `progress.completed` + `current_tasks` + `updated_at`。更新后**必须输出 checkpoint 行**。`advance`/`complete` 在 planned 状态下会自动升级 status 到 running 并返回 `status_transition` 字段——不需要手动 patch state.json |
 | ⑤ | **Journal（条件）** | 暂停/完成时调用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add` |
 
 ### ① 验证
@@ -426,6 +426,7 @@ CLI 自动标记 `skipped` + 更新 plan.md + state.json + 找下一任务。
 |-------|------|------|
 | `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `dispatching-parallel-agents` | 并行子 Agent 分派 | [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) |
+| `api-smoke` | 前端联调阶段手动调用,从 spec + autogen 生成后端接口冒烟脚本(不影响执行管线) | [`../api-smoke/SKILL.md`](../api-smoke/SKILL.md) |
 
 > CLI 入口：`~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js`（统一）、`~/.agents/agent-workflow/core/utils/workflow/execution_sequencer.js`（执行治理）
 >

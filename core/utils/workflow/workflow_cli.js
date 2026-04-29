@@ -240,6 +240,7 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
     next_task: nextTask,
     workflow_status: workflowStatus,
   }
+  if (completeResult.status_transition) result.status_transition = completeResult.status_transition
   if (journalResult) result.journal = journalResult
   return result
 }
@@ -414,6 +415,7 @@ function cmdAdvanceBatch(taskIds, journalSummary = null, decisions = null, proje
     next_task: nextTask,
     workflow_status: workflowStatus,
   }
+  if (completeResult.status_transition) result.status_transition = completeResult.status_transition
   if (batchId) result.batch_id = batchId
   if (gitActions.length) result.git_actions = gitActions
   if (effectiveMeta.merged_commit) result.merged_commit = effectiveMeta.merged_commit
@@ -422,8 +424,8 @@ function cmdAdvanceBatch(taskIds, journalSummary = null, decisions = null, proje
 }
 
 function cmdBatchFail(batchId, { nextAction = 'discard_integration_worktree', failedTaskId = null, reason = null, projectId = null, projectRoot = null } = {}) {
-  const [state, statePath] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流' }
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
   const record = getBatchRecord(state, batchId)
   if (!record) return { error: `并行批次不存在: ${batchId}` }
 
@@ -465,8 +467,8 @@ function cmdBatchFail(batchId, { nextAction = 'discard_integration_worktree', fa
 }
 
 function cmdReviewAdvance(outcome, failedTaskIds = null, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流' }
+  const [state, statePath, tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
   if (state.status !== 'review_pending') {
     return { error: `当前状态为 ${state.status}，不是 review_pending。只有 review_pending 状态才能推进审查结果。`, state_status: state.status }
   }
@@ -637,6 +639,61 @@ function optionOrArg(args, flag, fallback = null) {
   return first != null ? first : fallback
 }
 
+const SUBCOMMAND_HELP = {
+  advance: `advance - 标记任务完成并推进，或推进 review 结果。
+
+用法：
+  advance <task-id> [--journal STR] [--decisions a,b,c]
+    标记单任务完成。planned 状态下自动升为 running（返回 status_transition）。
+  advance --batch "T1,T2" --batch-id ID \\
+          [--merged-commit SHA --base-commit SHA --files-changed N] \\
+          [--stage2-passed --stage2-attempts N --reviewer subagent] \\
+          [--critical-count N --important-count N --minor-count N] \\
+          [--quality-gate-id ID]
+    写入并行批次完成。writable 批次需 --stage2-passed。
+  advance --batch-fail --batch-id ID [--next-action discard_integration_worktree] \\
+          [--failed-task ID --reason STR]
+    标记批次失败；默认丢弃 integration worktree。
+  advance --review-passed
+    review_pending → completed（需事先跑完 /workflow-review）。
+  advance --review-failed --failed-tasks "T1,T2"
+    review_pending → running，列出的 task 重新回到失败列表等待修复。
+`,
+  delta: `delta - 规划时捕获并应用delta。
+
+用法：
+  delta init --type <type> --source <source> --description <desc>
+  delta impact --change-id ID \\
+         [--tasks-added A --tasks-modified B --tasks-removed C --risk-level low|medium|high]
+  delta apply --change-id ID
+  delta fail --change-id ID --error MSG
+  delta sync --dependency DEP
+  delta <legacy-arg>    # 向后兼容：旧单参数模式
+`,
+  journal: `journal - 工作流journal新增、查询、搜索。
+
+用法：
+  journal add --title STR --summary STR \\
+         [--workflow-id ID --tasks-completed T1,T2 --decisions a,b --next-steps x,y]
+  journal list [--limit 20]
+  journal search <query>
+  journal get <id>
+`,
+}
+
+function renderSubcommandHelp(subcommand) {
+  if (!subcommand) {
+    return `Usage: node workflow_cli.js help <subcommand>
+Available subcommands: ${Object.keys(SUBCOMMAND_HELP).join(', ')}
+`
+  }
+  const body = SUBCOMMAND_HELP[subcommand]
+  if (body) return body
+  return `未知 subcommand: ${subcommand}
+Available subcommands: ${Object.keys(SUBCOMMAND_HELP).join(', ')}
+`
+}
+
 function main() {
   try {
     const { options, command, args } = parseArgs(process.argv.slice(2))
@@ -653,6 +710,11 @@ function main() {
         if (workflowDir && fs.existsSync(workflowDir)) recoverArchiveTombstone(workflowDir)
       }
     } catch {}
+
+    if (command === 'help') {
+      process.stdout.write(renderSubcommandHelp(args[0]))
+      return
+    }
 
     if (command === 'execute' || command === 'continue') {
       const intent = args[0] && !args[0].startsWith('--') ? args[0] : null
@@ -775,7 +837,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state|migrate-project-id> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n  migrate-project-id - 检测并迁移 legacy 纯 hex projectId（默认 dry-run，--apply 执行）\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state|migrate-project-id|help> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n  migrate-project-id - 检测并迁移 legacy 纯 hex projectId（默认 dry-run，--apply 执行）\n')
       process.exitCode = 1
       return
     }

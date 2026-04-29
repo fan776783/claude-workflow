@@ -68,21 +68,37 @@ function resolvePlanArtifactPath(projectRoot, artifactRef) {
 }
 
 /**
- * 解析工作流状态和任务内容
- * @param {string|null} [projectId=null] - 项目 ID
- * @param {string|null} [projectRoot=null] - 项目根目录
- * @returns {Array} [state, statePath, tasksContent, tasksPath]，无效时各项为 null
+ * 解析工作流状态和任务内容。
+ * @returns {Array} [state, statePath, tasksContent, tasksPath, code]
+ *   - 成功：前 4 项有效，code === null
+ *   - 失败：未解析的项为 null，code 为 snake_case 根因
+ *     （project_id_missing / project_id_invalid / state_file_missing /
+ *      plan_file_unset / plan_path_unresolved / plan_file_missing）
  */
 function resolveStateAndTasks(projectId = null, projectRoot = null) {
   const pid = projectId || detectProjectId(projectRoot)
-  if (!pid || !validateProjectId(pid)) return [null, null, null, null]
+  if (!pid) return [null, null, null, null, 'project_id_missing']
+  if (!validateProjectId(pid)) return [null, null, null, null, 'project_id_invalid']
   const statePath = getWorkflowStatePath(pid)
-  if (!statePath || !fs.existsSync(statePath)) return [null, null, null, null]
+  if (!statePath || !fs.existsSync(statePath)) return [null, null, null, null, 'state_file_missing']
   const state = readState(statePath, pid)
+  const planRef = state.plan_file || state.tasks_file || ''
+  if (!planRef) return [state, statePath, null, null, 'plan_file_unset']
   const resolvedProjectRoot = detectProjectRoot(projectRoot || state.project_root)
-  const artifactPath = resolvePlanArtifactPath(resolvedProjectRoot, state.plan_file || state.tasks_file || '')
-  if (!artifactPath || !fs.existsSync(artifactPath)) return [state, statePath, null, null]
-  return [state, statePath, fs.readFileSync(artifactPath, 'utf8'), artifactPath]
+  const artifactPath = resolvePlanArtifactPath(resolvedProjectRoot, planRef)
+  if (!artifactPath) return [state, statePath, null, null, 'plan_path_unresolved']
+  if (!fs.existsSync(artifactPath)) return [state, statePath, null, null, 'plan_file_missing']
+  return [state, statePath, fs.readFileSync(artifactPath, 'utf8'), artifactPath, null]
+}
+
+/**
+ * 首次推进时把 state.status 从 planned 升为 running。
+ * 返回 'planned->running' 以便调用方把信号带回调用方；其他状态不动并返回 null。
+ */
+function liftPlannedToRunning(state) {
+  if (state.status !== 'planned') return null
+  state.status = 'running'
+  return 'planned->running'
 }
 
 /**
@@ -119,8 +135,8 @@ function buildRuntimeSummary(state) {
  * @returns {Object} 状态概览，包含进度、任务数、运行时摘要等
  */
 function cmdStatus(projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state) return { error: '没有活跃的工作流' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流', code }
   const progress = state.progress || {}
   const total = tasksContent ? countTasks(tasksContent) : 0
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
@@ -145,8 +161,8 @@ function cmdStatus(projectId = null, projectRoot = null) {
  * @returns {Object} 任务列表，包含 total 和 tasks 数组
  */
 function cmdList(projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const tasks = parseTasksV2(tasksContent)
   return {
     total: tasks.length,
@@ -169,8 +185,8 @@ function cmdList(projectId = null, projectRoot = null) {
  * @returns {Object} 下一个任务信息或完成提示
  */
 function cmdNext(projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
   const nextId = findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
   if (!nextId) return { next_task: null, message: '所有任务已完成或被阻塞' }
@@ -186,8 +202,8 @@ function cmdNext(projectId = null, projectRoot = null) {
  * @returns {Object} 操作结果
  */
 function cmdComplete(taskId, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
   const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
   if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记完成` }
   fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'completed'))
@@ -195,8 +211,11 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
   const completed = progress.completed || (progress.completed = [])
   addUnique(completed, taskId)
   if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
+  const statusTransition = liftPlannedToRunning(state)
   writeState(statePath, state)
-  return { completed: true, task_id: taskId }
+  const result = { completed: true, task_id: taskId }
+  if (statusTransition) result.status_transition = statusTransition
+  return result
 }
 
 /**
@@ -207,8 +226,8 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
  * @returns {Object} 操作结果
  */
 function cmdCompleteBatch(taskIds, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
   const allTasks = parseTasksV2(tasksContent)
   const taskMap = new Map(allTasks.map((t) => [t.id, t]))
   const missing = (taskIds || []).filter((id) => !taskMap.has(id))
@@ -222,8 +241,11 @@ function cmdCompleteBatch(taskIds, projectId = null, projectRoot = null) {
     if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
   }
   fs.writeFileSync(tasksPath, updatedContent)
+  const statusTransition = liftPlannedToRunning(state)
   writeState(statePath, state)
-  return { completed: true, task_ids: [...taskIds] }
+  const result = { completed: true, task_ids: [...taskIds] }
+  if (statusTransition) result.status_transition = statusTransition
+  return result
 }
 
 /**
@@ -235,8 +257,8 @@ function cmdCompleteBatch(taskIds, projectId = null, projectRoot = null) {
  * @returns {Object} 操作结果
  */
 function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务' }
+  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
   const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
   if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记失败` }
   fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'failed'))
@@ -259,8 +281,8 @@ function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
  * @returns {Object} 依赖检查结果
  */
 function cmdDeps(taskId, projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const task = parseTasksV2(tasksContent).find((item) => item.id === taskId)
   if (!task) return { error: `任务 ${taskId} 不存在` }
   const progress = state.progress || {}
@@ -279,8 +301,8 @@ function cmdDeps(taskId, projectId = null, projectRoot = null) {
  * @returns {Object} 并行分组结果
  */
 function cmdParallel(projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
   const taskDicts = parseTasksV2(tasksContent).map(taskToDict)
   const groups = findParallelGroups(taskDicts, progress.completed || [], progress.blocked || [], progress.skipped || [], progress.failed || [])
@@ -294,8 +316,8 @@ function cmdParallel(projectId = null, projectRoot = null) {
  * @returns {Object} 进度详情，包含完成数、失败数、百分比、进度条等
  */
 function cmdProgress(projectId = null, projectRoot = null) {
-  const [state, , tasksContent] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务' }
+  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
   const total = countTasks(tasksContent)
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
@@ -319,8 +341,8 @@ function cmdProgress(projectId = null, projectRoot = null) {
  * @returns {Object} 预算评估结果
  */
 function cmdContextBudget(projectId = null, projectRoot = null) {
-  const [state] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state) return { error: '没有活跃的工作流' }
+  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流', code }
   const metrics = state.contextMetrics || {}
   const usage = Number(metrics.usagePercent || 0)
   const projected = Number(metrics.projectedUsagePercent || 0)
@@ -341,8 +363,8 @@ function cmdContextBudget(projectId = null, projectRoot = null) {
  * @returns {Object} 运行时摘要
  */
 function cmdRuntimeSummary(projectId = null, projectRoot = null) {
-  const [state] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state) return { error: '没有活跃的工作流' }
+  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流', code }
   return buildRuntimeSummary(state)
 }
 
@@ -390,6 +412,7 @@ module.exports = {
   detectProjectRoot,
   resolvePlanArtifactPath,
   resolveStateAndTasks,
+  liftPlannedToRunning,
   buildRuntimeSummary,
   cmdStatus,
   cmdList,

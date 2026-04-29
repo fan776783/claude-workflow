@@ -337,6 +337,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <depen
 | `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-status` | 状态查看 | [`../workflow-status/SKILL.md`](../workflow-status/SKILL.md) |
 | `workflow-archive` | workflowarchive | [`../workflow-archive/SKILL.md`](../workflow-archive/SKILL.md) |
+| `api-smoke` | 同步完 API 后可手动调用,从 spec + autogen 生成后端接口冒烟脚本 | [`../api-smoke/SKILL.md`](../api-smoke/SKILL.md) |
 
 > CLI 入口：`~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js`
 >

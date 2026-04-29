@@ -1,0 +1,6 @@
+.env.smoke
+trace.log
+logs/
+report.md
+.smoke-fixture.json
+dump/

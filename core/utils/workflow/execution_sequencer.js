@@ -274,8 +274,8 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
 }
 
 function loadExecutionContext(projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流' }
+  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
   const normalizedState = ensureStateDefaults(state)
   const tasks = tasksContent ? parseTasksV2(tasksContent) : []
   const currentTaskId = (normalizedState.current_tasks || [null])[0]

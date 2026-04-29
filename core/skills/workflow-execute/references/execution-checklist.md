@@ -39,6 +39,7 @@
 - [ ] 更新 `current_tasks` 为下一个 task ID（或清空）
 - [ ] 更新 `updated_at` 为当前时间
 - [ ] **保存文件**
+- 💡 **状态转换自愈**：`workflow_cli.js advance` 在 `state.status === 'planned'` 时会自动升为 `running` 并在返回载荷里带 `status_transition: "planned->running"`；无需手动 patch state.json，也不要为此再写 `node -e`
 
 ### 3→4. Checkpoint 输出（强制）
 
