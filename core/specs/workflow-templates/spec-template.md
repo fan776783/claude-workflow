@@ -130,6 +130,33 @@ flowchart TD
 - 权衡：
 - 不采用方案：
 
+### 5.5 Depth and Seams（条件段）
+
+> **触发规则**：仅当 § 5.1 Module Responsibilities 列出 **≥ 3 个 module**时填写；否则**整段删除**（含 `### 5.5` 标题）。
+>
+> **本段存在 = 承诺认真填**——不要留 `<高/中/低>` 这种套话，否则对 review 无价值。
+>
+> 参考 mattpocock/skills 的 `improve-codebase-architecture/LANGUAGE.md` / `DEEPENING.md`；workflow-review Stage 1 的 Depth Heuristics（H1/H2）会优先信任本段声明。
+
+#### 5.5.1 Module Depth Justification
+
+每个 module 按 `core/skills/workflow-review/references/depth-heuristics.md` H1 的 deletion test 判断，每 module 1 行：
+
+| Module | 接口方法数 | Deletion test 结论 |
+|--------|-----------|--------------------|
+| <名> | <数字> | 删了 → 复杂度 `分散到 N 个 caller` / `蒸发` / `搬到另一处` |
+
+`蒸发`是危险信号——说明该 module 是 pass-through，复杂度其实应该留在 caller 处；写了`蒸发`就要回答为什么还要保留它。
+
+#### 5.5.2 Seam Strategy（仅当本 spec 引入新抽象接口 / port 时填；否则删除本小节）
+
+| Seam（接口名） | Adapter 数量 | 理由 |
+|---------------|--------------|------|
+| <名> | 2（prod + test fake） | 真实 seam |
+| <名> | 1 | 暂为 indirection——spec 承诺的第二个 adapter 见 § X |
+
+只有 1 个 adapter 且无计划加第二个 → 该行删除、并在 § 5.1 把抽象接口改为直接内联实现（避免 single-adapter abstraction）。
+
 ---
 
 ## 6. File Structure

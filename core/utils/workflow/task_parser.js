@@ -33,6 +33,15 @@ function normalizeTargetLayer(value) {
   return TARGET_LAYER_WHITELIST.has(normalized) ? normalized : ''
 }
 
+// Interaction 白名单：AFK（默认，可由 agent 独立完成）/ HITL（需要人工介入）。
+// 老 plan 无字段 → 默认 AFK，保持既有行为不变。
+const INTERACTION_WHITELIST = new Set(['AFK', 'HITL'])
+function normalizeInteraction(value) {
+  if (!value) return 'AFK'
+  const normalized = String(value).trim().toUpperCase()
+  return INTERACTION_WHITELIST.has(normalized) ? normalized : 'AFK'
+}
+
 function createWorkflowTaskV2(data = {}) {
   return {
     id: data.id || '',
@@ -40,6 +49,7 @@ function createWorkflowTaskV2(data = {}) {
     phase: data.phase || 'implement',
     package: data.package ? String(data.package).trim() : '',
     target_layer: normalizeTargetLayer(data.target_layer),
+    interaction: normalizeInteraction(data.interaction),
     files: createTaskFiles(data.files),
     leverage: [...(data.leverage || [])],
     spec_ref: data.spec_ref || '§Unknown',
@@ -158,6 +168,7 @@ function parseTasksV2(content) {
       phase: extractField(body, '阶段') || 'implement',
       package: extractPackageField(body) || '',
       target_layer: normalizeTargetLayer(extractField(body, 'Target Layer')),
+      interaction: normalizeInteraction(extractField(body, 'Interaction')),
       files: parseTaskFiles(body),
       leverage: extractListField(body, '复用'),
       spec_ref: extractField(body, 'Spec 参考') || '§Unknown',

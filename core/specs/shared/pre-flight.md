@@ -37,6 +37,16 @@
 **Read**: [`./glossary.md`](./glossary.md)(每会话一次即可)
 **作用**: 所有 normative 产出(spec / plan / review 意见 / PR 正文)必须用 canonical 术语。drift lint 只给 warning,提前读 glossary 是最省事的避坑方式。
 
+### 5. Business Glossary(条件可选)
+**Read**: `.claude/code-specs/shared/business-glossary.md`(**存在**则读,否则跳过)
+**作用**: 项目级业务领域术语。涉及业务讨论的 skill(spec 扩写 / fix-bug Phase 1 / spec-update)推荐跟读;涉及纯框架 / 内部工具的任务可跳过。
+**缺失时**: 不 fail。项目未沉淀业务词表是常态;协议见 [`./business-glossary.md`](./business-glossary.md)。
+
+### 6. ADR Protocol(条件可选)
+**Read**: [`./adr-protocol.md`](./adr-protocol.md)(每会话一次即可,仅当本次任务涉及结构性决策)
+**作用**: 判断本次决策是否需要留 ADR;三重门槛定义见 adr-protocol.md。
+**适用**: `workflow-plan` § 9.2 方案选择 / `workflow-review` Stage 1 advisory / `fix-bug` Phase 4 架构级 gap。不涉及决策的任务跳过。
+
 ## 跳过条件
 
 满足 **任一** 就整体跳过本协议:
@@ -55,7 +65,9 @@
 
 - [`../workflow-runtime/preflight.md`](../workflow-runtime/preflight.md) — 运行时启动检查:Git 是否初始化、`project-config.json` 是否有效、是否存在未收尾的 workflow
 - [`./context-awareness.md`](./context-awareness.md) — 执行期治理伙伴:预算、并行分派、continuation 决策
-- [`./glossary.md`](./glossary.md) — canonical 术语表,第 4 步会读它
+- [`./glossary.md`](./glossary.md) — canonical 术语表(框架层),第 4 步会读它
+- [`./business-glossary.md`](./business-glossary.md) — 业务层术语协议,第 5 步按需跟读项目级文件
+- [`./adr-protocol.md`](./adr-protocol.md) — ADR 三重门槛协议,第 6 步按需读
 
 ## skill 应该如何引用本文件
 

@@ -106,6 +106,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | **Code Specs Check**（advisory） | 按 diff 文件反查 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。详见 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md)。 |
 | **跨层 advisory A–D** | 数据流 / 代码复用 / import 路径 / 同层一致性 4 维度 diff 启发式。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § A–D。 |
 | **Probe E Infra 深度 gate**（阻塞） | infra 关键路径 + 关联 code-spec 7 段深度不足时，Stage 1 直接 fail。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § E。 |
+| **Depth Heuristics**（advisory） | 代码结构深度 3 条启发式：H1 Deletion test（浅模块）/ H2 Single-adapter abstraction（人工思考）/ H3 Testing past interface。详见 [`references/depth-heuristics.md`](references/depth-heuristics.md)。与 Probe E 正交（E 查文档深度，本项查代码深度）。 |
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
@@ -129,7 +130,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 5. **Code Specs Check（advisory）**：按 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md) 把 diff 文件映射到 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。不影响 Stage 1 判定，只记录到 `stage1.code_specs_check`。
 6. **跨层 advisory 检查（A/B/C/D）**（详见下文「跨层检查」小节；只产生 advisory 记录，不影响 Stage 1 判定）
 7. **Probe E Infra 深度 gate（阻塞）**：若 diff 命中 infra / cross-layer 关键路径且相关 code-spec 存在但 7 段深度不足 → Stage 1 fail，走 `quality_review.js fail --failed-stage stage1 --cross-layer-depth-gap true --cross-layer-files ... --cross-layer-specs ... --cross-layer-missing-sections ...` 写入阻塞项；相关 code-spec 不存在时降级为 advisory，不写阻塞项。
-8. 输出结果：
+8. **Depth Heuristics（advisory）**：按 [`references/depth-heuristics.md`](references/depth-heuristics.md) 跑 H1–H3 三条启发式（H1 Deletion test / H2 Single-adapter 人工思考 / H3 Testing past interface）；命中时写入 Stage 1 输出的 `Depth (Advisory)` 子块，不影响 pass/fail 判定。
+9. 输出结果：
 
 ```
 **Status:** Compliant | Issues Found
@@ -149,14 +151,23 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 - 关联 code-spec：my-pkg/backend/export-api.md
 - 缺失段：Validation & Error Matrix, Tests Required
 - 建议：用 /spec-update 补齐对应段落后再重跑 /workflow-review
+**Depth (Advisory):**
+- [H1 shallow-module] src/utils/logger-wrapper.ts — 接口 8 行 / 实现 10 行、仅 1 caller；考虑内联
+- [H3 testing-past-interface] test/payment.test.ts L42 — 直接读 `_state`；考虑改走公共 API
 ```
-（未触发任何 probe → 省略 `Code Specs Check (Advisory)` / `Cross-Layer (Advisory)` / `Probe E` 块；Code Specs Check 执行但无发现时，仍输出块并写 "No findings."）
+（未触发任何 probe → 省略 `Code Specs Check (Advisory)` / `Cross-Layer (Advisory)` / `Probe E` / `Depth (Advisory)` 块；Code Specs Check 执行但无发现时，仍输出块并写 "No findings."）
 
 #### 跨层检查（advisory，Stage 1 内部）
 
-对应执行流程的第 6–7 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）执行 Probe A–D 启发式诊断与 Probe E 深度 gate。触发条件、checklist 内容、guides fallback 链、advisory 硬约束与 Probe E 阻塞语义，全部以 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) 为准，本文件不再重复。
+对应执行流程的第 6–8 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）串行执行：
 
-关键复用点：Probe A–E 与 Code Specs Check 共享 `git diff --name-only {baseCommit}..HEAD` 的输出；base commit 必须复用 `quality_review.js budget` 的解析结果或直接读 `state.initial_head_commit`，不要再跑裸 `git diff` / `git status`。
+1. **Probe A–D**（advisory）—— 跨层启发式诊断
+2. **Probe E**（阻塞）—— infra 深度 gate
+3. **Depth Heuristics H1–H3**（advisory）—— 代码结构深度启发式
+
+触发条件、checklist 内容、guides fallback 链、advisory 硬约束与 Probe E 阻塞语义，分别以 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) 和 [`references/depth-heuristics.md`](references/depth-heuristics.md) 为准，本文件不再重复。
+
+关键复用点：A–E 与 Code Specs Check、Depth H1–H3 共享 `git diff --name-only {baseCommit}..HEAD` 的输出；base commit 必须复用 `quality_review.js budget` 的解析结果或直接读 `state.initial_head_commit`，不要再跑裸 `git diff` / `git status`。
 
 ### 审查未通过
 
