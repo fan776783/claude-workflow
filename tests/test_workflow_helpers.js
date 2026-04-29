@@ -626,7 +626,8 @@ test('workflow helper migration coverage', async (t) => {
         ['T2']
       )
 
-      assert.equal(updated.status, 'paused')
+      assert.equal(updated.status, 'halted')
+      assert.equal(updated.halt_reason, 'governance')
       const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
       assert.equal(persisted.continuation.strategy, 'context-first')
       assert.equal(persisted.continuation.last_decision.action, 'pause-budget')
@@ -790,6 +791,7 @@ test('workflow helper migration coverage', async (t) => {
   await t.test('workflow CLI start delta unblock archive and status/context flows work end to end', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-'))
     const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
 
     const executeResult = runNode(cliScript, ['execute'], { cwd: root, env: extraEnv })
     assert.equal(executeResult.status, 0, executeResult.stderr)
@@ -820,7 +822,8 @@ test('workflow helper migration coverage', async (t) => {
     const continuePlannedPayload = JSON.parse(continuePlannedResult.stdout)
     assert.equal(continuePlannedPayload.entry_action, 'none')
     assert.equal(continuePlannedPayload.reason, 'status_not_resumable')
-    assert.match(continuePlannedPayload.message, /spec_review/)
+    assert.equal(continuePlannedPayload.state_status, 'spec_review')
+    assert.match(continuePlannedPayload.message, /规划已完成|workflow-execute/)
 
     let editedSpecContent = fs.readFileSync(specPath, 'utf8')
     editedSpecContent = editedSpecContent.replace('R-001: 实现导出功能', 'R-001: 仅实现 CSV 导出')
@@ -907,7 +910,10 @@ test('workflow helper migration coverage', async (t) => {
     const archivePayload = JSON.parse(archiveResult.stdout)
     assert.equal(archivePayload.archived, true)
     assert.equal(archivePayload.workflow_status, 'archived')
-    assert.equal(fs.existsSync(path.join(path.dirname(statePath), 'archive', 'CHG-001', 'delta.json')), true)
+    // Archive now lands under <workflowDir>/history/<YYYY-MM>/<slug>-<ts>/changes/<CHG>/delta.json;
+    // history_dir is the authoritative pointer returned by cmdArchive.
+    assert.ok(archivePayload.history_dir)
+    assert.equal(fs.existsSync(path.join(archivePayload.history_dir, 'changes', 'CHG-001', 'delta.json')), true)
     assert.equal(fs.existsSync(archivePayload.summary_file), true)
   })
 
@@ -1104,19 +1110,20 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('installer registers workflow hooks by default', async () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-installer-'))
-    const settingsPath = path.join(tmpRoot, 'settings.json')
-    const hooksDir = path.join(repoRoot, 'core', 'hooks')
-
-    const injected = await installer.ensureWorkflowHooks(settingsPath, hooksDir)
-    assert.equal(injected.injected, true)
-    assert.deepEqual(injected.events.sort(), ['PreToolUse', 'SessionStart'])
-
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
-    assert.ok(Array.isArray(settings.hooks.SessionStart))
-    assert.equal(settings.hooks.PreToolUse[0].matcher, 'Task')
-    assert.equal(settings.hooks.PostToolUse, undefined)
+  await t.test('workflow hook manifest exposes SessionStart + PreToolUse(Task) via plugin manifest', () => {
+    // Hooks are registered via Claude Code Plugin manifest (core/hooks/hooks.json), not
+    // settings.json injection. Verify the manifest still declares the core events.
+    const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'core', 'hooks', 'hooks.json'), 'utf8'))
+    assert.ok(Array.isArray(manifest.hooks.SessionStart))
+    assert.ok(Array.isArray(manifest.hooks.PreToolUse))
+    assert.equal(manifest.hooks.PreToolUse[0].matcher, 'Task')
+    assert.equal(manifest.hooks.PostToolUse, undefined)
+    // SessionStart points at session-start.js
+    const sessionStartCmd = manifest.hooks.SessionStart[0].hooks[0].command
+    assert.match(sessionStartCmd, /session-start\.js/)
+    // PreToolUse(Task) points at pre-execute-inject.js
+    const preExecCmd = manifest.hooks.PreToolUse[0].hooks[0].command
+    assert.match(preExecCmd, /pre-execute-inject\.js/)
   })
 
   await t.test('interactive hook status descriptions respect project-level installs and optional hooks', () => {
@@ -1162,12 +1169,15 @@ test('workflow helper migration coverage', async (t) => {
   })
 
   await t.test('link keeps fixed workflow CLI paths available in repo-link mode', () => {
+    // Claude Code now uses the Plugin cache, so `link -a claude-code` is a no-op.
+    // Cursor still uses the symlink-based link flow; use it to verify the repo-link
+    // contract that rewritten skill contents point at the canonical workflow_cli.js.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-link-canonical-'))
     const [extraEnv, home] = makeCliEnv(root)
 
     const result = runNode(
       path.join(repoRoot, 'bin', 'agent-workflow.js'),
-      ['link', '-a', 'claude-code'],
+      ['link', '-a', 'cursor'],
       { cwd: repoRoot, env: extraEnv }
     )
 
@@ -1175,7 +1185,7 @@ test('workflow helper migration coverage', async (t) => {
 
     const canonicalDir = path.join(home, '.agents', 'agent-workflow')
     const canonicalCli = path.join(canonicalDir, 'core', 'utils', 'workflow', 'workflow_cli.js')
-    const skillPath = path.join(home, '.claude', 'skills', 'workflow-execute')
+    const skillPath = path.join(home, '.cursor', 'skills', 'workflow-execute')
     const skillContent = fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf8').replace(/\\/g, '/')
 
     assert.ok(fs.existsSync(canonicalCli))
@@ -1186,6 +1196,7 @@ test('workflow helper migration coverage', async (t) => {
   await t.test('workflow CLI honors spec review branch and helper CLIs keep structured error contracts', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-branch-'))
     const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
 
     const startResult = runNode(
       cliScript,
@@ -1204,18 +1215,25 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(qualityResult.status, 1)
     assert.equal(JSON.parse(qualityResult.stdout).error, 'missing state reference')
 
+    // retry on a non-failed state now returns a structured non-retryable payload with exit 0
+    // instead of the old "no active workflow" error (state exists after `start`).
     const executionResult = runNode(path.join(workflowDir, 'execution_sequencer.js'), ['retry', 'proj-test', 'T1'], { env: extraEnv })
-    assert.equal(executionResult.status, 1)
-    assert.equal(JSON.parse(executionResult.stdout).error, '没有活跃的工作流')
+    assert.equal(executionResult.status, 0)
+    const executionPayload = JSON.parse(executionResult.stdout)
+    assert.equal(executionPayload.retryable, false)
+    assert.match(executionPayload.reason, /status-not-failed/)
 
+    // state_manager progress on an active workflow returns the progress payload, not an error.
     const stateCliResult = runNode(path.join(workflowDir, 'state_manager.js'), ['--project-id', 'proj-test', 'progress'], { env: extraEnv })
-    assert.equal(stateCliResult.status, 1)
-    assert.equal(JSON.parse(stateCliResult.stdout).error, '没有活跃的工作流')
+    assert.equal(stateCliResult.status, 0)
+    const stateCliPayload = JSON.parse(stateCliResult.stdout)
+    assert.equal(typeof stateCliPayload.percent, 'number')
   })
 
   await t.test('split-scope spec review returns workflow to idle so a new start can proceed', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-split-scope-'))
     const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
 
     const startResult = runNode(cliScript, ['start', '实现导出功能'], { cwd: root, env: extraEnv })
     assert.equal(startResult.status, 0, startResult.stderr)
@@ -1478,7 +1496,7 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.entry_action, 'none')
       assert.equal(result.can_resume, false)
       assert.equal(result.reason, 'status_not_executable')
-      assert.match(result.message, /User Spec Review/)
+      assert.match(result.message, /Spec 正在等待用户确认|Plan 仍在生成/)
     })
   })
 
@@ -1624,7 +1642,8 @@ test('workflow helper migration coverage', async (t) => {
 
       stateManager.handleTaskError(state, statePath, 'T1', 'Task One', 'merge conflict')
       const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.status, 'failed')
+      assert.equal(persisted.status, 'halted')
+      assert.equal(persisted.halt_reason, 'failure')
       assert.equal(persisted.parallel_groups[0].status, 'failed')
       assert.equal(persisted.parallel_groups[0].failed_task_id, 'T1')
       assert.equal(persisted.parallel_groups[0].conflict_detected, true)

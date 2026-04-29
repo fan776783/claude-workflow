@@ -76,6 +76,60 @@ function shouldRunCodexSpecReview(specContent, signals = {}) {
  * @param {Object} [signals={}] - deriveRoleSignals 输出的结构化信号
  * @returns {{ run: boolean, reason: string|null }} 是否触发及触发原因
  */
+const UI_KEYWORDS_REGEX = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i
+const UI_BROAD_KEYWORDS_REGEX = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i
+const FRONTEND_FRAMEWORK_REGEX = /react|vue|angular|svelte|tauri|electron|next\.?js|nuxt|vite/i
+const UX_CLARIFICATION_DIMENSIONS = new Set(['behavior', 'ui', 'ux', 'interaction', 'user-facing'])
+
+/**
+ * 判断是否需要进入 discussion（需求澄清）阶段
+ * @param {string} requirementText - 需求文本
+ * @param {string} requirementSource - 需求来源（'inline' / 文件路径）
+ * @param {boolean} noDiscuss - 用户是否显式跳过 discussion
+ * @param {number} gapCount - 检测到的需求缺口计数
+ * @returns {boolean}
+ */
+function shouldRunDiscussion(requirementText, requirementSource, noDiscuss, gapCount) {
+  if (noDiscuss) return false
+  const trimmed = String(requirementText || '').trim()
+  const shortInline = requirementSource === 'inline' && trimmed.length <= 100 && (gapCount || 0) === 0
+  return !shortInline
+}
+
+/**
+ * 判断是否需要触发 UX design gate
+ * @param {string} requirementText - 需求文本
+ * @param {Array<Object>} analysisPatterns - 项目分析模式（含 frontend framework 的 { name } 列表）
+ * @param {Object|null} discussionArtifact - 讨论阶段产物，含 clarifications[]
+ * @returns {boolean}
+ */
+function shouldRunUxDesignGate(requirementText, analysisPatterns = [], discussionArtifact = null) {
+  const text = String(requirementText || '')
+  if (UI_KEYWORDS_REGEX.test(text)) return true
+  const hasFrontend = (analysisPatterns || []).some((p) => FRONTEND_FRAMEWORK_REGEX.test(String((p || {}).name || '')))
+  if (hasFrontend && UI_BROAD_KEYWORDS_REGEX.test(text)) return true
+  if (hasFrontend && discussionArtifact) {
+    const clarifications = Array.isArray(discussionArtifact.clarifications) ? discussionArtifact.clarifications : []
+    if (clarifications.some((c) => c && UX_CLARIFICATION_DIMENSIONS.has(String(c.dimension || '').toLowerCase()))) return true
+  }
+  return false
+}
+
+/**
+ * 从 Spec 文档中抽取 §2 / §3 / §7 作为审查摘要（含子节）
+ * @param {string} specContent - Spec Markdown 内容
+ * @returns {string}
+ */
+function buildSpecReviewSummary(specContent) {
+  const text = String(specContent || '')
+  if (!text) return ''
+  const sections = text.split(/^(?=## \d)/m)
+  return sections
+    .filter((s) => ['## 2.', '## 3.', '## 7.'].some((prefix) => s.trimStart().startsWith(prefix)))
+    .map((s) => s.trim())
+    .join('\n\n')
+}
+
 function shouldRunCodexPlanReview(planContent, specContent, signals = {}) {
   if (signals.security) return { run: true, reason: 'signal:security' }
   if (signals.backend_heavy) return { run: true, reason: 'signal:backend_heavy' }
@@ -125,6 +179,12 @@ module.exports = {
   mapSpecReviewChoice,
   shouldRunCodexSpecReview,
   shouldRunCodexPlanReview,
+  shouldRunDiscussion,
+  shouldRunUxDesignGate,
+  buildSpecReviewSummary,
+  UI_KEYWORDS_REGEX,
+  UI_BROAD_KEYWORDS_REGEX,
+  FRONTEND_FRAMEWORK_REGEX,
 }
 
 if (require.main === module) main()

@@ -22,10 +22,13 @@ const { detectProjectRoot } = require('./task_manager')
 const { getCodeSpecsContext, getCodeSpecsContextScoped } = require('./task_runtime')
 const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
 const {
+  buildSpecReviewSummary,
   deriveRoleSignals,
   mapSpecReviewChoice,
   shouldRunCodexPlanReview,
   shouldRunCodexSpecReview,
+  shouldRunDiscussion,
+  shouldRunUxDesignGate,
 } = require('./planning_gates')
 const {
   buildInjectedContext,
@@ -45,9 +48,6 @@ const {
   resolveRequirementInput,
   resolveWorkflowRuntime,
 } = require('./runtime_locator')
-
-const UI_KEYWORDS_REGEX = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i
-const UI_BROAD_KEYWORDS_REGEX = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i
 
 function renderTemplate(template, values) {
   let rendered = String(template || '')
@@ -442,7 +442,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
 
   const trimmed = String(requirementText || '').trim()
   const gapCount = (requirementSource === 'inline' && trimmed.length <= 100) ? 0 : (trimmed ? 1 : 0)
-  const discussionRequired = !noDiscuss && !(requirementSource === 'inline' && trimmed.length <= 100 && gapCount === 0)
+  const discussionRequired = shouldRunDiscussion(requirementText, requirementSource, noDiscuss, gapCount)
   const discussionArtifact = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: [] }
 
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
@@ -484,9 +484,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
       },
     },
   }
-  const reqContent = String(requirementText || '')
-  const hasFrontend = (analysisPatterns || []).some((p) => /react|vue|angular|svelte|tauri|electron|next\.?js|nuxt|vite/i.test(String((p || {}).name || '')))
-  const uxRequired = UI_KEYWORDS_REGEX.test(reqContent) || (hasFrontend && UI_BROAD_KEYWORDS_REGEX.test(reqContent))
+  const uxRequired = shouldRunUxDesignGate(requirementText, analysisPatterns, discussionArtifact)
 
   const now = new Date().toISOString()
   const templateRoot = path.resolve(__dirname, '..', '..', 'specs', 'workflow-templates')
@@ -621,7 +619,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     discussion_required: discussionRequired,
     ux_gate_required: uxRequired,
     awaiting_user_spec_review: !shouldGeneratePlan,
-    spec_review_summary: String(specContent || '').split(/^(?=## \d)/m).filter((s) => ['## 2.', '## 3.', '## 7.'].some((p) => s.trimStart().startsWith(p))).map((s) => s.trim()).join('\n\n'),
+    spec_review_summary: buildSpecReviewSummary(specContent),
   }
 }
 
