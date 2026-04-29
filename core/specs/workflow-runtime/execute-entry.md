@@ -10,8 +10,8 @@
 
 - `/workflow-execute`：显式进入执行器，默认使用 `continuous` 模式。
 - `/workflow-execute --phase`：显式进入执行器，使用 `phase` 模式。
-- `/workflow-execute --retry`：进入 retry 流程。
-- `/workflow-execute --skip`：进入 skip 流程。
+- `/workflow-execute --retry`：进入 retry workflow。
+- `/workflow-execute --skip`：进入 skip workflow。
 
 ### 2. 命令内自然语言意图
 
@@ -25,7 +25,7 @@
 
 仅在以下条件全部满足时，允许将裸“继续”解释为恢复当前 workflow：
 
-1. 存在活动工作流状态文件
+1. 存在活动workflow状态文件
 2. `state.status` 属于 `running` / `paused` / `failed` / `blocked`
 3. 当前对话上下文仍在 workflow 任务链上
 

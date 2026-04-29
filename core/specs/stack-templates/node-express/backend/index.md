@@ -6,7 +6,7 @@
 
 ## Overview
 
-本 layer 覆盖 Express 路由、中间件、错误处理、DB 访问等后端代码的约定。
+本 layer 覆盖 Express 路由、中间件、错误处理、DB 访问等后端代码的convention。
 
 - 目录范围：`src/modules/**` + `src/middleware/**` + `src/server.ts`
 - 职责边界：controller / service / repository 三层清晰

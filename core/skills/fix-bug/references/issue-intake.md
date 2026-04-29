@@ -17,7 +17,7 @@ fix-bug 的入参有两种形态，落到后续 Phase 之前统一归一化成 `
 
 ## IssueRecord 字段
 
-单缺陷流程使用的精简字段集（与 bug-batch 的 IssueRecord 同名兼容）：
+单缺陷workflow使用的精简字段集（与 bug-batch 的 IssueRecord 同名兼容）：
 
 - `issue_number`
 - `title`

@@ -1,10 +1,10 @@
 ---
 description: 启动 Claude Code 原生 Agent Team，让当前会话充当负责人并行协作
-argument-hint: <任务描述，例如：并行审查 PR 的安全/性能/测试三个方向>
+argument-hint: <任务描述，例如：并行review PR 的安全/性能/测试三个方向>
 examples:
-  - /team 并行审查 PR #142 的安全、性能、测试覆盖
+  - /team 并行review PR #142 的安全、性能、测试覆盖
   - /team 用竞争假设调试 WebSocket 每 30 秒断连的问题
-  - /team 重构 auth 模块，实施前要我批准计划
+  - /team 重构 auth module，实施前要我批准计划
 ---
 
 # /team
@@ -21,8 +21,8 @@ examples:
 
 用：
 
-- 并行审查/研究（多角度调查后综合）——**第一次用 team 推荐从这里起步**，边界清晰、不写代码、协调成本低
-- 独立模块的并行实现（各自拥有不同文件集）
+- 并行review/研究（多角度调查后综合）——**第一次用 team 推荐从这里起步**，边界清晰、不写代码、协调成本低
+- 独立module的并行实现（各自拥有不同文件集）
 - 竞争假设的 debug（队友互相反驳直到收敛）
 - 跨层改动（前端/后端/测试分工同步推进）
 
@@ -31,7 +31,7 @@ examples:
 - 单行修复、简单一次性改动（协调开销不划算）
 - 顺序强依赖、无法真正并行的任务
 - 多个队友会改同一文件的工作（必然覆盖）
-- 已经在 `/workflow-*` 状态机里的流程
+- 已经在 `/workflow-*` 状态机里的workflow
 
 ## 官方硬约束
 
@@ -54,7 +54,7 @@ examples:
 3. **队友命名**：在 spawn 指令里显式指定每位队友的名字（例如 `security`、`perf`、`tests`），后续对话按名字引用 SendMessage 才可预测。不指定则系统随机命名。
 4. **是否需要计划批准**：当任务影响面大或用户说"实施前给我看方案"，让队友进入只读计划模式。官方机制是队友提交计划后由 **Lead 自主审批**：用户通过 `/team` 提示词给出审批标准（例如"只通过包含测试覆盖的计划""拒绝改数据库 schema 的计划"），Lead 据此决定批准或打回，并不是每份计划都停下来等用户点头。打回时队友**保持在计划模式**，按反馈修订后重新提交，可以多轮往返直到批准；批准后队友退出计划模式开始实施。
 
-任务粒度要自包含、可交付——一个函数、一段审查、一个测试文件。粒度过小你会被协调吃掉，过大则队友跑偏难以及时拉回。
+任务粒度要自包含、可交付——一个函数、一段review、一个测试文件。粒度过小你会被协调吃掉，过大则队友跑偏难以及时拉回。
 
 ## Spawn 队友的初始 message 必须包含
 
@@ -81,7 +81,7 @@ examples:
 安装时自动注册了两个原生 hook：`team-idle.js`（TeammateIdle）和 `team-task-guard.js`（TaskCreated / TaskCompleted）。看到 stderr 里的 `[team-idle]` 或 `[team-task-guard:*]` 前缀时，按下面规则响应，不要和用户争辩：
 
 - **`任务板仍有 N/M 个未完成任务`**：目标队友立即认领或继续推进，不要空闲。
-- **`任务板已清空 ... 给 Team Lead 发一条 message`**：队友侧按提示发 message 通知 Lead，正常 idle；Lead 收到该 message 后触发下面的"收尾"流程。
+- **`任务板已清空 ... 给 Team Lead 发一条 message`**：队友侧按提示发 message 通知 Lead，正常 idle；Lead 收到该 message 后触发下面的"收尾"workflow。
 - **`TaskCreated` 被拒**：补上 `task_subject`（一句能看出交付什么的标题）再重新创建。
 - **`TaskCompleted` 被拒**：去掉 `task_subject` / `task_description` 里的 TODO / FIXME / 待验证 / 待补充 类字眼，补上实际验证证据（测试通过、文件已改），再标 completed。
 

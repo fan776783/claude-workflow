@@ -35,7 +35,7 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
     - suggestion: how to fix the plan"
 ```
 
-## 执行流程
+## 执行workflow
 
 1. 调用 codex-bridge.mjs，记录开始时间
 2. **Codex 调用失败** → 输出 `⚠️ Codex Plan Review: degraded`，直接进入 `planned` 状态
@@ -49,10 +49,10 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
 
 ## 预算规则
 
-- `max_attempts = 2`（1 次 Codex 审查 + 最多 1 次修复后复审）
+- `max_attempts = 2`（1 次 Codex review + 最多 1 次修复后复审）
 - Provider 失败不消耗 revision 预算，立即降级
 - 只有 revision loop（修复 → 复审）消耗预算
-- 预算耗尽后直接进入 `planned`，不阻塞流程
+- 预算耗尽后直接进入 `planned`，不阻塞workflow
 
 ## 自动修复范围
 

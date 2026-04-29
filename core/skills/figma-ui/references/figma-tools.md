@@ -10,7 +10,7 @@
 
 > **桌面端 MCP vs 远程 MCP**：桌面端 MCP 自动使用当前打开文件，`fileKey` 可省略；远程 MCP 必须传 `fileKey`。
 
-## 标准工作流
+## 标准workflow
 
 ```text
 1. get_design_context  ─── 获取设计数据（必传 dirForAssetWrites）

@@ -1,6 +1,6 @@
 # 共享工具函数 (v4.0)
 
-工作流系统中多处使用的共享函数。**所有逻辑已实现为 Node.js 脚本**，执行时直接调用脚本，不依赖伪代码。
+workflow系统中多处使用的共享函数。**所有逻辑已实现为 Node.js 脚本**，执行时直接调用脚本，不依赖伪代码。
 
 ## 快速导航
 
@@ -29,7 +29,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `next` | 查询下一步该做什么 | `findNextTask()` |
 | `advance T3` | 完成 + 推进 + 可选 journal | — |
 | `context` | 聚合启动上下文 | — |
-| `status` | 快速工作流状态 | Step 1-2 of status.md |
+| `status` | 快速workflow状态 | Step 1-2 of status.md |
 | `list` | 列出所有任务 | `parseWorkflowTasksV2FromMarkdown()` |
 | `progress` | 进度统计 | `calculateProgress()` |
 | `parallel` | 查找可并行任务 | `classifyTaskDependencies()` |
@@ -104,7 +104,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `projectedNextTurnTokens` | number | 预估下一轮 token 用量 |
 | `reservedExecutionTokens` | number | 执行预留 |
 | `reservedVerificationTokens` | number | 验证预留 |
-| `reservedReviewTokens` | number | 审查预留 |
+| `reservedReviewTokens` | number | review预留 |
 | `reservedSafetyBufferTokens` | number | 安全缓冲预留 |
 | `usagePercent` | number | 当前使用百分比 |
 | `projectedUsagePercent` | number | 预估使用百分比（continuation 决策依据） |
@@ -116,7 +116,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `history[].taskId` | string | 任务 ID |
 | `history[].preTaskTokens` | number | 执行前 token |
 | `history[].postTaskTokens` | number | 执行后 token |
-| `history[].tokenDelta` | number | token 增量 |
+| `history[].tokenDelta` | number | token delta |
 | `history[].executionPath` | `direct / single-subagent / parallel-boundaries` | 执行路径 |
 
 > 动态任务上限由 `context_budget.js:calculateMaxTasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
@@ -130,8 +130,8 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 - 统一状态操作优先使用 `workflow_cli.js`，底层 `state_manager.js` 不接受项目本地 state path
 - "继续"与 `/workflow-execute` 的共享入口解析已收敛到 `utils/workflow/workflow_cli.js`，但仅适用于 execution-phase resume，不包含 planning human gate
 - 任务解析只使用 V2 模型，不再维护旧格式映射
-- 上下文结构必须与共享上下文约定保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
+- 上下文结构必须与共享上下文convention保持一致；如需仓库级扩展说明，应在打包环境中确认对应共享文档可达
 - 任何继续执行判断都以 projected budget 为准，而非只看当前 usagePercent
 - workflow hooks 只承担 runtime guardrails：上下文注入、前置条件校验与 worktree/并发安全
-- workflow hooks 不得私自决定 planning / execute / delta / archive 的阶段流转；主流程唯一入口仍是 command + skill + state machine
+- workflow hooks 不得私自决定 planning / execute / delta / archive 的阶段流转；主workflow唯一入口仍是 command + skill + state machine
 - `SessionStart` / `PreToolUse(Task)` hooks 只能提示或阻断，不得绕过 `/workflow-execute` shared resolver、写入主状态或另造第二套状态机

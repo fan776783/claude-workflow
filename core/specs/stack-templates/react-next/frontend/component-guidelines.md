@@ -1,6 +1,6 @@
 # Component Guidelines
 
-> React 组件的结构、命名与协作约定。
+> React 组件的结构、命名与协作convention。
 
 <!-- 本文件由 stack-template react-next 预生成，按 00-bootstrap-guidelines 从本仓库挑真实例子填入。 -->
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-(To be filled) — 本规范覆盖函数组件的编写约定。
+(To be filled) — 本规范覆盖函数组件的编写convention。
 
 ---
 
@@ -38,7 +38,7 @@ interface Props {
 export function Dialog({ title, disabled, onConfirm }: Props) { /* ... */ }
 ```
 
-**Why**: 显式 props 类型让调用方编辑器即可看到契约，避免 runtime 才发现误用。
+**Why**: 显式 props 类型让调用方编辑器即可看到contract，避免 runtime 才发现误用。
 
 ---
 

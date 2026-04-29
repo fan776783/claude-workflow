@@ -96,12 +96,12 @@ flowchart TD
 
 #### Page Hierarchy
 
-| 层级 | 页面名 | 功能模块 | 导航方式 |
+| 层级 | 页面名 | 功能module | 导航方式 |
 |------|--------|---------|---------|
 | L0 | | | |
 | L1 | | | |
 
-> L0 模块不超过 4 个。
+> L0 module不超过 4 个。
 
 ---
 
@@ -111,14 +111,14 @@ flowchart TD
 
 ### 5.1 Module Responsibilities
 
-- 模块 A：
-- 模块 B：
-- 模块 C：
+- module A：
+- module B：
+- module C：
 
 ### 5.2 Data Models
 
 - 核心数据对象：
-- 输入输出契约：
+- 输入输出contract：
 
 ### 5.3 Technology Choices
 

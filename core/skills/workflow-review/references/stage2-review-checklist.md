@@ -1,8 +1,8 @@
-# Stage 2 代码质量审查清单
+# Stage 2 代码质量review清单
 
-> 供 Stage 2 子 Agent Prompt 引用。主流程在 `SKILL.md` Step 3。
+> 供 Stage 2 子 Agent Prompt 引用。主workflow在 `SKILL.md` Step 3。
 
-## 审查维度
+## review维度
 
 | 类别 | 检查内容 |
 |------|----------|
@@ -36,9 +36,9 @@
 
 ## 误报过滤（~35% 预期误报率）
 
-对所有 Critical / Important 发现，必须执行验证流程：
+对所有 Critical / Important 发现，必须执行验证workflow：
 
-1. **LOCATE** — 定位审查指出的代码位置
+1. **LOCATE** — 定位review指出的代码位置
 2. **TRACE** — 追踪相关数据流和调用链
 3. **CONTEXT** — 检查代码注释中的设计意图
 4. **VERIFY** — 确认问题是否真实存在
@@ -89,6 +89,6 @@ Stage 2 走 `dual_reviewer`（Codex + 子 Agent）、`multi_angle`（Reuse / Qua
 - `quad_review`：**category 独占**——Codex 专属 `correctness`（含 security subtype），三子 Agent 分别独占 `reuse` / `quality` / `efficiency`；不同 category 同位置 finding 全部保留；同 category 重叠兜底 dedup（理论上不发生，因独占纪律）
 - 任一来源有 verified Critical/Important → 最终判定为 Issues Found
 - `partially_verified` 不能作为 Critical/Important 的依据
-- Codex 候选必须经过 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE 验证流程
+- Codex 候选必须经过 LOCATE→TRACE→CONTEXT→VERIFY→DECIDE 验证workflow
 - 子 Agent（multi_angle / quad_review）输出不走 LOCATE→…→DECIDE，但 category 字段必须显式标注以便去重
 - quad_review 中超域发现（例如 Reuse agent 发现 correctness 问题）写入各路的 `out_of_scope_observations`，不进主 finding 列表；主任务可在合并阶段评估是否采纳

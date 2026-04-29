@@ -2,7 +2,7 @@
 
 > 这份规范从 `diff-review` 的 deep-mode 抽出，作为所有"基于变更集的代码审查"skill 的共享管线契约。输入是一份**已界定的变更集**（文件列表 + 每个文件的 diff 或改动说明），输出是按 `report-schema.md` 的报告。
 >
-> 适用 skill：`diff-review`、`session-review`，以及其它以"候选问题 → 验证 → 影响分析 → 汇总"为骨架的审查型 skill。
+> 适用 skill：`diff-review`（含 `--session` 模式），以及其它以"候选问题 → 验证 → 影响分析 → 汇总"为骨架的审查型 skill。
 
 ## 何时读取
 

@@ -2,7 +2,7 @@
 
 > `@justinfan/agent-workflow` 是 multi-tool 分发包，必须保证每个支持的 AI 编码工具都能 mount canonical `core/` 下的共享表面。
 >
-> 本契约定义"共享表面"清单，以及 `lib/agents.js` 和 `lib/installer.js` 之间必须保持的一致性规则。发布门 `scripts/validate.js` 会调用 `core/utils/platform_parity.js::validatePlatformParity()` 做差集检查；任何一条不满足直接 CI fail。
+> 本契convention义"共享表面"清单，以及 `lib/agents.js` 和 `lib/installer.js` 之间必须保持的一致性规则。发布门 `scripts/validate.js` 会调用 `core/utils/platform_parity.js::validatePlatformParity()` 做差集检查；任何一条不满足直接 CI fail。
 
 ## 共享表面（Shared Surfaces）
 
@@ -20,7 +20,7 @@ Canonical 源的枚举规则：
 - **Commands**：`core/commands/` 下每个 `*.md` 文件。
 - **Managed resources**：`core/hooks`、`core/specs`、`core/utils` 三个目录的根路径。
 
-## Agents 配置契约
+## Agents 配置contract
 
 `lib/agents.js` 必须满足：
 
@@ -32,9 +32,9 @@ Canonical 源的枚举规则：
    - `skillsDir`（相对路径字符串，用于项目级安装）
    - `globalSkillsDir`（绝对路径字符串，用于全局安装）
    - `detectInstalled`（可调用函数）
-3. **skillsDir 约定**：必须是 `.<agent-home>/skills` 形式，目的地由 `getAgentBaseDir()` 反推得到。允许 `.agent/skills`、`.claude/skills` 等现有约定；禁止指向 `skills/` 根目录（否则会与 canonical 冲突）。
+3. **skillsDir convention**：必须是 `.<agent-home>/skills` 形式，目的地由 `getAgentBaseDir()` 反推得到。允许 `.agent/skills`、`.claude/skills` 等现有convention；禁止指向 `skills/` 根目录（否则会与 canonical 冲突）。
 
-## Installer 契约
+## Installer contract
 
 `lib/installer.js` 必须满足：
 
@@ -49,7 +49,7 @@ Canonical 源的枚举规则：
 - `core/skills/<x>/` 存在但没有 `SKILL.md`
 - `core/commands/*.md` 里的命令文件命名与 `core/skills/` 提供的 skill 无法对应（仅警告，不阻塞；对应关系由 command doc 内容声明）
 - `core/` 存在未在 `TEMPLATE_DIRS` 登记的一级目录
-- `MANAGED_DIRS` / `COMMANDS_DIR` / `SKILLS_DIR` / `MANAGED_NAMESPACE_DIR` 的值与上述约定不符
+- `MANAGED_DIRS` / `COMMANDS_DIR` / `SKILLS_DIR` / `MANAGED_NAMESPACE_DIR` 的值与上述convention不符
 
 ## 维护注意
 

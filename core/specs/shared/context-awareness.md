@@ -1,4 +1,4 @@
-# Context Awareness 模块
+# Context Awareness module
 
 上下文感知系统用于监控和治理执行期上下文压力，避免在长链路执行中因为主会话膨胀而导致推理退化、无意义暂停或错误继续执行。
 
@@ -101,8 +101,8 @@ function estimateContextTokens(contents: Array<string | null | undefined>): numb
 - 当前主会话的必要摘要，而不是整段历史回放
 - 当前任务或下一执行单元的 `steps[]`
 - 预期验证命令与验证输出摘要成本
-- 若下一步是 `quality_review`，则包含审查成本预留
-- 若下一步是 `parallel-boundaries`，则包含主会话回收摘要成本，而不是把所有子 agent 上下文算进主会话
+- 若下一步是 `quality_review`，则包含review成本预留
+- 若下一步是 `parallel-boundaries`，则包含主会话回收摘要成本，而不是把所有subagent 上下文算进主会话
 
 ### 动态任务上限计算
 
@@ -229,7 +229,7 @@ ${generateContextBar(metrics.projectedUsagePercent, metrics.warningThreshold, me
 
 ## Node.js Runtime 落地说明
 
-当前仓库里真正参与 execute 决策的 Node.js runtime 以 `core/utils/workflow/` 为准，shared spec 在这里承担“共享契约 + 设计目标”角色。
+当前仓库里真正参与 execute 决策的 Node.js runtime 以 `core/utils/workflow/` 为准，shared spec 在这里承担“共享contract + 设计目标”角色。
 
 ### 已落地的关键实现
 

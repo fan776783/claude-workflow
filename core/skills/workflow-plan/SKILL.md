@@ -29,7 +29,7 @@ Step → 必调命令映射：
 | canonical 字符串 | 分支含义 |
 |---|---|
 | `Spec 正确，生成 Plan` | approve，继续 Plan 生成 |
-| `Spec 正确，继续` | approve，继续流程 |
+| `Spec 正确，继续` | approve，继续workflow |
 | `需要修改 Spec` | 回到 Step 4 Spec 扩写（含 UX 修订） |
 | `缺少需求细节` | 回到 Step 4，保留需求细节 |
 | `需要拆分范围` | 拒绝，状态回 idle |
@@ -78,7 +78,7 @@ Step → 必调命令映射：
 
 1. **Git 状态检查** — 确认 git 仓库已初始化且有初始提交。无 git 时用户显式选择降级或暂停。
 2. **项目配置检查** — `project-config.json` 不存在或 `project.id` 无效时报错并引导用户先跑 `/scan`（空项目使用 `/scan --init`）。不再自动生成最小配置。
-3. **工作流状态检测** — 检查是否存在未归档的工作流。存在时根据状态（running/paused/failed/completed）提示用户恢复、覆盖或归档。
+3. **workflow状态检测** — 检查是否存在未archive的workflow。存在时根据状态（running/paused/failed/completed）提示用户恢复、覆盖或archive。
 4. **projectId 获取** — 直接读 `project-config.json` 的 `project.id`，**不要**在此处或任何下游入口调用 `stableProjectId()` 重新计算（只有 `/scan` 初始化 / 迁移时才允许）。禁止 shell 手动哈希。
 
 ### 预检通过后：强制调用 `workflow_cli.js plan`
@@ -98,14 +98,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **何时生成 plan.md**：Step 6 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时，CLI 读取已扩写好的 spec.md，调用 `buildRequirementCoverageFromSpec` + `buildPlanTasks` 首次生成 plan.md 骨架，并把状态推进到 `planned`。
 
-**后续 Step 的契约**：
+**后续 Step 的contract**：
 
 - Step 2-3 不是"从零写 JSON 工件"，而是**读取骨架按 canonical schema 填值**。
-- Step 4 在 spec.md 骨架上 Edit 扩写（含条件 UX § 4.4）；Step 6 在 spec-review approve 后生成的 plan.md 骨架上 Edit 扩写。**禁止 Write 全量覆盖**，禁止删除或重命名 front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` / `role_profile` / `context_profile`），禁止变更 CLI 已生成的 task ID，尤其首个 task ID。
+- Step 4 在 spec.md 骨架上 Edit 扩写（含条件 UX § 4.4）；Step 6 在 spec-review approve 后生成的 plan.md 骨架上 Edit 扩写。**禁止 Write 全量覆盖**，禁止删除或重命名 front matter 字段（`version` / `requirement_source` / `created_at` / `spec_file` / `status` / `role` / `role_profile` / `context_profile`），禁止修改 CLI 已生成的 task ID，尤其首个 task ID。
 
 **错误处理**：
 
-- CLI 返回 `已存在未归档工作流` → 回到预检 Step 3 让用户选择归档 / 恢复 / `--force` 覆盖。**不得改用 `init` 子命令**——`init` 是执行期自愈入口，规划期调用会因多历史 plan 报错。
+- CLI 返回 `已存在未归档工作流` → 回到预检 Step 3 让用户选择archive / 恢复 / `--force` 覆盖。**不得改用 `init` 子命令**——`init` 是执行期自愈入口，规划期调用会因多历史 plan 报错。
 - CLI 返回其他错误 → 直接展示给用户，不自行推进。
 
 ---
@@ -121,7 +121,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
    ```
    💡 未检测到项目 code-specs，建议执行 /spec-bootstrap 建立骨架并用 /spec-update 沉淀规范。
    ```
-3. 不阻塞流程，不修改任何文件。
+3. 不阻塞workflow，不修改任何文件。
 
 > Bootstrap 与 code-specs 填充已迁移至 `/scan` Part 5 与 `/spec-bootstrap` / `/spec-update` 命令链。
 
@@ -152,9 +152,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 1. 根据当前需求确定涉及的层（frontend / backend / guides）
 2. 仅对涉及层的 Filled 状态文件，用 `git log -1 --format=%ct` 检查最后修改时间
 3. 若文件超过 30 天未更新：输出 `⚠️ code-specs/{layer}/{file} 已 {N} 天未更新，建议 review 后更新`
-4. 不阻塞流程，仅 advisory；不涉及的层不检查
+4. 不阻塞workflow，仅 advisory；不涉及的层不检查
 
-> 选 30 天为阈值，是为了覆盖一个常见迭代节奏——比这更短容易对稳定模块频繁告警，更长则容易让 plan 参考已经过时的约定。检查仅限需求涉及到的层，避免每次规划都扫全库制造噪声。
+> 选 30 天为阈值，是为了覆盖一个常见迭代节奏——比这更短容易对稳定module频繁告警，更长则容易让 plan 参考已经过时的convention。检查仅限需求涉及到的层，避免每次规划都扫全库制造噪声。
 
 ---
 
@@ -166,9 +166,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **跳过条件**：用户指定 `--no-discuss`，或内联需求 ≤100 字符且预分析无待澄清项。
 
-**讨论流程**：
+**讨论workflow**：
 
-1. **需求预分析** — 基于代码分析结果识别待澄清事项，并按 P0/P1/P2 分层（P0=阻塞 Spec、P1=交互细节、P2=非功能性）。检查维度：
+1. **需求预分析** — 基于代码分析结果识别待澄清事项，并按 P0/P1/P2 layer（P0=阻塞 Spec、P1=交互细节、P2=非功能性）。检查维度：
    - 范围边界（模糊范围词如"等功能"、"相关"）
    - 行为定义（导入导出、通知、审批、搜索的细节）
    - 边界场景（空状态、删除策略、失败处理）
@@ -213,14 +213,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
   --project-root "$PWD" status
 ```
 
-确认返回结果中 `spec_file` 字段已就绪、`status=spec_review`（Step 4 发生在 Step 5 approve 之前，此阶段状态只能是 `spec_review`；若见到 `planned` 说明流程已越过 Step 5，应改走 Step 6）。若异常，回到 Step 1 调 `plan` 重建骨架——**禁止直接读 `workflow-state.json` 或用 `cat | jq` 判断**，状态路径与 legacy 兼容统一由 CLI 处理。
+确认返回结果中 `spec_file` 字段已就绪、`status=spec_review`（Step 4 发生在 Step 5 approve 之前，此阶段状态只能是 `spec_review`；若见到 `planned` 说明workflow已越过 Step 5，应改走 Step 6）。若异常，回到 Step 1 调 `plan` 重建骨架——**禁止直接读 `workflow-state.json` 或用 `cat | jq` 判断**，状态路径与 legacy 兼容统一由 CLI 处理。
 
 **UX 设计（条件，前端任务内联）**：
 
 若 `workflow-state.json` 的 `ux_design` 显示 `ux_gate_required=true`（需求涉及页面/界面/交互/GUI/桌面应用关键词，或检测到前端框架），在扩写 spec.md § 4.4 时须：
 
-1. 生成 Mermaid 用户操作流程图，覆盖 ≥ 3 个场景（首次使用、核心操作、异常/边界）
-2. 填写页面分层（L0 ≤ 4 个功能模块，L1 功能页，L2 辅助面板）
+1. 生成 Mermaid 用户操作workflow图，覆盖 ≥ 3 个场景（首次使用、核心操作、异常/边界）
+2. 填写页面layer（L0 ≤ 4 个功能module，L1 功能页，L2 辅助面板）
 3. UX 内容随 spec 整体在 Step 5 一并审批，不单独设门
 
 纯后端/CLI 项目删除 § 4.4 整节。
@@ -243,10 +243,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 1. **Context** — 背景和目标
 2. **Scope** — in-scope / out-of-scope / blocked 需求判定
 3. **Constraints** — 不可协商的硬约束 + 讨论澄清结果摘要 + UX 工作区约束
-4. **User-facing Behavior** — 正常/异常/边界行为 + UX 流程图（如有）
-5. **Architecture and Module Design** — 模块划分 + 技术选型 + 页面分层（如有）
+4. **User-facing Behavior** — 正常/异常/边界行为 + UX workflow图（如有）
+5. **Architecture and Module Design** — module划分 + 技术选型 + 页面layer（如有）
 6. **File Structure** — 新建/修改/测试文件
-7. **Acceptance Criteria** — 按模块的验收条件
+7. **Acceptance Criteria** — 按module的验收条件
 8. **Implementation Slices** — 渐进交付切片
 9. **Open Questions** — 待确认问题
 
@@ -260,7 +260,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 ## Step 4.5: Codex Spec Review（条件，advisory-to-human）
 
-**目的**：引入 Codex 作为独立审查视角，在用户审批前发现架构盲区和技术可行性问题。
+**目的**：引入 Codex 作为独立review视角，在用户审批前发现架构盲区和技术可行性问题。
 
 **Phase 编号**：1.2.5（conditional `machine_loop`）
 
@@ -270,14 +270,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **未触发时**：输出 `⏭️ Codex Spec Review: skipped`，直接进入 Step 5。
 
-**执行流程**：详见 [`references/codex-spec-review.md`](references/codex-spec-review.md)。
+**执行workflow**：详见 [`references/codex-spec-review.md`](references/codex-spec-review.md)。
 
 **摘要输出**：
 ```
 🔍 Codex Spec Review: {n} issues found (critical: {x}, important: {y})
 ```
 
-**与 Step 5 的衔接**：Step 5 Human Gate 展示时增加一栏 "Codex 审查发现"，用户可选择"采纳 Codex 建议并修改 Spec"回到 Step 4。
+**与 Step 5 的衔接**：Step 5 Human Gate 展示时增加一栏 "Codex review发现"，用户可选择"采纳 Codex 建议并修改 Spec"回到 Step 4。
 
 ---
 
@@ -290,24 +290,24 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 **展示内容**：
 1. Spec 关键章节摘要（Scope、Constraints、Acceptance Criteria）
 2. PRD 覆盖率（即时计算，若有 partial/uncovered 段落，列出需关注项）
-3. Codex 审查发现（若 Step 4.5 已执行且有 verified issues，列出 critical/important 条目及建议修订）
+3. Codex review发现（若 Step 4.5 已执行且有 verified issues，列出 critical/important 条目及建议修订）
 
-**审查时必须将 spec.md 与需求原文逐段对照**，不能只依据摘要判断。
+**review时必须将 spec.md 与需求原文逐段对照**，不能只依据摘要判断。
 
 **用户回复归一化 → CLI 调用**：
 
-展示完 Spec 摘要 / 覆盖率 / Codex 审查后，调用 `AskUserQuestion` 收集决策，`question` 写"Spec 审批结果？"，`options` 给 4 条常用分支，每个 `description` 写结果：
+展示完 Spec 摘要 / 覆盖率 / Codex review后，调用 `AskUserQuestion` 收集决策，`question` 写"Spec 审批结果？"，`options` 给 4 条常用分支，每个 `description` 写结果：
 
 - `approve_generate_plan` → canonical `Spec 正确，生成 Plan`，进入 Step 6
 - `revise_spec` → canonical `需要修改 Spec`，回到 Step 4（含 UX 修订）
-- `other` — 其他情况（保留需求细节 / 继续流程不重渲染 / 拆分范围）
+- `other` — 其他情况（保留需求细节 / 继续workflow不重渲染 / 拆分范围）
 
 选 `other` 时用 AskUserQuestion 二次询问或让用户自然语言描述，再按下表映射表归一化。映射由本 skill 维护，禁止把用户自由文本直接塞给 `--choice`：
 
 | 用户意图 | 快捷回复样例 | canonical choice（精确字符串） | 结果 |
 |---|---|---|---|
 | 通过，生成 Plan | `ok` / `通过` / `LGTM` / `approve` | `Spec 正确，生成 Plan` | 进入 Step 6 Plan 扩写 |
-| 通过，继续流程 | `继续` / `行` | `Spec 正确，继续` | 继续流程（不重渲染 plan） |
+| 通过，继续workflow | `继续` / `行` | `Spec 正确，继续` | 继续workflow（不重渲染 plan） |
 | Spec 内容要改 | 以 `修改 spec` / `改内容` / `改分层` / `改流程` 开头 | `需要修改 Spec` | 回到 Step 4（含 UX 修订） |
 | 缺需求细节 | `需求不全` / `细节再说` | `缺少需求细节` | 回到 Step 4，保留细节 |
 | 范围要拆 | `拆分` / `太大` / `范围太广` | `需要拆分范围` | 状态回 idle，缩小范围后重启 |
@@ -352,7 +352,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 - 用 Edit 扩写骨架内容，**禁止 Write 全量覆盖 plan.md**
 - 禁止修改 YAML front matter（特别是 `spec_file` / `status` / `role_profile` / `context_profile`）
 - 禁止修改 `plan_file` 路径或重命名 plan 文件
-- 禁止变更 CLI 已生成的 task ID，**尤其是首个 task ID**（`task_manager` / `execution_sequencer` 依赖 `current_tasks[0]` 定位起点）
+- 禁止修改 CLI 已生成的 task ID，**尤其是首个 task ID**（`task_manager` / `execution_sequencer` 依赖 `current_tasks[0]` 定位起点）
 - 扩写仅限每个 task 内部的步骤、代码块、验证命令、Patterns / Mandatory Reading；新增 task 必须放在现有 task 之后，不得插入或重排
 
 **输入**：
@@ -420,7 +420,7 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 
 ## Step 6.5: Codex Plan Review（条件，bounded-autofix）
 
-**目的**：从技术可行性角度审查 Plan，发现实现顺序问题、缺失步骤和集成风险。
+**目的**：从技术可行性角度review Plan，发现实现顺序问题、缺失步骤和集成风险。
 
 **Phase 编号**：2.5.5（conditional `machine_loop`）
 
@@ -430,9 +430,9 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 
 **未触发时**：输出 `⏭️ Codex Plan Review: skipped`，直接进入 `planned` 状态。
 
-**执行流程**：详见 [`references/codex-plan-review.md`](references/codex-plan-review.md)。
+**执行workflow**：详见 [`references/codex-plan-review.md`](references/codex-plan-review.md)。
 
-**预算**：max_attempts = 2（1 次 Codex 审查 + 最多 1 次修复后复审）。Provider 失败立即降级，不消耗 revision 预算。
+**预算**：max_attempts = 2（1 次 Codex review + 最多 1 次修复后复审）。Provider 失败立即降级，不消耗 revision 预算。
 
 **摘要输出**：
 ```
@@ -454,7 +454,7 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 
 **下一步提示**：
 
-1. 审查 `spec.md` 和 `plan.md`
+1. review `spec.md` 和 `plan.md`
 2. 使用 `workflow-execute` 开始实施
 
 ---
@@ -473,7 +473,7 @@ Plan 生成后立即执行。详见 [`references/plan-self-review.md`](reference
 | Skill | 职责 | 入口 |
 |-------|------|------|
 | `workflow-execute` | 按 Plan 推进任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
-| `workflow-review` | 全量完成审查（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
+| `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `dispatching-parallel-agents` | 并行子 Agent 分派 | [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) |
 
 > CLI 入口：`~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js`

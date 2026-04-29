@@ -8,7 +8,7 @@
 |------|---------|---------|------|
 | analysis-result.json | Step 2 代码分析 | **AI 写入** | `~/.claude/workflows/{projectId}/` |
 
-**已废弃工件**（历史归档，不再生成）：
+**已废弃工件**（历史archive，不再生成）：
 
 - ~~`discussion-artifact.json`~~ → 合并入 spec.md § 9 Open Questions & Dependencies
 - ~~`ux-design-artifact.json`~~ → 合并入 spec.md § 4.4 UX Design；触发标记通过 `workflow-state.json` 的 `ux_design.ux_gate_required` 读取
@@ -18,7 +18,7 @@
 
 ## analysis-result.json（AI 写入）
 
-代码分析后由 AI 持久化到工作流目录，后续阶段从文件加载避免重复分析。
+代码分析后由 AI 持久化到workflow目录，后续阶段从文件加载避免重复分析。
 
 ```json
 {

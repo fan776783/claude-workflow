@@ -9,7 +9,7 @@
 
 ## 调用方式
 
-使用 `task --read-only` 模式（文档审查，非 diff 审查）：
+使用 `task --read-only` 模式（文档review，非 diff review）：
 
 ```bash
 node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex-bridge.mjs \
@@ -35,7 +35,7 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
     - suggestion: how to revise the spec"
 ```
 
-## 执行流程
+## 执行workflow
 
 1. 调用 codex-bridge.mjs，记录开始时间
 2. **Codex 调用失败** → 输出 `⚠️ Codex Spec Review: degraded (原因)`，更新状态为 `degraded`，直接进入 Step 6（不消耗预算）

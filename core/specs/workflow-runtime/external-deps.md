@@ -1,13 +1,13 @@
 # 外部依赖系统 (v3.1)
 
-工作流的外部依赖管理。
+workflow的外部依赖管理。
 
 ## 快速导航
 
 - 想区分 workflow / figma-ui 的职责：看“设计理念”
 - 想看 `api_spec` 的来源与处理入口：看“API 依赖”
 - 想判断哪些路径/命令只是项目示例：看对应示例段落，按项目现状核实
-- 想处理 API 变更：回到 `../../skills/workflow-delta/SKILL.md`
+- 想处理 API delta：回到 `../../skills/workflow-delta/SKILL.md`
 
 ## 何时读取
 
@@ -21,8 +21,8 @@
 | 关注点 | 负责 Skill | 说明 |
 |--------|-----------|------|
 | 业务逻辑 + 数据流 | `/workflow` | 功能实现，使用组件库默认样式 |
-| API 接口 | `/workflow-delta` | 统一处理 API 同步和变更 |
-| 视觉还原 + 验证 | `/figma-ui` | **独立流程**，负责设计上下文获取、资源分诊、语义化命名、Visual Review 与交付决策 |
+| API 接口 | `/workflow-delta` | 统一处理 API 同步和delta |
+| 视觉还原 + 验证 | `/figma-ui` | **独立workflow**，负责设计上下文获取、资源分诊、语义化命名、Visual Review 与交付决策 |
 
 ```text
 workflow（功能）  ──▶  figma-ui（视觉资源分诊 + 还原 + 验证）
@@ -64,7 +64,7 @@ YApi 平台 ──▶ ytt.config.ts ──▶ pnpm ytt ──▶ autogen/*.ts
 /workflow-delta packages/api/lib/autogen/teamApi.ts
 ```
 
-### 处理流程
+### 处理workflow
 
 ```typescript
 async function unblockApiSpec(args: {

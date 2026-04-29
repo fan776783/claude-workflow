@@ -1,10 +1,10 @@
 # Implementation Report 规范
 
-> 工作流完成时自动生成的实施报告，对比计划与实际。
+> workflow完成时自动生成的实施报告，对比计划与实际。
 
 ## 何时生成
 
-当所有 task 标记为 `completed`（或 `skipped`），在工作流状态变为 `completed` 之前生成。
+当所有 task 标记为 `completed`（或 `skipped`），在workflow状态变为 `completed` 之前生成。
 
 ## 输出路径
 
@@ -64,10 +64,10 @@
 
 - `workflow-state.json`：task 状态、quality_gates、progress
 - `plan.md`：原始任务定义
-- `git diff`：实际变更统计
+- `git diff`：实际delta统计
 - Journal entries：关键决策和问题
 
 ## 注意
 
-- 报告为只读总结，不触发新的审查或修复
+- 报告为只读总结，不触发新的review或修复
 - 生成后增加到 `workflow-state.json` 的 `report_path` 字段

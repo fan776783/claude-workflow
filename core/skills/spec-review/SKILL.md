@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "审查 code-specs 库（v2.2）。按文件类型分档 lint：convention 查必备 4 段 + 代码示例 + Why；contract 查 7 段；通用维度查过期/冲突。模板漂移走 .template-hashes.json。"
+description: "review code-specs 库（v2.2）。按文件类型分档 lint：convention 查必备 4 段 + 代码示例 + Why；contract 查 7 段；通用维度查过期/冲突。模板漂移走 .template-hashes.json。"
 ---
 
 <PRE-FLIGHT>
@@ -9,7 +9,7 @@ description: "审查 code-specs 库（v2.2）。按文件类型分档 lint：con
 
 # /spec-review
 
-只读的 code-specs 库审查命令。走声明式审查模型：按文件类型分档 lint + 过期 + 冲突 + 模板漂移对账，输出报告供用户决定后续动作。
+只读的 code-specs 库review命令。走声明式review模型：按文件类型分档 lint + 过期 + 冲突 + 模板漂移对账，输出报告供用户决定后续动作。
 
 ## 文件类型识别
 
@@ -75,7 +75,7 @@ git log -1 --format=%ct -- <file>
 - 同时读 `core/specs/spec-templates/manifests/` 最新 manifest，按 `migrations[]` 分类列出建议（rename / safe-file-delete / delete / protected_paths）
 - **不再读** `local.md` 的 Template Baseline 表（已废弃）
 
-## 流程
+## workflow
 
 1. 扫描 `.claude/code-specs/**/*.md`，按文件类型分档
 2. 依次跑 6 类检查（contract/convention lint、空 layer advisory、过期、冲突、模板漂移）
@@ -131,7 +131,7 @@ git log -1 --format=%ct -- <file>
 
 ## 与其他命令的关系
 
-- 审查结果中的 missing / draft / no-examples / no-rationale 由用户 `/spec-update` 手动补齐
+- review结果中的 missing / draft / no-examples / no-rationale 由用户 `/spec-update` 手动补齐
 - 模板漂移由用户手动合并（不自动应用 migrations）
 - `workflow-review` Stage 1 走人工对照
 

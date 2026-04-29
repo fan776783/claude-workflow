@@ -1,8 +1,8 @@
-# Preflight 预检模块
+# Preflight 预检module
 
 > 从 workflow-plan 提取的共享基础设施预检。可被 `/workflow-plan`、`/quick-plan` 等命令复用。
 
-## 预检流程
+## 预检workflow
 
 参数解析后立即执行以下 3 步预检。
 
@@ -12,7 +12,7 @@
 
 确认 git 仓库已初始化且有初始提交。
 
-**为什么需要 Git**：需要写隔离的子代理（如 Spec 合规审查、代码质量审查）依赖 git worktree 进行隔离执行。明确只读的分析/审查型子代理可以无 worktree 运行，但写隔离场景不允许静默降级。
+**为什么需要 Git**：需要写隔离的subagent（如 Spec 合规review、代码质量review）依赖 git worktree 进行隔离执行。明确只读的分析/review型subagent可以无 worktree 运行，但写隔离场景不允许静默降级。
 
 **检查项**：
 1. 当前目录是否在 git 仓库中（`git rev-parse --is-inside-work-tree`）
@@ -20,8 +20,8 @@
 
 **未通过时**：调用 `AskUserQuestion` 收集决策，`question` 写"Git 仓库未就绪，如何继续？"，`options` 给两条：
 
-- `init_git` — 我来初始化 git：暂停工作流，用户执行 `git init && git add . && git commit -m "Initial commit"` 后重试
-- `continue_without_subagent` — 无子代理继续：⚠️ 用户显式选择降级。写隔离审查降级为主会话内执行，只读分析不受影响。记录 `git_status.user_acknowledged_degradation = true`
+- `init_git` — 我来初始化 git：暂停workflow，用户执行 `git init && git add . && git commit -m "Initial commit"` 后重试
+- `continue_without_subagent` — 无subagent继续：⚠️ 用户显式选择降级。写隔离review降级为主会话内执行，只读分析不受影响。记录 `git_status.user_acknowledged_degradation = true`
 
 > 不得静默跳过 Git 检查。用户必须通过 AskUserQuestion 显式确认降级。
 
@@ -50,9 +50,9 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
 
 ---
 
-## Step 3: 检测现有工作流（条件执行）
+## Step 3: 检测现有workflow（条件执行）
 
-检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未归档的工作流。
+检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未archive的workflow。
 
 > 此步骤仅在 `/workflow-plan` 中执行，`/quick-plan` 等轻量命令跳过。
 
@@ -81,15 +81,15 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
 
 **AskUserQuestion 选项**：
 
-`running` / `paused`，`question` 写"检测到进行中的工作流，如何处理？"，`options`：
+`running` / `paused`，`question` 写"检测到进行中的workflow，如何处理？"，`options`：
 
-- `resume` — 恢复当前工作流（使用 `/workflow-execute`）
-- `archive_and_new` — 归档并新建（调用 `/workflow-archive` 后继续）
+- `resume` — 恢复当前workflow（使用 `/workflow-execute`）
+- `archive_and_new` — archive并新建（调用 `/workflow-archive` 后继续）
 - `force_overwrite` — 强制覆盖（等同 `--force`；备份现状到 `workflow-state.backup-{timestamp}.json` 后覆盖）
 
-`failed` / `blocked`，`question` 写"上次工作流未正常结束，如何处理？"，`options`：
+`failed` / `blocked`，`question` 写"上次workflow未正常结束，如何处理？"，`options`：
 
 - `retry` — 重试（使用 `/workflow-execute --retry`）
-- `archive_and_new` — 归档并新建
+- `archive_and_new` — archive并新建
 
-> 覆盖时必须要求 `--force` 标志或用户通过 AskUserQuestion 显式确认，防止误删进行中的工作流。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。
+> 覆盖时必须要求 `--force` 标志或用户通过 AskUserQuestion 显式确认，防止误删进行中的workflow。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。

@@ -20,11 +20,11 @@
 
 ## 使用方式
 
-- `/workflow-plan` 在 Spec 生成时读取本目录下的约定作为 Constraints 输入
+- `/workflow-plan` 在 Spec 生成时读取本目录下的convention作为 Constraints 输入
 - `/workflow-execute` 在任务执行时以 advisory 形式注入项目知识
 - `/workflow-review` Stage 1 以人工对照方式检查实现与 code-spec 的一致性
 
 ## 更新记录
 
-| 日期 | 变更 | 触发原因 |
+| 日期 | delta | 触发原因 |
 |------|------|---------|

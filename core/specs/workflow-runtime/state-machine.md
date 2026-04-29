@@ -1,6 +1,6 @@
-# 工作流状态机 (v6.0)
+# workflow状态机 (v6.0)
 
-> 📌 **Canonical Source**：本文件是工作流状态机的**统一规范**。Skills 的 SKILL.md 引用本文件定义的状态和转换；CLI 实现本文件的状态逻辑。不与 skills 文档重复，不标记弃用。
+> 📌 **Canonical Source**：本文件是workflow状态机的**统一规范**。Skills 的 SKILL.md 引用本文件定义的状态和转换；CLI 实现本文件的状态逻辑。不与 skills 文档重复，不标记弃用。
 
 > 状态的读写由 CLI 脚本消化。AI 通过 `workflow_cli.js` 操作状态，不直接读写 `workflow-state.json`。
 
@@ -13,13 +13,13 @@
 | `spec_review` | Spec 已生成，等待用户确认范围 |
 | `planning` | Spec 已批准，正在生成 Plan（短暂内部状态） |
 | `planned` | Plan 已生成，等待执行 |
-| `running` | 工作流执行中 |
+| `running` | workflow执行中 |
 | `paused` | 暂停等待用户操作 |
 | `blocked` | 等待外部依赖 |
 | `failed` | 任务失败，需要处理 |
-| `review_pending` | 所有任务执行完毕，等待显式审查 |
-| `completed` | 审查通过，所有任务完成 |
-| `archived` | 工作流已归档 |
+| `review_pending` | 所有任务执行完毕，等待显式review |
+| `completed` | review通过，所有任务完成 |
+| `archived` | workflow已archive |
 
 ## 状态转换
 
@@ -56,14 +56,14 @@ completed → archived        workflow archive
 
 | 模式 | 参数 | 中断点 |
 |------|------|--------|
-| continuous | 默认 | 质量关卡完成后暂停提示用户审查 |
+| continuous | 默认 | 质量关卡完成后暂停提示用户review |
 | phase | `--phase` | 每个 phase 完成后 + 质量关卡完成后 |
 
 ---
 
 ## CLI 状态操作
 
-> ⚠️ **所有状态变更统一通过 CLI 完成**。不直接读写 `workflow-state.json`。
+> ⚠️ **所有状态delta统一通过 CLI 完成**。不直接读写 `workflow-state.json`。
 
 ### 查询状态
 
@@ -110,7 +110,7 @@ node utils/workflow/workflow_cli.js unblock api_spec
 node utils/workflow/workflow_cli.js archive
 ```
 
-### 增量变更
+### delta
 
 ```bash
 # 基于 PRD 变更生成增量
@@ -163,13 +163,13 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
 | `api_spec` | 后端接口规格 | `workflow unblock api_spec` |
 | `external` | 第三方服务/SDK | `workflow unblock external` |
 
-## 审查与质量关卡
+## review与质量关卡
 
-审查状态由 CLI 和执行引擎自动管理，写入 `workflow-state.json` 的对应字段：
+review状态由 CLI 和执行引擎自动管理，写入 `workflow-state.json` 的对应字段：
 
 | 关卡 | 状态字段 | 管理方式 |
 |------|---------|---------|
-| 用户 Spec 审查 | `review_status.user_spec_review` | `/workflow-plan` spec-review 阶段 |
+| 用户 Spec review | `review_status.user_spec_review` | `/workflow-plan` spec-review 阶段 |
 | Plan Review | `review_status.plan_review` | 执行引擎自动触发 |
 | 执行质量关卡 | `quality_gates[taskId]` | `/workflow-review` 独立步骤（execute 完成后手动触发） |
 

@@ -8,7 +8,7 @@
 
 ## Overview
 
-(To be filled) — 本规范定义 Express 应用的模块层次。
+(To be filled) — 本规范定义 Express 应用的module层次。
 
 ---
 

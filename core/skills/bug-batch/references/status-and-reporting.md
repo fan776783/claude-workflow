@@ -2,7 +2,7 @@
 
 `bug-batch` 在每个 `FixUnit` 完成单元级 review + 物化 + 存在实际代码修改后，立即把该单元覆盖缺陷推进到 `处理中`；全量确认并提交 Commit 后再批量推进到 `待验证`。此文件沉淀状态流转示例和最终汇总模板。
 
-## 0. 分层 review 汇总（Phase 5.5 完成后展示）
+## 0. layer review 汇总（Phase 5.5 完成后展示）
 
 ```markdown
 ## 分层 review 汇总
@@ -139,7 +139,7 @@ update_issue_state(
 
 ## 4. 提交 Commit
 
-重建流程、commit message 格式与示例见 `references/commit-rebuild.md` 第 2、4 节。
+重建workflow、commit message 格式与示例见 `references/commit-rebuild.md` 第 2、4 节。
 
 ## 5. 批量流转到待验证
 

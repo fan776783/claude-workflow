@@ -1,6 +1,6 @@
 # Delta 安全检查清单
 
-> 在变更确认（Hard Stop）前，逐项检查以下内容。
+> 在delta确认（Hard Stop）前，逐项检查以下内容。
 
 ## 占位路径检测
 
@@ -14,7 +14,7 @@
 - [ ] 已完成任务被修改/废弃时用 ⚠️ 标注回归风险
 - [ ] 风险等级自动提升为 `high`
 
-## 变更完整性
+## delta完整性
 
 - [ ] 每个新增任务包含：id、name、phase、files、steps、verification
 - [ ] 修改任务有 before/after 对比
@@ -22,10 +22,10 @@
 
 ## 审计链验证
 
-- [ ] `delta.json` 已写入变更目录
-- [ ] `intent.md` 已写入变更目录
-- [ ] `review-status.json` 已写入变更目录
-- [ ] 以上文件在状态变更前完成写入（先审计后生效）
+- [ ] `delta.json` 已写入delta目录
+- [ ] `intent.md` 已写入delta目录
+- [ ] `review-status.json` 已写入delta目录
+- [ ] 以上文件在状态delta前完成写入（先审计后生效）
 
 ## Spec-Normative 一致性
 

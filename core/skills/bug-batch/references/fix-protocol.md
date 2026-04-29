@@ -1,10 +1,10 @@
 # 内部修复协议参考
 
-bug-batch Phase 5 子 agent 的执行规范。该协议替代了对 fix-bug skill 的调用，避免嵌套 Hard Stop 和重复分析。
+bug-batch Phase 5 subagent 的执行规范。该协议替代了对 fix-bug skill 的调用，避免嵌套 Hard Stop 和重复分析。
 
-## 1. 输入契约
+## 1. 输入contract
 
-子 agent 收到的上下文已包含经 bug-batch Phase 3-4 确认的根因和方案，不需要独立分析。
+subagent 收到的上下文已包含经 bug-batch Phase 3-4 确认的根因和方案，不需要独立分析。
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
@@ -15,7 +15,7 @@ bug-batch Phase 5 子 agent 的执行规范。该协议替代了对 fix-bug skil
 | `shared_root_cause` | 是 | 已确认的根因文字描述 |
 | `confirmed_root_cause_location` | 是 | 根因所在文件和函数（file + function + description） |
 | `confirmed_fix_plan` | 是 | 已确认的修复方案（approach + files_to_modify + test_command） |
-| `affected_scope` | 是 | 受影响模块路径 |
+| `affected_scope` | 是 | 受影响module路径 |
 | `validation_scope` | 是 | 需要验证的功能点列表 |
 | `worktree_path` | 否 | 若使用 worktree 隔离，提供路径 |
 | `execution_constraints` | 是 | 执行禁止项列表 |
@@ -47,7 +47,7 @@ execution_constraints:
   - "不修改 shared_root_cause 或关系结论"
 ```
 
-## 2. 子 agent 执行步骤
+## 2. subagent 执行步骤
 
 ### Step 1: 根因复核（只读）
 
@@ -77,9 +77,9 @@ execution_constraints:
 
 ### Step 4: 输出结构化结果
 
-按输出契约格式输出，不包含独立诊断报告、用户确认请求、codex review 调用记录。
+按输出contract格式输出，不包含独立诊断报告、用户确认请求、codex review 调用记录。
 
-## 3. 输出契约
+## 3. 输出contract
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
@@ -98,7 +98,7 @@ execution_constraints:
 
 ### materialization_artifact 格式
 
-子 agent 必须在输出中提供主会话可直接使用的物化入口。根据执行环境选择一种：
+subagent 必须在输出中提供主会话可直接使用的物化入口。根据执行环境选择一种：
 
 ```yaml
 # 场景 A：worktree 执行（多数并行场景）
@@ -165,4 +165,4 @@ materialization_artifact:
 | 修改文件范围超出 `files_to_modify` | 停止修改，说明为什么需要改额外文件 |
 | 发现需要修改 `shared_root_cause` 或拆分 FixUnit | 停止，建议退回重编排 |
 
-不得尝试自行解决上述情况。子 agent 的职责是执行已确认的方案，不是做决策。
+不得尝试自行解决上述情况。subagent 的职责是执行已确认的方案，不是做决策。

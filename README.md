@@ -26,7 +26,7 @@
 - **Workflow 主线**（6 个专项 skills）：从需求推进到可执行任务，支持中断恢复、增量变更与两阶段审查
 - **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
 
-此外还有专项 skills（`/fix-bug`、`/diff-review`、`/session-review`、`/bug-batch`、`/figma-ui`、`/search-first`、`/deep-research` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/quick-plan`、`/enhance`、`/git-rollback`）。
+此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/research`、`/quick-plan` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
 
 优先使用 `workflow` 的场景：
 
@@ -39,12 +39,19 @@
 
 如果只是单点问题，也可以直接使用专项 skill：
 
-- 单 Bug：`/fix-bug`
+- 需求对齐（先别写代码）：`/grill`
+- 快速理解陌生模块：`/zoom-out`
+- 疑难 Bug 根因证伪：`/diagnose`（先建反馈循环 → 多假设排序 → 产出根因,不改代码）
+- 单 Bug 端到端修复：`/fix-bug`（内部可触发 `/diagnose`）
 - 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
-- 当前会话审查：`/session-review`（只审本模型在本会话里改过的文件，避免扫入上游或他人改动）
+- 当前会话审查：`/diff-review --session`（只审本模型在本会话里改过的文件，avoid 扫入上游或他人改动；合并自旧 `/session-review`）
 - UI 还原：`/figma-ui`
 - 批量缺陷：`/bug-batch`
+- TDD 纪律（红绿重构）：`/tdd`
+- 技术调研 / 找现成库：`/research`（合并自 `/search-first` + `/deep-research`）
+- 轻量规划：`/quick-plan`（从 command 迁 skill；复杂场景仍用 `/workflow-plan`）
 - 沉淀规范：`/spec-update` / `/spec-review`
+- 新建 / 审查 skill：`/write-a-skill`
 
 优先使用 `/team` 的场景（Claude Code 原生 Agent Teams）：
 
@@ -481,18 +488,14 @@ flowchart TD
 
 ### 5.1 Public Commands
 
-除了 workflow 主线 skills 外，仓库还会安装手动 command 入口：
+除了 skill 外，仓库还会安装两个原生 command 入口（`core/commands/`）：
 
 | 命令 | 类型 | 说明 |
 |------|------|------|
-| `/quick-plan` | command entry | 轻量快速规划，适用于简单到中等任务 |
-| `/team` | command entry | 团队协作入口；仅在用户显式输入时使用，不自动触发 |
-| `/enhance` | command entry | 对原始提示词做结构化增强，再等待用户确认 |
-| `/git-rollback` | command entry | 交互式 Git 回滚入口，默认 dry-run 预览 |
-| `/spec-bootstrap` | command entry | 初始化项目级 `.claude/code-specs/` 骨架（`{pkg}/{layer}/` + `guides/`） |
-| `/spec-update` | command entry | 交互式沉淀 7 段 code-spec 或 thinking guide |
-| `/spec-review` | command entry | 审查 7 段合约完整性、过期、冲突与 canonical 对账 |
-| `/session-review` | command entry | 审查当前会话内本模型产生的改动（区别于 `/diff-review` 的 git diff 视角） |
+| `/team` | command | Claude Code 原生 Agent Teams 入口；仅在用户显式输入时使用，不自动触发 |
+| `/git-rollback` | command | 交互式 Git 回滚入口，默认 dry-run 预览 |
+
+其他所有能力（含 `/quick-plan`、`/spec-bootstrap`、`/spec-update`、`/spec-review` 及 workflow 主线）均以 skill 形态分发，详见 5.3。
 
 ### 5.2 `/team` 命令
 
@@ -516,18 +519,23 @@ flowchart TD
 | Skill | 功能 |
 |-------|------|
 | `scan` | 扫描项目技术栈并生成项目配置 |
+| `grill` | 对齐澄清 - 质询模糊需求到共享理解（合并自旧 `/enhance` + `quick-plan` Ambiguity Gate） |
+| `zoom-out` | 抬升抽象层,画相关 module 和 caller 的地图(7 行级轻量 skill) |
+| `diagnose` | 疑难 Bug 反馈循环 + 假设证伪(不改代码,给 fix-bug / workflow-execute 消费) |
 | `fix-bug` | 结构化定位与修复单点问题 |
-| `diff-review` | Impact-aware Quick / Deep 模式代码审查（含 finding verification、影响性分析、fix/skip 复审循环） |
-| `session-review` | 审查当前会话内由本模型产生的改动；压缩/清空检测，避免扫入上游或他人改动 |
 | `bug-batch` | 批量缺陷分析、去重与修复编排 |
+| `tdd` | 红绿重构 vertical slice TDD 纪律 |
+| `diff-review` | Impact-aware Quick / Deep 模式代码审查;支持 `--session` 覆盖当前会话改动（合并自旧 `session-review`） |
 | `figma-ui` | Figma 设计稿到代码 |
+| `research` | 统一研究入口 - 代码库 / 生态 / 外部引文（合并自 `search-first` + `deep-research`） |
+| `quick-plan` | 轻量快速规划 skill |
 | `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
-| `search-first` | 先搜后写，给出 Adopt / Extend / Build 决策 |
-| `deep-research` | 面向外部信息的多源引文研究 |
-| `spec-bootstrap` | 初始化 `.claude/code-specs/` 骨架（`{pkg}/{layer}/` + `guides/`） |
+| `spec-bootstrap` | 初始化 `.claude/code-specs/` 骨架 |
 | `spec-update` | 按 7 段 code-spec 合约或 thinking guide 形态写入 |
-| `spec-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账，只读输出报告 |
+| `spec-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账 |
+| `write-a-skill` | Meta-skill - 新建 / 审查 SKILL.md 尺寸与描述 |
 | `collaborating-with-codex` | 通过 Codex App Server 运行时委派编码、调试与审查任务 |
+| `bk` | 蓝鲸项目管理 CLI（看待办、查 issue、流转状态、评论） |
 
 ---
 
@@ -618,9 +626,7 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 如需查看更完整说明，可参考：
 
 - `docs/internal/Claude-Code-工作流体系指南.md`
-- `core/commands/team.md`（独立 team command 入口）
-- `core/commands/quick-plan.md`
-- `core/commands/enhance.md`
+- `core/commands/team.md`（/team 命令，Claude Code 原生 Agent Teams 入口）
 - `core/commands/git-rollback.md`
 - `core/skills/workflow-plan/SKILL.md`
 - `core/skills/workflow-execute/SKILL.md`
@@ -628,10 +634,11 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-status/SKILL.md`
 - `core/skills/workflow-archive/SKILL.md`
-- `core/skills/search-first/SKILL.md`
-- `core/skills/deep-research/SKILL.md`
-- `core/skills/session-review/SKILL.md`
-- `core/commands/team.md`（/team 命令，Claude Code 原生 Agent Teams 入口）
+- `core/skills/quick-plan/SKILL.md`（从 command 迁 skill）
+- `core/skills/research/SKILL.md`（合并自 search-first + deep-research）
+- `core/skills/grill/SKILL.md`、`core/skills/zoom-out/SKILL.md`、`core/skills/diagnose/SKILL.md`、`core/skills/tdd/SKILL.md`、`core/skills/write-a-skill/SKILL.md`（mattpocock/skills 哲学借鉴）
+- `core/specs/shared/architecture-language.md`（Module / Interface / Depth / Seam / Adapter / Leverage / Locality）
+- `core/specs/shared/hard-stop-templates.md` / `manual-intervention-reasons.md` / `codex-routing.md` / `status-readiness.md` / `impact-analysis-template.md`（跨 skill 共享协议）
 - `core/skills/spec-bootstrap/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
 - `core/skills/workflow-review/references/stage1-code-specs-check.md`（Code Specs Check advisory 子步）
 - `core/skills/workflow-review/references/cross-layer-checklist.md`（A/B/C/D advisory + Probe E 阻塞 gate）

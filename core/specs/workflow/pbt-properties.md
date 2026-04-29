@@ -219,7 +219,7 @@ f(f(a, b), c) = f(a, f(b, c))
 }
 ```
 
-## 提取流程
+## 提取workflow
 
 ### Phase 1.5: PBT 属性提取
 

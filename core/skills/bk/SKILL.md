@@ -3,6 +3,11 @@ name: bk
 description: 通过本地 CLI 调用 bk-mcp，操作蓝鲸（CTeam / vTeam）项目管理平台——查/建/改工作项、流转状态、拉个人待办、AI 拆任务、上传附件。触发词：「蓝鲸」「bk」「待办」「缺陷流转」「需求流转」「工作项」「Issue」「创建任务」「拆分任务」「给 Issue 评论」「看我今天有什么要做的」。首次使用必须引导用户到 https://mcp.300624.cn/api-keys 申请 token。
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
+本 skill 的跳过条件:纯 CLI 转发(auth / project set / 列待办等配置操作)可走"纯研究"跳过条件;一旦要写 issue 摘要 / 评论 / agent brief 文字给真实用户,必须读 glossary 保证 canonical 术语。
+</PRE-FLIGHT>
+
 # bk — 蓝鲸项目管理 CLI
 
 封装 bk-mcp（MCP Streamable HTTP）为一个 Node 单文件 CLI。
@@ -31,7 +36,7 @@ node <skill-root>/bk/cli/bk.mjs <subcommand> [args...]
 
 ### 触发条件
 
-任何一条满足就进入对应引导流程：
+任何一条满足就进入对应引导workflow：
 
 - 任何 tool 返回 `missing bk-mcp token` → 跳到 [场景 A](#场景-a-token-缺失)
 - 需要 `project_id` 的 tool 报 `项目[...]不存在或在CTeam中未初始化`，或 `doctor` 报 `project_id.value: null` → 跳到 [场景 B](#场景-b-project_id-缺失)
@@ -92,7 +97,7 @@ node /绝对路径/bk/cli/bk.mjs project set "$PID"
 
 落盘后 agent 回用户："已写入 `.claude/config/project-config.json`，项目 ID = `v10125`。"
 
-### 场景 C：首次使用全流程自检
+### 场景 C：首次使用全workflow自检
 
 如果上面两个场景都要配，一次性做完再 smoke：
 
@@ -108,7 +113,7 @@ smoke 全绿就可以交付给用户。
 
 ## 配置解析：token / 端点 / 项目 ID（参考）
 
-CLI 读三类上下文，优先级统一走"命令行 → 环境变量 → 文件"。随时用 `doctor` 查当前实际生效值。**agent 不要直接让用户操作下面这些**——上面的"初始化"流程已经封装好了。
+CLI 读三类上下文，优先级统一走"命令行 → 环境变量 → 文件"。随时用 `doctor` 查当前实际生效值。**agent 不要直接让用户操作下面这些**——上面的"初始化"workflow已经封装好了。
 
 ### 凭据层
 
@@ -304,7 +309,7 @@ node cli/bk.mjs transition_issue --issue_number p328_8729 \
 
 需要上传截图、建子任务、AI 拆分 → `references/create-and-breakdown.md`。
 
-## 输出约定（给调用方读）
+## 输出convention（给调用方读）
 
 - 成功：`content.text` 或 `structuredContent` 直出 stdout，已是字符串/JSON
 - Tool 错（`isError:true`）：JSON 写 stderr，**exit 2**

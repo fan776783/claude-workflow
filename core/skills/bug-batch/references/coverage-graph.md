@@ -4,13 +4,13 @@
 
 ## 1. 绑定语义
 
-子 agent 在 Phase 5 可能返回 `covered_by_other_unit: <unit_id>`，意思是"我不用单独改代码，另一个 FixUnit 的修复会把我顺带盖掉"。主会话据此做三件事：
+subagent 在 Phase 5 可能返回 `covered_by_other_unit: <unit_id>`，意思是"我不用单独改代码，另一个 FixUnit 的修复会把我顺带盖掉"。主会话据此做三件事：
 
 - 把被覆盖单元标记为 `covered_by_other`，`covered_by_unit` 指向覆盖单元
 - 把被覆盖单元的缺陷（`primary_issue` + `included_issues` + `duplicate_issues`）并入覆盖单元的 `transition_set`，后续状态流转一起走
 - 若覆盖单元失效，被覆盖缺陷必须回退——这一部分由第 3 节的失败级联处理
 
-子 agent 必须**具体指名**覆盖单元，不能留空。无法指名时降级为 `root_cause_mismatch`，走人工介入。
+subagent 必须**具体指名**覆盖单元，不能留空。无法指名时降级为 `root_cause_mismatch`，走人工介入。
 
 ## 2. 终点解析
 

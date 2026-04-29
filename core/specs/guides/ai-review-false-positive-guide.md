@@ -1,11 +1,11 @@
-# AI 审查误报指南
+# AI review误报指南
 
 ## 核心原则
 
 > **"Most bugs come from 'didn't think of that', not from lack of skill."**
-> 但同样地，大量 AI 审查发现也来自 **"没仔细看代码"**。
+> 但同样地，大量 AI review发现也来自 **"没仔细看代码"**。
 
-**预算：约 35% 的 AI 审查发现为误报。**
+**预算：约 35% 的 AI review发现为误报。**
 
 每个 CRITICAL 或 WARNING 级发现，在标记为"必须修复"前，必须对照源代码验证。
 
@@ -33,7 +33,7 @@
 **识别方法**：
 - 检查相关代码是否有 `// intentional` / `// by design` / `// see: xxx` 注释
 - 检查 PR 描述或 spec 文档中是否说明了此行为
-- 检查 `.claude/specs/` 中是否定义了此约定
+- 检查 `.claude/specs/` 中是否定义了此convention
 
 **正确处理**：
 ```
@@ -65,7 +65,7 @@
 - AI 引用的代码行号是否与当前文件匹配？
 - 是否基于已被删除/修改的旧实现？
 
-## 验证流程
+## 验证workflow
 
 对每个 CRITICAL / WARNING 发现执行：
 
@@ -83,14 +83,14 @@
 
 ### 质量关卡 Stage 2
 
-在两阶段审查的 Stage 2（代码质量审查）中：
-1. 对所有 CRITICAL 发现执行上述验证流程
+在两阶段review的 Stage 2（代码质量review）中：
+1. 对所有 CRITICAL 发现执行上述验证workflow
 2. 标记误报原因（属于哪种模式）
 3. 仅将验证通过的发现计入最终结果
 
 ### `/workflow-execute --retry`
 
 在调试失败任务时：
-1. 检查失败原因是否来自 AI 审查
+1. 检查失败原因是否来自 AI review
 2. 如果是，先用此指南过滤误报
 3. 仅针对真实问题执行修复
