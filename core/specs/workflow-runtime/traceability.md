@@ -12,7 +12,7 @@
 
 ### Spec Section Ref
 
-plan 步骤对 spec 章节的引用，用于在执行后的 Spec 合规审查中对照检查。
+plan 步骤对 spec 章节的引用，用于在执行后的 Spec 合规review中对照检查。
 
 **格式规范**：`§` 前缀 + spec 章节编号（按 markdown 标题顺序，1-indexed）。嵌套用点分隔。
 
@@ -21,11 +21,11 @@ plan 步骤对 spec 章节的引用，用于在执行后的 Spec 合规审查中
 | `§N` | 顶级章节（`## N. Title`） | `§2` = Scope 章节 |
 | `§N.M` | 嵌套子章节 | `§5.1` = User-facing Behavior 的第 1 个子节 |
 
-**验证规则**：Self-Review 和 Spec 合规审查时，所有 `§X.X` 引用必须能映射到 spec.md 中实际存在的 markdown 标题。无法映射的引用视为 Plan 缺陷。
+**验证规则**：Self-Review 和 Spec 合规review时，所有 `§X.X` 引用必须能映射到 spec.md 中实际存在的 markdown 标题。无法映射的引用视为 Plan 缺陷。
 
 ### Acceptance Criteria
 
-spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Spec 合规审查子 Agent 使用。
+spec.md 的 Acceptance Criteria 章节中按module组织的验收条件，供 Spec 合规review子 Agent 使用。
 
 ### Requirement Baseline Item
 
@@ -67,11 +67,11 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 
 ### in_scope
 
-当前工作流明确承接，必须在 spec 的 Architecture / Acceptance 章节有设计和验收对应。
+当前workflow明确承接，必须在 spec 的 Architecture / Acceptance 章节有设计和验收对应。
 
 ### out_of_scope
 
-当前工作流明确不承接，必须在 Scope 章节的 Out of Scope 表格中写明排除原因。
+当前workflow明确不承接，必须在 Scope 章节的 Out of Scope 表格中写明排除原因。
 
 ### blocked
 
@@ -110,11 +110,11 @@ spec.md 的 Acceptance Criteria 章节中按模块组织的验收条件，供 Sp
 
 ### Execution Gate（执行期规格对照检查）
 
-在满足审查触发条件时执行规格对照检查：
+在满足review触发条件时执行规格对照检查：
 
-- `quality_review` action → 进入完整两阶段审查的 Stage 1：Spec 合规审查
+- `quality_review` action → 进入完整两阶段review的 Stage 1：Spec 合规review
 - 连续 3 个常规 task → 执行轻量合规检查
-- 最后一个 task → 在最终全量审查中执行 Spec 合规审查
+- 最后一个 task → 在最终全量review中执行 Spec 合规review
 
 所有场景都应检查：
 

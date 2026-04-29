@@ -2,15 +2,15 @@
 
 ## 目的
 
-为 `workflow` 内部所有审查节点提供统一的 loop contract、预算语义、产物落盘方式与升级规则。
+为 `workflow` 内部所有review节点提供统一的 loop contract、预算语义、产物落盘方式与升级规则。
 
 本规范只定义 **workflow 内部共享原语**，不定义独立的用户可调用 skill。
 
 ## 适用范围
 
-当前覆盖三类审查节点：
+当前覆盖三类review节点：
 
-- `MachineReviewLoop`：机器审查、允许在限定预算内自动修订并重审
+- `MachineReviewLoop`：机器review、允许在限定预算内自动修订并重审
 - `HumanGovernanceGate`：人工治理关口，负责范围、边界与方向主权确认
 - `ConditionalHumanGate`：先做机器一致性检查，仅在命中条件时进入人工确认
 
@@ -35,7 +35,7 @@
 - `requirement-baseline.md` 与 `requirement-baseline.json` 视为冻结真相源
 - loop 内允许修订设计文档、plan 文档与 review artifact
 - loop 内**不允许**回写 requirement truth source
-- 若发现需求本身需要变更，必须退出当前 loop，交由人工处理
+- 若发现需求本身需要delta，必须退出当前 loop，交由人工处理
 
 ### 2. 有界收敛
 
@@ -48,7 +48,7 @@
 
 禁止开放式无限重写。
 
-### 3. 审查与修订解耦
+### 3. review与修订解耦
 
 reviewer 负责输出结构化问题与决策；修订步骤负责按边界修复；下一轮 reviewer 重新基于完整对象复审。
 
@@ -63,7 +63,7 @@ planning side 使用 `review_status.*`；execution side 使用 `quality_gates.*`
 若 execution side 启用了质量关卡 hook：
 
 - hook 只能读取 `quality_gates.*` / 验证命令 / review artifact 来决定放行或阻断
-- hook 不得成为 reviewer，不得在 hook 内重新发明审查判定逻辑
+- hook 不得成为 reviewer，不得在 hook 内重新发明review判定逻辑
 - hook 不得直接推动状态从 `failed/blocked/paused` 进入下一个 task；状态推进仍由 execute sequencer 与 shared resolver 负责
 
 ## 核心接口
@@ -118,7 +118,7 @@ interface ReviewLoopPolicy {
 
 ### Context Packer
 
-负责最小化封装审查上下文，至少包含：
+负责最小化封装review上下文，至少包含：
 
 - 当前待审对象
 - 上游真相源引用
@@ -139,7 +139,7 @@ interface ReviewLoopPolicy {
 - execution side：写入 `state.quality_gates.*`
 - 允许同时落地独立文档或 JSON 产物，但状态机 sink 必须始终更新
 
-## Machine Review Loop 标准流程
+## Machine Review Loop 标准workflow
 
 ```typescript
 async function runMachineReviewLoop(

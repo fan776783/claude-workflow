@@ -1,7 +1,7 @@
 # Spec Self-Review 检查项
 
 > 生成 Spec 后立即执行。发现问题直接修复，无需重审。
-> 此 Self-Review 与执行阶段的「Spec 合规审查（子 Agent）」不同：Self-Review 为内联自检，聚焦 Spec 文档本身的完整性和一致性。
+> 此 Self-Review 与执行阶段的「Spec 合规review（子 Agent）」不同：Self-Review 为内联自检，聚焦 Spec 文档本身的完整性和一致性。
 
 ## 必检项
 
@@ -25,8 +25,8 @@
 
 ### 3. 内部一致性
 
-- Architecture 章节中的模块划分是否与 User-facing Behavior 的操作路径一致
-- File Structure 是否与 Architecture 的模块对应
+- Architecture 章节中的module划分是否与 User-facing Behavior 的操作路径一致
+- File Structure 是否与 Architecture 的module对应
 
 ### 4. 约束完整性
 
@@ -35,9 +35,9 @@
 
 ### 5. UX 一致性（仅当 spec § 4.4 存在时）
 
-- 流程图中的每个步骤是否在 §4 User-facing Behavior 有对应描述
+- workflow图中的每个步骤是否在 §4 User-facing Behavior 有对应描述
 - flowchart scenarios ≥ 3（首次使用、核心操作、异常/边界）
-- L0 模块 ≤ 4 个独立功能模块
+- L0 module ≤ 4 个独立功能module
 
 ### 6. 首次使用体验
 

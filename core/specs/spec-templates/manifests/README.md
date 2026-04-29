@@ -26,7 +26,7 @@
 | `previous` | 是 | 上一版本号（构成迁移图的 `previous → version` 边） |
 | `recommendMigrate` | 是 | `true` 时 `/spec-update` 会提示用户立即迁移；`false` 静默通过版本检查 |
 | `notes` / `changelog` | 否 | 展示给用户的说明 |
-| `breaking` | 否 | 人类可读的重大变更点列表 |
+| `breaking` | 否 | 人类可读的重大delta点列表 |
 | `protected_paths` | 否 | glob 列表；凡命中的路径一律走 safe 模式（即使操作是 `delete` 也改为 `skip`） |
 | `migrations` | 是 | 按序执行的迁移操作列表 |
 

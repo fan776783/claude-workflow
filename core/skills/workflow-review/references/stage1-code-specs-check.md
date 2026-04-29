@@ -8,9 +8,9 @@
 
 - 每次 `/workflow-review` 的 Stage 1 执行都跑一次本子步
 - 诊断不消耗 Stage 1 / Stage 2 的 4 次共享预算
-- 输出块独立于 `Issues` / `Spec Coverage Checklist`，合并到最终审查报告时放在 `Code Specs Check (Advisory)` 区块
+- 输出块独立于 `Issues` / `Spec Coverage Checklist`，合并到最终review报告时放在 `Code Specs Check (Advisory)` 区块
 
-## 执行顺序（参考 SKILL.md 主流程）
+## 执行顺序（参考 SKILL.md 主workflow）
 
 ```
 files = git_diff_name_only(base, HEAD)

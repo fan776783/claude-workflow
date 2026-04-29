@@ -6,7 +6,7 @@
 
 ## Overview
 
-本 layer 覆盖后端代码（路由 / service / 数据访问 / 中间件）的约定。未绑定具体框架。
+本 layer 覆盖后端代码（路由 / service / 数据访问 / 中间件）的convention。未绑定具体框架。
 
 ---
 

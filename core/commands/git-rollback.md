@@ -45,7 +45,7 @@ examples:
 
 ---
 
-## 交互流程
+## 交互workflow
 
 1. **同步远端** → `git fetch --all --prune`
 2. **列分支** → `git branch -a`（过滤受保护分支）
@@ -95,5 +95,5 @@ examples:
 
 - **reset** 会改变历史，需要强推，谨慎使用
 - **revert** 更安全，生成新提交保留历史
-- 回滚前确保 LFS/子模块状态一致
+- 回滚前确保 LFS/子module状态一致
 - 回滚后可能触发 CI 流水线

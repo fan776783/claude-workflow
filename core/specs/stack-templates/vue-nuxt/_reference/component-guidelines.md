@@ -1,6 +1,6 @@
 # Component Guidelines
 
-> Vue 3 组件的结构、命名与协作约定。
+> Vue 3 组件的结构、命名与协作convention。
 
 <!--
 参考范例（不随 bootstrap 拷贝）：用 todo-list 作为虚拟项目场景，所有占位符都已填满，
@@ -38,7 +38,7 @@ const label = computed(() => props.todo.done ? '已完成' : '待办')
 </script>
 ```
 
-**Why**: Composition API + `<script setup>` 减少样板，类型推导覆盖模板；团队约定一律 setup 风格，避免评审时讨论"为什么这里用 Options"。
+**Why**: Composition API + `<script setup>` 减少样板，类型推导覆盖模板；团队convention一律 setup 风格，避免评审时讨论"为什么这里用 Options"。
 
 ### props / emits 必须声明类型
 

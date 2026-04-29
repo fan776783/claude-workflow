@@ -6,7 +6,7 @@
 
 ## Overview
 
-本 layer 覆盖 Vue 组件、Nuxt 页面/布局/中间件、Pinia store、composable 等前端代码的约定。
+本 layer 覆盖 Vue 组件、Nuxt 页面/布局/中间件、Pinia store、composable 等前端代码的convention。
 
 - 目录范围：`apps/{{package_name}}/` 下的 `components/`、`pages/`、`layouts/`、`composables/`、`stores/`、`middleware/`
 - 职责边界：不涉及纯工具函数（放 `@repo/utils`）、UI 组件库基础设施（放 `@repo/ui`）
@@ -18,7 +18,7 @@
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Component Guidelines](./component-guidelines.md) | Vue 组件结构、命名、props/emits 约定 | Draft |
+| [Component Guidelines](./component-guidelines.md) | Vue 组件结构、命名、props/emits convention | Draft |
 | [Directory Structure](./directory-structure.md) | 前端目录组织、文件放置规则 | Draft |
 
 ---
@@ -27,7 +27,7 @@
 
 开工前必读清单：
 
-- 读组件约定 → [component-guidelines.md](./component-guidelines.md)
+- 读组件convention → [component-guidelines.md](./component-guidelines.md)
 - 决定新文件放哪里 → [directory-structure.md](./directory-structure.md)
 - 跨层思考 → `../../guides/index.md`（bootstrap 后生成）
 

@@ -22,7 +22,7 @@
 - **全栈** → Codex 分析后端，当前模型处理前端并收口。
 - **交付前需要独立审查** → 用 `collaborating-with-codex` 的 review 模式，不自己审自己。
 
-走 Codex 时，Phase 2 完成后做一次 **Hard Stop**：展示计划，调用 `AskUserQuestion` 收集决策，`question` 写"是否按此方案进入 Phase 4 编码？"，`options` 给两条：`proceed`（确认方案，当前模型开始重构落盘）、`abort`（拒绝方案，回到 Phase 2 重新分析或终止）。
+走 Codex 时，Phase 2 完成后展示计划（不调用 AskUserQuestion），以一句自然语言收尾："方案可行请回复继续，不行告诉我哪里要改。" 用户回"继续" / "ok" / "go" 进入 Phase 4 编码；反对 / 要修改则回到 Phase 2 重新分析。真决策点的 Hard Stop 模板见 `core/specs/shared/hard-stop-templates.md`，Codex 委托本身不属于真决策点（代码尚未落盘，随时可回头）。
 
 ## 并行与 Team
 

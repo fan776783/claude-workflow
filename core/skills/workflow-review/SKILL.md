@@ -1,6 +1,6 @@
 ---
 name: workflow-review
-description: "workflow-review 入口。独立的全量完成审查步骤 — execute 完成后手动执行 /workflow-review 触发。"
+description: "workflow-review 入口。独立的全量完成review步骤 — execute 完成后手动执行 /workflow-review 触发。"
 ---
 
 <PRE-FLIGHT>
@@ -14,25 +14,25 @@ description: "workflow-review 入口。独立的全量完成审查步骤 — exe
 
 # workflow-review
 
-> 本 skill 是 workflow 全量完成审查的完整行动指南（`scope: workflow`）。在 `workflow-execute` 完成所有 task 后，工作流进入 `review_pending` 状态，用户通过 `/workflow-review` 手动触发本 skill。
+> 本 skill 是 workflow 全量完成review的完整行动指南（`scope: workflow`）。在 `workflow-execute` 完成所有 task 后，workflow进入 `review_pending` 状态，用户通过 `/workflow-review` 手动触发本 skill。
 >
-> 审查运行时还存在另外两种 scope：`scope: task`（execute 内部 per-task quality gate）和 `scope: batch`（并行批次合流后的 stage2 审查）。三种 scope 共享 `quality_review.js` 底层 API，但入口、触发者、判定规则不同。本 skill 只处理 `scope: workflow`，其它两种 scope 的展开见文末「Batch Review 差异」。
+> review运行时还存在另外两种 scope：`scope: task`（execute 内部 per-task quality gate）和 `scope: batch`（并行批次合流后的 stage2 review）。三种 scope 共享 `quality_review.js` 底层 API，但入口、触发者、判定规则不同。本 skill 只处理 `scope: workflow`，其它两种 scope 的展开见文末「Batch Review 差异」。
 
 <HARD-GATE>
 四条不可违反的规则：
 1. **Stage 1 优先**：Stage 1（规格合规）未通过，不得启动 Stage 2（代码质量）
-2. **修复铁律**：Critical/Important 问题未修复，不得标记审查通过
-3. **CLI 接管**：审查结果必须通过 CLI 写入 state，不得手动构造 JSON
+2. **修复铁律**：Critical/Important 问题未修复，不得标记review通过
+3. **CLI 接管**：review结果必须通过 CLI 写入 state，不得手动构造 JSON
 4. **预算硬停**：两阶段共享 4 次总预算耗尽 → 标记任务 `failed`，不得继续尝试
 </HARD-GATE>
 
 ## Checklist（按序执行）
 
 1. ☐ 前置检查（review_pending 校验）
-2. ☐ Stage 1：规格合规审查
-3. ☐ Stage 2：代码质量审查
-4. ☐ 记录审查结果（CLI）
-5. ☐ 处理审查反馈（条件）
+2. ☐ Stage 1：规格合规review
+3. ☐ Stage 2：代码质量review
+4. ☐ 记录review结果（CLI）
+5. ☐ 处理review反馈（条件）
 6. ☐ 状态推进（completed 或回退 running）
 
 ```
@@ -47,7 +47,7 @@ description: "workflow-review 入口。独立的全量完成审查步骤 — exe
 
 ## Step 0: 前置检查
 
-**必须首先执行**。校验工作流是否处于可审查状态，并提取后续步骤所需的 `projectId`。
+**必须首先执行**。校验workflow是否处于可review状态，并提取后续步骤所需的 `projectId`。
 
 ### 0.1 提取 projectId
 
@@ -67,22 +67,22 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | `state.status` | `review_pending` | 拒绝执行。提示：`当前状态为 {status}，不是 review_pending。请先完成执行。` |
 | `progress.completed` | 包含所有 plan task | 拒绝执行。提示：`仍有未完成任务：{pending_tasks}` |
 
-> ⚠️ 如果 status 为 `running`、`paused`、`failed` 等，说明 execute 尚未完成，不应进入审查。
+> ⚠️ 如果 status 为 `running`、`paused`、`failed` 等，说明 execute 尚未完成，不应进入review。
 
 ---
 
-## Step 1: 确定审查范围
+## Step 1: 确定review范围
 
-本 skill 仅执行**全量完成审查**——验证整个工作流的实现是否完整、一致且可合并。
+本 skill 仅执行**全量完成review**——验证整个workflow的实现是否完整、一致且可合并。
 
 ### Diff 窗口基线
 
-- 首次审查：从 `state.initial_head_commit` 开始
+- 首次review：从 `state.initial_head_commit` 开始
 - 查询基线：`node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js budget`
 
 ---
 
-## Step 2: Stage 1 — 规格合规审查
+## Step 2: Stage 1 — 规格合规review
 
 **执行者**：当前模型（主任务直接执行，不分派子 Agent）。Stage 1 是结构化对照检查（spec → 代码），属于客观事实验证；`/workflow-review` 作为独立入口已与 execute 天然隔离。Stage 2 的主观判断仍通过子 Agent 执行。
 
@@ -91,7 +91,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 - **强制读取源文件**：每个 spec 需求必须通过 `view_file` / `grep` 独立读取对应代码文件验证
 - **逐条输出证据**：每个需求的验证结论必须附带具体文件路径和行号
 
-**审查标准**：
+**review标准**：
 
 | 维度 | 检查内容 |
 |------|----------|
@@ -100,12 +100,13 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | **约束遵循** | spec Constraints 章节中的约束是否被正确实现 |
 | **范围控制** | 是否有超出 spec 范围的额外实现（over-building） |
 | **验收对齐** | 实现是否满足 spec Acceptance Criteria |
-| **页面分层** | 单文件是否承载过多独立功能模块 |
+| **页面layer** | 单文件是否承载过多独立功能module |
 | **路由结构** | spec 中规划的多页面是否实现了路由/导航 |
-| **项目知识一致性** | 实现是否符合 `.claude/code-specs/` 中的约定？以人工对照 code-spec 为准，advisory |
+| **项目知识一致性** | 实现是否符合 `.claude/code-specs/` 中的convention？以人工对照 code-spec 为准，advisory |
 | **Code Specs Check**（advisory） | 按 diff 文件反查 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。详见 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md)。 |
 | **跨层 advisory A–D** | 数据流 / 代码复用 / import 路径 / 同层一致性 4 维度 diff 启发式。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § A–D。 |
 | **Probe E Infra 深度 gate**（阻塞） | infra 关键路径 + 关联 code-spec 7 段深度不足时，Stage 1 直接 fail。详见 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) § E。 |
+| **Depth Heuristics**（advisory） | 代码结构深度 3 条启发式：H1 Deletion test（浅module）/ H2 Single-adapter abstraction（人工思考）/ H3 Testing past interface。详见 [`references/depth-heuristics.md`](references/depth-heuristics.md)。与 Probe E 正交（E 查文档深度，本项查代码深度）。 |
 
 **关键规则**：
 - 独立读取代码验证，不信任实现者自述
@@ -118,10 +119,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 - 超出 spec 且无价值 = 建议删除
 - 风格偏好 = 不标记
 
-### 执行流程
+### 执行workflow
 
 1. 读取 spec 全文 + 所有 plan task 定义
-2. 获取变更文件列表（`git diff --name-only {baseCommit}..HEAD`）
+2. 获取delta文件列表（`git diff --name-only {baseCommit}..HEAD`）
 3. 逐条检查每个 spec 需求：
    - 通过 `view_file` 读取对应实现代码
    - 验证：需求覆盖、行为匹配、约束遵循、验收对齐
@@ -129,7 +130,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 5. **Code Specs Check（advisory）**：按 [`references/stage1-code-specs-check.md`](references/stage1-code-specs-check.md) 把 diff 文件映射到 `{pkg}/{layer}/` code-spec，列出缺失 / 偏差 / 建议。不影响 Stage 1 判定，只记录到 `stage1.code_specs_check`。
 6. **跨层 advisory 检查（A/B/C/D）**（详见下文「跨层检查」小节；只产生 advisory 记录，不影响 Stage 1 判定）
 7. **Probe E Infra 深度 gate（阻塞）**：若 diff 命中 infra / cross-layer 关键路径且相关 code-spec 存在但 7 段深度不足 → Stage 1 fail，走 `quality_review.js fail --failed-stage stage1 --cross-layer-depth-gap true --cross-layer-files ... --cross-layer-specs ... --cross-layer-missing-sections ...` 写入阻塞项；相关 code-spec 不存在时降级为 advisory，不写阻塞项。
-8. 输出结果：
+8. **Depth Heuristics（advisory）**：按 [`references/depth-heuristics.md`](references/depth-heuristics.md) 跑 H1–H3 三条启发式（H1 Deletion test / H2 Single-adapter 人工思考 / H3 Testing past interface）；命中时写入 Stage 1 输出的 `Depth (Advisory)` 子块，不影响 pass/fail 判定。
+9. 输出结果：
 
 ```
 **Status:** Compliant | Issues Found
@@ -149,33 +151,42 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 - 关联 code-spec：my-pkg/backend/export-api.md
 - 缺失段：Validation & Error Matrix, Tests Required
 - 建议：用 /spec-update 补齐对应段落后再重跑 /workflow-review
+**Depth (Advisory):**
+- [H1 shallow-module] src/utils/logger-wrapper.ts — 接口 8 行 / 实现 10 行、仅 1 caller；考虑内联
+- [H3 testing-past-interface] test/payment.test.ts L42 — 直接读 `_state`；考虑改走公共 API
 ```
-（未触发任何 probe → 省略 `Code Specs Check (Advisory)` / `Cross-Layer (Advisory)` / `Probe E` 块；Code Specs Check 执行但无发现时，仍输出块并写 "No findings."）
+（未触发任何 probe → 省略 `Code Specs Check (Advisory)` / `Cross-Layer (Advisory)` / `Probe E` / `Depth (Advisory)` 块；Code Specs Check 执行但无发现时，仍输出块并写 "No findings."）
 
 #### 跨层检查（advisory，Stage 1 内部）
 
-对应执行流程的第 6–7 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）执行 Probe A–D 启发式诊断与 Probe E 深度 gate。触发条件、checklist 内容、guides fallback 链、advisory 硬约束与 Probe E 阻塞语义，全部以 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) 为准，本文件不再重复。
+对应执行workflow的第 6–8 项。spec 对照完成后、输出结果前，对**同一 diff window**（`state.initial_head_commit..HEAD`）串行执行：
 
-关键复用点：Probe A–E 与 Code Specs Check 共享 `git diff --name-only {baseCommit}..HEAD` 的输出；base commit 必须复用 `quality_review.js budget` 的解析结果或直接读 `state.initial_head_commit`，不要再跑裸 `git diff` / `git status`。
+1. **Probe A–D**（advisory）—— 跨层启发式诊断
+2. **Probe E**（阻塞）—— infra 深度 gate
+3. **Depth Heuristics H1–H3**（advisory）—— 代码结构深度启发式
 
-### 审查未通过
+触发条件、checklist 内容、guides fallback 链、advisory 硬约束与 Probe E 阻塞语义，分别以 [`references/cross-layer-checklist.md`](references/cross-layer-checklist.md) 和 [`references/depth-heuristics.md`](references/depth-heuristics.md) 为准，本文件不再重复。
 
-修复 → 重新审查。每次尝试消耗 1 次共享预算（总计 4 次）。
+关键复用点：A–E 与 Code Specs Check、Depth H1–H3 共享 `git diff --name-only {baseCommit}..HEAD` 的输出；base commit 必须复用 `quality_review.js budget` 的解析结果或直接读 `state.initial_head_commit`，不要再跑裸 `git diff` / `git status`。
+
+### review未通过
+
+修复 → 重新review。每次尝试消耗 1 次共享预算（总计 4 次）。
 
 ---
 
-## Step 3: Stage 2 — 代码质量审查
+## Step 3: Stage 2 — 代码质量review
 
 **前置条件**：Stage 1 必须通过。
 
-### 审查模式路由
+### review模式路由
 
-根据 `state.context_injection.signals` 选择审查模式（优先级从高到低，互斥）：
+根据 `state.context_injection.signals` 选择review模式（优先级从高到低，互斥）：
 
 | 条件 | 模式 | 说明 |
 |------|------|------|
 | 同时命中风险信号（`security` / `backend_heavy` / `data`）**且** scale 信号（`large_scope` / `refactor`） | `quad_review` | Codex(Correctness) + Reuse / Quality / Efficiency 子 Agent 四路并行 |
-| 满足任一风险信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行审查 |
+| 满足任一风险信号：`security` / `backend_heavy` / `data` | `dual_reviewer` | Codex + 子 Agent 并行review |
 | 未命中上行，且满足 `large_scope` 或 `refactor` | `multi_angle` | Reuse / Quality / Efficiency 三子 Agent 并行 |
 | 其他 | `single_reviewer` | 子 Agent 单路径 |
 
@@ -185,15 +196,15 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 **执行者**：优先使用 `Task` 工具分派独立子 Agent（单 reviewer）。CLI 自动处理 reviewer profile 解析（`state.context_injection.execution.quality_review_stage2`），无需手动构造。不支持 `Task` 时降级为当前会话内角色切换。
 
-通过 `Task` 工具分派审查子 Agent，审查清单参见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md)。
+通过 `Task` 工具分派review子 Agent，review清单参见 [`references/stage2-review-checklist.md`](references/stage2-review-checklist.md)。
 
-子 Agent 的平台路由遵循 `../dispatching-parallel-agents/SKILL.md` 的平台检测规则，但 Stage 2 走的是**单 reviewer 子 agent 路径**，不使用并行分派。
+子 Agent 的平台路由遵循 `../dispatching-parallel-agents/SKILL.md` 的平台检测规则，但 Stage 2 走的是**单 reviewer subagent 路径**，不使用并行分派。
 
 ### multi_angle 模式（三角度并行）
 
-当信号命中 `large_scope` 或 `refactor`（且未命中 dual_reviewer 的前置信号）时启用。把 Stage 2 拆成 Reuse / Quality / Efficiency 三路子 Agent 并行审查，合并后走一次 CLI。
+当信号命中 `large_scope` 或 `refactor`（且未命中 dual_reviewer 的前置信号）时启用。把 Stage 2 拆成 Reuse / Quality / Efficiency 三路子 Agent 并行review，合并后走一次 CLI。
 
-**执行流程**：
+**执行workflow**：
 
 1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`（与 dual_reviewer 同构）
 2. **串行 provision**：三个 reviewer 均为只读任务，**不使用 worktree**（遵守 `core/CLAUDE.md` 的 worktree guardrail：只读分析不预置 worktree）
@@ -213,9 +224,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ### dual_reviewer 模式（Codex 增强）
 
-当信号匹配时，Codex 与子 Agent 并行审查后合并结果。
+当信号匹配时，Codex 与子 Agent 并行review后合并结果。
 
-**执行流程**：
+**执行workflow**：
 
 1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`
 2. **后台启动 Codex**（`--adversarial-review "working-tree"`）：
@@ -239,13 +250,13 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ### quad_review 模式（4 路并行，scale + 风险交集）
 
-当信号**同时**命中 scale（`large_scope` / `refactor`）和风险（`security` / `backend_heavy` / `data`）时启用。把 Stage 2 拆成 Codex(Correctness) + Reuse / Quality / Efficiency 四路并行审查，每路独占一个 category，合并后走一次 CLI。
+当信号**同时**命中 scale（`large_scope` / `refactor`）和风险（`security` / `backend_heavy` / `data`）时启用。把 Stage 2 拆成 Codex(Correctness) + Reuse / Quality / Efficiency 四路并行review，每路独占一个 category，合并后走一次 CLI。
 
 **与 `dual_reviewer` / `multi_angle` 的区别**：
 - 不是两种模式的叠加，而是第四种互斥模式；路由表命中 quad 后不会再触发 dual / multi。
 - 通过 **category 独占** 规避跨路 finding 去重爆炸：Codex 只报 `correctness`（含 security subtype），三子 Agent 各自只报 `reuse` / `quality` / `efficiency`。
 
-**执行流程**：
+**执行workflow**：
 
 1. 生成 `review_cycle_id = {taskId}-{currentCommit短hash}-{timestamp}`（与 dual / multi 同构）
 2. **串行 provision**：所有路均为只读任务，**不使用 worktree**（遵守 `core/CLAUDE.md` 的 worktree guardrail）
@@ -260,7 +271,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
    HARD CONSTRAINTS: (1) Ignore hypothetical scenarios without a named caller or reachable code path — trust internal code with known shape. (2) Do not recommend refactors, renames, or cleanup outside the diff. (3) Report only Critical/Important findings; collapse minor/nit items into a single advisory line, do not expand.
    ```
 
-   桥接契约（超时、session、sandbox）以 `../collaborating-with-codex/SKILL.md` 为准。
+   桥接contract（超时、session、sandbox）以 `../collaborating-with-codex/SKILL.md` 为准。
 4. **同时通过 Task 工具并行 dispatch 三个子 Agent**（一次消息内三个 Task 调用；平台路由遵循 `../dispatching-parallel-agents/SKILL.md`）：
    - **Reuse Agent**：prompt 注入 `../diff-review/specs/anti-patterns-three-angle.md` § Reuse；声明"只报 `category: reuse` 的问题，超域发现写入 `out_of_scope_observations`"
    - **Quality Agent**：注入 § Quality；只报 `category: quality`
@@ -295,7 +306,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | 结果 | 处理 |
 |------|------|
 | `Approved` | 关卡通过，进入 Step 4 记录结果 |
-| `Issues Found`（Critical/Important） | 修复 → 重新审查（消耗共享预算） |
+| `Issues Found`（Critical/Important） | 修复 → 重新review（消耗共享预算） |
 | `Rejected` | 关卡失败，标记任务 `failed`，不可修复 |
 
 ### Stage 2 修复后触发轻量 Stage 1 复核
@@ -312,9 +323,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ---
 
-## Step 4: 记录审查结果
+## Step 4: 记录review结果
 
-**所有审查结果通过 CLI 写入 state**，不得手动构造 JSON。
+**所有review结果通过 CLI 写入 state**，不得手动构造 JSON。
 
 > `--project-id` 必填（见 Step 0.1）。
 
@@ -349,7 +360,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 > 3. 不得用 `--base-commit HEAD --current-commit HEAD` 绕过（会变成空 diff）；也不得手动编辑 `quality_gates.*`，HARD-GATE #3 不允许。
 > 只有在 CLI 本身不可用（例如 node 缺失）时才允许在 checkpoint 行标注 `(CLI unavailable)` 并上报用户，不再尝试写 state。
 
-### 审查模式标注
+### review模式标注
 
 记录结果前，先标注本次执行模式：
 ```
@@ -357,7 +368,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 ```
 
 - `hybrid`：Stage 1 在主任务内执行，Stage 2 通过子 Agent 分派（默认 single_reviewer）
-- `dual-reviewer`：Stage 2 通过 Codex + 子 Agent 并行审查后合并结果
+- `dual-reviewer`：Stage 2 通过 Codex + 子 Agent 并行review后合并结果
 - `multi-angle`：Stage 2 通过 Reuse / Quality / Efficiency 三子 Agent 并行后合并结果
 - `quad-review`：Stage 2 通过 Codex(Correctness) + Reuse / Quality / Efficiency 四路并行（category 独占），合并后统一判定
 - `degraded-inline`：两个 Stage 均在当前会话内执行（Stage 2 也无法分派子 Agent 时）
@@ -366,23 +377,23 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js read <taskId
 
 ### 预算遥测
 
-每次审查未通过后输出：`审查预算：attempt ${current}/${max}，剩余 ${remaining} 次`
+每次review未通过后输出：`审查预算：attempt ${current}/${max}，剩余 ${remaining} 次`
 
 预算耗尽时：`审查预算耗尽（4/4），阻塞问题：[列表]，建议：手动修复后重新执行 /workflow-review`
 
 ---
 
-## Step 5: 处理审查反馈
+## Step 5: 处理review反馈
 
-收到审查反馈（两阶段审查、外部审查）后，按结构化协议处理。详见 [`references/review-feedback-protocol.md`](references/review-feedback-protocol.md)。
+收到review反馈（两阶段review、外部review）后，按结构化协议处理。详见 [`references/review-feedback-protocol.md`](references/review-feedback-protocol.md)。
 
 ---
 
 ## Step 6: 状态推进
 
-根据审查结果推进工作流状态：
+根据review结果推进workflow状态：
 
-### 审查通过
+### review通过
 
 ```bash
 # 更新 state.status 为 completed
@@ -404,9 +415,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 可执行 /workflow-archive 归档工作流。
 ```
 
-**Code Specs 沉淀建议**（审查通过时附在输出末尾）：
+**Code Specs 沉淀建议**（review通过时附在输出末尾）：
 
-若本次 review 中发现值得沉淀的新模式或约定，输出：
+若本次 review 中发现值得沉淀的新模式或convention，输出：
 
 ```
 💡 建议使用 /spec-update 将本次 review 发现的约定沉淀到 .claude/code-specs/ 中对应的 code-spec。
@@ -414,7 +425,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 无建议时省略此 section。
 
-### 审查失败
+### review失败
 
 ```bash
 # 回退 state.status 为 running，标记失败的 task
@@ -445,9 +456,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 - 信任实现者自述而不独立验证代码
 - 将 Critical 问题降级为 Minor
 - 预算耗尽后继续尝试
-- 跳过审查因为"改动很简单"
+- 跳过review因为"改动很简单"
 - diff 窗口为空但仍标记通过
-- 在非 `review_pending` 状态下执行审查
+- 在非 `review_pending` 状态下执行review
 - 绕过 `quality_review.js` CLI 直接写入 quality_gates JSON
 - 绕过 `workflow_cli.js advance` 直接写入 state.json 的 status
 
@@ -455,7 +466,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 ## Batch Review 差异
 
-当 `workflow-execute` 的并行批次需要 stage2 审查时（`scope: batch`），走的是 `batch_orchestrator` → `buildBatchPassGateResult` / `buildBatchFailedGateResult` 路径，**不经过本 skill**。差异：
+当 `workflow-execute` 的并行批次需要 stage2 review时（`scope: batch`），走的是 `batch_orchestrator` → `buildBatchPassGateResult` / `buildBatchFailedGateResult` 路径，**不经过本 skill**。差异：
 
 | 维度 | scope: workflow（本 skill） | scope: batch（execute 内） | scope: task（execute 内） |
 |------|---------------------------|--------------------------|--------------------------|
@@ -464,10 +475,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | Stage 1 | 全量逐 spec 对照 | 每任务在自己 worktree 内已跑完 | 被 gate 的单任务逐 spec 对照 |
 | Stage 2 | 跨所有 task 的 diff | 跨批次 task 的 diff（集成 worktree） | 被 gate 的单任务 diff |
 | rejected 处理 | 回退 `running` + 重跑 | 丢弃集成 worktree，任务回 pending | 被 gate 的任务回 pending |
-| 覆盖范围 | 整个工作流的所有 task | 批次内的所有 task | 仅显式命中 gate 的 task（未命中的 task 不走本路径） |
+| 覆盖范围 | 整个workflow的所有 task | 批次内的所有 task | 仅显式命中 gate 的 task（未命中的 task 不走本路径） |
 | CLI | `quality_review.js pass/fail` | `quality_review.js pass/fail`（共享） | `quality_review.js pass/fail`（共享） |
 
-> scope: batch 的实现入口在 `core/utils/workflow/batch_orchestrator.js`；scope: task 的触发条件（`quality_review` action 与 `quality_gate` 标记）见 `../workflow-execute/SKILL.md` Step 5 与 Step 6。未命中 gate 的普通任务完成后不会走 scope: task 审查，仅在工作流全部完成时由 scope: workflow 统一覆盖。
+> scope: batch 的实现入口在 `core/utils/workflow/batch_orchestrator.js`；scope: task 的触发条件（`quality_review` action 与 `quality_gate` 标记）见 `../workflow-execute/SKILL.md` Step 5 与 Step 6。未命中 gate 的普通任务完成后不会走 scope: task review，仅在workflow全部完成时由 scope: workflow 统一覆盖。
 
 ## 协同关系
 

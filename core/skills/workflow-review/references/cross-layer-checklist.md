@@ -1,11 +1,11 @@
 # Cross-Layer Checklist（Workflow-Review Stage 1）
 
-> 供 `SKILL.md` Stage 1 的「跨层检查」小节引用（执行流程第 6–7 项）。文件包含两类 probe，语义不同：
+> 供 `SKILL.md` Stage 1 的「跨层检查」小节引用（执行workflow第 6–7 项）。文件包含两类 probe，语义不同：
 >
 > - **§ A–D**：advisory probe。不写入 `quality_gates.*`，不消耗 Stage 1 / Stage 2 预算，不影响 pass/fail 判定。
 > - **§ E**：infra 深度 gate，**阻塞**。命中即走 `quality_review.js fail --cross-layer-depth-gap true`，会写 `quality_gates.*` 并让 Stage 1 失败。
 >
-> Probe E 依赖 Code Specs Check（执行流程第 5 项）产出的 code-spec 映射，必须在其之后执行。
+> Probe E 依赖 Code Specs Check（执行workflow第 5 项）产出的 code-spec 映射，必须在其之后执行。
 >
 > A–D 共 4 个维度，只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
 
@@ -59,7 +59,7 @@
 - [ ] 相对 import vs 绝对 import 的风格是否与邻近文件一致
 - [ ] 是否引入循环依赖
 - [ ] barrel（re-export index）是否需要更新导出
-- [ ] 新文件放置位置是否符合 layer 约定
+- [ ] 新文件放置位置是否符合 layer convention
 
 ## D. 同层一致性
 
@@ -159,4 +159,4 @@ if infra.infra and related_specs_exist(files) and missing_sections_in_specs(file
   )
 ```
 
-A/B/C/D probe 自身**不执行** grep / 修改 / 阻断动作，只负责把 checklist 追加到审查输出的独立块。Probe E 是唯一会写 `blocking_issues` 的跨层判断。
+A/B/C/D probe 自身**不执行** grep / 修改 / 阻断动作，只负责把 checklist 追加到review输出的独立块。Probe E 是唯一会写 `blocking_issues` 的跨层判断。

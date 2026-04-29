@@ -15,20 +15,20 @@
 - [ ] 验证失败 → 修复后重新验证，不得跳过
 - [ ] ⚠️ 验证必须在 plan/state 更新之前完成（Verification Iron Law）
 
-### 2. 自审查 & 规格合规检查（强制输出）
+### 2. 自review & 规格合规检查（强制输出）
 
-- [ ] 对 `create_file` / `edit_file` 类型任务执行自审查（建议性）
+- [ ] 对 `create_file` / `edit_file` 类型任务执行自review（建议性）
 - [ ] 对有 `acceptance_criteria` 的任务执行规格合规检查（只读）
 - [ ] 以上检查内容均为建议性，不阻塞后续步骤
 - [ ] **必须输出执行证据**（复制模板填充）：`自审查：X/Y 项通过` 或 `自审查：已跳过（{原因}）`。静默省略即为管线违规
 
-> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成工作流后用 `/spec-update` 捕获，由 `workflow-review` Stage 1 兜底。
+> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成workflow后用 `/spec-update` 捕获，由 `workflow-review` Stage 1 兜底。
 
 ### 3. Plan 更新（Plan Checkpoint）
 
 - [ ] 在 `plan.md` 中找到当前 task 对应块（canonical 格式为 `## Tn:` 的 WorkflowTaskV2 任务块）
-- [ ] 单次写入只改变一个 task block 的状态语义，禁止多 task 批量变更
-- [ ] 更新该 task 的进度标记为已完成（如状态字段、任务标题标记或约定的完成标识）
+- [ ] 单次写入只改变一个 task block 的状态语义，禁止多 task 批量delta
+- [ ] 更新该 task 的进度标记为已完成（如状态字段、任务标题标记或convention的完成标识）
 - [ ] **保存文件**
 - [ ] ⚠️ 必须逐 task 更新，禁止最后批量回写
 
@@ -39,6 +39,7 @@
 - [ ] 更新 `current_tasks` 为下一个 task ID（或清空）
 - [ ] 更新 `updated_at` 为当前时间
 - [ ] **保存文件**
+- 💡 **状态转换自愈**：`workflow_cli.js advance` 在 `state.status === 'planned'` 时会自动升为 `running` 并在返回载荷里带 `status_transition: "planned->running"`；无需手动 patch state.json，也不要为此再写 `node -e`
 
 ### 3→4. Checkpoint 输出（强制）
 
@@ -69,7 +70,7 @@
 - ❌ **跳过状态文件更新** — 即使快速执行也必须更新
 - ❌ **使用过时验证结果** — 必须使用本次运行的新鲜结果
 - ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + plan/state 更新管线
-- ❌ **覆盖其他工作流的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
+- ❌ **覆盖其他workflow的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
 - ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 plan.md / state.json。每个 task 完成后必须立即输出 checkpoint 行
 - ❌ **绕过 review_pending** — 所有 task 完成后不得直接标记 completed，必须先设为 `review_pending` 并提示用户执行 `/workflow-review`
 

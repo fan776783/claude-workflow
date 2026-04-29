@@ -99,5 +99,5 @@
 - Quick Reference：速查表、命令清单、缩写映射
 - Reference Tables：Exit Codes / HTTP Status / 字段字典 等
 - Strategy：架构级策略说明（比 Overview 更深）
-- Checklist / Quality Checklist：可逐项勾选的质量检查清单
+- Checklist / Quality Checklist：可逐项勾选的quality-gate清单
 -->

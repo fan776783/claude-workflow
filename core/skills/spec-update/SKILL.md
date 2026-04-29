@@ -4,7 +4,7 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 ---
 
 <PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。沉淀新 convention 前不读 glossary 容易引入术语 drift(比如写成 "子 agent" 而不是 `subagent`)。
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。沉淀新 convention 前不读 glossary 容易引入术语 drift(比如写成 "subagent" 而不是 `subagent`)。
 </PRE-FLIGHT>
 
 # /spec-update
@@ -13,7 +13,7 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 
 ## v2.2 核心变化
 
-- **模板分两档**：convention（轻量必备 4 段 + 可选扩展）为主力，contract（7 段）仅用于 API/DB/字段级契约
+- **模板分两档**：convention（轻量必备 4 段 + 可选扩展）为主力，contract（7 段）仅用于 API/DB/字段级contract
 - **基础更新 vs 深度更新**：简单追加不强制 7 段 checklist，避免沉淀成本过高
 - **主题 fuzzy 匹配**：写入前查找 `{pkg}/{layer}/*.md` 相似主题，提示追加还是新建
 - **6 类标签不进段落**：作为交互期语义标签，只用于"建议用哪个模板"+"正文首行 `> Type: X` 注释"
@@ -33,23 +33,23 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 | 修复了 bug | "错误处理的微妙漏洞" | 对应 code-spec 的 Validation & Error Matrix + Wrong vs Correct |
 | 发现了新模式 | "更好的组织方式" | `{pkg}/{layer}/{topic}.md`（7 段） |
 | 碰到 gotcha | "X 必须先于 Y" | 若是"怎么写"→ code-spec；若是"写之前想什么"→ guides |
-| 建立了约定 | "命名模式统一" | `{pkg}/{layer}/conventions.md`（7 段） |
+| 建立了convention | "命名模式统一" | `{pkg}/{layer}/conventions.md`（7 段） |
 
 ## 决策规则：convention / contract / guide
 
 | 类型 | 位置 | 模板 | 适用内容 |
 |------|------|------|---------|
-| **Convention** | `{pkg}/{layer}/*.md` | `convention-template.md`（必备 4 段 + 可选扩展） | 代码风格、目录约定、命名规则、组件/模块写法 |
-| **Contract** | `{pkg}/{layer}/*.md` | `code-spec-template.md`（7 段） | API 请求/响应字段、DB schema、错误码矩阵、字段级契约 |
+| **Convention** | `{pkg}/{layer}/*.md` | `convention-template.md`（必备 4 段 + 可选扩展） | 代码风格、目录convention、命名规则、组件/module写法 |
+| **Contract** | `{pkg}/{layer}/*.md` | `code-spec-template.md`（7 段） | API 请求/响应字段、DB schema、错误码矩阵、字段级contract |
 | **Guide** | `guides/*.md` | `guide-template.md` | 思考清单（写代码前想什么），指向 convention/contract 的指针，不复述具体规则 |
 
 问自己：
 
-- "这是**代码风格 / 约定 / 组织**" → convention
-- "这是**字段级契约 / API 契约**" → contract
+- "这是**代码风格 / convention / 组织**" → convention
+- "这是**字段级contract / API contract**" → contract
 - "这是**写代码前想什么**" → guide
 
-不确定时优先 convention（轻量）；只有真正涉及严格字段契约才升到 contract。
+不确定时优先 convention（轻量）；只有真正涉及严格字段contract才升到 contract。
 
 ## 模板结构
 
@@ -66,12 +66,12 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 
 **可选扩展**（按需加）：Patterns / Examples / Quick Reference / Reference Tables / Strategy / Checklist
 
-### Contract 模板（仅字段级契约）
+### Contract 模板（仅字段级contract）
 
 基于 `core/specs/spec-templates/code-spec-template.md`，7 段结构保持不变：Scope / Signatures / Contracts / Validation & Error Matrix / Good-Base-Bad Cases / Tests Required / Wrong vs Correct。  
-**仅在涉及严格 API/DB/字段契约时升级到 contract**；日常约定都走 convention。
+**仅在涉及严格 API/DB/字段contract时升级到 contract**；日常convention都走 convention。
 
-## 流程
+## workflow
 
 ### Step 0: 模板版本检查（v3 Stage C）
 
@@ -106,10 +106,10 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 
 先问一次：
 
-| 路径 | 适用场景 | 流程 |
+| 路径 | 适用场景 | workflow |
 |------|---------|------|
 | **基础更新** | 补一条 Rule / 加一个 Mistake / 追加一段代码 | 直接追加，只检查"有代码示例 + 有 Why + 放对文件" |
-| **深度更新** | 新主题 / 重写已有主题 / 补字段契约 | 走完整 checklist：Overview/Rules/DO-DONT/Common Mistakes 都要过 |
+| **深度更新** | 新主题 / 重写已有主题 / 补字段contract | 走完整 checklist：Overview/Rules/DO-DONT/Common Mistakes 都要过 |
 
 ### Step 2: 交互收集
 
@@ -124,7 +124,7 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
    | Forbidden | convention（DO/DON'T 的 DON'T 侧） |
    | Common Mistake | convention（Common Mistakes 段） |
    | Gotcha | convention Rules 首行 `> Gotcha: ...` 注释 |
-   | （字段契约） | **contract 模板（7 段）** |
+   | （字段contract） | **contract 模板（7 段）** |
 
 3. **位置**：哪个 package / layer？（单包项目默认推断，monorepo 列出可选）
 4. **目标文件**（Step 3 fuzzy 匹配后确认）
@@ -157,7 +157,7 @@ description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）
 - 更新 `local.md` 的 Changelog 追加一行
 - 不再维护 local.md 的 Template Baseline 表（已切到 `.template-hashes.json`）
 
-## 质量检查（写入前）
+## quality-gate（写入前）
 
 ### 基础更新
 - [ ] 内容包含真实代码示例（非抽象描述）

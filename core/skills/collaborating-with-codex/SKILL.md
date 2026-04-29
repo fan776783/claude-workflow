@@ -3,6 +3,11 @@ name: collaborating-with-codex
 description: Proactively use when Claude Code is stuck, wants a second implementation or diagnosis pass, needs a deeper root-cause investigation, or should hand a substantial coding task to Codex through the native App Server runtime. Supports multi-turn sessions via --session-id.
 ---
 
+<PRE-FLIGHT>
+**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
+本 skill 的跳过条件:仅做 Codex 桥接转发(thin forwarder),不做代码分析,可按 pre-flight 跳过条件处理;但 Codex prompt 中引用的术语应符合 glossary。
+</PRE-FLIGHT>
+
 ## Selection Guidance
 
 - **Proactive Trigger**: Do not wait for the user to explicitly ask for Codex. Use this skill proactively when you encounter complex algorithm issues, hard-to-locate bugs, or have failed at least 2 retry attempts. Hand substantial debugging or implementation tasks to Codex.

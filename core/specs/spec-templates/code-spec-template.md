@@ -6,13 +6,13 @@
 > **Last Updated**: {{date}}
 
 <!--
-本模板（7 段 contract）**仅用于 API / DB / 字段级契约类规范**。
+本模板（7 段 contract）**仅用于 API / DB / 字段级contract类规范**。
 
 判断规则：
 - 要写"请求/响应字段清单 + 错误码矩阵 + 测试断言点"？→ 用本模板（7 段）
-- 要写"代码风格 / 目录约定 / 命名规则 / 常见错误"？→ 改用 convention-template.md（更轻量）
+- 要写"代码风格 / 目录convention / 命名规则 / 常见错误"？→ 改用 convention-template.md（更轻量）
 
-实战经验：大部分 topic 文件走 convention 风格（更轻量），只有少数涉及严格字段契约时才用本模板。
+实战经验：大部分 topic 文件走 convention 风格（更轻量），只有少数涉及严格字段contract时才用本模板。
 -->
 
 > **必填字段说明**
@@ -21,7 +21,7 @@
 
 ## 1. Scope / Trigger
 
-- **Trigger**（什么样的变更触发本 spec）: {{describe_change_scenario}}
+- **Trigger**（什么样的delta触发本 spec）: {{describe_change_scenario}}
 - **Applies to**（具体文件 / 目录 glob）: `{{file_path_or_glob}}`
 
 ## 2. Signatures

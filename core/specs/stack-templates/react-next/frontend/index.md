@@ -6,10 +6,10 @@
 
 ## Overview
 
-本 layer 覆盖 React 组件、Next.js 页面/布局/中间件、hooks、数据获取等前端代码的约定。
+本 layer 覆盖 React 组件、Next.js 页面/布局/中间件、hooks、数据获取等前端代码的convention。
 
 - 目录范围：`app/` (App Router) / `pages/` (Pages Router) + `components/` + `hooks/` + `lib/`
-- 职责边界：pure 工具函数放 `lib/`，业务逻辑放领域模块
+- 职责边界：pure 工具函数放 `lib/`，业务逻辑放领域module
 - 与其它 layer 协作：RSC / Route Handler 边界清晰
 
 ---
@@ -18,7 +18,7 @@
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Component Guidelines](./component-guidelines.md) | React 组件结构、命名、props 约定 | Draft |
+| [Component Guidelines](./component-guidelines.md) | React 组件结构、命名、props convention | Draft |
 | [Directory Structure](./directory-structure.md) | 前端目录组织、文件放置规则 | Draft |
 
 ---

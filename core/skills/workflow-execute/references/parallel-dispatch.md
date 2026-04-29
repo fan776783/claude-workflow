@@ -15,7 +15,7 @@
 
 含 `git_commit` 或 `quality_review` action 的任务**禁止**编入并行批次。原因是这两类动作会写共享状态（git 历史、state.json 的 `quality_gates.*`），并行会产生真正的竞争；`batch_orchestrator select-batch` 的 `filtered` 字段已在底层做了排除，但 workflow-execute 层仍需把这一点当作显式规则对待。
 
-## 批次判定流程
+## 批次判定workflow
 
 ### 1. 读取并行配置
 
@@ -41,14 +41,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/batch_orchestrator.js select-b
 
 `batch_viable: false` 时直接走串行，不再进入后续 step。
 
-### 3. 只读 fan-out（分析 / 审查）
+### 3. 只读 fan-out（分析 / review）
 
 任务 action 属于 analysis / review 且可拆分 ≥ 2 子任务时：
 
 - 调用 `batch_orchestrator.dispatchReadonlyBatch(...)`
 - 底层复用 `dispatching-parallel-agents` 的 `dispatch_runner.dispatchGroup(tasks, groupId, platform, useWorktree=false)`
-- 子 agent 产物写到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/{taskId}.json`
-- 任一子 agent 失败 → 结果为空，降级为串行分析；工作流状态不受影响
+- subagent 产物写到 `~/.claude/workflows/{projectId}/artifacts/{groupId}/{taskId}.json`
+- 任一subagent 失败 → 结果为空，降级为串行分析；workflow状态不受影响
 
 只读批次不 provision worktree。
 
@@ -59,10 +59,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/batch_orchestrator.js select-b
 - 调用 `dispatch_runner.dispatchGroup(tasks, groupId, platform, useWorktree=true)`
 - 分派内部 provision worktree + registerAgent，然后由主 agent **并行**启动 subagent
 - 各 subagent 在各自 worktree 内完成，合流汇聚到一个 **集成 worktree**
-- stage2 审查在集成 worktree 中进行，通过后才 merge 到主分支
+- stage2 review在集成 worktree 中进行，通过后才 merge 到主分支
 - stage2 失败则丢弃集成 worktree，任务回 pending
 
-集成 worktree 的创建 / 合流 / 丢弃由 `core/utils/workflow/merge_strategist.js` 的 `createIntegrationWorktree`、`mergeWorktreeBranches`、`finalMergeToMain`、`discardIntegrationWorktree` 负责。详细流程见 `../../dispatching-parallel-agents/SKILL.md` 的 Step 6a-8。
+集成 worktree 的创建 / 合流 / 丢弃由 `core/utils/workflow/merge_strategist.js` 的 `createIntegrationWorktree`、`mergeWorktreeBranches`、`finalMergeToMain`、`discardIntegrationWorktree` 负责。详细workflow见 `../../dispatching-parallel-agents/SKILL.md` 的 Step 6a-8。
 
 ## 诊断接口（旧）
 

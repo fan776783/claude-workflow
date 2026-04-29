@@ -1,4 +1,4 @@
-# 工作流状态机（扩展架构说明）
+# workflow状态机（扩展架构说明）
 
 > ⚠️ 本文件用于描述跨 skill / 共享架构层的扩展状态模型。
 > workflow 的**运行时状态机唯一来源**是 `core/specs/workflow-runtime/state-machine.md`（shared workflow runtime 文档）。
@@ -9,15 +9,15 @@
 | 状态 | 说明 |
 |------|------|
 | `idle` | 初始状态，无活动任务 |
-| `planned` | 规划完成，等待用户审查后执行 |
+| `planned` | 规划完成，等待用户review后执行 |
 | `spec_review` | Spec 已生成，等待用户确认范围 |
-| `intent_review` | Intent 文档已生成，等待审查 |
-| `running` | 工作流执行中 |
+| `intent_review` | Intent 文档已生成，等待review |
+| `running` | workflow执行中 |
 | `paused` | 暂停等待用户操作 |
 | `blocked` | 等待外部依赖（接口/第三方能力） |
 | `failed` | 任务失败，需要处理 |
 | `completed` | 所有任务完成 |
-| `archived` | 工作流已归档 |
+| `archived` | workflow已archive |
 
 ## 任务状态定义
 
@@ -37,7 +37,7 @@
 | `api_spec` | 后端接口规格 | `/workflow unblock api_spec` |
 | `external` | 第三方服务/SDK | `/workflow unblock external` |
 
-> `design_spec` 已移除，设计稿依赖通过 `/figma-ui` 工作流处理。
+> `design_spec` 已移除，设计稿依赖通过 `/figma-ui` workflow处理。
 
 ## 状态文件结构
 
@@ -273,22 +273,22 @@
 
 | 字段 | 说明 |
 |------|------|
-| `mode` | 工作流模式：`normal` / `progressive` |
+| `mode` | workflow模式：`normal` / `progressive` |
 | `current_tasks` | 当前执行中的任务 ID 数组；顺序执行时仅包含 1 个任务 ID |
 | `parallel_groups` | 并行执行批次历史记录 |
 | `boundaryScheduling` | 上下文边界调度状态（由 dispatching-parallel-agents skill 维护） |
 | `tech_design` | 技术设计文档路径 |
-| `delta_tracking.current_change` | 当前活动变更的 changeId；归档后清空 |
+| `delta_tracking.current_change` | 当前活动delta的 changeId；archive后清空 |
 | `spec_file` | Spec 文档路径 |
 | `plan_file` | Plan 文档路径 |
 | `tasks_file` | 运行时任务清单路径 |
 | `requirement_baseline` | Requirement Baseline 路径与统计信息 |
 | `traceability` | 跨文档追溯映射与覆盖率统计 |
-| `review_status.spec_review` | Phase 1.2 结构审查状态（MachineReviewLoop） |
-| `review_status.traceability_review` | Phase 1.2 追溯审查状态（MachineReviewLoop） |
+| `review_status.spec_review` | Phase 1.2 结构review状态（MachineReviewLoop） |
+| `review_status.traceability_review` | Phase 1.2 追溯review状态（MachineReviewLoop） |
 | `review_status.user_spec_review` | Phase 1.4 用户 Spec 治理关口状态（HumanGovernanceGate） |
 | `review_status.intent_review` | Phase 1.5 Intent 条件化关口状态（ConditionalHumanGate） |
-| `review_status.plan_review` | Phase 2.5 Plan 审查状态（MachineReviewLoop，含 role/profile/signal snapshot） |
+| `review_status.plan_review` | Phase 2.5 Plan review状态（MachineReviewLoop，含 role/profile/signal snapshot） |
 | `context_injection` | 运行时角色注入信号、profile 选择与工件路径 |
 | `unblocked` | 已解除的依赖列表 |
 | `sessions` | 平台与会话槽位信息 |
@@ -298,9 +298,9 @@
 | `collaboration` | 多模型协作配置 |
 | `constraints` | 约束系统 |
 | `zeroDecisionAudit` | 零决策审计结果 |
-| `delta_tracking` | 增量变更追踪系统 |
+| `delta_tracking` | delta 追踪系统 |
 | `task_runtime` | Per-task 运行时状态（v3.5.0），键为任务 ID |
-| `quality_gates` | 质量关卡审查结果（v3.5.0），键为关卡任务 ID 或批次 ID |
+| `quality_gates` | 质量关卡review结果（v3.5.0），键为关卡任务 ID 或批次 ID |
 | `parallel_execution` | 并行执行全局配置（`enabled`, `max_concurrency`, `current_batch`） |
 
 ## 并行执行接口（v5.1.0）
@@ -369,7 +369,7 @@ interface BatchQualityGateResult extends QualityGateResult {
 }
 ```
 
-## 审查状态接口
+## review状态接口
 
 ```typescript
 interface SpecReviewMetrics {
@@ -578,10 +578,10 @@ type ExecutionPlatform = 'cursor' | 'claude-code' | 'codex' | 'other';
 type ModelProvider = 'codex' | 'claude' | 'user';
 ```
 
-**约定**：
-- `ExecutionPlatform` 表示当前运行环境或子 agent 路由目标
-- `ModelProvider` 表示参与分析、审查、约束提炼的模型来源
-- 平台与模型必须分层建模，禁止混用
+**convention**：
+- `ExecutionPlatform` 表示当前运行环境或subagent 路由目标
+- `ModelProvider` 表示参与分析、review、约束提炼的模型来源
+- 平台与模型必须layer建模，禁止混用
 
 ## 状态转换
 

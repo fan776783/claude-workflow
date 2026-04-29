@@ -1,4 +1,4 @@
-# 自审查清单（Self-Review Checklist）
+# 自review清单（Self-Review Checklist）
 
 > 从 Post-Execution Pipeline Step ② 提取。`create_file` 和 `edit_file` 类型任务在验证通过后执行。
 >
@@ -32,4 +32,4 @@
 |------|------|
 | 全部覆盖 | 继续下一步 |
 | 存在偏差 | 输出偏差列表，建议补充，当前 task 仍保持完成 |
-| 严重偏差 | 输出警告，要求在后续质量关卡或人工审查中处理 |
+| 严重偏差 | 输出警告，要求在后续质量关卡或人工review中处理 |

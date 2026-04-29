@@ -70,7 +70,7 @@ get_design_context(fileKey, nodeId="42:15", dirForAssetWrites="${assetsDir}/.fig
 
 ## Visual Review
 
-### Issue: 审查后仍有 P0 问题
+### Issue: review后仍有 P0 问题
 
 **原因**: 存在未修复的视觉问题
 

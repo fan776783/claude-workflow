@@ -102,7 +102,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **See**: `core/skills/workflow-archive/SKILL.md`
 
 ### review
-**Definition**: The quality audit step — either mid-execute (`workflow-review`) or PR-scoped (`diff-review` / `session-review`).
+**Definition**: The quality audit step — either mid-execute (`workflow-review`) or PR-scoped (`diff-review`, including its `--session` mode).
 **Forbidden synonyms**: `审查` (in normative sections only)
 **See**: `core/specs/workflow/review-loop.md`
 

@@ -2,7 +2,7 @@
 
 该策略现已沉淀为独立 skill：`../../skills/dispatching-parallel-agents/SKILL.md`。
 
-当 `workflow execute` 在当前阶段识别出 **2+ 可证明独立的任务 / 问题域** 时，必须先读取并应用该 skill，再按本文的边界划分与调度规则执行。它不适用于单任务 subagent，也不适用于 `quality_review` Stage 2 的单 reviewer 子 agent。
+当 `workflow execute` 在当前阶段识别出 **2+ 可证明独立的任务 / 问题域** 时，必须先读取并应用该 skill，再按本文的边界划分与调度规则执行。它不适用于单任务 subagent，也不适用于 `quality_review` Stage 2 的单 reviewer subagent。
 
 ## 核心原则
 
@@ -297,7 +297,7 @@ function selectModelForBoundary(
 /workflow-execute --boundary   # 按上下文边界并行分派同阶段独立任务
 ```
 
-**执行流程**：
+**执行workflow**：
 
 1. 获取当前阶段的所有待执行任务
 2. 过滤出可证明彼此独立的候选任务
@@ -426,7 +426,7 @@ async function executeBoundaryTasks(
 | 单步 | `--step` | 无并行 | 精细控制、调试 |
 | 阶段 | `--phase` | 阶段内串行 | 常规开发 |
 | 边界 | `--boundary` | 边界间并行 | 同阶段存在 2+ 独立问题域 |
-| 连续 | `连续` / `执行到质量关卡` | 到质量关卡 | 自动化流程 |
+| 连续 | `连续` / `执行到质量关卡` | 到质量关卡 | 自动化workflow |
 
 ## 最佳实践
 

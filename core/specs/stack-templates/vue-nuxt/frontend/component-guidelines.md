@@ -1,6 +1,6 @@
 # Component Guidelines
 
-> Vue 3 组件的结构、命名与协作约定。
+> Vue 3 组件的结构、命名与协作convention。
 
 <!--
 本文件由 stack-template vue-nuxt 预生成。
@@ -13,7 +13,7 @@ H3 标题用具体语义名（如 `### 使用 <script setup>`），不要保留 
 
 ## Overview
 
-(To be filled) — 本规范覆盖 Vue 3 `<script setup>` 组件的编写约定。项目里主要解决 {{reason}} 问题。
+(To be filled) — 本规范覆盖 Vue 3 `<script setup>` 组件的编写convention。项目里主要解决 {{reason}} 问题。
 
 ---
 

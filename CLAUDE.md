@@ -108,9 +108,11 @@ Skills are the portable unit shipped to each AI tool. The authoritative list liv
 
 - **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
 - **Code Specs** (`spec-bootstrap`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
-- **Lightweight planning & review** — `/quick-plan` command (4-step planning, defined in `core/commands/quick-plan.md`), `session-review`, `diff-review`, `fix-bug`, `bug-batch`.
-- **Dispatch & research** — `dispatching-parallel-agents`, `search-first`, `deep-research`, `collaborating-with-codex`.
-- **Other** — `scan`, `figma-ui`.
+- **Lightweight planning & review** — `quick-plan` (migrated to skill from command), `diff-review` (supports `--session` mode; replaces old `session-review`), `fix-bug`, `bug-batch`, `diagnose`.
+- **Alignment & architecture** — `grill` (interview-until-alignment, replaces `enhance`), `zoom-out` (7-line abstraction escape hatch), `tdd` (red-green-refactor discipline), `write-a-skill` (meta-skill for creating new skills).
+- **Dispatch & research** — `dispatching-parallel-agents`, `research` (merged `search-first` + `deep-research`), `collaborating-with-codex`.
+- **Other** — `scan`, `figma-ui`, `bk`, `api-smoke` (前端视角从 spec + YApi autogen 生成后端接口冒烟脚本,覆盖正常 + 异常场景).
+- **Shared protocols (`core/specs/shared/`)** — `glossary.md` + `architecture-language.md` (terms), `hard-stop-templates.md` / `manual-intervention-reasons.md` / `codex-routing.md` / `status-readiness.md` / `impact-analysis-template.md` (跨 skill 引用而非复写).
 
 `/team` 命令直接走 Claude Code 原生 Agent Teams，不再有独立 skill 或 runtime；`core/commands/team.md` 负责命令契约，`core/hooks/team-idle.js` 与 `core/hooks/team-task-guard.js` 提供任务板守门和 cleanup 协调。
 

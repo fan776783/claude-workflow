@@ -1803,4 +1803,91 @@ test('workflow helper migration coverage', async (t) => {
     assert.throws(() => merger.integrationBranchName('evil; rm -rf /', 'proj-test'), /Invalid batchId/)
     assert.throws(() => merger.integrationBranchName('B-0001', '../escape'), /Invalid projectId/)
   })
+
+  await t.test('advance auto-lifts planned to running and returns status_transition', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-auto-lift-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+
+    const planPath = path.join(root, '.claude', 'plans', 'test.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, PLAN_FIXTURE)
+
+    const statePath = workflowStatePath(home, 'proj-test')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(statePath, JSON.stringify(minimumState('planned', ['T1']), null, 2))
+
+    const advanceResult = runNode(cliScript, ['advance', 'T1', '--journal', '首任务'], { cwd: root, env: extraEnv })
+    assert.equal(advanceResult.status, 0, advanceResult.stderr)
+    const payload = JSON.parse(advanceResult.stdout)
+    assert.equal(payload.status_transition, 'planned->running')
+    assert.equal(payload.workflow_status, 'running')
+
+    const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(persisted.status, 'running')
+    assert.ok(persisted.progress.completed.includes('T1'))
+
+    // 幂等：第二次 advance 进入 running 状态，不应再回传 status_transition
+    const advanceAgain = runNode(cliScript, ['advance', 'T2'], { cwd: root, env: extraEnv })
+    assert.equal(advanceAgain.status, 0, advanceAgain.stderr)
+    const payload2 = JSON.parse(advanceAgain.stdout)
+    assert.equal(payload2.status_transition, undefined)
+  })
+
+  await t.test('resolveStateAndTasks errors carry diagnose code', () => {
+    const taskManager = require(path.join(workflowDir, 'task_manager.js'))
+
+    // 1. project_id_missing —— 空目录、无 config
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-code-missing-'))
+    const [extraEnv1, home1] = makeCliEnv(tmpDir)
+    const missingResult = runNode(cliScript, ['status'], { cwd: tmpDir, env: extraEnv1 })
+    const missingPayload = JSON.parse(missingResult.stdout)
+    assert.equal(missingPayload.code, 'project_id_missing')
+    assert.equal(missingPayload.error, '没有活跃的工作流')
+
+    // 2. state_file_missing —— 有 project config 但 state 不存在
+    const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-code-state-missing-'))
+    const [extraEnv2, home2] = makeCliEnv(tmpDir2)
+    writeProjectConfig(tmpDir2, 'proj-test')
+    const noStateResult = runNode(cliScript, ['status'], { cwd: tmpDir2, env: extraEnv2 })
+    const noStatePayload = JSON.parse(noStateResult.stdout)
+    assert.equal(noStatePayload.code, 'state_file_missing')
+
+    // 3. plan_file_unset —— state 存在但 plan_file/tasks_file 为空
+    const tmpDir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-code-plan-unset-'))
+    const [extraEnv3, home3] = makeCliEnv(tmpDir3)
+    writeProjectConfig(tmpDir3, 'proj-test')
+    const statePath3 = workflowStatePath(home3, 'proj-test')
+    fs.mkdirSync(path.dirname(statePath3), { recursive: true })
+    const brokenState = minimumState('running', ['T1'])
+    brokenState.plan_file = ''
+    brokenState.tasks_file = ''
+    fs.writeFileSync(statePath3, JSON.stringify(brokenState, null, 2))
+    const unsetResult = runNode(cliScript, ['next'], { cwd: tmpDir3, env: extraEnv3 })
+    const unsetPayload = JSON.parse(unsetResult.stdout)
+    assert.equal(unsetPayload.code, 'plan_file_unset')
+
+    // 4. resolveStateAndTasks 直接暴露 code 作为 5 元组第 5 项
+    const noConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-code-direct-'))
+    const tuple = taskManager.resolveStateAndTasks(null, noConfigDir)
+    assert.equal(tuple.length, 5)
+    assert.equal(tuple[4], 'project_id_missing')
+  })
+
+  await t.test('help subcommand prints signature lines for advance and journal', () => {
+    const advanceHelp = runNode(cliScript, ['help', 'advance'])
+    assert.equal(advanceHelp.status, 0, advanceHelp.stderr)
+    assert.match(advanceHelp.stdout, /--batch-fail/)
+    assert.match(advanceHelp.stdout, /--review-passed/)
+    assert.match(advanceHelp.stdout, /--review-failed/)
+
+    const journalHelp = runNode(cliScript, ['help', 'journal'])
+    assert.equal(journalHelp.status, 0, journalHelp.stderr)
+    assert.match(journalHelp.stdout, /journal add/)
+    assert.match(journalHelp.stdout, /journal search/)
+
+    const unknownHelp = runNode(cliScript, ['help', 'unknown-sub'])
+    assert.equal(unknownHelp.status, 0)
+    assert.match(unknownHelp.stdout, /Available subcommands: advance, delta, journal/)
+  })
 })
