@@ -118,6 +118,18 @@ function getCodeSpecsDir(projectRoot) {
   }
 }
 
+function safeReadJson(targetPath, fallback = null, onError = null) {
+  try {
+    return JSON.parse(fs.readFileSync(targetPath, 'utf8'))
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return fallback
+    if (typeof onError === 'function') {
+      try { return onError(err, targetPath) } catch { return fallback }
+    }
+    return fallback
+  }
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === 'resolve') {
@@ -158,6 +170,7 @@ module.exports = {
   THINKING_GUIDES_DISPLAY_PATH,
   getCodeSpecsDir,
   CODE_SPECS_DIR_SEGMENTS,
+  safeReadJson,
 }
 
 if (require.main === module) main()

@@ -15,21 +15,17 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { getCodeSpecsDir } = require('./path_utils')
+const { getCodeSpecsDir, safeReadJson } = require('./path_utils')
 
 const DEFAULT_MANIFESTS_DIR = path.join(__dirname, '..', '..', 'specs', 'spec-templates', 'manifests')
 const PRE_5_2 = 'pre-5.2'
-
-function readJson(p) {
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null }
-}
 
 function listManifests(manifestsDir) {
   if (!fs.existsSync(manifestsDir)) return []
   return fs.readdirSync(manifestsDir)
     .filter((name) => /^v[\w.\-]+\.json$/.test(name))
     .map((name) => ({ name, fullPath: path.join(manifestsDir, name) }))
-    .map(({ name, fullPath }) => ({ name, fullPath, doc: readJson(fullPath) }))
+    .map(({ name, fullPath }) => ({ name, fullPath, doc: safeReadJson(fullPath, null) }))
     .filter((entry) => entry.doc && entry.doc.version)
 }
 

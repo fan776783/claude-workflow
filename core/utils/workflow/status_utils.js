@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** @file 任务状态工具 - 状态 emoji 映射、标题状态提取、任务 ID 校验等基础工具函数 */
 
+const { addUnique, escapeRegExp } = require('./collection_utils')
+
 const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u
 const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u
 
@@ -51,24 +53,6 @@ function extractStatusFromTitle(title) {
  */
 function stripStatusEmoji(title) {
   return String(title || '').replace(STRIP_STATUS_EMOJI_REGEX, '').trim()
-}
-
-/**
- * 向数组中添加不重复的元素
- * @param {Array} arr - 目标数组
- * @param {*} item - 要添加的元素
- */
-function addUnique(arr, item) {
-  if (!arr.includes(item)) arr.push(item)
-}
-
-/**
- * 转义正则表达式中的特殊字符
- * @param {string} value - 待转义的字符串
- * @returns {string} 转义后的字符串
- */
-function escapeRegExp(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
