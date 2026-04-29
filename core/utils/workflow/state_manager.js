@@ -8,7 +8,7 @@ const {
   detectProjectIdFromRoot,
   getWorkflowStatePath,
 } = require('./path_utils')
-const { addUnique } = require('./status_utils')
+const { addUnique } = require('./collection_utils')
 const {
   buildUserSpecReview,
   deriveEffectiveStatus,

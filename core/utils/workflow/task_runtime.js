@@ -2,7 +2,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getCodeSpecsDir } = require('./path_utils')
+const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getCodeSpecsDir, safeReadJson } = require('./path_utils')
 const { findTaskById, extractTaskBlock } = require('./task_parser')
 
 function readFile(targetPath, fallback = '') {
@@ -14,12 +14,11 @@ function readFile(targetPath, fallback = '') {
 }
 
 function readJson(targetPath, fallback = null) {
-  try {
-    return JSON.parse(fs.readFileSync(targetPath, 'utf8'))
-  } catch (err) {
-    if (err && err.code === 'ENOENT') return fallback
-    return { __parse_error: true, path: targetPath, message: err instanceof Error ? err.message : String(err) }
-  }
+  return safeReadJson(targetPath, fallback, (err, p) => ({
+    __parse_error: true,
+    path: p,
+    message: err instanceof Error ? err.message : String(err),
+  }))
 }
 
 function resolveRuntimeRelativePath(baseDir, relativePath) {
