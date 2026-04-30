@@ -85,7 +85,7 @@ node <skill-root>/dingtalk-mcp/cli/dingtalk-mcp.mjs <subcommand> [args...]
 
 agent 打出的话（模板，按用户当前任务需要的 kind 裁剪）：
 
-> 需要先配置钉钉 <kind> MCP 的 server URL（形如 `https://mcp-gw.dingtalk.com/server/<hash>?key=<key>`）。请把 URL 发给我，我来通过 `--stdin` 保存 + 连通性验证 —— **不需要你在终端敲命令**。URL 里的 `?key=` 是账号级凭证。
+> 需要先配置钉钉 <kind> MCP 的 server URL（形如 `https://mcp-gw.dingtalk.com/server/<hash>?key=<key>`）。获取地址：https://aihub.dingtalk.com/#/mcp ，找到对应的 <kind> server 复制 URL 发给我，我来通过 `--stdin` 保存 + 连通性验证 —— **不需要你在终端敲命令**。URL 里的 `?key=` 是账号级凭证。
 
 拿到 URL 后，agent 执行：
 
