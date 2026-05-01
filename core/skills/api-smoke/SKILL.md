@@ -1,6 +1,6 @@
 ---
 name: api-smoke
-description: "前端视角生成后端接口冒烟脚本 — 从 spec + YApi autogen + 前端调用点抽取本需求相关接口,产出覆盖正常/异常场景的独立脚本,含依赖串接、IP 直连、拦截器 header 继承、NDJSON 日志、report.md 链路报告。触发:用户说「接口冒烟」「生成接口测试脚本」「联调前验接口」「api smoke」「验一下后端」,或前端想在 UI 成型前先验后端 contract。登录态由用户 cookie 注入,skill 不做登录。"
+description: "Use when 用户说「接口冒烟」「生成接口测试脚本」「联调前验接口」「api smoke」「验一下后端」, or 前端想在 UI 成型前先验后端 contract。登录态由用户 cookie 注入,skill 不做登录。"
 ---
 
 <PRE-FLIGHT>

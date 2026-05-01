@@ -1,6 +1,6 @@
 ---
 name: spec-bootstrap
-description: "初始化项目级 code-specs 骨架（v2.2）。按 codeSpecs.packages.include 决定 package 范围，按栈模板（--stack）拷贝 core 主题文件，生成 .template-hashes.json 与 00-bootstrap-guidelines 首任务。"
+description: "Use when 用户调用 /spec-bootstrap, or 项目尚未建立 .claude/code-specs/ 骨架且需要初始化 code-specs 体系。"
 ---
 
 <PRE-FLIGHT>

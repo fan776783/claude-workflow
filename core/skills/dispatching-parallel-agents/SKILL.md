@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: "对 2+ 可证明独立的问题域 / 任务域进行并行subagent 分派。用于 workflow execute 中识别同阶段独立任务、独立失败测试文件或独立子系统问题后，按平台能力并行执行。负责平台检测、独立性检查、最小上下文封装、结果回收、冲突检测与顺序降级。"
+description: "Use when 同阶段存在 2+ 可证明独立的问题域/任务域(独立 task、独立失败测试文件、独立子系统), or workflow-execute 内识别到独立批次需要并行 dispatch。单 subagent 分派或单 reviewer 不属于本 skill。"
 ---
 
 <PRE-FLIGHT>

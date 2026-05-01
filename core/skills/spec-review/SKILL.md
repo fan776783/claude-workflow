@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "review code-specs 库（v2.2）。按文件类型分档 lint：convention 查必备 4 段 + 代码示例 + Why；contract 查 7 段；通用维度查过期/冲突。模板漂移走 .template-hashes.json。"
+description: "Use when 用户调用 /spec-review, or 需要检查 .claude/code-specs/ 库内容是否过期、冲突或模板漂移。"
 ---
 
 <PRE-FLIGHT>

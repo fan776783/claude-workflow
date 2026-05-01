@@ -1,6 +1,6 @@
 ---
 name: research
-description: "统一研究入口 - 代码库 / 生态 / 外部文档检索。触发条件:用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」等,在动手实现前把能复用的方案找出来,或在做技术决策前拉齐外部证据。合并替代旧 /search-first 与 /deep-research,默认按关键词自动路由。"
+description: "Use when 用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」, or 在动手实现前需要把能复用的方案找出来,or 做技术决策前需要拉齐外部证据。"
 ---
 
 <PRE-FLIGHT>

@@ -1,6 +1,6 @@
 ---
 name: quick-plan
-description: "轻量快速规划 - 适用于简单到中等任务,直接产出可执行的 plan.md,不走 workflow 状态机。触发条件:用户说「快速规划」「轻规划」「不走workflow」「plan 一下」「quick plan」,或需求清晰、作用域明确、可一次性规划完成。复杂项目(跨module / 新子系统 / 需追溯)请使用 /workflow-spec。"
+description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)请用 /workflow-spec。"
 argument-hint: <需求描述 | path/to/requirement.md>
 ---
 

@@ -1,67 +1,42 @@
 ---
 name: workflow-archive
-description: "/workflow-archive 入口。archive已完成的workflow。"
+description: "Use when 用户调用 /workflow-archive, or workflow 状态为 completed 需要归档。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。archive 只动元数据,第 1-3 步(project-config / repo-context / code-specs)可按跳过条件跳过,但第 4 步(glossary)要读一下,保证 summary 用 canonical 术语。
-</PRE-FLIGHT>
-
-<PATH-CONVENTION>
-所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。
-该路径在 `npm install` 后始终存在，所有 agent 共享，无需动态解析。
-</PATH-CONVENTION>
+> 路径约定见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。归档只动元数据,pre-flight 必读项里 glossary 仍要读一下,保证 summary 用 canonical 术语。
 
 # workflow-archive
 
-> 本 skill 是 `/workflow-archive` 的完整行动指南。
-
 <HARD-GATE>
-不可违反的规则：
-1. **完成前置**：`archive` 仅允许对 `completed` 状态的workflow执行，不得跳过状态校验
+**完成前置**：仅允许对 `completed` 状态执行 archive,不得跳过状态校验。
 </HARD-GATE>
 
----
+## Checklist
 
-## Checklist（按序执行）
+1. ☐ 调用 CLI 执行归档
+2. ☐ 展示归档结果
+3. ☐ 下一步建议
 
-1. ☐ 调用 CLI 执行archive
-2. ☐ 展示archive结果
-3. ☐ 给出下一步建议
-
-```
-CLI archive → 展示结果 → 下一步建议
-     │            │
- 状态校验+     归档变更数
- 文件搬迁     摘要文件路径
-```
-
-### Step 1: 调用 CLI 执行archive
+## Step 1: CLI 归档
 
 ```bash
 # 基本归档
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
 
-# 带摘要报告的归档
+# 带摘要报告
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
 ```
 
-CLI 自动完成（tombstone 两阶段提交）：
-- 校验workflow状态为 `completed`（否则返回错误）
-- 写 `ARCHIVING.marker` tombstone，用于崩溃恢复
-- 在 `history/<YYYY-MM>/<task>-<timestamp>/` 下生成archive快照：`workflow-state.json`（status=archived）、`tasks.md`、`changes/CHG-*`、可选 `archive-summary-*.md`
-- 最后删除根目录 `workflow-state.json` / `tasks.md` / `changes/` 并清除 tombstone，使根目录回到"无活跃workflow"状态
+CLI 自动完成 tombstone 两阶段提交:校验 `status=completed` → 写 `ARCHIVING.marker` → 在 `history/<YYYY-MM>/<task>-<timestamp>/` 下生成快照(`workflow-state.json` status=archived、`tasks.md`、`changes/CHG-*`、可选 summary)→ 删除根目录 `workflow-state.json` / `tasks.md` / `changes/` → 清除 tombstone。
 
-> 若archive过程中崩溃，下次任意 `/workflow-*` 命令启动时会自动识别 tombstone：Phase 1 未完成则回滚 destDir，Phase 2 未完成则前滚清理根目录。
-
-**错误处理**：
+崩溃后下次任意 `/workflow-*` 启动会自动识别 tombstone:Phase 1 未完成则回滚 destDir,Phase 2 未完成则前滚清理根目录。
 
 | 错误 | 含义 | 建议 |
 |------|------|------|
-| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先执行 `/scan` 和 `/workflow-spec` |
-| `只有 completed 状态的工作流可以归档` | 当前状态不是 `completed` | 显示当前 `state_status`，提示先完成workflow |
+| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先 `/scan` 和 `/workflow-spec` |
+| `只有 completed 状态的工作流可以归档` | 当前不是 `completed` | 显示当前 `state_status`,提示先完成 workflow |
 
-### Step 2: 展示archive结果
+## Step 2: 展示结果
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,50 +49,14 @@ CLI 自动完成（tombstone 两阶段提交）：
 - **归档变更数**：{archived_changes.length}
 - **归档目录**：{archive_dir}
 {如有摘要：- **摘要文件**：{summary_file}}
-
-文件结构：
-~/.claude/workflows/{projectId}/
-├── history/
-│   └── <YYYY-MM>/<task>-<timestamp>/
-│       ├── workflow-state.json        ← 归档快照 (status=archived)
-│       ├── tasks.md
-│       ├── changes/                   ← 原 CHG-*
-│       └── archive-summary-*.md       ← 归档摘要（如有）
-└── (根目录下 workflow-state.json / tasks.md / changes/ 已清空)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-### Step 3: 下一步建议
+## Step 3: 下一步
 
 ```
-🎉 工作流已归档，可以开始新的任务了！
-
+🎉 工作流已归档,可以开始新任务。
 /workflow-spec "新功能描述"
 ```
 
-> ⚠️ `/workflow-archive` 只archive workflow runtime。原生 `/team` 的收尾由 `TeammateIdle` hook 触发负责人执行 `clean up team`。
-
----
-
-## CLI 命令速查
-
-```bash
-# 归档
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
-```
-
-## 协同 Skills
-
-| Skill | 职责 | 入口 |
-|-------|------|------|
-| `workflow-spec` | Spec 生成 + 设计深化 + 用户审批 | [`../workflow-spec/SKILL.md`](../workflow-spec/SKILL.md) |
-| `workflow-plan` | Plan 扩写（在已审批 Spec 上） | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
-| `workflow-execute` | 任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
-| `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
-| `workflow-delta` | delta | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |
-| `workflow-status` | 状态查看 | [`../workflow-status/SKILL.md`](../workflow-status/SKILL.md) |
-
-> CLI 入口：`~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js`
->
-> 运行时资源参见 [`../../specs/workflow-runtime/state-machine.md`](../../specs/workflow-runtime/state-machine.md)
+> `/workflow-archive` 只 archive workflow runtime。原生 `/team` 的收尾由 `TeammateIdle` hook 触发负责人 `clean up team`。

@@ -1,6 +1,6 @@
 ---
 name: scan
-description: "智能项目扫描 - 检测技术栈、生成配置文件和项目上下文报告。触发条件：用户调用 /scan，或首次使用workflow前需要初始化项目配置，或项目架构delta后需要更新配置。输出 project-config.json 和 repo-context.md。"
+description: "Use when 用户调用 /scan, or 首次使用 workflow 前需要初始化项目配置, or 项目架构 delta 后需要更新 project-config.json / repo-context.md。"
 ---
 
 <PRE-FLIGHT>

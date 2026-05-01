@@ -1,6 +1,6 @@
 ---
 name: write-a-skill
-description: "Create new agent skills with proper structure, progressive disclosure, and bundled resources. Use when user wants to create, write, draft, or build a new skill — phrases like '写个 skill / 新建 skill / add a skill / 包装成 skill'. Also use when reviewing existing SKILL.md for size / description / structural compliance."
+description: "Use when user wants to create / write / draft / build a new skill — phrases like '写个 skill / 新建 skill / add a skill / 包装成 skill', or reviewing existing SKILL.md for size / description / structural compliance."
 ---
 
 <PRE-FLIGHT>
