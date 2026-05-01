@@ -65,6 +65,6 @@ description: "对齐澄清 - 在动手写代码 / 写 plan / 写 spec 之前,把
 ## 边界
 
 grill 产出的是**对齐后的任务描述**,不是 plan / spec。后续动作:
-- 要出 plan → `/quick-plan` 或 `/workflow-plan`
+- 要出 plan → `/quick-plan` 或 `/workflow-spec`
 - 要沉淀词汇 / convention → `/spec-update`
 - 要直接改代码(明确是 typo 级) → 直接改,不用再经过 grill

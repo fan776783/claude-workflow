@@ -41,7 +41,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 ```
 
 **错误情况**：
-- `error: '没有活跃的工作流'` → 检查是否有项目配置（可能需要 `/scan`），或提示用 `/workflow-plan` 启动新workflow
+- `error: '没有活跃的工作流'` → 检查是否有项目配置（可能需要 `/scan`），或提示用 `/workflow-spec` 启动新workflow
 
 ### Step 2: 获取补充上下文（条件）
 
@@ -147,7 +147,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 | `halted` (halt_reason=failure) | 修复后 `/workflow-execute --retry` 或 `--skip` |
 | `review_pending` | 执行 `/workflow-review` 进行全量完成review |
 | `completed` | 🎉 workflow已完成，可执行 `/workflow-archive` |
-| `archived` | 需要新需求请 `/workflow-plan` |
+| `archived` | 需要新需求请 `/workflow-spec` |
 
 > Legacy 状态 `paused` / `blocked` / `failed` / `planning` 仍可能出现在未迁移的磁盘文件中，会被投影为上述新状态。可运行 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js migrate-state` 一次性升级。
 
@@ -171,7 +171,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal list
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-plan` | 规划workflow | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
+| `workflow-spec` | Spec 生成 + 设计深化 + 用户审批 | [`../workflow-spec/SKILL.md`](../workflow-spec/SKILL.md) |
+| `workflow-plan` | Plan 扩写（在已审批 Spec 上） | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
 | `workflow-execute` | 任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
 | `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-delta` | delta | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |

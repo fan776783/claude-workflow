@@ -15,7 +15,7 @@ AskUserQuestion 在真决策点的统一模板。skill 里调用时改为"见 `c
 - 即将触发批量修复 / 状态流转（bug-batch FixUnit 编排）
 - 即将archive / 删除分支 / force push
 - 资源清理失败的降级选择（team cleanup）
-- 方案审批（workflow-plan spec 审批、workflow-review verdict）
+- 方案审批（workflow-spec spec 审批、workflow-review verdict）
 
 ## 模板
 

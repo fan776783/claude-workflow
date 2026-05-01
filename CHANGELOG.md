@@ -9,7 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-（无待发布项）
+### ⚠️ BREAKING CHANGES
+
+- **`workflow-plan` 拆分为 `workflow-spec` + `workflow-plan`**：原 `/workflow-plan` 的 483 行单体 skill 拆为两个独立 skill：
+  - `/workflow-spec`：需求分析 → 代码分析 → 需求讨论 → Spec 扩写 → **设计深化**（新增）→ Codex Spec Review → 用户审批。覆盖 `idle → spec_review → planned` 状态转换
+  - `/workflow-plan`：从已审批 Spec 生成详细 Plan → Codex Plan Review → 规划完成。入口要求 `status=planned`
+  - 状态机逻辑和 CLI 子命令不变，仅 skill 层拆分
+
+### Added
+
+- **`workflow-spec` skill**（`core/skills/workflow-spec/`）：从 `workflow-plan` 提取 Step 1-5（参数解析、代码分析、需求讨论、Spec 扩写、用户审批），新增 Step 4.D 设计深化阶段
+- **Step 4.D 设计深化**（`workflow-spec`）：Spec 文本扩写完成后、Codex Review 之前的条件阶段，按项目类型分支：
+  - **前端分支**（§ 4.4 UX & UI Design）：整合 UX 设计（User Flow + Page Hierarchy）+ UI 布局识别（设计稿/截图 → 布局锚点提取），布局提取通过只读子 Agent 并行执行不占主上下文
+  - **后端分支**（§ 5.6 System Design）：API Contract + Data Flow + Service Boundaries + Data Migration
+  - 全栈项目两分支并行执行
+- **设计稿关联交互协议**：Step 4.D 前端分支中，通过 AskUserQuestion 逐页/批量关联设计稿（Figma URL / 截图 / 跳过），支持 `all_figma`（共用一个 Figma 文件自动匹配）和 `batch`（粘贴映射表）模式
+- **spec-template § 4.4 UX & UI Design**：§ 4.4 从 "UX Design" 改名，子节点加编号（4.4.1 / 4.4.2），新增 § 4.4.3 Page Layout Summary（布局锚点提取产出）
+- **spec-template § 5.6 System Design**：新增后端系统设计章节（API Contract / Data Flow / Service Boundaries / Data Migration）
+- **`workflow-spec/references/design-elaboration.md`**：设计深化指南，含前端/后端分支详细流程、子 Agent prompt 模板、LayoutAnchor 结构定义
+
+### Changed
+
+- **`workflow-plan` 精简**：从 483 行 / 26.9KB 缩减为 ~200 行 / ~9KB，仅保留 Plan 扩写（原 Step 6-7），入口要求 `status=planned`
+- **`workflow-plan` references 迁移**：`artifact-schemas.md`、`spec-self-review.md`、`codex-spec-review.md` 迁移到 `workflow-spec/references/`，`workflow-plan/references/` 仅保留 `plan-self-review.md` 和 `codex-plan-review.md`
+- **state-machine.md**：状态转换添加 skill 归属注释（`[/workflow-spec Step N]` / `[/workflow-execute Step N]`）
+- **CLAUDE.md**：Architecture 和 Available Skills 更新，新增 `workflow-spec` 条目
+- **workflow-execute 协同 Skills 表**：新增 `workflow-spec` 和 `workflow-plan` 条目
+- **workflow-review 生命周期链路**：更新为 `/workflow-spec → /workflow-plan → /workflow-execute → /workflow-review → /workflow-archive`
 
 ## [6.0.0] - 2026-04-27
 

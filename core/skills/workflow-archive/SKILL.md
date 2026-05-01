@@ -58,7 +58,7 @@ CLI 自动完成（tombstone 两阶段提交）：
 
 | 错误 | 含义 | 建议 |
 |------|------|------|
-| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先执行 `/scan` 和 `/workflow-plan` |
+| `没有可归档的工作流` | 无项目配置或无状态文件 | 提示先执行 `/scan` 和 `/workflow-spec` |
 | `只有 completed 状态的工作流可以归档` | 当前状态不是 `completed` | 显示当前 `state_status`，提示先完成workflow |
 
 ### Step 2: 展示archive结果
@@ -92,7 +92,7 @@ CLI 自动完成（tombstone 两阶段提交）：
 ```
 🎉 工作流已归档，可以开始新的任务了！
 
-/workflow-plan "新功能描述"
+/workflow-spec "新功能描述"
 ```
 
 > ⚠️ `/workflow-archive` 只archive workflow runtime。原生 `/team` 的收尾由 `TeammateIdle` hook 触发负责人执行 `clean up team`。
@@ -111,7 +111,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summ
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-plan` | 规划workflow | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
+| `workflow-spec` | Spec 生成 + 设计深化 + 用户审批 | [`../workflow-spec/SKILL.md`](../workflow-spec/SKILL.md) |
+| `workflow-plan` | Plan 扩写（在已审批 Spec 上） | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
 | `workflow-execute` | 任务执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
 | `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-delta` | delta | [`../workflow-delta/SKILL.md`](../workflow-delta/SKILL.md) |

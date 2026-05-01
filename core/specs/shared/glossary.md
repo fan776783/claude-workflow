@@ -77,7 +77,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **See**: `core/specs/workflow/state-machine.md`
 
 ### spec
-**Definition**: The document produced by `/workflow-plan` describing what a workflow will build. Distinct from "code-spec" (entries under `.claude/code-specs/`).
+**Definition**: The document produced by `/workflow-spec` describing what a workflow will build. Distinct from "code-spec" (entries under `.claude/code-specs/`).
 **Forbidden synonyms**: (none — but do not conflate with "code-spec")
 **See**: `core/specs/workflow-templates/spec-template.md`
 

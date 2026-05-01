@@ -50,12 +50,13 @@ Notes:
 │   └── release.sh           # Release automation
 └── core/                    # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
-    │   ├── workflow-plan/ # Planning entry for /workflow-plan
-    │   ├── workflow-execute/ # Execution entry for /workflow-execute
+    │   ├── workflow-spec/   # Spec generation entry for /workflow-spec
+    │   ├── workflow-plan/   # Plan generation entry for /workflow-plan
+    │   ├── workflow-execute/# Execution entry for /workflow-execute
     │   ├── workflow-review/ # Review protocol entry for workflow quality gates
     │   ├── workflow-delta/  # Delta entry for /workflow-delta
     │   ├── workflow-status/ # Status entry for /workflow-status
-    │   ├── workflow-archive/ # Archive entry for /workflow-archive
+    │   ├── workflow-archive/# Archive entry for /workflow-archive
     │   ├── scan/            # Project scanning
     │   ├── fix-bug/         # Bug fixing workflow
     │   ├── diff-review/     # Code review
@@ -106,7 +107,7 @@ Notes:
 
 Skills are the portable unit shipped to each AI tool. The authoritative list lives under `core/skills/` — every directory there is a published skill. A few skill families worth knowing when navigating the repo:
 
-- **Workflow state machine** (`workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. State lives under `~/.claude/workflows/{project-hash}/`.
+- **Workflow state machine** (`workflow-spec`, `workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. `workflow-spec` handles requirement analysis through spec approval; `workflow-plan` handles plan generation from approved specs. State lives under `~/.claude/workflows/{project-hash}/`.
 - **Code Specs** (`spec-bootstrap`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
 - **Lightweight planning & review** — `quick-plan` (migrated to skill from command), `diff-review` (supports `--session` mode; replaces old `session-review`), `fix-bug`, `bug-batch`, `diagnose`.
 - **Alignment & architecture** — `grill` (interview-until-alignment, replaces `enhance`), `zoom-out` (7-line abstraction escape hatch), `tdd` (red-green-refactor discipline), `write-a-skill` (meta-skill for creating new skills).

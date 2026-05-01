@@ -332,7 +332,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <depen
 
 | Skill | 职责 | 入口 |
 |-------|------|------|
-| `workflow-plan` | 初始规划 | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
+| `workflow-spec` | Spec 生成 + 设计深化 + 用户审批 | [`../workflow-spec/SKILL.md`](../workflow-spec/SKILL.md) |
+| `workflow-plan` | Plan 扩写（在已审批 Spec 上） | [`../workflow-plan/SKILL.md`](../workflow-plan/SKILL.md) |
 | `workflow-execute` | 按 Plan 执行 | [`../workflow-execute/SKILL.md`](../workflow-execute/SKILL.md) |
 | `workflow-review` | 全量完成review（execute 完成后独立执行） | [`../workflow-review/SKILL.md`](../workflow-review/SKILL.md) |
 | `workflow-status` | 状态查看 | [`../workflow-status/SKILL.md`](../workflow-status/SKILL.md) |

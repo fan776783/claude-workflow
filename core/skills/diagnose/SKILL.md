@@ -134,4 +134,4 @@ description: "Disciplined diagnosis loop for hard bugs and performance regressio
 
 - `fix-bug` Phase 1 开头会建议先 `/diagnose` 建反馈循环
 - `bug-batch` 内部修复协议不进入本 skill,用自己的批量分析
-- 架构级 gap 识别出来 → 手动交给 `/workflow-plan` 或 `improve-codebase-architecture` 思路
+- 架构级 gap 识别出来 → 手动交给 `/workflow-spec` 或 `improve-codebase-architecture` 思路

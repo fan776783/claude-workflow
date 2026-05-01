@@ -5,7 +5,7 @@ description: "前端视角生成后端接口冒烟脚本 — 从 spec + YApi aut
 
 <PRE-FLIGHT>
 **在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:无活跃 workflow 且用户未指定 spec / autogen 文件时,直接告知需先 `/workflow-plan` 或手动指定来源,不走 code-specs 读取。
+本 skill 的跳过条件:无活跃 workflow 且用户未指定 spec / autogen 文件时,直接告知需先 `/workflow-spec` 或手动指定来源,不走 code-specs 读取。
 </PRE-FLIGHT>
 
 <PATH-CONVENTION>
@@ -58,7 +58,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 
 - 有活跃 workflow → 记 `spec_file` / `plan_file` / `api_context.interfaces` / `project_root`
 - 无活跃 workflow + 用户传了 spec 路径参数 → 以该路径为 spec,跳过 `api_context`
-- 无活跃 workflow 且无参数 → 告知用户先 `/workflow-plan` 或 `/api-smoke <spec-path>`,退出
+- 无活跃 workflow 且无参数 → 告知用户先 `/workflow-spec` 或 `/api-smoke <spec-path>`,退出
 
 **测试栈探测**(从 `.claude/config/project-config.json` + `package.json`):
 

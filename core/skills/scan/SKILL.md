@@ -196,7 +196,7 @@ if (missing.length > 0) {
 
 📚 下一步：
   1. 查看上下文: cat .claude/repo-context.md
-  2. 启动工作流: /workflow-plan "功能需求描述"
+  2. 启动工作流: /workflow-spec "功能需求描述"
   3. 需要更轻的规划: /quick-plan
   4. UI 还原: /figma-ui <figma-url>
   5. 沉淀规范: /spec-bootstrap（首次）或 /spec-update（增量）
@@ -210,5 +210,5 @@ if (missing.length > 0) {
 /spec-update           # 沉淀规范（7 段 code-spec 或 thinking guide）
 /spec-review           # 审查 code-specs 过期 / 完整性
 /bk project set <id>   # 蓝鲸项目关联（scan Part 1.4 跳过后的手动入口）
-/workflow-plan         # 自动读取 repo-context.md + code-specs/
+/workflow-spec         # 自动读取 repo-context.md + code-specs/
 ```

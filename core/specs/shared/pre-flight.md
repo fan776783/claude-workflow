@@ -45,7 +45,7 @@
 ### 6. ADR Protocol(条件可选)
 **Read**: [`./adr-protocol.md`](./adr-protocol.md)(每会话一次即可,仅当本次任务涉及结构性决策)
 **作用**: 判断本次决策是否需要留 ADR;三重门槛定义见 adr-protocol.md。
-**适用**: `workflow-plan` § 9.2 方案选择 / `workflow-review` Stage 1 advisory / `fix-bug` Phase 4 架构级 gap。不涉及决策的任务跳过。
+**适用**: `workflow-spec` § 9.2 方案选择 / `workflow-review` Stage 1 advisory / `fix-bug` Phase 4 架构级 gap。不涉及决策的任务跳过。
 
 ## 跳过条件
 

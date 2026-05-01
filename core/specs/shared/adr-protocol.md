@@ -51,7 +51,7 @@
 
 ## 谁调用本协议
 
-- **`workflow-plan`** Spec § 9.2 "方案选择" 段：选定方案符合三重门槛 → 建议作者另立 ADR
+- **`workflow-spec`** Spec § 9.2 "方案选择" 段：选定方案符合三重门槛 → 建议作者另立 ADR
 - **`fix-bug`** Phase 4：若 `code_specs_impact = spec_gap` 且 gap 涉及架构选择（非单点 bug）→ advisory 提示写 ADR（非强制）
 - **`workflow-review`** Stage 1：发现代码实现了 spec 未记录的结构性决策 → advisory 提示补 ADR
 - **`grill-with-docs` / `improve-codebase-architecture` 等思考类 skill**：用户在讨论中做出命中三重门槛的决策 → 建议落 ADR，不自动创建

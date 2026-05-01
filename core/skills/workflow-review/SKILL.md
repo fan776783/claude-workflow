@@ -491,5 +491,5 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 ## 推荐入口顺序
 
 ```
-/workflow-plan → /workflow-execute → /workflow-review → /workflow-archive
+/workflow-spec → /workflow-plan → /workflow-execute → /workflow-review → /workflow-archive
 ```
