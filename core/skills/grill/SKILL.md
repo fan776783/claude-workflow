@@ -1,6 +1,6 @@
 ---
 name: grill
-description: "对齐澄清 - 在动手写代码 / 写 plan / 写 spec 之前,把模糊需求反复质询到共享理解为止。触发条件:用户说「帮我理清」「先别写」「grill me」「我想想怎么做」「需求不清楚」「写登录 / 加字段 / 加 API 之类模糊描述」。替代旧 /enhance(prompt 改写)和 quick-plan Step 1 的 Ambiguity Gate。"
+description: "Use when 用户说「帮我理清」「先别写」「grill me」「我想想怎么做」「需求不清楚」, or 用户给出「写登录 / 加字段 / 加 API」之类模糊描述需要澄清。替代旧 /enhance 与 quick-plan Step 1 Ambiguity Gate。"
 ---
 
 <PRE-FLIGHT>
@@ -65,6 +65,6 @@ description: "对齐澄清 - 在动手写代码 / 写 plan / 写 spec 之前,把
 ## 边界
 
 grill 产出的是**对齐后的任务描述**,不是 plan / spec。后续动作:
-- 要出 plan → `/quick-plan` 或 `/workflow-plan`
+- 要出 plan → `/quick-plan` 或 `/workflow-spec`
 - 要沉淀词汇 / convention → `/spec-update`
 - 要直接改代码(明确是 typo 级) → 直接改,不用再经过 grill

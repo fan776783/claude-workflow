@@ -1,6 +1,6 @@
 ---
 name: research
-description: "统一研究入口 - 代码库 / 生态 / 外部文档检索。触发条件:用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」等,在动手实现前把能复用的方案找出来,或在做技术决策前拉齐外部证据。合并替代旧 /search-first 与 /deep-research,默认按关键词自动路由。"
+description: "Use when 用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」, or 在动手实现前需要把能复用的方案找出来,or 做技术决策前需要拉齐外部证据。"
 ---
 
 <PRE-FLIGHT>
@@ -74,7 +74,7 @@ description: "统一研究入口 - 代码库 / 生态 / 外部文档检索。触
 
 ### 与 workflow 的集成
 
-`/workflow-plan` 的 Phase 0 可主动触发本模式,尤其:外部 API 集成 / 数据处理 / 认证授权 / 文件格式解析。
+`/workflow-spec` 的代码分析阶段可主动触发本模式,尤其:外部 API 集成 / 数据处理 / 认证授权 / 文件格式解析。
 
 ## 模式 B：External（多源引文）
 
@@ -134,6 +134,6 @@ firecrawl / exa 不可用 → 自动降级到 `read_url_content` + Web 搜索。
 
 ## 与其他 skill 的关系
 
-- `/workflow-plan` Phase 0 代码分析时可按需触发本 skill
+- `/workflow-spec` Phase 0 代码分析时可按需触发本 skill
 - `/grill` 在质询过程中若需要拉外部证据 → 跳到本 skill
 - `/fix-bug` Phase 1 若怀疑是第三方库 bug → 本 skill --external 查官方 issue / changelog

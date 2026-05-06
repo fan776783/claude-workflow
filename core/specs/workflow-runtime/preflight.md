@@ -1,6 +1,6 @@
 # Preflight 预检module
 
-> 从 workflow-plan 提取的共享基础设施预检。可被 `/workflow-plan`、`/quick-plan` 等命令复用。
+> 从 workflow-spec 提取的共享基础设施预检。可被 `/workflow-spec`、`/quick-plan` 等命令复用。
 
 ## 预检workflow
 
@@ -54,7 +54,7 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
 
 检查 `~/.claude/workflows/{projectId}/workflow-state.json` 是否存在未archive的workflow。
 
-> 此步骤仅在 `/workflow-plan` 中执行，`/quick-plan` 等轻量命令跳过。
+> 此步骤仅在 `/workflow-spec` 中执行，`/quick-plan` 等轻量命令跳过。
 
 **决策树**：
 

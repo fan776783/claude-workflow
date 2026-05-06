@@ -9,7 +9,7 @@
 - **本发行物文件**：协议定义，**不**参与 `scripts/validate.js` 的 glossary-drift lint
 - **项目级同名文件** `.claude/code-specs/shared/business-glossary.md`：记录实际业务术语；通过 `/spec-update` 维护；`/spec-review` 扫一致性作为 advisory
 - **消费者**：
-  - `workflow-plan`：Spec § 1 Context / § 4 User-facing Behavior / § 5 Architecture 扩写时推荐使用 canonical 业务术语
+  - `workflow-spec`：Spec § 1 Context / § 4 User-facing Behavior / § 5 Architecture 扩写时推荐使用 canonical 业务术语
   - `fix-bug`：Phase 1 检索时比对代码与词表，发现漂移 → 进入 `code_specs_advisory`
   - `spec-update`：写入 / 追加业务术语的入口（走现有 convention / contract 分流逻辑）
 

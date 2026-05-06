@@ -75,11 +75,11 @@ role: spec
 - 页面 / 接口 / 日志 / 状态变化：
 - 用户可感知反馈：
 
-### 4.4 UX Design（前端任务适用）
+### 4.4 UX & UI Design（前端任务适用）
 
 <!-- 后端/CLI 项目删除本节 -->
 
-#### User Flow（Mermaid）
+#### 4.4.1 User Flow（Mermaid）
 
 ```mermaid
 flowchart TD
@@ -94,7 +94,7 @@ flowchart TD
 | 核心操作 | 入口到完成核心功能 | |
 | 异常/边界 | 操作失败、数据为空、权限不足 | |
 
-#### Page Hierarchy
+#### 4.4.2 Page Hierarchy
 
 | 层级 | 页面名 | 功能module | 导航方式 |
 |------|--------|---------|---------|
@@ -102,6 +102,18 @@ flowchart TD
 | L1 | | | |
 
 > L0 module不超过 4 个。
+
+#### 4.4.3 Page Layout Summary
+
+<!-- 由 Step 4.D 设计深化阶段填写。来源：Figma 设计稿 / 截图 / 交互图推断 -->
+
+| 页面 | 变更类型 | 主要区域 | 布局模式 | 关键组件 | 来源 |
+|------|---------|---------|---------|---------|------|
+| | | | | | |
+
+**布局约束**：
+
+- （响应式断点、最大宽度等）
 
 ---
 
@@ -156,6 +168,35 @@ flowchart TD
 | <名> | 1 | 暂为 indirection——spec 承诺的第二个 adapter 见 § X |
 
 只有 1 个 adapter 且无计划加第二个 → 该行删除、并在 § 5.1 把抽象接口改为直接内联实现（避免 single-adapter abstraction）。
+
+### 5.6 System Design（后端任务适用）
+
+<!-- 前端/CLI 项目删除本节。由 Step 4.D 设计深化阶段填写 -->
+
+#### 5.6.1 API Contract Summary
+
+| 端点 | 方法 | 请求体要点 | 响应体要点 | 鉴权 |
+|------|------|-----------|-----------|------|
+| | | | | |
+
+#### 5.6.2 Data Flow
+
+```mermaid
+flowchart LR
+  Client --> API[API Gateway]
+  API --> Service[Business Service]
+  Service --> DB[(Database)]
+```
+
+#### 5.6.3 Service Boundaries
+
+| 服务/模块 | 职责 | 通信方式 | 关键约束 |
+|----------|------|---------|----------|
+| | | | |
+
+#### 5.6.4 Data Migration（条件）
+
+<!-- 仅当涉及 schema 变更时填写。无 schema 变更时删除本节 -->
 
 ---
 

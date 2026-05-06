@@ -11,7 +11,8 @@
 
 | Surface | 运行时角色 | 对应 hooks |
 |---------|------------|-----------| 
-| `workflow-plan` | 规划workflow与人工 gate | 无专属 hook；仅在执行前由 `PreToolUse(Task)` 间接保护 |
+| `workflow-spec` | Spec 生成 + 设计深化 + 人工 gate | 无专属 hook；仅在执行前由 `PreToolUse(Task)` 间接保护 |
+| `workflow-plan` | Plan 扩写（在已审批 Spec 上） | 无专属 hook |
 | `workflow-execute` | 恢复执行器、推进任务、触发验证与review | `SessionStart`、`PreToolUse(Task)` |
 | `workflow-review` | 两阶段review与 `quality_gates.*` 写入 | 无专属 hook；质量关卡由 skill 指令驱动 |
 | `workflow-delta` | delta 分析与 apply | 无专属 hook |

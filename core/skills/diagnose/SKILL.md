@@ -1,6 +1,6 @@
 ---
 name: diagnose
-description: "Disciplined diagnosis loop for hard bugs and performance regressions. Reproduce → build feedback loop → hypothesise → instrument → fix → regression-test. Use when user says 'diagnose this' / 'debug this' / 产出 '怎么定位' / 'reproduce 不出来',reports a bug / throws / fails, or describes a perf regression. 不写修复代码 —— 产出根因 + 推荐修复方案,交给 /fix-bug 或 /workflow-execute 消费。"
+description: "Use when user says 'diagnose this' / 'debug this' / '怎么定位' / 'reproduce 不出来', or reports a bug that throws/fails, or describes a perf regression. 产出根因 + 推荐修复方案,不直接写修复代码 — 修复交给 /fix-bug 或 /workflow-execute 消费。"
 ---
 
 <PRE-FLIGHT>
@@ -134,4 +134,4 @@ description: "Disciplined diagnosis loop for hard bugs and performance regressio
 
 - `fix-bug` Phase 1 开头会建议先 `/diagnose` 建反馈循环
 - `bug-batch` 内部修复协议不进入本 skill,用自己的批量分析
-- 架构级 gap 识别出来 → 手动交给 `/workflow-plan` 或 `improve-codebase-architecture` 思路
+- 架构级 gap 识别出来 → 手动交给 `/workflow-spec` 或 `improve-codebase-architecture` 思路

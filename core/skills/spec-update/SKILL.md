@@ -1,6 +1,6 @@
 ---
 name: spec-update
-description: "显式捕获学到的内容并写入 .claude/code-specs/（v2.2）。按主题写入 convention 或 contract 文件，分基础/深度更新两条路径。"
+description: "Use when 用户调用 /spec-update, or 工作中沉淀出新约定/接口契约/模式需要落到 .claude/code-specs/, or workflow-review 末尾建议沉淀 code-spec。"
 ---
 
 <PRE-FLIGHT>
