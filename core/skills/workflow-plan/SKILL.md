@@ -46,7 +46,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-root
 - 禁止修改 CLI 已生成的 task ID,尤其是首个 task ID
 - 扩写仅限每个 task 内部的步骤、代码块、验证命令、Patterns / Mandatory Reading;新增 task 必须放在末尾,不得插入或重排
 
-**输出**:在 CLI 已生成的 `.claude/plans/{task-name}.md` 骨架上 Edit 扩写(骨架使用 [`../../specs/workflow-templates/plan-template.md`](../../specs/workflow-templates/plan-template.md))。
+**输出**:在 CLI 已生成的 `~/.claude/workflows/{pid}/plans/{task-name}-{MMDD}.md` 骨架上 Edit 扩写(骨架使用 [`../../specs/workflow-templates/plan-template.md`](../../specs/workflow-templates/plan-template.md))。
 
 ### 设计原则
 

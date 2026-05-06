@@ -119,7 +119,7 @@ git log -1 --format=%ct -- <file>
 - manifests/v5.2.0.json: 0 rename, 0 safe-file-delete, 0 delete
 ```
 
-4. 输出报告路径 `.claude/reports/spec-review-{{date}}.md`
+4. 输出报告路径 `~/.claude/workflows/{pid}/reports/spec-review-{{date}}.md`
 5. 不修改任何 code-specs 文件
 
 ## 用法

@@ -8,7 +8,7 @@
 
 ## 输出路径
 
-`.claude/reports/{task-name}-report.md`
+`~/.claude/workflows/{pid}/reports/{task-name}-report-{MMDD}.md`
 
 ## 报告结构
 

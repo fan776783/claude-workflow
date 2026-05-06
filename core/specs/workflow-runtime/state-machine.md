@@ -138,8 +138,8 @@ node utils/workflow/workflow_cli.js journal search "关键词"
 |------|------|------|
 | 运行时状态 | `~/.claude/workflows/{projectId}/workflow-state.json` | CLI 自动管理 |
 | 项目配置 | `.claude/config/project-config.json` | 项目目录下 |
-| Spec | `.claude/specs/{name}.md` | 项目目录下 |
-| Plan | `.claude/plans/{name}.md` | 项目目录下 |
+| Spec | `~/.claude/workflows/{projectId}/specs/{name}-{MMDD}.md` | workflowDir 下 |
+| Plan | `~/.claude/workflows/{projectId}/plans/{name}-{MMDD}.md` | workflowDir 下 |
 
 > `workflow-state.json` 只能位于 `~/.claude/workflows/` 下，**不得存在于项目目录**。
 
@@ -152,12 +152,14 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
   "project_id": "abc123",
   "status": "running",
   "current_tasks": ["T1"],
-  "plan_file": ".claude/plans/example.md",
-  "spec_file": ".claude/specs/example.md",
+  "plan_file": "/Users/<you>/.claude/workflows/{pid}/plans/example-0506.md",
+  "spec_file": "/Users/<you>/.claude/workflows/{pid}/specs/example-0506.md",
   "progress": { "completed": [], "failed": [], "skipped": [] },
   "updated_at": "2026-03-29T10:00:00Z"
 }
 ```
+
+> `plan_file` / `spec_file` 持久化的是 **OS 已展开的绝对路径**（`os.homedir()` 解析结果），不写 `~`。读取侧通过 `path.isAbsolute` 区分新旧格式（旧格式为项目相对路径如 `.claude/plans/foo.md`）。
 
 > 其他字段（`quality_gates`, `context_injection`, `continuation`, `discussion`, `ux_design`, `requirement_baseline`, `initial_head_commit` 等）为可选增强字段，由 CLI 按需自动添加。
 

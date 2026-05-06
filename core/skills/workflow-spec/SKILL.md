@@ -150,7 +150,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 - **§ 4.4 UX & UI Design 和 § 5.6 System Design 不在本 Step 填写**,留给 Step 4.D
 
 **输入**:需求(PRD 或内联)+ `analysis-result.json` + `.claude/code-specs/` 相关规范文件。
-**输出**:在 `.claude/specs/{task-name}.md` 骨架上 Edit 扩写。
+**输出**:在 `~/.claude/workflows/{pid}/specs/{task-name}-{MMDD}.md` 骨架上 Edit 扩写。
 
 **Spec 核心章节**(本 Step 覆盖):
 1. **Context** — 背景和目标
