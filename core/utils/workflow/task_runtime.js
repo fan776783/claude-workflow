@@ -102,7 +102,8 @@ function getTaskVerificationCommands(task) {
 function getSpecContent(projectRoot, state, maxChars = 2000) {
   const specFile = state?.spec_file || ''
   if (!specFile) return ''
-  const specPath = path.join(path.resolve(projectRoot || process.cwd()), specFile)
+  // 支持绝对路径（新格式）和相对路径（旧格式兼容）
+  const specPath = path.isAbsolute(specFile) ? specFile : path.join(path.resolve(projectRoot || process.cwd()), specFile)
   const specContent = readFile(specPath)
   if (!specContent) return ''
   return specContent.length > maxChars ? specContent.slice(0, maxChars) : specContent

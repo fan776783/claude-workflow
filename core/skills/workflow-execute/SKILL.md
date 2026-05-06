@@ -279,7 +279,7 @@ CLI 自动标记 `skipped` + 更新 plan.md + state.json + 找下一任务。
 
 所有 task `completed`(或 `skipped`)时:
 
-1. 生成实施报告(模板见 [`references/implementation-report.md`](references/implementation-report.md)),输出到 `.claude/reports/{task-name}-report.md`
+1. 生成实施报告(模板见 [`references/implementation-report.md`](references/implementation-report.md)),输出到 `~/.claude/workflows/{pid}/reports/{task-name}-report-{MMDD}.md`
 2. 状态设为 `review_pending`,报告路径写入 `state.report_path`
 3. 输出:
 ```
@@ -290,7 +290,7 @@ CLI 自动标记 `skipped` + 更新 plan.md + state.json + 找下一任务。
 
 **实施报告 checkpoint**(必须输出):
 ```
-📊 Report: .claude/reports/{task-name}-report.md（{N} 行）
+📊 Report: ~/.claude/workflows/{pid}/reports/{task-name}-report-{MMDD}.md（{N} 行）
 ```
 
 > 报告生成是 Step 8 的一部分,不是可选项。报告数据来自 `workflow-state.json`(progress, quality_gates)、`plan.md`(原始任务)、`git diff`(delta 统计)。

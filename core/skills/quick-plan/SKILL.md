@@ -60,13 +60,13 @@ argument-hint: <需求描述 | path/to/requirement.md>
 
 ### Step 3: Plan 生成
 
-产出 `.claude/plans/{kebab-case-name}.plan.md`。模板见 [references/plan-template.md](references/plan-template.md)。
+产出 `~/.claude/workflows/{pid}/plans/{kebab-case-name}-{MMDD}.plan.md`。模板见 [references/plan-template.md](references/plan-template.md)。
 
 ### Step 4: 展示摘要并退让
 
 展示 plan 摘要（复杂度 + 信心评分 + 文件数 / 任务数 + 主要风险），然后用自然语言告诉用户：
 
-> plan 已生成到 `.claude/plans/<name>.plan.md`。
+> plan 已生成到 `~/.claude/workflows/{pid}/plans/<name>-{MMDD}.plan.md`。
 > - 要直接执行 → 自行实施或交给 `/workflow-execute`（先注意下面的注意）
 > - 要修改 plan → 告诉我反馈，我调整
 > - 要升级到完整workflow（spec + 状态机 + 追溯）→ `/workflow-spec`

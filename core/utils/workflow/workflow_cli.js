@@ -60,6 +60,13 @@ function detectGitHead(projectRoot) {
 function inferSpecRelativeFromPlan(planRelative, projectRoot) {
   const normalizedPlan = String(planRelative || '').replace(/\\/g, '/')
   const candidates = []
+  // 新路径格式：绝对路径指向 workflowDir/plans/
+  if (path.isAbsolute(normalizedPlan) && normalizedPlan.includes('/plans/')) {
+    const dir = path.dirname(normalizedPlan)
+    const base = path.basename(normalizedPlan)
+    candidates.push(path.join(dir.replace(/\/plans$/, '/specs'), base))
+  }
+  // 兼容旧路径格式
   if (normalizedPlan.startsWith('.claude/plans/')) {
     candidates.push(normalizedPlan.replace('.claude/plans/', '.claude/specs/'))
   }
@@ -67,7 +74,8 @@ function inferSpecRelativeFromPlan(planRelative, projectRoot) {
   if (normalizedPlan === '.cursor/plan.md') candidates.push('.cursor/spec.md')
 
   for (const candidate of candidates) {
-    if (fs.existsSync(path.join(projectRoot, candidate))) return candidate
+    const resolvedPath = path.isAbsolute(candidate) ? candidate : path.join(projectRoot, candidate)
+    if (fs.existsSync(resolvedPath)) return candidate
   }
   return null
 }
@@ -92,7 +100,9 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
     const tasks = parseTasksV2(tasksContent)
     if (!tasks.length) return { error: '无法从指定的 plan 文件解析任务' }
     const inferred = summarizeTaskProgress(tasks)
-    const planRelative = path.relative(root, explicitPlan).replace(/\\/g, '/')
+    const planRelative = explicitPlan.startsWith(path.join(os.homedir(), '.claude', 'workflows'))
+      ? explicitPlan
+      : path.relative(root, explicitPlan).replace(/\\/g, '/')
     const specFile = inferSpecRelativeFromPlan(planRelative, root)
     const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
     const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
@@ -123,10 +133,21 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
     const absolute = path.join(root, candidate)
     if (fs.existsSync(absolute)) planCandidates.push(absolute)
   }
+  // 扫描项目目录下的 .claude/plans/
   const plansDir = path.join(root, '.claude', 'plans')
   if (fs.existsSync(plansDir)) {
     for (const entry of fs.readdirSync(plansDir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.md')) planCandidates.push(path.join(plansDir, entry.name))
+    }
+  }
+  // 扫描 workflowDir 下的 plans/ 目录（新路径格式）
+  const wfDir = getWorkflowsDir(pid)
+  if (wfDir) {
+    const wfPlansDir = path.join(wfDir, 'plans')
+    if (fs.existsSync(wfPlansDir)) {
+      for (const entry of fs.readdirSync(wfPlansDir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.md')) planCandidates.push(path.join(wfPlansDir, entry.name))
+      }
     }
   }
 
@@ -153,7 +174,9 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
   if (!tasks.length) return { error: '无法从 plan.md 解析任务' }
   const inferred = summarizeTaskProgress(tasks)
 
-  const planRelative = tasksPath ? path.relative(root, tasksPath).replace(/\\/g, '/') : null
+  const planRelative = tasksPath
+    ? (tasksPath.startsWith(path.join(os.homedir(), '.claude', 'workflows')) ? tasksPath : path.relative(root, tasksPath).replace(/\\/g, '/'))
+    : null
   const specFile = inferSpecRelativeFromPlan(planRelative, root)
 
   const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []

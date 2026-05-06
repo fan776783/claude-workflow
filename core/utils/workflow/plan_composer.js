@@ -5,6 +5,14 @@ const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 
+// 生成当前日期后缀，格式 MMDD（如 0506）
+function getDateSuffix() {
+  const now = new Date()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  return `${mm}${dd}`
+}
+
 const { getWorkflowsDir, validateProjectId } = require('./path_utils')
 const { parseTasksV2 } = require('./task_parser')
 const {
@@ -322,7 +330,7 @@ function inferTaskPackage(projectRoot, config) {
   return path.basename(path.resolve(projectRoot))
 }
 
-function buildTaskBlock(entry, index, allEntries = [], pkg = '') {
+function buildTaskBlock(entry, index, allEntries = [], pkg = '', specRef = '') {
   const taskId = `T${index + 1}`
   const depends = index > 0 ? [`T${index}`] : []
   const fileSlug = entry.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -340,13 +348,14 @@ function buildTaskBlock(entry, index, allEntries = [], pkg = '') {
   ].join('\n')
   const criticalConstraints = (entry.protected_details && entry.protected_details.length ? entry.protected_details : ['保持现有功能不受影响']).join(', ')
   const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
+  const specLine = specRef ? String(specRef).replace(/\\/g, '/') : `${fileBucket}/${fileSlug}.md`
   return `## ${taskId}: 实现 ${entry.id} ${entry.summary}
 - **阶段**: implement
 ${packageLine}- **Spec 参考**: ${entry.spec_section}, §7
 - **Plan 参考**: P${index + 1}
 - **需求 ID**: ${entry.id}
 - **创建文件**: ${fileBucket}/${fileSlug}.ts
-- **修改文件**: .claude/specs/${fileSlug}.md
+- **修改文件**: ${specLine}
 - **测试文件**: ${testBucket}/${fileSlug}.test.ts
 - **关键约束**: ${criticalConstraints}
 - **验收项**: ${entry.acceptance_signal || entry.summary}
@@ -361,16 +370,17 @@ ${steps}
 `
 }
 
-function buildPlanTasks(requirementCoverage = [], pkg = '') {
+function buildPlanTasks(requirementCoverage = [], pkg = '', specRef = '') {
   if (!requirementCoverage.length) {
     const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
+    const specLine = specRef ? String(specRef).replace(/\\/g, '/') : 'src/shared/r-001.md'
     return `## T1: 实现核心需求
 - **阶段**: implement
 ${packageLine}- **Spec 参考**: §2, §5, §7
 - **Plan 参考**: P1
 - **需求 ID**: R-001
 - **创建文件**: src/shared/r-001.ts
-- **修改文件**: .claude/specs/r-001.md
+- **修改文件**: ${specLine}
 - **测试文件**: tests/shared/r-001.test.ts
 - **关键约束**: 保持现有功能不受影响, 仅实现当前明确范围
 - **验收项**: 核心需求完成, 结果可验证
@@ -385,15 +395,26 @@ ${packageLine}- **Spec 参考**: §2, §5, §7
 - **验证期望**: PASS
 `
   }
-  return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries, pkg)).join('\n')
+  return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries, pkg, specRef)).join('\n')
 }
 
-function inferPlanRelativeFromSpec(specRelative, taskName) {
+function inferPlanRelativeFromSpec(specRelative, taskName, workflowDir = null) {
   const normalizedSpec = String(specRelative || '').replace(/\\/g, '/')
+  // 新路径格式：绝对路径指向 workflowDir/specs/
+  if (path.isAbsolute(normalizedSpec) && normalizedSpec.includes('/specs/')) {
+    const dir = path.dirname(normalizedSpec)
+    const base = path.basename(normalizedSpec)
+    return path.join(dir.replace(/\/specs$/, '/plans'), base)
+  }
+  // 兼容旧路径格式
   if (normalizedSpec.startsWith('.claude/specs/')) {
     return normalizedSpec.replace('.claude/specs/', '.claude/plans/')
   }
   const slug = slugifyFilename(taskName) || 'workflow-task'
+  const dateSuffix = getDateSuffix()
+  if (workflowDir) {
+    return path.join(workflowDir, 'plans', `${slug}-${dateSuffix}.md`)
+  }
   return path.join('.claude', 'plans', `${slug}.md`).replace(/\\/g, '/')
 }
 
@@ -429,15 +450,19 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   const taskName = deriveTaskName(requirementText, sourcePath)
   const summary = summarizeText(requirementText, 120)
   const slug = slugifyFilename(taskName) || `workflow-${crypto.createHash('md5').update(requirementText).digest('hex').slice(0, 12)}`
+  const dateSuffix = getDateSuffix()
 
-  const specRelative = path.join('.claude', 'specs', `${slug}.md`)
-  const planRelative = path.join('.claude', 'plans', `${slug}.md`)
-  const specPath = path.join(root, specRelative)
-  const planPath = path.join(root, planRelative)
+  // 产物存放到 ~/.claude/workflows/{pid}/ 下，文件名带日期后缀
+  const specPath = path.join(workflowDir, 'specs', `${slug}-${dateSuffix}.md`)
+  const planPath = path.join(workflowDir, 'plans', `${slug}-${dateSuffix}.md`)
+  // specRelative/planRelative 名义保留（state.spec_file/plan_file 字段历史叫法），
+  // 但在新路径方案下其值是 OS 展开后的绝对路径；下游通过 path.isAbsolute 区分新旧格式
+  const specRelative = specPath
+  const planRelative = planPath
 
   if (!force) {
-    if (fs.existsSync(specPath)) return { error: `Spec 已存在: ${specRelative.replace(/\\/g, '/')}` }
-    if (fs.existsSync(planPath)) return { error: `Plan 已存在: ${planRelative.replace(/\\/g, '/')}` }
+    if (fs.existsSync(specPath)) return { error: `Spec 已存在: ${specPath}` }
+    if (fs.existsSync(planPath)) return { error: `Plan 已存在: ${planPath}` }
   }
 
   const trimmed = String(requirementText || '').trim()
@@ -535,7 +560,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
       files_modify: '- 无',
       files_test: '- 无',
       requirement_coverage: renderRequirementCoverage(planRequirementCoverage),
-      tasks: buildPlanTasks(planRequirementCoverage, planPackage),
+      tasks: buildPlanTasks(planRequirementCoverage, planPackage, specRelative.replace(/\\/g, '/')),
     })
     : null
 
@@ -661,7 +686,8 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
 
   const specRelative = String(normalizedState.spec_file || '').replace(/\\/g, '/')
   if (!specRelative) return { error: '缺少 spec_file，无法继续生成 Plan', project_id: resolvedProjectId }
-  const specPath = path.join(root, specRelative)
+  // 支持绝对路径（新格式）和相对路径（旧格式兼容）
+  const specPath = path.isAbsolute(specRelative) ? specRelative : path.join(root, specRelative)
   if (!fs.existsSync(specPath)) return { error: 'spec 文件不存在，无法继续生成 Plan', project_id: resolvedProjectId }
   const specContent = fs.readFileSync(specPath, 'utf8')
 
@@ -670,8 +696,8 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   const taskName = normalizedState.task_name || deriveTaskName(requirementText, null)
   const summary = summarizeText(extractSubsection(extractNamedSection(specContent, 'Scope'), 'In Scope') || requirementText, 120)
 
-  const planRelative = inferPlanRelativeFromSpec(normalizedState.plan_file || specRelative, taskName)
-  const planPath = path.join(root, planRelative)
+  const planRelative = inferPlanRelativeFromSpec(normalizedState.plan_file || specRelative, taskName, workflowDir)
+  const planPath = path.isAbsolute(planRelative) ? planRelative : path.join(root, planRelative)
   const discussionState = normalizedState.discussion || {}
   const discussionForSignals = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: discussionState.unresolved_dependencies || [] }
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
@@ -732,7 +758,7 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
     files_modify: '- 无',
     files_test: '- 无',
     requirement_coverage: renderRequirementCoverage(requirementCoverage),
-    tasks: buildPlanTasks(requirementCoverage, resumePlanPackage),
+    tasks: buildPlanTasks(requirementCoverage, resumePlanPackage, specRelative),
   })
   const parsedTasks = parseTasksV2(planContent)
   if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析', project_id: resolvedProjectId }
