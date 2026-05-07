@@ -171,6 +171,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 
 详细 CLI 与返回字段:[`references/parallel-dispatch.md`](references/parallel-dispatch.md)。平台检测、结果回收、冲突降级:[`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md)。
 
+### Sub-agent dispatch prompt 契约
+
+通过 Task / `spawn_agent` 派发任意 sub-agent 时,**dispatch prompt 第一行必须是** `Active task: <task_id>`(可选附加 `Spec:` / `Plan:` 行)。这是 hook 失效场景下 sub-agent 仍能识别 active task 的唯一兜底。详见 [`../dispatching-parallel-agents/SKILL.md`](../dispatching-parallel-agents/SKILL.md) § Dispatch Prompt Contract。`pre-execute-inject.js` 在 hook 端做幂等 normalize,dispatcher 已写则不重复。
+
 ## Step 6: Post-Execution Pipeline(5 步管线)
 
 每个 task 完成后**依次**完成。①→④ 强制,② 内容建议性但**输出证据强制**。连续执行多个 task 时每个 task 独立走完管线后才进入下一个,不得攒到最后批量。

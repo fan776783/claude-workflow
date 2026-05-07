@@ -1,6 +1,6 @@
 # 设计深化 — 前端分支（§ 4.4 UX & UI Design）
 
-> 本文件从 `design-elaboration.md` 拆分，专注前端设计深化流程。
+> 配合 SKILL.md Step 5 前端分支使用，专注前端设计深化流程。
 
 ## § 4.4.1 User Flow
 
@@ -106,4 +106,4 @@ type DesignSource =
 
 ## 与 figma-ui 的关系
 
-Step 4.D 只做**布局级别识别**（区域划分、尺寸锚点），不做像素级还原。执行阶段的像素级还原仍由 `figma-ui` skill 完整负责。
+Step 5 只做**布局级别识别**（区域划分、尺寸锚点），不做像素级还原。执行阶段的像素级还原仍由 `figma-ui` skill 完整负责。

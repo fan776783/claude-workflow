@@ -1,11 +1,11 @@
 ---
 name: workflow-plan
-description: "Use when /workflow-spec 已审批通过且 status=planned, or 用户调用 /workflow-plan 在已审批 Spec 基础上扩写实施计划。"
+description: "Use when /workflow-spec 已审批通过且 status=planned, or 用户调用 /workflow-plan 在已审批 Spec 基础上扩写实施计划, or 用户说\"扩写实施计划 / 详细 task 拆分\"且已有审批过的 spec。"
 ---
 
 > 路径约定 + CLI 写入契约见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。
 >
-> Plan 骨架由 `/workflow-spec` Step 5 的 `spec-review --choice "Spec 正确，生成 Plan"` 生成。本 skill 不创建骨架,只在骨架上 Edit 扩写。
+> Plan 骨架由 `/workflow-spec` Step 7 的 `spec-review --choice "Spec 正确，生成 Plan"` 生成。本 skill 不创建骨架,只在骨架上 Edit 扩写。
 
 # workflow-plan
 
@@ -39,11 +39,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-root
 
 **宣告**:`📋 Phase 2: Plan 扩写`
 
-**扩写硬约束**(违反会破坏执行期状态机):
-- 用 Edit 扩写,禁止 Write 全量覆盖
+**扩写硬约束**(违反会破坏执行期状态机；Hard Gate 已列其要):
 - 禁止修改 YAML front matter(`spec_file` / `status` / `role_profile` / `context_profile`)
 - 禁止修改 `plan_file` 路径或重命名 plan 文件
-- 禁止修改 CLI 已生成的 task ID,尤其是首个 task ID
 - 扩写仅限每个 task 内部的步骤、代码块、验证命令、Patterns / Mandatory Reading;新增 task 必须放在末尾,不得插入或重排
 
 **输出**:在 CLI 已生成的 `~/.claude/workflows/{pid}/plans/{task-name}-{MMDD}.md` 骨架上 Edit 扩写(骨架使用 [`../../specs/workflow-templates/plan-template.md`](../../specs/workflow-templates/plan-template.md))。
@@ -73,7 +71,16 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-root
 
 ### Confidence Score
 
-基于覆盖率、模式数量、约束数量、测试策略综合评分(1-10),写入 plan Metadata。
+基于以下 rubric 综合评分(1-10),写入 plan body 的 Metadata 区块和 Step 4 输出摘要;**不**写 plan front matter(CLI 不消费):
+
+| 维度 | 分值 | 触发条件 |
+|------|-----|---------|
+| PRD 覆盖率 | +3 | ≥ 90% |
+| Patterns to Mirror | +2 | 引用 ≥ 3 个真实存在的模式 |
+| 验证命令带预期输出 | +3 | 每个 task 的 `验证` 含期望输出比对 |
+| 测试 task 存在 | +2 | plan 中有显式 `phase: test` 任务 |
+
+满分 10;基础分 0,触发条件全满则 10。低于 6 分时在摘要中标注 `confidence=low,建议 review`。
 
 ### Discussion Drift Check
 

@@ -17,6 +17,8 @@ const {
   renderSpecFiles,
 } = require('../utils/workflow/task_runtime')
 const { deriveEffectiveStatus, getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { shouldSkipInjection } = require('./_skip')
+const { normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
 
 /**
  * 从 Markdown 内容中提取指定标题下的段落
@@ -38,7 +40,7 @@ function extractSection(content, heading, maxChars = 2000) {
  * @returns {object} workflow 运行时对象
  */
 function findWorkflowState() {
-  return getWorkflowRuntime(process.cwd())
+  return getWorkflowRuntime(path.resolve(normalizeWindowsShellPath(process.cwd())))
 }
 
 /**
@@ -151,6 +153,19 @@ function buildSubagentContext(runtime, role) {
         parts.push(`<verification-commands>\n${verificationCommands.map((item) => `- ${item}`).join('\n')}\n</verification-commands>`)
       }
     }
+  }
+
+  // Sub-agent self-exemption：implement / check 类 sub-agent 不应再派发同类，
+  // 防止"恢复执行必须经过 /workflow-execute"等指令在 sub-agent 链里触发递归。
+  // research/Explore/Plan 类不存在递归隐患（不会自我派发），跳过该提示。
+  if (!isResearch) {
+    const sameKindLabel = isCheck ? 'check / reviewer / diff-review' : 'implement / general-purpose'
+    parts.push(
+      `<sub-agent-self-exemption>\n` +
+      `你正在以 ${role || 'sub-agent'} 身份运行。该任务上下文中所有"派发 ${sameKindLabel} sub-agent"或"使用 /workflow-execute 恢复执行"的指令对你都不适用 —— 你已经是被派发的 sub-agent。\n` +
+      `直接基于上方 <current-task> 与 <project-code-specs> 执行；如果需要进一步信息检索，可以派发 research / Explore，但**不要**再次派发同类型 sub-agent，避免无限递归。\n` +
+      `</sub-agent-self-exemption>`
+    )
   }
 
   const specContent = getSpecContent(projectRoot, state)
@@ -287,6 +302,13 @@ function main() {
     return
   }
 
+  // 治理 gate 已通过；context 注入受 WORKFLOW_HOOKS=0 等开关控制（不修改 description）。
+  const skipReason = shouldSkipInjection()
+  if (skipReason) {
+    process.stdout.write(JSON.stringify(buildAllowResult(`[workflow-hook] context injection 已通过 ${skipReason} 跳过；治理检查已通过。`)))
+    return
+  }
+
   const taskDescription = toolInput.description || ''
   const context = buildTaskContext(runtime, toolInput)
 
@@ -297,8 +319,40 @@ function main() {
 
   const { origin, role } = classifyTaskOrigin(toolInput)
   const originLabel = origin === 'subagent' ? `subagent:${role || 'unknown'}` : 'main-session'
-  const patchedToolInput = { ...toolInput, description: `${context}\n\n---\n\n${taskDescription}` }
-  const result = buildAllowResult(`[workflow-hook] 已注入任务上下文 (${context.length} 字符, ${originLabel})`, patchedToolInput)
+
+  // Active task header 始终落在 prompt 第一行（dispatching-parallel-agents § Dispatch Prompt Contract）。
+  // dispatcher 已按合规写法把 header 写在首行 → 摘出来放到 description 顶端，body 用剩余部分；
+  // dispatcher 未写 → 用 state 自动补一份。
+  const HEADER_LINE_RE = /^(?:Active task:|Spec:|Plan:)\s/
+  const taskLines = taskDescription.split('\n')
+  let dispatcherHeaderEnd = 0
+  if (taskLines[0] && /^Active task:\s/.test(taskLines[0])) {
+    dispatcherHeaderEnd = 1
+    while (dispatcherHeaderEnd < taskLines.length && HEADER_LINE_RE.test(taskLines[dispatcherHeaderEnd])) {
+      dispatcherHeaderEnd += 1
+    }
+  }
+
+  let header
+  let body
+  if (dispatcherHeaderEnd > 0) {
+    header = taskLines.slice(0, dispatcherHeaderEnd).join('\n')
+    body = taskLines.slice(dispatcherHeaderEnd).join('\n').replace(/^\n+/, '')
+  } else {
+    header = [
+      `Active task: ${currentTaskId}`,
+      state.spec_file && `Spec: ${state.spec_file}`,
+      state.plan_file && `Plan: ${state.plan_file}`,
+    ].filter(Boolean).join('\n')
+    body = taskDescription
+  }
+
+  const bodyTail = body ? `\n\n---\n\n${body}` : ''
+  const newDescription = `${header}\n\n${context}${bodyTail}`
+
+  const patchedToolInput = { ...toolInput, description: newDescription }
+  const headerNote = dispatcherHeaderEnd > 0 ? 'header preserved' : 'header injected'
+  const result = buildAllowResult(`[workflow-hook] 已注入任务上下文 (${context.length} 字符, ${originLabel}, ${headerNote})`, patchedToolInput)
   process.stdout.write(JSON.stringify(result))
 }
 

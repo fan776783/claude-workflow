@@ -21,6 +21,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { notifyDarwin, notifyWin32, notifyLinux } = require('./notify-backends');
+const { shouldSkipInjection } = require('./_skip');
 
 const EVENT_MAP = {
   Stop: {
@@ -118,6 +119,9 @@ function dispatch(event, message, config) {
 }
 
 function main() {
+  if (shouldSkipInjection()) {
+    process.exit(0);
+  }
   const event = process.argv[2] || 'Stop';
   const argTitle = process.argv[3];
   const argBody = process.argv[4];

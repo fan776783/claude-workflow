@@ -1,6 +1,6 @@
 # 设计深化 — 后端分支（§ 5.6 System Design）
 
-> 本文件从 `design-elaboration.md` 拆分，专注后端系统设计流程。
+> 配合 SKILL.md Step 5 后端分支使用，专注后端系统设计流程。
 
 在**主会话内**完成（纯文本 + Mermaid，上下文增量可控）。
 

@@ -1,29 +1,29 @@
 ---
 name: workflow-spec
-description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute 流程并需要状态机管理。简单任务请用 /quick-plan。"
+description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute 流程并需要状态机管理, or 用户描述\"完整需求规格 / spec → plan → execute / 跨 module 新需求\"等场景。简单任务请用 /quick-plan。"
 ---
 
-> 路径约定 + CLI 写入契约 + spec-review 5 个 canonical 字符串见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。
+> 路径约定 + CLI 写入契约 + spec-review canonical 字符串见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定（完整 7 个 canonical key 以 `core/utils/workflow/planning_gates.js` `mapSpecReviewChoice` 为准）。
 
 # workflow-spec
 
 <HARD-GATE>
 1. Spec 未经用户确认,不得进入 Plan 扩写
 2. 讨论结果必须写入 spec.md § 9 对应章节,不得仅在对话中存在
-3. **Step 1 必须先调 `workflow_cli.js plan` 建立 state 与骨架文件**,后续 Step 只能在骨架上 Edit 扩写,禁止 Write 全量覆盖 spec.md
+3. 禁止 Write 全量覆盖 spec.md / plan.md;禁止删除/重命名 YAML front matter 字段
 </HARD-GATE>
 
 > 🔧 自愈例外:会话丢失重建 state 时,CLI `init` 按 spec 文件存在性推断审批状态(`system-recovery` 标记,非用户主权审批)。仅限执行期,规划期不得触发。
 
 ## Checklist
 
-1. ☐ 解析参数 + 基础设施预检
+1. ☐ 解析参数 + 基础设施预检 + Code Specs 读取
 2. ☐ 代码库分析(强制)
 3. ☐ 需求讨论(条件)
-4. ☐ Spec 文本扩写(在 CLI 骨架上)+ Self-Review
-4.D ☐ 设计深化(条件,前端/后端/全栈分支)
-4.5 ☐ Codex Spec Review(条件,advisory)
-5. ☐ 🛑 用户审批 + 规划完成
+4. ☐ Spec 文本扩写(在 CLI 骨架上)+ Self-Review(核心章节)
+5. ☐ 设计深化(条件,前端/后端/全栈分支)+ Self-Review
+6. ☐ Codex Spec Review(条件,advisory)
+7. ☐ 🛑 用户审批 + 规划完成
 
 ---
 
@@ -54,7 +54,7 @@ CLI 此刻会落盘:
 - `role-context.json` 骨架
 - `ux_gate_required` 标记(仅当涉及 UI 关键词或检测到前端框架时为 true)
 
-**plan.md 何时生成**:Step 5 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时,CLI 读取已扩写好的 spec.md 首次生成 plan.md 骨架并推到 `planned`。
+**plan.md 何时生成**:Step 7 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时,CLI 读取已扩写好的 spec.md 首次生成 plan.md 骨架并推到 `planned`。
 
 **后续 Step 的 contract**:
 - Step 2-3 不是"从零写 JSON 工件",而是**读取骨架按 canonical schema 填值**
@@ -64,7 +64,7 @@ CLI 此刻会落盘:
 - CLI 返回 `已存在未归档工作流` → 回到预检 Step 3 让用户选择 archive / 恢复 / `--force` 覆盖。**不得改用 `init` 子命令**
 - 其他错误 → 直接展示给用户,不自行推进
 
-## Step 1.5: Code Specs 读取(advisory)
+## Step 1.1: Code Specs 读取(advisory)
 
 将 `.claude/code-specs/` 作为 Constraints 参考:
 1. 目录存在 → `getCodeSpecsContextScoped()` 按当前 plan 推断的 package 读取子树,汇总成 Constraints 摘要
@@ -130,7 +130,7 @@ CLI 此刻会落盘:
 
 > ⚠️ 不得仅依赖对话上下文记忆,讨论结果必须落盘到 spec.md。
 
-## Step 4: Spec 文本扩写 + Self-Review
+## Step 4: Spec 文本扩写 + Self-Review(核心章节)
 
 **宣告**:`📘 Phase 1: Spec 扩写`
 
@@ -147,7 +147,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 - 用 Edit 逐节扩写,**禁止 Write 全量覆盖**
 - 不得删除或重命名 YAML front matter 字段
 - 不得改动模板章节标题或锚点;只在正文内扩展
-- **§ 4.4 UX & UI Design 和 § 5.6 System Design 不在本 Step 填写**,留给 Step 4.D
+- **§ 4.4 UX & UI Design 和 § 5.6 System Design 不在本 Step 填写**,留给 Step 5 设计深化
 
 **输入**:需求(PRD 或内联)+ `analysis-result.json` + `.claude/code-specs/` 相关规范文件。
 **输出**:在 `~/.claude/workflows/{pid}/specs/{task-name}-{MMDD}.md` 骨架上 Edit 扩写。
@@ -156,8 +156,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 1. **Context** — 背景和目标
 2. **Scope** — in-scope / out-of-scope / blocked
 3. **Constraints** — 硬约束 + 讨论澄清摘要
-4. **User-facing Behavior** — § 4.1-4.3(正常/异常/边界,§ 4.4 留给 4.D)
-5. **Architecture and Module Design** — § 5.1-5.5(module 划分、数据模型、技术选型,§ 5.6 留给 4.D)
+4. **User-facing Behavior** — § 4.1-4.3(正常/异常/边界,§ 4.4 留给 Step 5)
+5. **Architecture and Module Design** — § 5.1-5.5(module 划分、数据模型、技术选型,§ 5.6 留给 Step 5)
 6. **File Structure** — 新建/修改/测试文件
 7. **Acceptance Criteria** — 按 module 的验收条件
 8. **Implementation Slices** — 渐进交付切片
@@ -181,13 +181,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **4. 约束完整性** — 需求中的硬约束(字段名、数量限制、条件分支等)是否都在 § 3 Constraints 出现;讨论确认的技术决策是否体现在 Architecture 中。
 
-**5. UX 一致性**(仅当 § 4.4 存在) — workflow 图中每个步骤是否在 § 4 有对应描述;flowchart scenarios ≥ 3(首次使用、核心操作、异常/边界);L0 module ≤ 4 个。
+**5. 首次使用体验** — 涉及工作区/初始化/应用安装等概念时,是否有首次使用引导描述。
 
-**6. 首次使用体验** — 涉及工作区/初始化/应用安装等概念时,是否有首次使用引导描述。
-
+> § 4.4 / § 5.6 的一致性检查在 Step 5 设计深化末尾的 5.S Self-Review 中执行,本 Step 不涉及。
 > 覆盖率即时计算(将 PRD 原文按语义段落逐段比对 Spec 内容),结果直接展示给用户,不持久化为独立文件。
 
-## Step 4.D: 设计深化(条件)
+## Step 5: 设计深化(条件)
 
 **宣告**:`🎨 Phase 1.5: 设计深化`
 **跳过条件**:纯 CLI / 工具类项目(`ux_gate_required=false` 且 § 5.1 无后端服务模块)。
@@ -198,7 +197,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 | § 5.1 含 API/Service/DB 层 | — | ✓ |
 | 全栈 | ✓ | ✓ |
 
-详细执行指南:[`references/design-elaboration.md`](references/design-elaboration.md)。
+分支详情：
+- 前端分支：[`references/design-elaboration-frontend.md`](references/design-elaboration-frontend.md)（§ 4.4 UX & UI Design）
+- 后端分支：[`references/design-elaboration-backend.md`](references/design-elaboration-backend.md)（§ 5.6 System Design）
 
 ### 前端分支(§ 4.4 UX & UI Design)
 
@@ -221,40 +222,57 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 主会话先完成 § 4.4.1 + § 4.4.2 + 设计稿关联,然后**并行**:主会话写 § 5.6,子 Agent 提取 § 4.4.3。
 
-## Step 4.5: Codex Spec Review(条件,advisory-to-human)
+### 错误处理
 
-**Phase 编号**:1.2.5(conditional `machine_loop`)
-**治理模式**:`advisory-to-human` — Codex 发现不自动修复 Spec,作为 Step 5 Human Gate 的参考输入。
+| 场景 | 处理 |
+|------|------|
+| Figma MCP 不可用 | 提示用户改用截图路径,或标记为 infer |
+| 子 Agent 超时 | 降级为 infer,不阻塞 |
+| 截图无法识别 | 标记人工补充 |
+| 用户全部选 skip | 所有页面走 infer,主会话内联 |
+| Figma URL 无 node-id | `get_metadata(fileKey)` 列出 frame,让用户选择 |
+
+### 5.S Self-Review(设计章节)
+
+设计深化完成后立即执行,只检查 Step 4 Self-Review 没覆盖的 § 4.4 / § 5.6 一致性。发现问题直接修复。
+
+- **UX 一致性**(前端/全栈) — workflow 图中每个步骤是否在 § 4 有对应描述;flowchart scenarios ≥ 3(首次使用、核心操作、异常/边界);L0 module ≤ 4 个;§ 4.4.3 Page Layout 与 § 4.4.2 Page Hierarchy 页面对齐
+- **后端一致性**(后端/全栈) — § 5.6.1 API Contract 是否覆盖 § 4.1 Primary Flow 的所有触发点;§ 5.6.2 Data Flow 是否对应 § 5.1 模块划分;§ 5.6.3 Service Boundaries 与 § 5.1 模块边界一致
+- **设计深化覆盖** — 跳过条件未触发时必须有对应章节填写,不得空段
+
+## Step 6: Codex Spec Review(条件,advisory-to-human)
+
+**Phase 编号**:1.6(conditional `machine_loop`)
+**治理模式**:`advisory-to-human` — Codex 发现不自动修复 Spec,作为 Step 7 Human Gate 的参考输入。
 **触发条件**:`workflow-state.json` 的 `context_injection.planning.codex_spec_review.triggered`。
-**未触发**:输出 `⏭️ Codex Spec Review: skipped`,直接进入 Step 5。
+**未触发**:输出 `⏭️ Codex Spec Review: skipped`,直接进入 Step 7。
 **执行流程**:见 [`references/codex-spec-review.md`](references/codex-spec-review.md)。
 
-摘要输出:`🔍 Codex Spec Review: {n} issues found (critical: {x}, important: {y})`
+摘要输出:`🔍 Codex Spec Review: {n} issues found (critical: {x}, important: {y})`;问题归属决定回退路径:核心章节 → Step 4,设计章节 → Step 5。
 
-**与 Step 5 的衔接**:Step 5 展示时增加一栏 "Codex review 发现",用户可选择"采纳 Codex 建议并修改 Spec"回到 Step 4。
+## Step 7: 🛑 用户审批 + 规划完成
 
-## Step 5: 🛑 用户审批 + 规划完成
-
+**Phase 编号**:2 — Human Gate
 **治理模式**:`human_gate` — 用户主权确认。
 
 **展示内容**:
 1. Spec 关键章节摘要(Scope、Constraints、Acceptance Criteria)
 2. 设计深化摘要(§ 4.4 / § 5.6,如有)
 3. PRD 覆盖率(即时计算)
-4. Codex review 发现(若 Step 4.5 已执行)
+4. Codex review 发现(若 Step 6 已执行)
 
 **review 时必须将 spec.md 与需求原文逐段对照**,不能只依据摘要判断。
 
 **用户回复归一化 → CLI 调用**:
 
-调用 `AskUserQuestion`(canonical 字符串见 pre-flight.md § Workflow CLI 路径约定):
+> **完整 canonical 字符串清单以 `core/utils/workflow/planning_gates.js` 中 `mapSpecReviewChoice` 为准**(共 7 个 key);pre-flight.md § Workflow CLI 路径约定提供常用 5 个的快速参考。**禁止把用户原话直接塞给 `--choice`**,必须先归一化。
+
+常见映射(完整列表见上述 source of truth):
 
 | 用户意图 | canonical choice | 结果 |
 |---|---|---|
 | 通过,生成 Plan | `Spec 正确，生成 Plan` | CLI 生成 plan.md 骨架,进入 `planned` |
-| 通过,继续 | `Spec 正确，继续` | 继续 workflow |
 | Spec 要改 | `需要修改 Spec` | 回到 Step 4 |
-| 缺需求 | `缺少需求细节` | 回到 Step 4,保留细节 |
 | 范围要拆 | `需要拆分范围` | 状态回 idle |
 
 ```bash

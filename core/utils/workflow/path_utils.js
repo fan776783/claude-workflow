@@ -59,7 +59,7 @@ function assertCanonicalWorkflowStatePath(statePath, projectId) {
 }
 
 function detectProjectIdFromRoot(projectRoot) {
-  const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+  const root = projectRoot ? path.resolve(projectRoot) : path.resolve(normalizeWindowsShellPath(process.cwd()))
   const configPath = path.join(root, '.claude', 'config', 'project-config.json')
   if (!fs.existsSync(configPath)) return null
   try {
@@ -72,9 +72,33 @@ function detectProjectIdFromRoot(projectRoot) {
   }
 }
 
+/**
+ * 在 Windows 平台上把 Unix 风格的 shell 路径归一化为原生 Windows 路径。
+ *
+ *   /c/Users/...           → C:\Users\...   (Git Bash / MSYS2)
+ *   /cygdrive/c/Users/...  → C:\Users\...   (Cygwin)
+ *   /mnt/c/Users/...       → C:\Users\...   (WSL 路径泄漏)
+ *
+ * 已是 Windows 原生路径或不匹配的形态：直通（保守原则）。
+ *
+ * 必要性：Node 的 path.resolve 在 Windows 看到 `/d/xxx` 会前置当前驱动器（`D:\d\xxx`），
+ * 导致 hook 找不到 `.claude/config/...`。
+ */
+const SHELL_DRIVE_RE = /^\/(?:cygdrive\/|mnt\/)?([A-Za-z])\/(.*)$/
+
+function normalizeWindowsShellPath(p) {
+  if (typeof p !== 'string' || !p) return p
+  if (process.platform !== 'win32') return p
+  const trimmed = p.trim()
+  if (/^[A-Za-z]:[\/\\]/.test(trimmed)) return trimmed
+  const m = SHELL_DRIVE_RE.exec(trimmed)
+  if (!m) return trimmed
+  return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`
+}
+
 function getThinkingGuidesDir(projectRoot, options = {}) {
   const { allowLegacy = true } = options
-  const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+  const root = projectRoot ? path.resolve(projectRoot) : path.resolve(normalizeWindowsShellPath(process.cwd()))
   const managedDir = path.join(root, ...THINKING_GUIDES_MANAGED_SEGMENTS)
   if (fs.existsSync(managedDir) && fs.statSync(managedDir).isDirectory()) {
     return {
@@ -99,7 +123,7 @@ function getThinkingGuidesDir(projectRoot, options = {}) {
 }
 
 function getCodeSpecsDir(projectRoot) {
-  const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
+  const root = projectRoot ? path.resolve(projectRoot) : path.resolve(normalizeWindowsShellPath(process.cwd()))
   const dir = path.join(root, ...CODE_SPECS_DIR_SEGMENTS)
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
     return { path: dir, exists: false }
@@ -171,6 +195,7 @@ module.exports = {
   getCodeSpecsDir,
   CODE_SPECS_DIR_SEGMENTS,
   safeReadJson,
+  normalizeWindowsShellPath,
 }
 
 if (require.main === module) main()

@@ -1,10 +1,10 @@
-# Codex Spec Review（Phase 1.2.5）
+# Codex Spec Review（Phase 1.6）
 
-> advisory-to-human 模式：Codex 发现写入状态供 Step 6 展示，不自动修改 Spec。
+> advisory-to-human 模式：Codex 发现写入状态供 Step 7 展示，不自动修改 Spec。
 
 ## 前置条件
 
-- Step 5 Spec Self-Review 已完成
+- Step 4 Spec Self-Review 已完成（若 Step 5 设计深化已触发，应在 5.S Self-Review 也通过后再进入本 Step）
 - `context_injection.planning.codex_spec_review.triggered = true`
 
 ## 调用方式
@@ -38,7 +38,7 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
 ## 执行workflow
 
 1. 调用 codex-bridge.mjs，记录开始时间
-2. **Codex 调用失败** → 输出 `⚠️ Codex Spec Review: degraded (原因)`，更新状态为 `degraded`，直接进入 Step 6（不消耗预算）
+2. **Codex 调用失败** → 输出 `⚠️ Codex Spec Review: degraded (原因)`，更新状态为 `degraded`，直接进入 Step 7（不消耗预算）
 3. **Codex 调用成功** → 解析 `agentMessages` 提取候选问题
 4. 当前模型验证每个候选问题：
    - 问题是否与当前 spec 内容对应（非幻觉）
@@ -62,9 +62,9 @@ review_status.codex_spec_review = {
 }
 ```
 
-## Step 6 展示格式
+## Step 7 展示格式
 
-当 `codex_spec_review.issues_found > 0` 时，在 Step 6 展示内容中追加：
+当 `codex_spec_review.issues_found > 0` 时，在 Step 7 展示内容中追加：
 
 ```
 📋 Codex 审查发现（{n} 条，critical: {x} / important: {y}）：
@@ -73,10 +73,10 @@ review_status.codex_spec_review = {
 ```
 
 用户可额外选择：
-- "采纳 Codex 建议并修改 Spec" → 回到 Step 5，当前模型根据建议修改 Spec
+- "采纳 Codex 建议并修改 Spec" → 回到 Step 4（核心章节问题）或 Step 5（设计章节问题），当前模型按问题归属修改 Spec
 
 ## 降级规则
 
 - 先调用，失败了再降级（禁止预判 Codex 不可用）
 - 降级时不消耗任何 review 预算
-- 降级状态在 Step 6 展示为 `(Codex 审查未执行: {原因})`
+- 降级状态在 Step 7 展示为 `(Codex 审查未执行: {原因})`

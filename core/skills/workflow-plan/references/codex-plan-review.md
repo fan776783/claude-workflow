@@ -4,7 +4,7 @@
 
 ## 前置条件
 
-- Step 7 Plan Self-Review 已完成
+- Step 2 Plan Self-Review 已完成
 - `context_injection.planning.codex_plan_review.triggered = true`
 
 ## 调用方式
@@ -67,7 +67,7 @@ node ~/.agents/agent-workflow/core/skills/collaborating-with-codex/scripts/codex
 - 架构决策（Architecture 章节对应的技术选型）
 - 验收标准（Acceptance Criteria）
 
-超出允许范围的 Codex 建议 → 标记为建议，写入状态但不执行，由后续 Step 8 输出供参考。
+超出允许范围的 Codex 建议 → 标记为建议，写入状态但不执行，由后续 Step 4 输出供参考。
 
 ## 状态更新
 

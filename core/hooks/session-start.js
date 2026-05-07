@@ -3,7 +3,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { getWorkflowStatePath } = require('../utils/workflow/path_utils')
+const { getWorkflowStatePath, normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
 const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const {
   getWorkflowRuntime,
@@ -13,14 +13,7 @@ const {
   renderSpecFiles,
   resolveActiveCodeSpecsScope,
 } = require('../utils/workflow/task_runtime')
-
-/**
- * 判断是否应跳过 hook（非交互模式时跳过）
- * @returns {boolean}
- */
-function shouldSkip() {
-  return process.env.CLAUDE_NON_INTERACTIVE === '1'
-}
+const { shouldSkipInjection } = require('./_skip')
 
 /**
  * 安全读取文件内容
@@ -117,7 +110,7 @@ function determineGuardrail(state) {
   const { status, halt_reason } = deriveEffectiveStatus(state)
   if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。'
   if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。'
-  if (status === 'running') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。'
+  if (status === 'running') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。如果你以 implement / check sub-agent 身份阅读到此条，自我豁免：直接执行任务，不要再派 `/workflow-execute` 或同类型 sub-agent。'
   if (status === 'halted') {
     if (halt_reason === 'failure') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
     if (halt_reason === 'dependency') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
@@ -133,8 +126,8 @@ function determineGuardrail(state) {
  * SessionStart hook 主流程：读取项目配置和 workflow 状态，输出上下文与护栏信息
  */
 function main() {
-  if (shouldSkip()) return
-  const projectRoot = process.cwd()
+  if (shouldSkipInjection()) return
+  const projectRoot = path.resolve(normalizeWindowsShellPath(process.cwd()))
   const config = findProjectConfig(projectRoot)
   if (!config) return
 

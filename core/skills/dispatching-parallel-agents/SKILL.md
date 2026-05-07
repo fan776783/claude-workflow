@@ -242,6 +242,25 @@ function canRunInParallel(taskA: DispatchableTask, taskB: DispatchableTask): boo
 
 如果只是单个任务的普通 subagent 执行，或 `quality_review` Stage 2 的单 reviewer review，则不应把它们强行归入本 skill。
 
+## Dispatch Prompt Contract（必须遵守）
+
+通过 Task 工具或 `spawn_agent` 派发任意 sub-agent（implement / check / general-purpose / Explore 等）时，**dispatch prompt 的第一行必须是**：
+
+```
+Active task: <task_id>
+```
+
+可选的第二、三行（按需附加）：
+
+```
+Spec: <spec_file 路径>
+Plan: <plan_file 路径>
+```
+
+**为什么强制**：这一行是 prompt **出生时**就有的属性，不依赖任何 hook。当 PreToolUse(Task) hook 因任何原因失效（`hooks.json` 被改、Windows 平台静默 skip、`--continue` 恢复后 hook 信号丢失、`CLAUDE_PLUGIN_ROOT` 未注入），sub-agent 仍能从 prompt 第一行准确识别 active task；正常情况下 hook 注入的 `<current-task>` block 与该 header 信息一致并互为冗余。
+
+**与 hook 的关系**：`pre-execute-inject.js` 在 PreToolUse(Task) 阶段做幂等 normalize：dispatcher 已写则不重复（避免 double header），未写则补一份。dispatcher 端先写是主战场，hook 仅作 normalize / 补全。
+
 ## 推荐输出
 
 完成调度后，主会话应返回结构化摘要：

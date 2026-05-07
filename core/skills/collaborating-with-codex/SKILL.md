@@ -46,6 +46,20 @@ Codex output — especially from `--review` and `--adversarial-review` — tends
 3. If Codex proposes adding a guard/handler, confirm the unguarded path can actually be hit from real callers. If not, skip it.
 4. When summarizing Codex's response to the user, report the filtered set and note what you dropped and why — do not pass raw findings through.
 
+## Wait Discipline
+
+Codex review / adversarial-review jobs commonly run 2-10 minutes. Do **not**:
+
+- Cancel a still-running review because it "feels stuck" — review is not idle just because no progress event arrived in 10s.
+- Re-spawn a duplicate Codex job to "speed it up" — the parent must `wait` for terminal status before acting.
+
+`codex-bridge.mjs` explicitly passes `-c features.multi_agent_v2.min_wait_timeout_ms=480000` (8 min) on every spawn, so trusted **and** untrusted projects get the same floor regardless of whether `.codex/config.toml`'s `[features]` block is loaded. Cancel a Codex job only when:
+
+- The user explicitly asks you to.
+- `--status <job-id>` shows a non-progress phase **and** more than 8 minutes have passed since `updatedAt`.
+
+The bridge prints `[codex-bridge] effective wait timeout: 8min (480000ms)` to stderr when it spawns `codex app-server` in foreground mode (background mode uses `stdio: "ignore"`, so the diagnostic is only visible in the synchronous path).
+
 ## Quick Start
 
 ```bash

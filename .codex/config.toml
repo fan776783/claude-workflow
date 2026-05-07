@@ -1,0 +1,25 @@
+# Codex project-scoped config for claude-workflow.
+#
+# Codex merges this layer after ~/.codex/config.toml when the project is trusted.
+# Trust the project by adding under [projects] in ~/.codex/config.toml:
+#
+#   [projects."/Users/ws/dev/claude-workflow"]
+#   trust_level = "trusted"
+#
+# Without trust this file is loaded but [features] are silently disabled —
+# the codex-bridge.mjs wait-timeout fallback covers the untrusted path so
+# review/adversarial-review still get an 8-minute floor instead of the
+# default 10s. See core/skills/collaborating-with-codex/SKILL.md § Wait Discipline.
+
+project_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md"]
+
+# multi_agent_v2: 父 agent 必须 wait 子 thread 终态后再操作。
+# 替代 [agents].max_threads 的并发模型，二者不可共存。
+# - max_concurrent_threads_per_session: 6（默认 4），给并行 dispatch 留 headroom。
+# - min_wait_timeout_ms: 480000 = 8 min。Codex 默认 10s 太短，
+#   collaborating-with-codex 的 review/adversarial-review 经常 2-10 min。
+#   硬上限 3,600,000 (1 h)。
+[features.multi_agent_v2]
+enabled = true
+max_concurrent_threads_per_session = 6
+min_wait_timeout_ms = 480000

@@ -353,9 +353,21 @@ class AppServerClient {
   async start() {
     // Windows 兼容：spawn 不会自动解析 .cmd/.bat 包装器
     const isWin = process.platform === "win32";
+
+    // 显式 wait timeout：项目级 .codex/config.toml 仅 trusted 项目生效，
+    // untrusted 落回 codex 默认 10s wait，会被父 agent 反复 cancel/respawn
+    // 跑 2-10 min 的 review。`-c key=value` 让两条路径都拿到 8 min。
+    const codexConfigOverrides = [
+      "-c", "features.multi_agent_v2.enabled=true",
+      "-c", "features.multi_agent_v2.min_wait_timeout_ms=480000",
+    ];
+    const baseArgs = [...codexConfigOverrides, "app-server"];
+
+    process.stderr.write(`[codex-bridge] effective wait timeout: 8min (480000ms)\n`);
+
     this.proc = spawn(
       isWin ? "cmd" : "codex",
-      isWin ? ["/d", "/s", "/c", "codex", "app-server"] : ["app-server"],
+      isWin ? ["/d", "/s", "/c", "codex", ...baseArgs] : baseArgs,
       {
         cwd: this.cwd,
         stdio: ["pipe", "pipe", "pipe"],
