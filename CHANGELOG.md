@@ -9,7 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-（无待发布项）
+### ⚠️ BREAKING CHANGES
+
+**Review 模式从 4 种简化为 2 种**：`role_injection.js` 的 `resolveStage2ReviewMode` 现在只返回 `single_reviewer`（默认）和 `codex_enhanced`（风险信号命中时）。旧的 `dual_reviewer`、`multi_angle`、`quad_review` 传入 `quality_review.js --review-mode` 会触发 fallback warning 并降级为 `single_reviewer`。已在途的 workflow 不受影响（state 中的历史 review_mode 字段为记录用途，不参与逻辑判断）。
+
+### Removed
+
+- **`core/specs/workflow/` 目录**（6 文件，1,963 行）：删除漂移的扩展状态机、PBT 属性、review-loop、subagent-routing、quality-gate、task-parser。唯一权威状态机为 `core/specs/workflow-runtime/state-machine.md`。
+- **`core/specs/shared/` 4 个低价值 spec**：`context-awareness.md`（559 行）、`status-emoji.md`、`hard-stop-templates.md`、`path-utils.md`。
+- **Codex advisory review 步骤**：`workflow-spec` Step 6 (Codex Spec Review) 和 `workflow-plan` Step 3 (Codex Plan Review) 整步移除，对应 `references/codex-spec-review.md` 和 `references/codex-plan-review.md` 删除。Runtime 的 `planning_gates.js` trigger 仍写入 state 但现为 no-op。
+- **Review 降级矩阵**：`quad_review` 4 路并行 + 12 条降级路径 + join barrier 变体全部移除。
+
+### Changed
+
+- **`workflow-review` Stage 2 简化**：从 4 模式（single/multi_angle/dual/quad）+ 降级矩阵简化为 2 模式（`single_reviewer` / `codex_enhanced`）+ 单降级路径。`stage2-review-checklist.md` 的统一 Finding 结构同步简化。
+- **`workflow-execute` Post-Execution Pipeline**：从 5 步全强制简化为 2 必选（验证 + checkpoint）+ 2 条件（自审查 + journal）。ContextGovernor Step 7 简化为循环决策（可跳过条件：≤2 task 且 continue-direct）。
+- **`workflow-spec` 设计深化门槛放宽**：新增跳过条件"spec ≤2 module 且 ≤3 page/endpoint"。覆盖率从伪精确 ≥90% 改为关键约束 checklist。
+- **`workflow-plan` 设计原则**："Complete Code" 降级为 "Actionable Steps"——代码块仅用于非显然模式。
+- **`core/CLAUDE.md`**：Hard Stop 规则从引用模板文件改为内联描述（各 skill 自定义选项）。
+- **`core/utils/workflow/role_injection.js`**：`STAGE2_REVIEW_MODES` 从 4 项改为 2 项，`resolveStage2ReviewMode` 逻辑简化。
+
+### Added
+
+- **Brief Mode**（`workflow-execute`）：plan ≤3 task 且无 quality_gate/HITL 时自动进入——跳过 ContextGovernor、post-execution 只执行验证 + checkpoint。用户可用 `--full` 覆盖。
+- **`quick-plan` → workflow 对接**：文档化轻量执行路径——quick-plan 产出的 plan 可被 `/workflow-execute` 直接消费（brief mode + spec skipped）。
+
+### Moved
+
+- `core/specs/shared/status-readiness.md` → `core/skills/fix-bug/references/status-readiness.md`
+- `core/specs/shared/manual-intervention-reasons.md` → `core/skills/fix-bug/references/manual-intervention-reasons.md`
 
 ## [6.0.9] - 2026-05-08
 
