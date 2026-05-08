@@ -1,6 +1,6 @@
 ---
 name: dingtalk-mcp
-description: 通过本地 CLI 调用三个钉钉 MCP 服务 —— 钉钉文档（doc）/ 钉钉 AI 表格（aitable, Airtable-like）/ 钉钉表格（sheet, Excel-like）。适用于已经有 mcp-gw.dingtalk.com MCP server URL（URL 里带 ?key=）、但不想让 MCP 常驻占用大量上下文的场景。触发词：「钉钉文档」「钉钉 AI 表格」「钉钉多维表」「钉钉表格」「钉钉在线表格」「钉钉电子表格」「A1 单元格」「dingtalk-mcp」「MCP URL」「mcp-gw」「按需调钉钉文档/表格」「减少常驻 MCP 上下文」。**注意**：如果用户明确提到 `dws` / `dws CLI` / 钉钉 workspace CLI，走那边而非本 skill。首次使用必须引导用户提供需要的 server URL（可只配其中一个或多个）。
+description: 当用户给出 alidocs.dingtalk.com 链接、钉钉文档/钉钉表格/钉钉 AI 表格链接，或要求“根据钉钉表格/文档内容读取数据、更新代码、生成文档、同步权限路由/路由 map”时必须使用本 skill。典型链接包括 https://alidocs.dingtalk.com/i/nodes/...、nodeId、dentryUuid、sheetId、A1:D10。不要用 WebFetch 读取 alidocs；先运行 doctor 检查本地 mcp-gw 配置，已配置则直接通过 CLI 读取。若是 alidocs 节点链接，先用 doc get_document_info 判断类型：extension=axls 走 sheet get_all_sheets/get_range，extension=adoc 走 doc get_document_content/list_document_blocks；仅当缺少对应 doc/sheet/aitable server URL 时再向用户索要 https://mcp-gw.dingtalk.com/server/<hash>?key=<key>。触发词：alidocs、钉钉链接、钉钉在线表格、钉钉电子表格、钉钉文档、钉钉 AI 表格、多维表、权限路由表、路由map、A1 单元格、nodeId、sheetId、dingtalk-mcp、mcp-gw。用户明确提到 dws / dws CLI / 钉钉 workspace CLI 时不用本 skill。
 ---
 
 <PRE-FLIGHT>
