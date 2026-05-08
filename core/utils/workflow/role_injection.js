@@ -155,15 +155,12 @@ function deriveSignalTags(signals = {}) {
   return [...new Set(tags)]
 }
 
-const STAGE2_REVIEW_MODES = Object.freeze(['single_reviewer', 'dual_reviewer', 'multi_angle', 'quad_review'])
+const STAGE2_REVIEW_MODES = Object.freeze(['single_reviewer', 'codex_enhanced'])
 const STAGE2_REVIEW_MODE_SET = new Set(STAGE2_REVIEW_MODES)
 
 function resolveStage2ReviewMode(signals = {}) {
   const hasRisk = signals.security || signals.backend_heavy || signals.data
-  const hasScale = signals.large_scope || signals.refactor
-  if (hasScale && hasRisk) return 'quad_review'
-  if (hasRisk) return 'dual_reviewer'
-  if (hasScale) return 'multi_angle'
+  if (hasRisk) return 'codex_enhanced'
   return 'single_reviewer'
 }
 

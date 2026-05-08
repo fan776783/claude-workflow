@@ -27,7 +27,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 ### workflow
 **Definition**: One full plan → execute → review → archive lifecycle; state persisted under `~/.claude/workflows/{projectId}/`.
 **Forbidden synonyms**: `工作流`, `流程`
-**See**: `core/specs/workflow/state-machine.md`
+**See**: `core/specs/workflow-runtime/state-machine.md`
 
 ### skill
 **Definition**: Smallest distributable unit under `core/skills/<name>/`, containing `SKILL.md` + optional `references/`.
@@ -38,7 +38,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 ### subagent
 **Definition**: A child Claude session spawned via the Agent tool, with an isolated context window.
 **Forbidden synonyms**: `子 agent`, `子代理`, `child agent`
-**See**: `core/specs/workflow/subagent-routing.md`
+**See**: `core/skills/dispatching-parallel-agents/SKILL.md`
 
 ### pkg
 **Definition**: Top-level organizational unit under `.claude/code-specs/{pkg}/`; maps to one package in a monorepo (or the repo root for single-package projects).
@@ -69,12 +69,12 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 ### quality-gate
 **Definition**: Automatic validation gate at the end of each execute task (verification, review, spec compliance).
 **Forbidden synonyms**: `门禁`, `质量检查`
-**See**: `core/specs/workflow/quality-gate.md`
+**See**: `core/skills/workflow-execute/SKILL.md`
 
 ### post-execute
 **Definition**: Pipeline triggered after each task completes — runs verification, commit, formatting, cleanup.
 **Forbidden synonyms**: `后置`, `after-hook`
-**See**: `core/specs/workflow/state-machine.md`
+**See**: `core/specs/workflow-runtime/state-machine.md`
 
 ### spec
 **Definition**: The document produced by `/workflow-spec` describing what a workflow will build. Distinct from "code-spec" (entries under `.claude/code-specs/`).
@@ -104,7 +104,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 ### review
 **Definition**: The quality audit step — either mid-execute (`workflow-review`) or PR-scoped (`diff-review`, including its `--session` mode).
 **Forbidden synonyms**: `审查` (in normative sections only)
-**See**: `core/specs/workflow/review-loop.md`
+**See**: `core/skills/workflow-review/SKILL.md`
 
 ### glossary
 **Definition**: This file. Framework-level canonical vocabulary.

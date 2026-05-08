@@ -94,7 +94,7 @@
 同为 `shared/` 下的三个文件,别混淆职责:
 
 - [`../workflow-runtime/preflight.md`](../workflow-runtime/preflight.md) — 运行时启动检查:Git 是否初始化、`project-config.json` 是否有效、是否存在未收尾的 workflow
-- [`./context-awareness.md`](./context-awareness.md) — 执行期治理伙伴:预算、并行分派、continuation 决策
+- ~~`./context-awareness.md`~~ — 已移除,执行期治理由 `workflow-execute` Step 3 ContextGovernor 定义
 - [`./glossary.md`](./glossary.md) — canonical glossary(框架层),第 4 步会读它
 - [`./business-glossary.md`](./business-glossary.md) — 业务层术语协议,第 5 步按需跟读项目级文件
 - [`./adr-protocol.md`](./adr-protocol.md) — ADR 三重门槛协议,第 6 步按需读
@@ -124,10 +124,9 @@ skill 内部用到下列跨 skill 的协议时,**也写引用而非复写**:
 |---|---|---|
 | `glossary.md` | 产出 normative 文档前 | 已由 pre-flight § 4 覆盖,skill 侧无须单独提 |
 | `architecture-language.md` | 讨论 module / interface / depth / seam / adapter / refactor 时 | `core/specs/shared/architecture-language.md § Terms` |
-| `hard-stop-templates.md` | AskUserQuestion 真决策点 | `core/specs/shared/hard-stop-templates.md § T3`(按模板编号) |
-| `manual-intervention-reasons.md` | 产出 manual_intervention 分支 | `core/specs/shared/manual-intervention-reasons.md` + 本 skill 可能命中的子集 |
+| `manual-intervention-reasons.md` | 产出 manual_intervention 分支(fix-bug/bug-batch) | `core/skills/fix-bug/references/manual-intervention-reasons.md` |
 | `codex-routing.md` | review路径判定 | `core/specs/shared/codex-routing.md § 决策表` |
-| `status-readiness.md` | 缺陷 / issue 状态流转 | `core/specs/shared/status-readiness.md § 判定条件` |
+| `status-readiness.md` | 缺陷 / issue 状态流转(fix-bug/bug-batch) | `core/skills/fix-bug/references/status-readiness.md` |
 | `impact-analysis-template.md` | 影响面分析 | `core/specs/shared/impact-analysis-template.md § 6 个维度` |
 
 原则:**协议本体只写一份,skill 里只说"查 XX § YY"**。新增或修改协议时只改共享文件,skill 自动跟着更新。

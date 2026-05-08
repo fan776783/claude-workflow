@@ -226,9 +226,9 @@ Workflow 主线由 6 个专项 skills 直接驱动：
 - Stage 1 以人工对照 code-spec / guides 的方式检查实现是否符合项目约定（声明式审查，无机读硬卡）
 - Stage 1 附带 Code Specs Check（按 diff 文件反查 `{pkg}/{layer}/` code-spec）和跨层 A/B/C/D advisory，均不消耗 4 次共享预算、不影响 pass/fail
 - Stage 1 Probe E（阻塞）：命中 infra / cross-layer 关键路径，且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail
-- Stage 2 审查模式四选一（由 `role_injection.js` 的 `resolveStage2ReviewMode` 统一路由，互斥，优先级从高到低）：scale 信号（`large_scope` / `refactor`）**与** 风险信号（`security` / `backend_heavy` / `data`）**同时命中** → `quad_review`（Codex(Correctness) + Reuse / Quality / Efficiency 子 Agent 四路并行，category 独占去重）；只命中任一风险信号 → `dual_reviewer`（Codex + 子 Agent 并行）；未命中风险、仅命中 `large_scope`（diff ≥10 文件或跨 3+ 层）或 `refactor` → `multi_angle`（Reuse / Quality / Efficiency 三路只读子 Agent 并行，任一 5 分钟未返回则降级为 `single_reviewer (multi_angle degraded)`）；其他 → `single_reviewer`
-- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算（`quad_review` / `multi_angle` 合并后只计 1 次 attempt）
-- `quad_review` 降级矩阵：Codex 失败 → 降到 `multi_angle`；1 子 Agent 失败 → `quad_review` 继续 3 路合并；2+ 子 Agent 失败 → 降到 `dual_reviewer`；Codex + 子 Agent 同时失败 → 降到 `single_reviewer`。CLI 的 `--review-mode` 必须传降级后的真实模式
+- Stage 2 审查模式二选一（由 `role_injection.js` 的 `resolveStage2ReviewMode` 路由）：风险信号（`security` / `backend_heavy` / `data`）命中 → `codex_enhanced`（Codex + 子 Agent 并行，5 分钟 join barrier）；其他 → `single_reviewer`
+- 执行 Stage 1（Spec 合规）+ Stage 2（代码质量）两阶段审查，共享 4 次预算
+- 降级：Codex 超时/失败 → 仅用子 Agent 结果 + 标注 `codex_degraded`；子 Agent 超时 → 仅用 Codex 结果 + 标注 `agent_degraded`
 - 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
 
 ### 3.2 系统分层架构
@@ -407,7 +407,7 @@ flowchart TD
 - **只读批次**（analysis / review）：不 provision worktree，子 Agent 产物写入 `~/.claude/workflows/{projectId}/artifacts/{groupId}/`
 - **写文件批次**：provision worktree → 并行启子 Agent → 合流到集成 worktree → stage2 审查 → 合入主分支；失败则由 `merge_strategist.js discard-integration` 丢弃集成 worktree，任务回 `pending`
 
-含 `git_commit` / `quality_review` action 的任务不会进入并行批次。详细接口参见 `core/specs/workflow/state-machine.md` 的 `ParallelExecution` / `ParallelGroupRecord` / `BatchQualityGateResult` 定义。
+含 `git_commit` / `quality_review` action 的任务不会进入并行批次。详细接口参见 `core/specs/workflow-runtime/state-machine.md`。
 
 ---
 
@@ -638,12 +638,13 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/skills/research/SKILL.md`（合并自 search-first + deep-research）
 - `core/skills/grill/SKILL.md`、`core/skills/zoom-out/SKILL.md`、`core/skills/diagnose/SKILL.md`、`core/skills/tdd/SKILL.md`、`core/skills/write-a-skill/SKILL.md`（mattpocock/skills 哲学借鉴）
 - `core/specs/shared/architecture-language.md`（Module / Interface / Depth / Seam / Adapter / Leverage / Locality）
-- `core/specs/shared/hard-stop-templates.md` / `manual-intervention-reasons.md` / `codex-routing.md` / `status-readiness.md` / `impact-analysis-template.md`（跨 skill 共享协议）
+- `core/specs/shared/codex-routing.md` / `impact-analysis-template.md`（跨 skill 共享协议）
+- `core/skills/fix-bug/references/status-readiness.md` / `manual-intervention-reasons.md`（fix-bug/bug-batch 专用）
 - `core/skills/spec-bootstrap/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
 - `core/skills/workflow-review/references/stage1-code-specs-check.md`（Code Specs Check advisory 子步）
 - `core/skills/workflow-review/references/cross-layer-checklist.md`（A/B/C/D advisory + Probe E 阻塞 gate）
 - `core/specs/platform-parity.md`（multi-tool 分发 parity 契约，由 `scripts/validate.js` 在 prepublish 时校验）
-- `core/specs/workflow/state-machine.md`（含 ParallelExecution / ParallelGroupRecord / BatchQualityGateResult）
+- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义）
 - `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
 

@@ -11,6 +11,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 （无待发布项）
 
+## [6.0.9] - 2026-05-08
+
+### Added
+
+- **`.codex/config.toml` 项目级 Codex 配置**：启用 `features.multi_agent_v2`（`max_concurrent_threads_per_session = 6`，`min_wait_timeout_ms = 480000` = 8 min），约束父 agent 必须 wait 子 thread 终态后再操作，替代 `[agents].max_threads` 的并发模型。Codex 默认 wait 超时 10s 对 review/adversarial-review 太短，新配置给并行 dispatch 留 headroom。文件顶部写明 trust 机制：未被 `~/.codex/config.toml` `[projects]` trust 的项目只会加载 doc fallback，`[features]` 被静默忽略，需配合 `codex-bridge.mjs` 的 wait-timeout fallback 保证 8 min floor。
+- **`core/hooks/_skip.js` 共享 skip helper**：`shouldSkipInjection()` 集中判断 `WORKFLOW_HOOKS=0` / `AGENT_WORKFLOW_DISABLE_HOOKS=1` / `CLAUDE_NON_INTERACTIVE=1` 三个环境变量，供 `notify.js` / `pre-execute-inject.js` / `session-start.js` 统一使用；仅控制上下文注入跳过，不影响治理 gate。
+- **`core/utils/workflow/path_utils.js::normalizeWindowsShellPath`**：Windows 平台把 `/c/Users/...`（Git Bash / MSYS2）、`/cygdrive/c/Users/...`（Cygwin）、`/mnt/c/Users/...`（WSL 路径泄漏）归一化为 `C:\Users\...`。Node 的 `path.resolve` 在 Windows 看到 `/d/xxx` 会前置当前驱动器（`D:\d\xxx`），导致 hook 找不到 `.claude/config/...`。`detectProjectIdFromRoot` / `getThinkingGuidesDir` / `getCodeSpecsDir` 三处 `process.cwd()` fallback 路径现在统一走 normalize。
+
+### Changed
+
+- **`core/skills/dingtalk-mcp/SKILL.md` description 重写**：明确列举触发场景（钉钉 URL、相关命令示例）和本地 `mcp-gw` 配置的检测 + 服务器 URL 获取流程。
+- **`workflow-spec/workflow-plan/dispatching-parallel-agents/collaborating-with-codex/workflow-execute` SKILL 文档微调**：同步引用路径与 skip helper 协议。
+
+## [6.0.8] - 2026-05-06
+
+### ⚠️ BREAKING CHANGES
+
+**Workflow 产物路径从项目目录迁移到 workflowDir**：spec/plan 文件不再写入 `.claude/specs/` / `.claude/plans/`，改为 `~/.claude/workflows/{projectId}/specs/{slug}-{MMDD}.md` 与 `.../plans/{slug}-{MMDD}.md`。`workflow-state.json` 的 `spec_file` / `plan_file` 字段持久化 **OS 展开后的绝对路径**（不写 `~`）。读取侧通过 `path.isAbsolute` 区分新旧格式，旧项目的 `.claude/specs/*.md` 相对路径继续生效。
+
+**影响**：
+- 新 workflow 的 spec/plan 不再进入 git（用户级位置），不会污染业务仓库
+- 已归档或在途 workflow 的旧相对路径自动走兼容分支，无需手动迁移
+- `.claude/specs/` 目录改为纯 code-specs 用途（7-section contract），不再混入 workflow 产物
+
+### Added
+
+- **`workflow-spec` 新 skill**：从 `workflow-plan` 拆出，专注 spec 生成全链路（需求分析 → 澄清 → Codex 评审 → spec 审批）。`core/skills/workflow-spec/SKILL.md` + `references/{codex-spec-review,design-elaboration-backend,design-elaboration-frontend,design-elaboration}.md`。
+- **绝对路径支持下游链路**：`plan_composer.js::buildTaskBlock` / `buildPlanTasks` 新增 `specRef` 参数；`inferPlanRelativeFromSpec` 同时处理 `/specs/` → `/plans/` 的绝对路径和 `.claude/specs/` → `.claude/plans/` 的旧路径；`workflow_cli.js::inferSpecRelativeFromPlan` 同步新增绝对路径 candidate；`task_runtime.js::getSpecContent` 用 `path.isAbsolute` 分流。
+- **日期后缀生成器 `getDateSuffix()`**：`MMDD` 格式防止同项目多 workflow 文件名冲突。
+- **`scripts/claude-cli.js` Windows 二进制解析**：增加 `.cmd` / `.exe` 后缀兜底，解决 Windows 下 `detectClaudeCli` 找不到可执行入口的问题。
+- **`workflow-archive/workflow-delta/workflow-execute/workflow-review/workflow-status` 文档整合**：大量裁剪冗余段落，所有 SKILL.md description 归一为 "Use when..." 风格；前置协议迁入 `core/specs/shared/` 共享文件。
+- **`core/skills/figma-ui/references/playbook.md`**：从 SKILL.md 抽出 349 行 playbook，SKILL.md 从 517 行瘦身到纯入口职责。
+
+### Changed
+
+- **`workflow-plan` skill 职责收敛**：只负责 plan 生成，不再处理 spec 生成；`workflow-plan/references/` 下 `artifact-schemas.md` / `spec-self-review.md` 随 spec 链路迁走。命令引用从 `/workflow-plan` 改为 `/workflow-spec` 的，在 CLAUDE.md + 多个 SKILL 文档内同步更新。
+- **`core/specs/workflow-runtime/state-machine.md` 表格更新**：Spec/Plan 位置改写为 `~/.claude/workflows/{projectId}/specs|plans/{name}-{MMDD}.md`，并在 workflow-state.json 示例块后补充绝对路径说明段。
+
+### Removed
+
+- **`core/skills/workflow-plan/references/artifact-schemas.md`** 与 **`spec-self-review.md`**：并入 `workflow-spec/references/`。
+
+## [6.0.7] - 2026-04-30
+
+### Changed
+
+- **`core/skills/dingtalk-mcp/SKILL.md`**：补充 mcp-gw 服务器 URL 获取指引，明确本地配置缺失时的引导路径。
+
 ## [6.0.0] - 2026-04-27
 
 ### Fixed (pre-release iteration)

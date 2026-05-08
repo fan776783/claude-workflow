@@ -93,6 +93,13 @@ argument-hint: <需求描述 | path/to/requirement.md>
 - 过程中发现任务复杂度升到 XL 级 → 切换到 `/workflow-spec`
 - 接受 plan 后想按 workflow 执行 → 建议先 `/workflow-spec` 升级为完整workflow（含 spec + 状态机）。直接 `/workflow-execute` 会因缺少 spec 而要求确认降级
 
+### 轻量执行对接
+
+当 quick-plan 产出的 plan 被 `/workflow-execute` 消费时:
+- execute 检测 plan 存在但 spec 文件不存在 → 自愈逻辑将 `user_spec_review` 标记为 `skipped`（已有 runtime 支持）
+- 满足 brief mode 条件（≤3 task 且无 gate/HITL）时自动进入 brief mode
+- 用户仍可用 `/workflow-spec` 升级为完整 workflow
+
 ## 与其他 skill 的关系
 
 - 需求模糊 → 先 `/grill` 对齐再回本 skill
