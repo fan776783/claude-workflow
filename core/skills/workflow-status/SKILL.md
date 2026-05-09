@@ -84,7 +84,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 | 当前状态 | 建议 |
 |---------|------|
 | `spec_review` | review `spec.md` 后确认 Spec 审批 |
-| `planned` | review Spec/Plan 后 `/workflow-execute` |
+| `planned` | `/workflow-plan` 扩写详细计划,完成后 `/workflow-execute` |
 | `running` | 继续 `/workflow-execute` |
 | `halted` (governance) | 处理暂停原因后 `/workflow-execute` 恢复 |
 | `halted` (dependency) | `workflow_cli.js unblock <dep>` 解除依赖 |

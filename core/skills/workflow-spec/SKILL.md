@@ -276,11 +276,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
   --project-root "$PWD" spec-review --choice "<canonical 字符串>"
 ```
 
-approve 分支 CLI 会重新读取 spec.md 并生成 plan.md 骨架,状态推进到 `planned`。
+approve 分支 CLI 会重新读取 spec.md 并生成 plan.md 骨架(含任务拆分),状态推进到 `planned`。
 
-**输出摘要**:Spec 路径、Plan 路径(如已生成)、需求统计。
+**输出摘要**:Spec 路径、Plan 路径、需求统计、任务数量。
 
-**下一步提示**:
-1. review `spec.md`
-2. `/workflow-plan` 扩写详细 Plan
-3. `/workflow-execute` 开始实施
+**下一步提示**:执行 `/workflow-plan` 扩写详细实施计划。

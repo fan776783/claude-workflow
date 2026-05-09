@@ -101,4 +101,4 @@ Plan 生成后立即执行,详见 [`references/plan-self-review.md`](references/
 
 输出摘要:Spec 路径、Plan 路径、需求统计、任务数量、Confidence Score。
 
-下一步:review `spec.md` 与 `plan.md` → `/workflow-execute` 开始实施。
+下一步:执行 `/workflow-execute` 开始实施。
