@@ -160,7 +160,7 @@ main() {
         ;;
     esac
 
-    if [[ -n "$push_remote" ]] && confirm "Push to $push_remote?"; then
+    if [[ -n "$push_remote" ]]; then
       git push "$push_remote" HEAD
       git push "$push_remote" "v$new_version"
       echo "      Pushed to $push_remote"
