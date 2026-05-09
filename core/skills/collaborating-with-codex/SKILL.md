@@ -13,6 +13,10 @@ description: Proactively use when Claude Code is stuck, wants a second implement
 - **Proactive Trigger**: Do not wait for the user to explicitly ask for Codex. Use this skill proactively when you encounter complex algorithm issues, hard-to-locate bugs, or have failed at least 2 retry attempts. Hand substantial debugging or implementation tasks to Codex.
 - Do not grab simple asks that you can finish quickly on your own.
 
+## Interaction Rhythm
+
+Codex 委托完成分析后，展示方案摘要（不调用 AskUserQuestion），以一句自然语言收尾："方案可行请回复继续，不行告诉我哪里要改。" 用户回"继续" / "ok" / "go" 进入编码落盘；反对 / 要修改则回到分析阶段。Codex 委托本身不属于真决策点（代码尚未落盘，随时可回头），不使用 AskUserQuestion。
+
 ## Forwarding Rules (Thin Forwarder)
 
 - Your only job is to properly formulate the prompt and forward the request to the Codex bridge script.

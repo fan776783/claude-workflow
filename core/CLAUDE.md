@@ -14,15 +14,13 @@
 
 ## 协作路由
 
-判断当前任务应该走哪条路径：
-
-- **简单任务**（单行修复、拼写、明显 typo）→ 直接做，不调用 Codex。
-- **后端 / 算法 / 安全 / 复杂调试** → 委托 Codex 分析，拿到结果后当前模型重构落盘。
-- **前端 / UI** → 当前模型直接执行。
+- **简单任务**（单行修复、拼写、明显 typo）→ 直接做。
+- **后端 / 算法 / 安全 / 复杂调试** → 委托 Codex（详见 `collaborating-with-codex` skill）。
+- **前端 / UI** → 直接执行。
 - **全栈** → Codex 分析后端，当前模型处理前端并收口。
-- **交付前需要独立审查** → 用 `collaborating-with-codex` 的 review 模式，不自己审自己。
+- **交付前审查** → `collaborating-with-codex --review`。
 
-走 Codex 时，Phase 2 完成后展示计划（不调用 AskUserQuestion），以一句自然语言收尾："方案可行请回复继续，不行告诉我哪里要改。" 用户回"继续" / "ok" / "go" 进入 Phase 4 编码；反对 / 要修改则回到 Phase 2 重新分析。真决策点（即将修改代码/批量修复/归档删除/不可逆操作）使用 AskUserQuestion，各 skill 按领域自定义选项。Codex 委托本身不属于真决策点（代码尚未落盘，随时可回头）。
+Codex 委托的交互节奏由 `collaborating-with-codex` skill 内部定义。各 skill 的 human gate / 决策点由各 skill 自行治理，不在本文件重复。真决策点（即将修改代码/批量修复/归档删除/不可逆操作）使用 AskUserQuestion。
 
 ## 并行与 Team
 
