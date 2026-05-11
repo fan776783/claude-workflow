@@ -1,78 +1,93 @@
-# Figma MCP 工具速查
+# Figma MCP 工具参考
 
-## 核心工具
+> 本文件是底层参数参考。workflow 流程见 SKILL.md + playbook.md，CLI 用法见 SKILL.md "运行入口"。
 
-| 工具 | 用途 | 必传参数 | 可选参数 |
-|------|------|----------|----------|
-| `get_design_context` | 获取结构化设计数据 + 代码 + 下载资源 | `nodeId`, `dirForAssetWrites` | `fileKey`（远程 MCP 必传） |
-| `get_screenshot` | 获取节点截图用于视觉验证 | `nodeId` | `fileKey`（远程 MCP 必传） |
-| `get_metadata` | 获取节点 XML 结构概览 | `nodeId` | `fileKey`（远程 MCP 必传） |
+---
 
-> **桌面端 MCP vs 远程 MCP**：桌面端 MCP 自动使用当前打开文件，`fileKey` 可省略；远程 MCP 必须传 `fileKey`。
+## Image Source 机制（Desktop 专属）
 
-## 标准workflow
+Figma Desktop → Preferences → Dev Mode MCP Server → Image source
 
-```text
-1. get_design_context  ─── 获取设计数据（必传 dirForAssetWrites）
-         │
-         ├─ 正常返回 ──────────────────────────────────────────────┐
-         │                                                        │
-         └─ 返回空/截断 ─→ get_metadata ─→ 分块重新获取 ───────────┤
-                                                                  │
-2. get_screenshot  ──────── 获取视觉参考基准 ─────────────────────┤
-                                                                  │
-3. Asset Triage  ─────── 识别 newlyDownloadedFiles / AssetPlan ───┤
-                                                                  │
-4. 开始编码（仅消费 inline / promote 资源）                        │
-                                                                  │
-5. Visual Review（对照截图 + 设计数据验证）                        ┘
-```
+### Local Server（默认）
 
-## 调用示例
+- Desktop 启动本地 HTTP 静态资源服务 `http://127.0.0.1:3845/assets/<content-hash>.<ext>`
+- session-scoped，Figma 关闭即失效
+- `dirForAssetWrites` 传了也无效
+- Claude Code CLI 只拿到 URL 字符串（无法 fetch 给模型看）
 
-从 URL 提取 fileKey 和 nodeId：
-- URL: `https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15`
-- fileKey: `kL9xQn2VwM8pYrTb4ZcHjF`
-- nodeId: `42:15`
+### Download
 
-### 获取设计上下文
+- `get_design_context` 调用时将资源写入 `dirForAssetWrites` 指定目录
+- 下载粒度：Per-Node — 只下载该 node 生成代码中引用的资源
+- 文件命名：content hash（`6e134c6c4f175a81f94018216584fd808a1b84b6.svg`）
+- 异步写入：返回后文件可能还没落盘完（CLI `design` 命令已内置 3s 等待）
 
-```
-get_design_context(fileKey="kL9xQn2VwM8pYrTb4ZcHjF", nodeId="42:15", dirForAssetWrites="public/images/.figma-ui/tmp/task-1")
-```
+---
 
-调用前后分别列出 `dirForAssetWrites` 目录内容，做差集得到 `newlyDownloadedFiles`。
+## get_design_context 完整参数
 
-### 获取视觉参考截图
+CLI `design` 命令已封装 `nodeId` + `dirForAssetWrites`，以下为进阶参数（通过 `--key value` 传递）：
 
-```
-get_screenshot(fileKey="kL9xQn2VwM8pYrTb4ZcHjF", nodeId="42:15")
-```
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `artifactType` | string | `WEB_PAGE_OR_APP_SCREEN` / `COMPONENT_WITHIN_A_WEB_PAGE_OR_APP_SCREEN` / `REUSABLE_COMPONENT` / `DESIGN_SYSTEM` |
+| `taskType` | string | `CREATE_ARTIFACT` / `CHANGE_ARTIFACT` / `DELETE_ARTIFACT` |
+| `clientFrameworks` | string | 逗号分隔，如 `vue,tailwindcss` — 影响生成代码风格 |
+| `clientLanguages` | string | 逗号分隔，如 `typescript,css` |
+| `forceCode` | boolean | 节点过大时强制返回代码（慎用，可能截断） |
 
-### 复杂节点分块获取
+## get_screenshot 参数
 
-当 `get_design_context` 返回为空或被截断时：
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `contentsOnly` | boolean | `true` = 隔离渲染（排除浮动/重叠内容）；默认 `false` 匹配画布所见 |
 
-1. 调用 `get_metadata(fileKey, nodeId)` 获取节点结构概览
-2. 从返回的 XML 中识别关键子节点的 nodeId
-3. 对每个子节点分别调用 `get_design_context`，合并结果
+## get_variable_defs
 
-## 资源处理规则
+返回节点关联的 Design Token。示例：`{'icon/default/secondary': #949494, 'spacing/md': 16}`
 
-| 规则 | 说明 |
+无额外参数（仅 `nodeId` / `fileKey`）。
+
+## create_design_system_rules
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `clientFrameworks` | string | 逗号分隔 |
+| `clientLanguages` | string | 逗号分隔 |
+
+生成设计系统规则文件（CLAUDE.md / AGENTS.md 格式），用于确保后续代码与设计系统一致。
+
+## get_figjam
+
+仅适用于 FigJam 文件（URL 含 `/board/`）。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `includeImagesOfNodes` | boolean | 默认 `true` |
+
+---
+
+## Remote MCP 专属工具
+
+以下工具仅在 Remote MCP（`mcp.figma.com/mcp`）可用，CLI 当前不支持（需 OAuth）：
+
+| 工具 | 用途 |
 |------|------|
-| localhost URL | 直接使用，不转换 |
-| 禁止新增图标包 | 所有资源来自 Figma |
-| 禁止占位符 | 有 localhost URL 时必须使用 |
-| 先分诊再编码 | 先输出 `AssetPlan`，再决定资源如何进入正式目录 |
-| 只处理本次下载文件 | 通过调用前后目录差集锁定当前任务范围 |
-| 优先语义化命名 | 避免把 hash 文件名直接带入正式目录 |
+| `generate_figma_design` | 抓取线上网页生成 Figma 设计稿 |
+| `use_figma` | 通用写入工具（创建/编辑/删除 Figma 对象），beta |
+| `generate_diagram` | 用 Mermaid 语法创建 FigJam 图 |
+| `create_new_file` | 创建空白 Design / FigJam 文件 |
+| `search_design_system` | 搜索 connected design library |
+| `get_code_connect_map` / `add_code_connect_map` | Code Connect 映射 |
+| `whoami` | 查询认证用户身份和 plan 信息 |
 
-## 输出转换
+---
 
-Figma MCP 默认输出 React + Tailwind，需要转换为项目框架：
+## fileKey 提取规则
 
-1. **框架适配**：React → Vue/Nuxt 等
-2. **设计令牌映射**：优先将 Figma 变量映射到项目已有令牌；无法映射时保留原值 + fallback
-3. **组件复用**：识别并复用项目现有组件；匹配时扩展，冲突时新建
-4. **资源分诊**：先判断 `inline` / `promote` / `discard` / `refetch-parent`
+| URL 形式 | fileKey 取值 |
+|----------|-------------|
+| `/design/:fileKey/:name?node-id=X` | `:fileKey` |
+| `/design/:fileKey/branch/:branchKey/:name` | **`:branchKey`**（不是原始 fileKey） |
+
+Desktop MCP 自动使用当前打开文件，`fileKey` 可省；Remote MCP 必须传。

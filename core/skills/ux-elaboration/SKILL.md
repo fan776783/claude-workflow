@@ -98,7 +98,7 @@ options:
 ```
 
 选 `batch` 格式：`页面名 | Figma URL 或图片路径`（每行一个）。
-选 `all_figma` → 调用 `get_metadata(fileKey)` 列出顶层 frame，按名称自动匹配。
+选 `all_figma` → 调用 `node <figma-cli> get_metadata --nodeId 0:1` 列出顶层 frame，按名称自动匹配。
 
 **产出 DesignSourceMap**（内存对象）：
 
@@ -121,10 +121,14 @@ type DesignSource =
 
 ### Figma 子 Agent 步骤
 
-1. 调用 `get_design_context(fileKey, nodeId, dirForAssetWrites: "/tmp/layout-{pageId}")`
-2. 调用 `get_screenshot(fileKey, nodeId)`
-3. 提取：主要区域（名称+排列）、布局模式（Flex/Grid）、关键尺寸、响应式断点、关键组件类型
-4. 只输出 `LayoutAnchor` JSON
+CLI 路径：`core/skills/figma-ui/cli/figma.mjs`（相对项目 skill root）。
+
+1. 调用 `node <figma-cli> design --nodeId <nodeId> --taskId layout-{pageId}`
+   - 自动管理 `dirForAssetWrites` + 差集计算
+   - 返回 JSON 含 `designContext` + `screenshot`
+2. 从 `designContext` 提取：主要区域（名称+排列）、布局模式（Flex/Grid）、关键尺寸、响应式断点、关键组件类型
+3. 只输出 `LayoutAnchor` JSON
+4. 调用 `node <figma-cli> cleanup --taskId layout-{pageId}`（布局提取不保留资源）
 
 ### 截图子 Agent 步骤
 

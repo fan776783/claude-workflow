@@ -2,43 +2,100 @@
 
 ## MCP 连接
 
-### Issue: MCP server not found
+### Issue: MCP server not found / 连接拒绝
 
-**原因**: Figma MCP 未配置或 Figma Desktop 未启动
+**原因**: Figma MCP 未配置,或 Desktop 未启动,或端口被占
 
 **解决**:
-1. 确保 Figma Desktop 已打开
-2. 启用 MCP 服务：Figma Desktop → Settings → Enable MCP Server
-3. 添加 MCP 配置：
-```bash
-claude mcp add figma-mcp --url http://127.0.0.1:3845/mcp
-```
-4. 重启 Claude Code
+
+**Desktop 模式**:
+1. 确认 Figma Desktop 已打开并登录
+2. Figma Desktop → Preferences → 启用 "Dev Mode MCP Server"
+3. 确认端口 3845 可访问：`curl -s http://127.0.0.1:3845/mcp | head -c 100`
+4. 添加 MCP 配置：
+   ```bash
+   claude mcp add figma-mcp --transport sse --url http://127.0.0.1:3845/mcp
+   ```
+5. 重启 Claude Code
+
+**Remote 模式**:
+1. 添加 MCP 配置：
+   ```bash
+   claude mcp add figma-mcp --transport http --url https://mcp.figma.com/mcp
+   ```
+2. 首次调用会触发 OAuth 授权,在浏览器中完成
+3. 确认网络可达 `mcp.figma.com`
+
+### Issue: OAuth 授权失败（Remote 模式）
+
+**原因**: 浏览器未弹出,或授权超时
+
+**解决**:
+1. 检查终端是否打印了 OAuth URL,手动在浏览器打开
+2. 确认 Figma 账号有有效订阅
+3. 重试：删除 MCP 配置后重新添加
+   ```bash
+   claude mcp remove figma-mcp
+   claude mcp add figma-mcp --transport http --url https://mcp.figma.com/mcp
+   ```
+
+### Issue: Desktop MCP 要求 Dev/Full seat
+
+**原因**: 免费或 Starter plan 不支持 Desktop MCP
+
+**解决**: 切换到 Remote 模式,任意 Figma plan 均可使用 `https://mcp.figma.com/mcp`。
+
+---
+
+## Image Source 配置
+
+### Issue: Path for asset writes as tool argument is required
+
+**原因**: Image Source 设为 Download 但调用 `get_design_context` 时未传 `dirForAssetWrites`
+
+**解决**:
+1. 先获取 `assetsDir`（从 `.claude/config/ui-config.json` 或使用默认值 `public/images`）
+2. 构造临时目录：`${assetsDir}/.figma-ui/tmp/${taskId}`
+3. 调用时传入绝对路径：
+   ```
+   get_design_context(nodeId="42:15", dirForAssetWrites="/abs/path/project/public/images/.figma-ui/tmp/task-1")
+   ```
+
+### Issue: dirForAssetWrites 传了但没有文件生成
+
+**原因**: Image Source 设为 Local Server,此时 `dirForAssetWrites` 无效
+
+**解决**:
+- 确认 Figma Desktop → Preferences → Dev Mode MCP → Image source 设为 **Download**
+- 或者不传 `dirForAssetWrites`,改为消费返回的 localhost URL
+
+### Issue: 资源文件异步延迟（Download 模式）
+
+**原因**: `get_design_context` 返回后资源可能还在异步写入
+
+**解决**:
+1. 返回后等待 2-3 秒再 `ls` 目录
+2. 或 poll 目录直到文件数稳定
+3. 在 Phase A.3 中,前后两次 `ls` 做差集时考虑此延迟
 
 ---
 
 ## 参数错误
 
-### Issue: Path for asset writes as tool argument is required
-
-**原因**: 调用 `get_design_context` 时未传 `dirForAssetWrites`
-
-**解决**:
-1. 先获取 `assetsDir`（从 ui-config.json 或使用默认值）
-2. 构造临时目录：`${assetsDir}/.figma-ui/tmp/${taskId}`
-3. 调用时传入：
-```
-get_design_context(fileKey, nodeId="42:15", dirForAssetWrites="${assetsDir}/.figma-ui/tmp/${taskId}")
-```
-
 ### Issue: fileKey missing / invalid
 
-**原因**: 使用远程 MCP 时未传 `fileKey`，或 URL 解析错误
+**原因**: 使用 Remote MCP 时未传 `fileKey`，或 URL 解析错误
 
 **解决**:
 1. 从 URL `https://figma.com/design/:fileKey/:fileName?node-id=1-2` 提取 `/design/` 后的路径段
-2. 远程 MCP 必须传 `fileKey`；桌面端 MCP 可省略
-3. 确认 fileKey 格式正确（通常是字母数字混合字符串）
+2. Branch URL 特殊处理：`/design/:fileKey/branch/:branchKey/:fileName` → 用 **branchKey** 作为 fileKey
+3. Remote MCP 必须传 `fileKey`；Desktop MCP 可省略（自动用当前打开文件）
+
+### Issue: nodeId 格式错误
+
+**原因**: URL 中 `node-id=1-2` 传给 MCP 时需要转为 `1:2`
+
+**解决**: 将 `-` 替换为 `:`。正则：`/^(?:-?\d+[:-]-?\d+)$/`
 
 ---
 
@@ -49,28 +106,53 @@ get_design_context(fileKey, nodeId="42:15", dirForAssetWrites="${assetsDir}/.fig
 **原因**: 节点过于复杂或嵌套层级过多
 
 **解决**: 分块获取：
-1. 调用 `get_metadata(fileKey, nodeId)` 获取节点结构概览
+1. 调用 `get_metadata(nodeId)` 获取节点结构概览
 2. 从返回的 XML 中识别关键子节点的 nodeId
 3. 对每个子节点分别调用 `get_design_context`，合并结果
+
+### Issue: get_design_context 返回的代码不含资源引用
+
+**原因**: 节点本身不含图片/SVG 等资源（纯布局/文本节点）
+
+**解决**: 这是正常行为。纯布局节点不会生成资源文件,直接用代码实现即可。
 
 ---
 
 ## 资源问题
 
-### Issue: 图片资源无法加载
+### Issue: 图片资源无法加载（Local Server 模式）
 
-**原因**: Figma MCP 资源端点不可访问
+**原因**: Figma Desktop 已关闭或 MCP 服务停止
 
 **解决**:
-1. 确认 MCP 服务运行中
-2. 直接使用 localhost URL，不要修改
-3. 检查网络/防火墙
+1. 确认 Figma Desktop 运行中
+2. localhost URL 是 session-scoped,重启 Figma 后需要重新获取
+3. 需持久化时用 `curl -o` 下载到本地
+
+### Issue: Hash 文件名散落在代码中
+
+**原因**: 跳过了 Asset Triage 直接编码
+
+**解决**:
+1. 回到 Phase A 完成 AssetPlan
+2. 将已引用的 hash 文件批量 rename 为语义名
+3. 全局替换代码中的文件引用
+
+### Issue: 复合图形被拆成多个子 SVG
+
+**原因**: `get_design_context` 导出了子图层而非父节点
+
+**解决**:
+1. 识别特征：多个 SVG 在同一位置叠加（背景 + 图标 + 装饰）
+2. 标记当前资源为 `refetch-parent`
+3. 获取父 Frame nodeId,重新 `get_design_context` 导出整张图片
+4. 更新 AssetPlan
 
 ---
 
 ## Visual Review
 
-### Issue: review后仍有 P0 问题
+### Issue: review 后仍有 P0 问题
 
 **原因**: 存在未修复的视觉问题
 
@@ -79,10 +161,6 @@ get_design_context(fileKey, nodeId="42:15", dirForAssetWrites="${assetsDir}/.fig
 2. 按修复建议逐条修复
 3. 最多循环 3 次
 4. 超过则请求用户指导
-
----
-
-## 视觉验证
 
 ### Issue: 实现与设计不匹配
 

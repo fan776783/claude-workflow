@@ -26,30 +26,32 @@
 
 检查 `.claude/config/ui-config.json` 中的 `assetsDir` 字段。未找到则默认 `public/images` 或询问用户。
 
-### A.3 调用 Figma MCP
+### A.3 调用 Figma CLI
 
-1. 创建任务临时目录 `${assetsDir}/.figma-ui/tmp/${taskId}`
-2. 记录目录中已有的文件列表
-3. 调用 MCP:
-   ```
-   get_design_context(fileKey, nodeId, dirForAssetWrites: taskAssetsDir)
-   ```
-4. 再次列出目录文件,与步骤 2 的列表做差集得到 `newlyDownloadedFiles`
+使用 `design` 命令自动完成临时目录创建 + 差集计算：
+
+```bash
+node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
+# 或
+node cli/figma.mjs design --nodeId 42:15 --taskId <taskId>
+```
+
+返回 JSON 含 `taskDir`、`newlyDownloadedFiles`、`designContext`、`screenshot`。
 
 目录职责:`assetsDir/.figma-ui/tmp/${taskId}` 是当前任务的原始下载与分诊工作区。
 
 **返回为空或被截断**(节点过于复杂)时:
-1. `get_metadata(fileKey, nodeId)` 获取节点结构概览
+1. `node cli/figma.mjs get_metadata --nodeId <nodeId>` 获取节点结构概览
 2. 从 metadata 识别关键子节点
-3. 按子节点分别 `get_design_context`
+3. 按子节点分别 `node cli/figma.mjs design --nodeId <childNodeId> --taskId <taskId>`
 
 ### A.4 获取视觉参考
 
-```
-get_screenshot(fileKey, nodeId)
+```bash
+node cli/figma.mjs screenshot --nodeId 42:15 --outDir ${taskDir}
 ```
 
-截图作为整个实现过程中的视觉基准,用于 Phase B 编码对照和 Phase C 验证比对。
+`design` 命令已自动保存截图到 `${taskDir}/_screenshot.png`，通常无需单独调用。截图作为整个实现过程中的视觉基准,用于 Phase B 编码对照和 Phase C 验证比对。
 
 ### A.5 提取 ElementManifest
 
@@ -174,32 +176,20 @@ Figma MCP 输出通常是 React + Tailwind 格式,需转换为项目实际框架
 
 ### 样式策略
 
-优先使用 Tailwind 工具类,保留 Figma 原始值。在 class 定义中使用 `@apply` 复用 Tailwind 类:
+按项目 convention 选择样式方案。核心原则：**保留 Figma 原始数值,不用近似值**。
 
-```html
-<!-- ✅ 推荐:Tailwind 工具类 + Figma 原值 -->
-<div class="bg-[rgba(194,204,241,0.08)] rounded-2xl pt-8 px-6 pb-6">
+| 项目方案 | 做法 |
+|---------|------|
+| Tailwind | 用 arbitrary values 保留原值：`bg-[rgba(194,204,241,0.08)]`；有项目令牌时优先令牌 |
+| CSS Modules / Scoped | 用 CSS 变量 + Figma 原值作 fallback |
+| 设计令牌体系 | 映射到已有令牌；无法映射时保留原值 |
 
-<!-- ✅ 有项目令牌时优先使用 -->
-<div class="bg-fill-light-02 rounded-2xl pt-8 px-6 pb-6">
-
-<!-- ❌ 避免:硬编码近似值 -->
-<div class="bg-gray-900/10 rounded-xl p-6">
+```text
+✅ rgba(194, 204, 241, 0.08)  — Figma 原值
+❌ rgba(200, 210, 240, 0.1)   — 近似值（视觉可能一样但追溯困难）
 ```
 
-```css
-/* ✅ 在 class 定义中用 @apply 复用 Tailwind */
-.card-container {
-  @apply bg-[rgba(194,204,241,0.08)] rounded-2xl pt-8 px-6 pb-6;
-}
-
-/* ❌ 避免:脱离 Tailwind 手写原始 CSS */
-.card-container {
-  background: rgba(194, 204, 241, 0.08);
-  border-radius: 16px;
-  padding: 32px 24px 24px;
-}
-```
+从 `.claude/code-specs` 或项目现有代码推断当前使用的方案，不要假设一定用 Tailwind。
 
 ### 资源消费约束
 
@@ -295,13 +285,17 @@ review 重点:
 用户提供:`https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15`
 
 执行流程:
-1. 解析 URL → fileKey=`kL9xQn2VwM8pYrTb4ZcHjF`, nodeId=`42-15`
-2. `get_design_context(fileKey, nodeId, dirForAssetWrites)` 获取按钮设计数据
-3. `get_screenshot(fileKey, nodeId)` 获取视觉参考
-4. 从 assets endpoint 下载按钮图标(如有)
-5. 检查项目是否有现成按钮组件 → 有则扩展变体,无则按项目规范新建
-6. 将 Figma 颜色映射到项目设计令牌(如 `primary-500`、`primary-hover`)
-7. 对照截图验证 padding、border-radius、字体
+```bash
+# 1. 获取设计上下文 + 资源
+node cli/figma.mjs design --url "https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15" --taskId btn-primary
+
+# 2. 查看返回的 newlyDownloadedFiles → AssetPlan
+# 3. 检查项目是否有现成按钮组件 → 有则扩展变体,无则按项目规范新建
+# 4. 将 Figma 颜色映射到项目设计令牌
+# 5. 对照 _screenshot.png 验证 padding、border-radius、字体
+# 6. 清理
+node cli/figma.mjs cleanup --taskId btn-primary
+```
 
 结果:按钮组件与 Figma 设计一致,已集成到项目设计系统。
 
@@ -310,14 +304,22 @@ review 重点:
 用户提供:`https://figma.com/design/pR8mNv5KqXzGwY2JtCfL4D/Dashboard?node-id=10-5`
 
 执行流程:
-1. 解析 URL → fileKey=`pR8mNv5KqXzGwY2JtCfL4D`, nodeId=`10-5`
-2. `get_metadata(fileKey, nodeId)` 获取页面结构概览
-3. 识别主要区块(header、sidebar、content area、cards)及其子节点 ID
-4. 按区块分别 `get_design_context` + Asset Triage
-5. `get_screenshot(fileKey, nodeId)` 获取整页截图
-6. 下载所有资源(logo、图标、图表),完成 AssetPlan
-7. 使用项目布局原语搭建结构,尽量复用现有组件
-8. 验证响应式行为,对照截图逐项检查
+```bash
+# 1. 先看结构
+node cli/figma.mjs get_metadata --nodeId 10:5
+
+# 2. 按区块分别获取
+node cli/figma.mjs design --nodeId 20:1 --taskId dash-header
+node cli/figma.mjs design --nodeId 20:2 --taskId dash-sidebar
+node cli/figma.mjs design --nodeId 20:3 --taskId dash-content
+
+# 3. 整页截图用于最终 review
+node cli/figma.mjs screenshot --nodeId 10:5 --outDir ./screenshots
+
+# 4. 各区块 AssetPlan → 编码 → Visual Review
+# 5. 清理
+node cli/figma.mjs cleanup
+```
 
 结果:完整 Dashboard 页面,资源已分诊收口,视觉 review 通过。
 
@@ -328,8 +330,8 @@ review 重点:
 ### 复杂页面
 
 对于复杂页面(多个独立区块),可分块实现:
-1. `get_metadata` 获取结构概览
-2. 按区块分别 `get_design_context`
+1. `node cli/figma.mjs get_metadata --nodeId <pageId>` 获取结构概览
+2. 按区块分别 `node cli/figma.mjs design --nodeId <childId> --taskId <block-name>`
 3. 各区块独立执行 Asset Triage
 4. 分块编码 + 分块验证
 
