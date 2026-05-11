@@ -196,7 +196,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 > § 4.4 / § 5.6 的一致性检查在 Step 5 设计深化末尾的 5.S Self-Review 中执行,本 Step 不涉及。
 > 覆盖率即时计算(将 PRD 原文按语义段落逐段比对 Spec 内容),结果直接展示给用户,不持久化为独立文件。
 
-## Step 5: 设计深化(条件)
+## Step 5: 设计深化(条件 → 委托独立 skill)
 
 **宣告**:`🎨 Phase 1.5: 设计深化`
 **跳过条件**:满足以下任一:
@@ -206,54 +206,35 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **完整触发条件**: spec 定义 3+ module 或 4+ page/endpoint 或用户明确请求。
 
-| 信号 | 前端分支 | 后端分支 |
-|------|---------|---------|
-| `ux_gate_required=true` | ✓ | — |
-| § 5.1 含 API/Service/DB 层 | — | ✓ |
-| 全栈 | ✓ | ✓ |
+### 确认与委托
 
-分支详情：
-- 前端分支：[`references/design-elaboration-frontend.md`](references/design-elaboration-frontend.md)（§ 4.4 UX & UI Design）
-- 后端分支：[`references/design-elaboration-backend.md`](references/design-elaboration-backend.md)（§ 5.6 System Design）
+用 AskUserQuestion 确认设计深化范围：
 
-### 前端分支(§ 4.4 UX & UI Design)
+```
+question: "Spec 核心章节已完成，需要哪些设计深化？"
+options:
+  - frontend:     "前端设计深化（§4.4 User Flow + 布局锚点）"
+  - backend:      "后端设计深化（§5.6 API + 数据流 + 服务边界）"
+  - both:         "前端 + 后端"
+  - skip:         "跳过设计深化"
+```
 
-1. **§ 4.4.1 User Flow** — 主会话生成 Mermaid 用户操作流程图,≥ 3 场景(首次使用、核心操作、异常/边界)
-2. **§ 4.4.2 Page Hierarchy** — 主会话填写页面层级表(L0 ≤ 4 个功能 module)
-3. **设计稿关联** — 用 AskUserQuestion 收集 DesignSourceMap(逐页或批量):Figma URL → fileKey + nodeId / 截图路径 → imagePath / 跳过 → infer
-4. **§ 4.4.3 Page Layout Summary** — **分派子 Agent**(只读任务,不占主上下文)并行提取布局锚点,主会话回收后 Edit 写入 spec.md
+| 用户选择 | 委托 |
+|---------|------|
+| frontend | 调用 `/ux-elaboration` skill |
+| backend | 调用 `/system-design` skill |
+| both | 先执行 `/ux-elaboration`，再执行 `/system-design` |
+| skip | 直接进入 Step 6 |
 
-> 子 Agent 只输出 LayoutAnchor JSON,不写项目文件。降级:子 Agent 超时/失败 → 改用 infer 路径,不阻塞。
+**信号辅助判断**（用于 AskUserQuestion 的推荐选项）：
 
-### 后端分支(§ 5.6 System Design)
-
-主会话内完成(纯文本 + Mermaid):
-1. **§ 5.6.1 API Contract Summary** — 从 § 4.1 行为推导接口清单
-2. **§ 5.6.2 Data Flow** — Mermaid 数据流图
-3. **§ 5.6.3 Service Boundaries** — 基于 § 5.1 定义服务边界和通信方式
-4. **§ 5.6.4 Data Migration** — 条件填写(涉及 schema 变更时)
-
-### 全栈
-
-主会话先完成 § 4.4.1 + § 4.4.2 + 设计稿关联,然后**并行**:主会话写 § 5.6,子 Agent 提取 § 4.4.3。
-
-### 错误处理
-
-| 场景 | 处理 |
+| 信号 | 推荐 |
 |------|------|
-| Figma MCP 不可用 | 提示用户改用截图路径,或标记为 infer |
-| 子 Agent 超时 | 降级为 infer,不阻塞 |
-| 截图无法识别 | 标记人工补充 |
-| 用户全部选 skip | 所有页面走 infer,主会话内联 |
-| Figma URL 无 node-id | `get_metadata(fileKey)` 列出 frame,让用户选择 |
+| `ux_gate_required=true` 且 § 5.1 含 API/Service/DB 层 | both |
+| `ux_gate_required=true` 且 § 5.1 无后端服务模块 | frontend |
+| `ux_gate_required=false` 且 § 5.1 含 API/Service/DB 层 | backend |
 
-### 5.S Self-Review(设计章节)
-
-设计深化完成后立即执行,只检查 Step 4 Self-Review 没覆盖的 § 4.4 / § 5.6 一致性。发现问题直接修复。
-
-- **UX 一致性**(前端/全栈) — workflow 图中每个步骤是否在 § 4 有对应描述;flowchart scenarios ≥ 3(首次使用、核心操作、异常/边界);L0 module ≤ 4 个;§ 4.4.3 Page Layout 与 § 4.4.2 Page Hierarchy 页面对齐
-- **后端一致性**(后端/全栈) — § 5.6.1 API Contract 是否覆盖 § 4.1 Primary Flow 的所有触发点;§ 5.6.2 Data Flow 是否对应 § 5.1 模块划分;§ 5.6.3 Service Boundaries 与 § 5.1 模块边界一致
-- **设计深化覆盖** — 跳过条件未触发时必须有对应章节填写,不得空段
+委托完成后，设计深化的 Self-Review 由各独立 skill 内部执行，workflow-spec 不重复检查。
 
 > **Runtime 兼容性**: `planning_gates.js` 可能在 state 中写入 `codex_spec_review.triggered = true`。该字段现为 no-op——runtime 写入但 skill 不再消费。如用户需要 Codex 审查 spec，可直接使用 `/collaborating-with-codex --review`。
 
