@@ -121,7 +121,7 @@ type DesignSource =
 
 ### Figma 子 Agent 步骤
 
-CLI 路径：`core/skills/figma-ui/cli/figma.mjs`（相对项目 skill root）。
+CLI 路径：`core/skills/figma-data/cli/figma.mjs`（相对项目 skill root）。
 
 1. 调用 `node <figma-cli> design --nodeId <nodeId> --taskId layout-{pageId}`
    - 自动管理 `dirForAssetWrites` + 差集计算

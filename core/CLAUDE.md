@@ -9,19 +9,13 @@
 - **针对性改动**：只改任务要求的部分，严禁影响现有功能。
 - **判断依据**：以代码和工具搜索结果为准，不猜测。
 - **上下文检索**：优先 `mcp__auggie-mcp__codebase-retrieval`，减少 search/find/grep。
-- **外部文档链接**：钉钉 / 飞书 / Notion / Confluence 等 URL 优先用对应 MCP 读取，WebFetch 只作为兜底。
+- **外部文档链接**：优先走对应 skill（如 `alidocs`）或 MCP 读取，WebFetch 仅兜底。
 - **Codex 调用**：sandbox、session 复用、后台执行、review 模式等一切 contract 以 `collaborating-with-codex` skill 和桥接脚本为准，本文件不重复约定。
 - **被拒需求检查**：需求分析阶段扫描项目 `.out-of-scope/` 目录，命中则告知用户曾被拒绝及原因，由用户决定是否重新评估。协议见 `core/specs/shared/out-of-scope-protocol.md`。
 
-## 协作路由
+## Codex 委托
 
-- **简单任务**（单行修复、拼写、明显 typo）→ 直接做。
-- **后端 / 算法 / 安全 / 复杂调试** → 委托 Codex（详见 `collaborating-with-codex` skill）。
-- **前端 / UI** → 直接执行。
-- **全栈** → Codex 分析后端，当前模型处理前端并收口。
-- **交付前审查** → `collaborating-with-codex --review`。
-
-Codex 委托的交互节奏由 `collaborating-with-codex` skill 内部定义。各 skill 的 human gate / 决策点由各 skill 自行治理，不在本文件重复。真决策点（即将修改代码/批量修复/归档删除/不可逆操作）使用 AskUserQuestion。
+后端 / 算法 / 安全 / 复杂调试 → 委托 Codex；全栈场景 Codex 负责后端、当前模型收口前端；其余直接做。交付前审查走 `collaborating-with-codex --review`。协议细节由 `collaborating-with-codex` skill 定义，真决策点用 AskUserQuestion。
 
 ## 并行与 Team
 
