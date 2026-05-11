@@ -1,6 +1,6 @@
 ---
 name: quick-plan
-description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)请用 /workflow-spec。"
+description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」「整理成需求」「出个 PRD」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)请用 /workflow-spec。"
 argument-hint: <需求描述 | path/to/requirement.md>
 ---
 
@@ -9,99 +9,45 @@ argument-hint: <需求描述 | path/to/requirement.md>
 本 skill 的跳过条件:单行 typo 级修复直接改,无需 plan。
 </PRE-FLIGHT>
 
-# /quick-plan - 轻量快速规划
+# quick-plan
 
-直接产出可执行的实施计划，**不走状态机**，不生成独立 spec。
+从对话上下文和代码库中合成一份可执行文档。不走状态机,不质询(需要质询先走 `/grill`)。
 
-## 用法
+## 产出
 
-```
-/quick-plan "修复登录按钮样式"
-/quick-plan "添加新的 API 字段"
-/quick-plan docs/requirement.md
-```
+写到 `~/.claude/workflows/{pid}/plans/{kebab-case-name}-{MMDD}.plan.md`。
 
-## 核心原则
+**两种格式,自动路由**:
 
-- **30 秒目标**：快速完成规划，不走重量级管线
-- **不猜测**：不清楚就问，不假设
-- **完整可执行**：plan 中每步包含具体文件、代码和验证命令
-- **模式引用**：新代码必须与代码库现有模式一致
+| 信号 | 产出格式 |
+|------|----------|
+| 输入来自 `/grill` 产出,或用户说"整理成需求/PRD/spec/需求文档" | [spec-lite](references/spec-lite-template.md) |
+| 其他(默认) | [plan](references/plan-template.md) |
 
-## 执行workflow
+## 规则
 
-### Step 1: 需求理解
+- 不清楚就问,不猜——但能查代码的先查
+- 新代码必须与代码库现有模式一致
+- `.md` 参数 → 读文件内容作为输入
+- 信心 < 5 → 建议切 `/workflow-spec`,不硬塞
+- 复杂度评估见 [references/complexity-scoring.md](references/complexity-scoring.md)
+- XL 级(跨 module / 新子系统) → 建议切 `/workflow-spec`
+- 产出后不自动执行,告诉用户下一步选项:
+  - 直接实施或交 `/workflow-execute`
+  - 修改 plan → 回复反馈
+  - 升级完整 workflow → `/workflow-spec`
+- 不调 AskUserQuestion。用户直接回复即可。
 
-1. **解析输入**：
-   - `.md` 结尾且文件存在 → 读取文件内容
-   - 其他 → 作为内联需求
-2. **复杂度评估**：见 [references/complexity-scoring.md](references/complexity-scoring.md)
-3. **Ambiguity Gate**：以下情况**停止并询问用户**：
-   - 核心交付物不明确
-   - 成功标准未定义
-   - 存在多种合理解读
-   - 技术方案有重大未知
+## 与 workflow 的对接
 
-   复杂需求(非 typo 级)建议先走 `/grill` 做一轮对齐再回本 skill。
-
-### Step 2: 代码库分析
-
-1. 调用 `mcp__auggie-mcp__codebase-retrieval`（单次轻量查询）
-2. 识别：
-   - 相关现有文件（可复用 / 需修改）
-   - 命名规范与代码模式
-   - 技术约束
-3. 生成 **Mandatory Reading** 列表：
-
-| 优先级 | 文件 | 行范围 | 原因 |
-| ------ | ---- | ------ | ---- |
-| P0 | `path/to/file` | 1-50 | 核心模式 |
-| P1 | `path/to/file` | 10-30 | 相关类型 |
-
-### Step 3: Plan 生成
-
-产出 `~/.claude/workflows/{pid}/plans/{kebab-case-name}-{MMDD}.plan.md`。模板见 [references/plan-template.md](references/plan-template.md)。
-
-### Step 4: 展示摘要并退让
-
-展示 plan 摘要（复杂度 + 信心评分 + 文件数 / 任务数 + 主要风险），然后用自然语言告诉用户：
-
-> plan 已生成到 `~/.claude/workflows/{pid}/plans/<name>-{MMDD}.plan.md`。
-> - 要直接执行 → 自行实施或交给 `/workflow-execute`（先注意下面的注意）
-> - 要修改 plan → 告诉我反馈，我调整
-> - 要升级到完整workflow（spec + 状态机 + 追溯）→ `/workflow-spec`
-
-**不调 AskUserQuestion**。用户直接回复告诉下一步即可。
-
-## Confidence 规则
-
-| 分数 | 含义 |
-| ---- | ---- |
-| 8-10 | 代码库分析充分，需求清晰，单步可完成 |
-| 5-7 | 基本清晰，可能有少量不确定性 |
-| 1-4 | 不确定性较大，**建议切换到 `/workflow-spec`** |
-
-## 与 workflow 的关系
-
-| 命令 | 适用场景 | 产物 |
-| ---- | -------- | ---- |
-| `/quick-plan` | 简单 / 中等任务，快速 plan | 仅 `plan.md` |
-| `/workflow-spec` | 复杂 / 跨module，需 spec 追溯 | `spec.md` + `plan.md` + 状态机 |
-
-- `/quick-plan` 只生成轻量 `plan.md`，不进入 workflow 状态机
-- `/quick-plan` 不触发 UX 设计审批、需求讨论等 HARD-GATE
-- 过程中发现任务复杂度升到 XL 级 → 切换到 `/workflow-spec`
-- 接受 plan 后想按 workflow 执行 → 建议先 `/workflow-spec` 升级为完整workflow（含 spec + 状态机）。直接 `/workflow-execute` 会因缺少 spec 而要求确认降级
-
-### 轻量执行对接
-
-当 quick-plan 产出的 plan 被 `/workflow-execute` 消费时:
-- execute 检测 plan 存在但 spec 文件不存在 → 自愈逻辑将 `user_spec_review` 标记为 `skipped`（已有 runtime 支持）
-- 满足 brief mode 条件（≤3 task 且无 gate/HITL）时自动进入 brief mode
-- 用户仍可用 `/workflow-spec` 升级为完整 workflow
+- quick-plan 只生成轻量文档,不进入 workflow 状态机
+- `/workflow-execute` 消费时:检测 plan 存在但 spec 不存在 → 自愈逻辑标记 `user_spec_review = skipped`
+- ≤3 task 且无 gate/HITL → 自动进入 brief mode
+- 用户可随时用 `/workflow-spec` 升级
 
 ## 与其他 skill 的关系
 
 - 需求模糊 → 先 `/grill` 对齐再回本 skill
-- 需要调研外部方案 / 找现成库 → 先 `/research`
-- 生成 plan 后要沉淀规范 → `/spec-update`
+- 需要调研外部方案 → 先 `/research`
+- plan 后要沉淀规范 → `/spec-update`
+- `/grill` 产出可直接作为本 skill 的输入(自动路由到 spec-lite 格式)

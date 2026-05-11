@@ -127,18 +127,46 @@ CLI 此刻会落盘:
 
 ## Step 3: 需求讨论(条件)
 
-**宣告**:`💬 Phase 0.2: 需求分析讨论`
+**宣告**:`💬 Phase 0.2: 需求讨论`
 **跳过条件**:`--no-discuss`,或内联需求 ≤100 字符且预分析无待澄清项。
 
-1. **需求预分析** — 基于代码分析结果识别待澄清事项,按 P0/P1/P2 分层(P0=阻塞 Spec、P1=交互细节、P2=非功能性)。检查维度:范围边界、行为定义、边界场景、权限与角色、非功能性需求、技术约束冲突、外部依赖就绪度、UX 导航结构、文档内部一致性
-2. **探索优先(定向)** — 凡是可通过已有工件回答的问题,不得提问用户。先读 `analysis-result.json`,不足再 Read/Grep 具体文件,不重复全量扫描
-3. **分流澄清** — 按**决策依赖树**排序,先问根节点。P0 逐个 AskUserQuestion(每题必带推荐答案 + why),P1 写入 `clarifications[]` 附 self-recommended,P2 仅在 Spec 风险章节留痕
-4. **方案探索(条件)** — 仅在存在互斥实现路径或显著技术 tradeoff 时触发
-5. **技术决策反写** — 讨论确认的技术选型反写到 `project-config.json`
+### 质询纪律
 
-**持久化**:讨论结果写入 spec.md § 9(§ 9.1 需求澄清记录、§ 9.2 方案选择、§ 9.3 未解决依赖)。
+同 `/grill` Deep Mode — 走决策树每个分支,一次一个问题,每问带推荐答案。能在代码/已有工件中查到的不问用户。
 
-> ⚠️ 不得仅依赖对话上下文记忆,讨论结果必须落盘到 spec.md。
+### 讨论范围
+
+基于 Step 2 代码分析识别待澄清项。典型关注点:
+- 范围边界(in/out-of-scope 的灰色地带)
+- 行为定义(正常 + 异常 + 边界场景)
+- 技术约束冲突(PRD vs 现有架构)
+- 外部依赖就绪度
+
+**不逐维度过**。只讨论真正有歧义的点。无歧义的直接写入 spec,不确认。
+
+### 被拒需求扫描
+
+检查项目根 `.out-of-scope/`(协议见 `core/specs/shared/out-of-scope-protocol.md`):
+- 与当前需求相关的记录 → 写入 analysis-result.json 的 `constraints` 数组,标注 `[out-of-scope]` 前缀
+- 讨论时如触碰到 out-of-scope 边界 → 主动告知用户
+
+### 分流
+
+- 阻塞 Spec 生成的决策 → AskUserQuestion(逐个,每题带推荐 + why)
+- 交互细节级 → 写入 spec § 9.1 附 self-recommended,不阻塞
+- 非功能性 → 仅在 § 9 风险章节留痕
+
+### 术语挑战
+
+同 grill: 用户用的术语和 glossary 冲突时当场指出。新术语确认后按路由模式 inline 更新(本 repo → `core/specs/shared/glossary.md`;用户项目 → `.claude/code-specs/shared/business-glossary.md`)。
+
+### 方案探索(条件)
+
+仅在存在互斥实现路径或显著技术 tradeoff 时触发。确认的技术选型反写到 `project-config.json`。
+
+### 持久化
+
+讨论结果写入 spec.md § 9(§ 9.1 需求澄清记录、§ 9.2 方案选择、§ 9.3 未解决依赖)。不得仅依赖对话上下文记忆。
 
 ## Step 4: Spec 文本扩写 + Self-Review(核心章节)
 
