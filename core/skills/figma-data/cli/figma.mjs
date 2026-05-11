@@ -288,7 +288,14 @@ async function cmdDesign(rest) {
   if (res.body.error) die(`tool error: ${JSON.stringify(res.body.error)}`);
   const r = res.body.result;
   if (r?.isError) {
-    process.stderr.write(JSON.stringify(r, null, 2) + "\n");
+    const errorText = r.content?.[0]?.text || "";
+    const isDirNotAllowed = errorText.includes("Cannot write to this directory") || errorText.includes("allowed directories");
+    const structured = {
+      error: isDirNotAllowed ? "dir_not_allowed" : "tool_error",
+      message: errorText,
+      fallback: isDirNotAllowed ? "screenshot_and_metadata" : null,
+    };
+    process.stdout.write(JSON.stringify(structured, null, 2) + "\n");
     process.exit(2);
   }
 

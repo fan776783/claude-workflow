@@ -1,6 +1,6 @@
 ---
 name: figma-data
-description: "Figma MCP 数据获取层：连接 Figma Desktop/Remote MCP，提取设计上下文、截图、资源文件，执行 Asset Triage，产出标准化 Design Package。被 figma-ui 等还原类 skill 内部调用；用户直接触发场景：只需提取设计数据/资产而不写代码、需要设计 token 导出、需要节点结构分析。"
+description: "Use when 用户提供 Figma URL 但只是要读取/查看/提取设计数据而不写代码; or 说「读取设计稿」「看下设计」「提取 token」「导出资源」「设计稿结构」「节点分析」; or 被 figma-ui 委托执行 Phase A 数据获取。当无法判断用户是否需要代码实现时,默认先触发本 skill 完成数据获取。不要在用户明确要求实现/还原/写代码时使用——那属于 figma-ui。"
 ---
 
 # Figma Data — 设计数据获取 + 资源分诊
@@ -112,6 +112,18 @@ node cli/figma.mjs doctor
 
 下游 skill 从 Design Package 开始工作，不需要直接调用 MCP。
 
+## 执行模式
+
+根据调用意图选择执行路径：
+
+| 调用方式 | 执行路径 | 产出 |
+|---------|---------|------|
+| 用户直接触发（读取/查看/提取） | **Read-only 模式** — 只执行 Step 1 + screenshot + get_metadata | 截图 + 节点结构描述 |
+| figma-ui 委托 Phase A | **Full 模式** — 执行全部 Step 1-8 | 完整 Design Package |
+| 用户明确要求 token/资源导出 | **Full 模式** | 完整 Design Package |
+
+**Read-only 模式**不需要 `assetsDir`，不调用 `design` 命令，因此不会触发 Allowed directories 报错。
+
 ## 执行步骤
 
 ### Step 1: 解析 URL
@@ -205,6 +217,21 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 - **refetch-parent 阻断** — AssetPlan 中存在 `refetch-parent` 时 Design Package 未就绪
 - **通过 CLI `design` 命令调用** — CLI 自动管理 `dirForAssetWrites`；直接 raw call 时必须手动传
 - **当前模型执行** — 不调用外部模型处理数据获取和分诊
+
+## 降级：dirForAssetWrites 不可用
+
+当 `design` 命令返回 "Cannot write to this directory" 时（Full 模式）：
+
+1. **告知用户**：需要在 Figma Desktop → Preferences → Dev Mode MCP → Allowed directories 添加项目资产目录
+2. **立即降级**到 Read-only 模式（不再尝试其他路径）：
+   ```bash
+   node cli/figma.mjs screenshot --url <url>
+   node cli/figma.mjs get_metadata --nodeId <nodeId> --fileKey <fileKey>
+   ```
+3. 从 screenshot + metadata 提供设计稿结构描述（尺寸、层级、文本内容）
+4. **禁止**：读 CLI 源码寻找绕过、尝试其他目录路径、重试 get_design_context
+
+降级产出**不含** AssetPlan 和 designContext 代码，figma-ui 的 Phase B Gate 不满足——需用户修复配置后重新执行。
 
 ## Red Flags
 
