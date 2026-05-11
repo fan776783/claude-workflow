@@ -15,7 +15,7 @@
 
 ## Codex 委托
 
-后端 / 算法 / 安全 / 复杂调试 → 委托 Codex；全栈场景 Codex 负责后端、当前模型收口前端；其余直接做。交付前审查走 `collaborating-with-codex --review`。协议细节由 `collaborating-with-codex` skill 定义，真决策点用 AskUserQuestion。
+由用户主动调用或 skill 内部触发，协议由 `collaborating-with-codex` skill 定义。
 
 ## 并行与 Team
 
