@@ -169,9 +169,9 @@ CLI 自动:更新 `delta.json` 状态为 `applied` → 更新 `review-status.jso
 
 ## 渐进式 workflow 集成
 
-- **API 同步后**:自动解除 `api_spec` 阻塞,被阻塞任务状态 `blocked` → `pending`
-- **需求 delta 后**:新增任务自动检测依赖,如需 API 或设计稿则标 `blocked`
-- **delta 应用后**:workflow 级状态从 `blocked` 恢复为 `running`(若无其他阻塞)
+- **API 同步后**:自动解除 `api_spec` 阻塞,被阻塞任务从 `progress.blocked` 移除（重新参与 `findNextTask` 调度）
+- **需求 delta 后**:新增任务自动检测依赖,如需 API 或设计稿则加入 `progress.blocked`
+- **delta 应用后**:workflow 级状态从 `halted`（`halt_reason: 'dependency'`）恢复为 `running`（若无其他阻塞）
 
 手动解除阻塞:
 ```bash

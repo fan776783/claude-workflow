@@ -34,7 +34,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 | `--detail` | 详细 | `progress` + `next` + `list` + `budget` + `journal list` + `context` |
 | `--json` | JSON | 直接输出 `status` 原始 JSON |
 
-`context` 返回 `spec_file` / `plan_file` 等字段,`status` 本身不含;`list` 返回各任务的 id / name / phase / status / actions。
+`context` 返回 workflow 上下文字段;`spec_file` / `plan_file` 存在于磁盘 `workflow-state.json` 中,可直接从 `status` 原始 JSON 获取;`list` 返回各任务的 id / name / phase / status / actions。
 
 ## Step 3: 格式化输出
 
@@ -76,7 +76,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 | `failure_reason` 非空 | 状态行下加 `⚠️ 失败原因：{failure_reason}` |
 | 存在 `blocked` 任务 | 任务表加 `⏳ 阻塞 \| {blocked_count}` 行 |
 | `quality_gates[taskId]` 存在 | 显示各关卡通过状态 |
-| `continuation.handoff_required` 为 true | 显示 `🔄 需要 handoff：{reason}` |
+| `continuation.handoff_required` 为 true（从磁盘 state JSON 读取） | 显示 `🔄 需要 handoff：{reason}` |
 | 存在 journal 记录 | 最近 5 条摘要 + 最新一条的 `next_steps` 与 `decisions` |
 
 ## Step 4: 下一步建议
@@ -92,6 +92,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 | `review_pending` | `/workflow-review` 全量完成 review |
 | `completed` | 🎉 可 `/workflow-archive` |
 | `archived` | 新需求请 `/workflow-spec` |
+
+> **注意**: CLI `status` 命令返回 `workflow_status: 'halted'` 但不含 `halt_reason`。区分 halted 子类型需直接读 `workflow-state.json` 的 `halt_reason` 字段。
 
 > Legacy 状态 `paused` / `blocked` / `failed` / `planning` 会被 CLI 投影为上述新状态。需一次性升级旧文件运行 `workflow_cli.js migrate-state`。
 >

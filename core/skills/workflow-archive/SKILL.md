@@ -27,7 +27,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js archive --summary
 ```
 
-CLI 自动完成 tombstone 两阶段提交:校验 `status=completed` → 写 `ARCHIVING.marker` → 在 `history/<YYYY-MM>/<task>-<timestamp>/` 下生成快照(`workflow-state.json` status=archived、`tasks.md`、`changes/CHG-*`、可选 summary)→ 删除根目录 `workflow-state.json` / `tasks.md` / `changes/` → 清除 tombstone。
+CLI 自动完成 tombstone 两阶段提交:校验 `status=completed` → 写 `ARCHIVING.marker` → 在 `history/<YYYY-MM>/<task>-<timestamp>/` 下生成快照(`workflow-state.json` status=archived、`tasks.md`（若存在）、`changes/CHG-*`、可选 summary)→ 删除根目录工作文件 → 清除 tombstone。
 
 崩溃后下次任意 `/workflow-*` 启动会自动识别 tombstone:Phase 1 未完成则回滚 destDir,Phase 2 未完成则前滚清理根目录。
 
@@ -47,7 +47,7 @@ CLI 自动完成 tombstone 两阶段提交:校验 `status=completed` → 写 `AR
 - **项目 ID**：{project_id}
 - **状态**：archived
 - **归档变更数**：{archived_changes.length}
-- **归档目录**：{archive_dir}
+- **归档目录**：{history_dir}
 {如有摘要：- **摘要文件**：{summary_file}}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
