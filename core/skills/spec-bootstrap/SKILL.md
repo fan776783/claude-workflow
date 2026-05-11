@@ -3,9 +3,9 @@ name: spec-bootstrap
 description: "Use when 用户调用 /spec-bootstrap, or 项目尚未建立 .claude/code-specs/ 骨架且需要初始化 code-specs 体系。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。第 2-3 步(repo-context / code-specs)预期缺失——本 skill 负责创建它们。第 1 步(project-config)和第 4 步(glossary)仍要读,bootstrap 产物才能使用 canonical 术语。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `.claude/config/project-config.json` + `core/specs/shared/glossary.md`。repo-context / code-specs 预期缺失——本 skill 负责创建它们。
+</CONTEXT>
 
 # /spec-bootstrap
 

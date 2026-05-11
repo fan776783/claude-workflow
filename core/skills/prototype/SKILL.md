@@ -3,10 +3,9 @@ name: prototype
 description: "Build throwaway prototypes to flush out design questions before committing. Routes between Logic (terminal TUI for state/data validation) and UI (multiple radically different variants on one route). Use when user says 'prototype this' / '原型' / '试一下' / 'let me play with it' / 'try a few designs' / '验证一下这个设计', or needs to answer a question only running code can answer."
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:prototype 本质是丢弃物,只需读 glossary 确保命名一致;code-specs 可跳过。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`（确保命名一致）。prototype 是丢弃物,code-specs 可跳过。
+</CONTEXT>
 
 # Prototype
 

@@ -3,7 +3,7 @@ name: workflow-archive
 description: "Use when 用户调用 /workflow-archive, or workflow 状态为 completed 需要归档。"
 ---
 
-> 路径约定见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。归档只动元数据,pre-flight 必读项里 glossary 仍要读一下,保证 summary 用 canonical 术语。
+> 路径约定见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。归档 summary 用 canonical 术语（Read `core/specs/shared/glossary.md`）。
 
 # workflow-archive
 

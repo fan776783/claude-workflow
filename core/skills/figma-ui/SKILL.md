@@ -3,7 +3,9 @@ name: figma-ui
 description: "Use when 用户提供 Figma URL(figma.com/design|file|proto) 要求实现/还原/构建 UI; or 引用现有文件(@components/xxx.vue)说「按设计稿还原/调整/检查」; or 要求把 icon/empty-state 资源换成设计稿里的; or 说「还原设计稿」「按设计稿写」「照着 Figma 写」「convert this design to code」「restore the design」。Figma 画布操作(create/edit/delete nodes)请用 figma-use skill。"
 ---
 
-> 路径与公共 pre-flight 见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md)。本 skill 只做设计稿获取 + 分诊时可走「纯研究」跳过条件;开始写组件代码前仍须完成 project-config / repo-context / code-specs 跟读。
+<CONTEXT>
+开始写组件代码前 Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `core/specs/shared/glossary.md`。设计稿获取 + 分诊阶段可跳过。
+</CONTEXT>
 
 # Figma UI 实现 workflow
 

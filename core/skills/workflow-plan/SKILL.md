@@ -3,7 +3,7 @@ name: workflow-plan
 description: "Use when /workflow-spec 已审批通过且 status=planned, or 用户调用 /workflow-plan 在已审批 Spec 基础上扩写实施计划, or 用户说\"扩写实施计划 / 详细 task 拆分\"且已有审批过的 spec。"
 ---
 
-> 路径约定 + CLI 写入契约见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。
+> 路径约定 + CLI 写入契约见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。
 >
 > Plan 骨架由 `/workflow-spec` Step 7 的 `spec-review --choice "Spec 正确，生成 Plan"` 生成。本 skill 不创建骨架,只在骨架上 Edit 扩写。
 

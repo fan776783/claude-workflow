@@ -3,10 +3,9 @@ name: fix-bug
 description: "Bug 修复workflow：问题定位 → 影响分析 → 确认方案 → 修复 → Codex review。用于处理单个缺陷，包含完整的 4 Phase workflow和 Hard Stop 确认。批量场景请使用 bug-batch，其内部修复协议不经过本 skill。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:纯 typo 级修复可走跳过条件;没有最新 code-specs 和 glossary 做 bug 分析容易误判 layer。
-</PRE-FLIGHT>
+<CONTEXT>
+碰代码前 Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `core/specs/shared/glossary.md`。纯 typo 级修复可跳过 code-specs。
+</CONTEXT>
 
 # 调试与修复
 

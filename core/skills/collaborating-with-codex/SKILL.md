@@ -3,10 +3,9 @@ name: collaborating-with-codex
 description: Proactively use when Claude Code is stuck, wants a second implementation or diagnosis pass, needs a deeper root-cause investigation, or should hand a substantial coding task to Codex through the native App Server runtime. Supports multi-turn sessions via --session-id.
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:仅做 Codex 桥接转发(thin forwarder),不做代码分析,可按 pre-flight 跳过条件处理;但 Codex prompt 中引用的术语应符合 glossary。
-</PRE-FLIGHT>
+<CONTEXT>
+Codex prompt 中引用的术语应符合 `core/specs/shared/glossary.md`。纯桥接转发可跳过。
+</CONTEXT>
 
 ## Selection Guidance
 

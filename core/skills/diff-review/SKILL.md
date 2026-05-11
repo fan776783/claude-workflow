@@ -3,10 +3,9 @@ name: diff-review
 description: "Use when asked to review a diff, do a pre-commit code review, or review staged/branch changes. Supports staged diffs, branch diffs, and --session mode that reviews only files edited in the current conversation context."
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:纯 code review 场景,pre-flight 跳过条件命中;但必须读 glossary(§ 4)保证 normative 评审报告用 canonical 术语,架构相关 finding 参考 `core/specs/shared/architecture-language.md` 的 Module / Interface / Seam / Depth 词汇。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/shared/architecture-language.md`。
+</CONTEXT>
 
 # 代码review
 

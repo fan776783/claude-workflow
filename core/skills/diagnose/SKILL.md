@@ -3,10 +3,9 @@ name: diagnose
 description: "Use when user says 'diagnose this' / 'debug this' / '怎么定位' / 'reproduce 不出来', or reports a bug that throws/fails, or describes a perf regression. 产出根因 + 推荐修复方案,不直接写修复代码 — 修复交给 /fix-bug 或 /workflow-execute 消费。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:环境级 / 第三方级偶发问题明显与项目代码无关(例如 npm install 失败、Docker 镜像拉不下来)时可跳过 code-specs。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`。环境级/第三方问题（npm install 失败、Docker 拉不动）与项目代码无关时可跳过。
+</CONTEXT>
 
 # Diagnose
 

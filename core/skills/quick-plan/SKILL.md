@@ -4,10 +4,9 @@ description: "Use when 用户说「快速规划」「轻规划」「不走 workf
 argument-hint: <需求描述 | path/to/requirement.md>
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:单行 typo 级修复直接改,无需 plan。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `core/specs/shared/glossary.md`。单行 typo 直接改,无需 plan。
+</CONTEXT>
 
 # quick-plan
 

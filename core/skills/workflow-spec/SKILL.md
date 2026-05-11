@@ -3,7 +3,7 @@ name: workflow-spec
 description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute 流程并需要状态机管理, or 用户描述\"完整需求规格 / spec → plan → execute / 跨 module 新需求\"等场景。简单任务请用 /quick-plan。"
 ---
 
-> 路径约定 + CLI 写入契约 + spec-review canonical 字符串见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定（完整 7 个 canonical key 以 `core/utils/workflow/planning_gates.js` `mapSpecReviewChoice` 为准）。
+> 路径约定 + CLI 写入契约见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)（完整 canonical key 以 `core/utils/workflow/planning_gates.js` `mapSpecReviewChoice` 为准）。
 
 # workflow-spec
 
@@ -281,7 +281,7 @@ options:
 
 **用户回复归一化 → CLI 调用**:
 
-> **完整 canonical 字符串清单以 `core/utils/workflow/planning_gates.js` 中 `mapSpecReviewChoice` 为准**(共 7 个 key);pre-flight.md § Workflow CLI 路径约定提供常用 5 个的快速参考。**禁止把用户原话直接塞给 `--choice`**,必须先归一化。
+> **完整 canonical 字符串清单以 `core/utils/workflow/planning_gates.js` 中 `mapSpecReviewChoice` 为准**(共 7 个 key);`core/specs/shared/workflow-cli.md` 提供常用 5 个的快速参考。**禁止把用户原话直接塞给 `--choice`**,必须先归一化。
 
 常见映射(完整列表见上述 source of truth):
 

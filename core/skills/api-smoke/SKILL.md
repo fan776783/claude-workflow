@@ -3,10 +3,9 @@ name: api-smoke
 description: "Use when 用户说「接口冒烟」「生成接口测试脚本」「联调前验接口」「api smoke」「验一下后端」, or 前端想在 UI 成型前先验后端 contract。登录态由用户 cookie 注入,skill 不做登录。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:无活跃 workflow 且用户未指定 spec / autogen 文件时,直接告知需先 `/workflow-spec` 或手动指定来源,不走 code-specs 读取。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`。无活跃 workflow 且用户未指定 spec/autogen 文件时,提示需先 `/workflow-spec`。
+</CONTEXT>
 
 <PATH-CONVENTION>
 - 所有 CLI 调用使用固定公共路径 `~/.agents/agent-workflow/core/utils/workflow/`。该路径在 `npm install` 后始终存在,所有 agent 共享,无需动态解析。

@@ -3,10 +3,9 @@ name: research
 description: "Use when 用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」, or 在动手实现前需要把能复用的方案找出来,or 做技术决策前需要拉齐外部证据。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:用户只要一条 URL 内容摘要(无代码库诉求 / 无决策诉求),可跳 code-specs;glossary 仍须读,产出引文和结论用 canonical 术语。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`（产出引文和结论用 canonical 术语）。纯 URL 摘要可跳过。
+</CONTEXT>
 
 # Research
 

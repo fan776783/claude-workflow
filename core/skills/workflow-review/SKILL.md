@@ -3,7 +3,7 @@ name: workflow-review
 description: "Use when state.status=review_pending, or 用户在 execute 全部 task 完成后调用 /workflow-review 做最终全量 review。"
 ---
 
-> 路径约定见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。Stage 1(规格合规)直接依赖最新的 code-specs 和 glossary,即使 workflow 很小也别跳过 pre-flight。
+> 路径约定见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。Stage 1（规格合规）Read `.claude/code-specs/{pkg}/{layer}/index.md` + `core/specs/shared/glossary.md`。
 
 # workflow-review
 

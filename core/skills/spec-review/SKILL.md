@@ -3,9 +3,9 @@ name: spec-review
 description: "Use when 用户调用 /spec-review, or 需要检查 .claude/code-specs/ 库内容是否过期、冲突或模板漂移。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。冲突检测和 glossary drift 识别都需要先把 canonical glossary 加载到会话。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`。冲突检测和 drift 识别需要 canonical glossary。
+</CONTEXT>
 
 # /spec-review
 

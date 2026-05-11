@@ -111,9 +111,9 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **Forbidden synonyms**: `术语表` (in normative sections only)
 
 ### pre-flight
-**Definition**: The read-before-touch-code protocol in `core/specs/shared/pre-flight.md`. Distinct from `workflow-runtime/preflight.md`, which is runtime startup checks.
+**Definition**: (Deprecated as shared gate) Each skill now declares context needs inline via `<CONTEXT>` block. The file `core/specs/shared/pre-flight.md` remains as a shared protocol index only. Distinct from `workflow-runtime/preflight.md`, which is runtime startup checks.
 **Forbidden synonyms**: `前置协议`
-**Note**: `预检` is the legitimate Chinese term used by the runtime preflight file and its references; it is **not** flagged. Use `pre-flight` when referring specifically to the shared read-before-code protocol in this file.
+**Note**: `预检` is the legitimate Chinese term used by the runtime preflight file and its references; it is **not** flagged.
 **See**: `core/specs/shared/pre-flight.md`
 
 ## Fixing a drift warning

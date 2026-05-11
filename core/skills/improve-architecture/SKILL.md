@@ -3,10 +3,9 @@ name: improve-architecture
 description: "Find architectural deepening opportunities — refactors that turn shallow modules into deep ones. Uses deletion test, dependency classification, and parallel interface design exploration. Use when user says 'improve architecture' / '架构优化' / 'refactor for testability' / '这块太散了' / 'find deepening opportunities', or wants to consolidate tightly-coupled shallow modules."
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:仅做架构地图级讨论(不产出代码)时可跳过 code-specs,但 architecture-language.md 和 glossary 必读。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.md`。仅架构地图级讨论（不产出代码）时可跳 code-specs。
+</CONTEXT>
 
 # Improve Architecture
 

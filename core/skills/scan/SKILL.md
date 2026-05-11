@@ -3,10 +3,9 @@ name: scan
 description: "Use when 用户调用 /scan, or 首次使用 workflow 前需要初始化项目配置, or 项目架构 delta 后需要更新 project-config.json / repo-context.md。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:本 skill 自己产出 project-config.json / repo-context.md,首次运行时 pre-flight 第 1-2 步缺失属预期——第 4 步 glossary 仍须读,让产出使用 canonical 术语。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`（让产出使用 canonical 术语）。project-config / repo-context 预期缺失——本 skill 负责创建它们。
+</CONTEXT>
 
 # 智能项目扫描
 

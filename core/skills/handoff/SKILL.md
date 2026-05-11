@@ -4,10 +4,9 @@ description: "Compact the current conversation into a handoff document for anoth
 argument-hint: "下一个 session 的工作重点(可选)"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:handoff 不产出代码,只读 glossary 确保术语一致即可,code-specs 跳过。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md`（确保交接文档术语一致）。
+</CONTEXT>
 
 # Handoff
 

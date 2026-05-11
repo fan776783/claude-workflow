@@ -3,10 +3,9 @@ name: dispatching-parallel-agents
 description: "Use when 同阶段存在 2+ 可证明独立的问题域/任务域(独立 task、独立失败测试文件、独立子系统), or workflow-execute 内识别到独立批次需要并行 dispatch。单 subagent 分派或单 reviewer 不属于本 skill。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:纯平台检测 / 独立性判断阶段不改代码,可跳 code-specs;分派给subagent 的任务上下文必须包含 glossary 引用,产出合并入主会话前仍需按主任务的 code-specs 校对。
-</PRE-FLIGHT>
+<CONTEXT>
+分派给 subagent 的任务上下文须包含 `core/specs/shared/glossary.md` 引用。纯独立性判断阶段可跳过。
+</CONTEXT>
 
 # Subagent 并行调度
 

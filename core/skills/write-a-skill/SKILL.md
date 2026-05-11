@@ -3,10 +3,9 @@ name: write-a-skill
 description: "Use when user wants to create / write / draft / build a new skill — phrases like '写个 skill / 新建 skill / add a skill / 包装成 skill', or reviewing existing SKILL.md for size / description / structural compliance."
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:只改已有 skill 的 description 字段(1 行改动)可跳。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md` + 目标 skill 的已有 SKILL.md（如有）。只改 description 字段（1 行改动）可跳过。
+</CONTEXT>
 
 # Write a Skill
 
@@ -47,10 +46,9 @@ name: skill-name
 description: "一句话说能力 + 'Use when <具体触发词>'. 1024 字符内,第三人称,中英混合触发词都带。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:<一句话>。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `core/specs/shared/glossary.md` + 目标 skill 的已有 SKILL.md（如有）。只改 description 字段（1 行改动）可跳过。
+</CONTEXT>
 
 # Skill Name
 
@@ -118,13 +116,13 @@ Helps with documents.
 - [ ] 包含具体示例
 - [ ] references / scripts 只拆一级深度
 - [ ] 没有和其他 skill 重复的协议模板(Hard Stop / Manual Intervention / Codex 路由等走 `core/specs/shared/`)
-- [ ] 没有复写 pre-flight 协议(只写 PRE-FLIGHT 块 + 跳过条件)
+- [ ] 有 `<CONTEXT>` 块声明需要读什么（glossary / code-specs），不引用已废弃的 pre-flight 协议
 
 ## 架构原则(借鉴 mattpocock/skills)
 
 - **小**:每个 skill 只做一件事,跨任务靠组合
 - **易改**:读起来像能被用户直接改的文档,不是代码生成器
-- **可组合**:skill 间通过文档(pre-flight、glossary、shared 协议)相互引用,不通过代码耦合
+- **可组合**:skill 间通过文档(glossary、shared 协议、`<CONTEXT>` 块)相互引用,不通过代码耦合
 - **审慎**:不加"看起来完备"的协议层。3 条相似指令是抽象的标志,不是 2 条
 
 ## 与其他 skill 的关系

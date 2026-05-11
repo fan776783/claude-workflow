@@ -3,6 +3,10 @@ name: system-design
 description: "Use when 用户说「补充后端设计」「系统设计」「API 设计」「数据流」「服务边界」「补 §5.6」, or workflow-spec Step 5 确认需要后端设计深化, or 已有 Spec 需要补充 API Contract / Data Flow / Service Boundaries / Data Migration。"
 ---
 
+<CONTEXT>
+Read `core/specs/shared/glossary.md`（产出 normative spec 内容须用 canonical 术语）。
+</CONTEXT>
+
 # system-design
 
 > 后端设计深化——在已有 Spec §5.1-5.5 基础上生成 §5.6 System Design。

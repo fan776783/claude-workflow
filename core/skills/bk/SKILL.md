@@ -3,10 +3,9 @@ name: bk
 description: 通过本地 CLI 调用 bk-mcp，操作蓝鲸（CTeam / vTeam）项目管理平台——查/建/改工作项、流转状态、拉个人待办、AI 拆任务、上传附件。触发词：「蓝鲸」「bk」「待办」「缺陷流转」「需求流转」「工作项」「Issue」「创建任务」「拆分任务」「给 Issue 评论」「看我今天有什么要做的」。首次使用必须引导用户到 https://mcp.300624.cn/api-keys 申请 token。
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:纯 CLI 转发(auth / project set / 列待办等配置操作)可走"纯研究"跳过条件;一旦要写 issue 摘要 / 评论 / agent brief 文字给真实用户,必须读 glossary 保证 canonical 术语。
-</PRE-FLIGHT>
+<CONTEXT>
+写 issue 摘要/评论/agent brief 时 Read `core/specs/shared/glossary.md`。纯 CLI 转发（auth/project set/列待办）可跳过。
+</CONTEXT>
 
 # bk — 蓝鲸项目管理 CLI
 

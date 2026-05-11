@@ -3,10 +3,9 @@ name: alidocs
 description: 当用户给出 alidocs.dingtalk.com 链接、钉钉文档/钉钉表格/钉钉 AI 表格链接，或要求”根据钉钉表格/文档内容读取数据、更新代码、生成文档、同步权限路由/路由 map”时必须使用本 skill。典型链接包括 https://alidocs.dingtalk.com/i/nodes/...、nodeId、dentryUuid、sheetId、A1:D10。不要用 WebFetch 读取 alidocs；先运行 doctor 检查本地 mcp-gw 配置，已配置则直接通过 CLI 读取。若是 alidocs 节点链接，先用 doc get_document_info 判断类型：extension=axls 走 sheet get_all_sheets/get_range，extension=adoc 走 doc get_document_content/list_document_blocks；仅当缺少对应 doc/sheet/aitable server URL 时再向用户索要 https://mcp-gw.dingtalk.com/server/<hash>?key=<key>。触发词：alidocs、dingtalk-mcp、钉钉链接、钉钉在线表格、钉钉电子表格、钉钉文档、钉钉 AI 表格、多维表、权限路由表、路由map、A1 单元格、nodeId、sheetId、mcp-gw。用户明确提到 dws / dws CLI / 钉钉 workspace CLI 时不用本 skill。
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:纯 CLI 转发(auth / list-tools / 只读工具调用)可走"纯研究"跳过条件;一旦要写用户可见的文档正文 / Base 数据, 必须读 glossary 保证 canonical 术语。
-</PRE-FLIGHT>
+<CONTEXT>
+写用户可见文档正文 / Base 数据时 Read `core/specs/shared/glossary.md`。纯 CLI 转发（auth/list-tools/只读调用）可跳过。
+</CONTEXT>
 
 # alidocs — 钉钉文档 + AI 表格 + 钉钉表格 CLI
 

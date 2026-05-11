@@ -3,7 +3,7 @@ name: workflow-execute
 description: "Use when 用户调用 /workflow-execute, or workflow-state.json 处于 planned/running/paused/failed 需要继续推进任务。"
 ---
 
-> 路径约定 + CLI 写入契约见 [`../../specs/shared/pre-flight.md`](../../specs/shared/pre-flight.md) § Workflow CLI 路径约定。
+> 路径约定 + CLI 写入契约见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。
 
 # workflow-execute
 

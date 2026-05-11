@@ -3,10 +3,9 @@ name: tdd
 description: "Test-driven development with a red-green-refactor loop, built one vertical slice at a time. Use when user wants to build features or fix bugs with TDD, mentions 'red-green-refactor' / '测试驱动' / 'TDD' / '先写测试', or asks for integration tests. Refuses horizontal slicing (write all tests first then all code) as an anti-pattern."
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:修改已有测试文件格式 / 重命名类 typo delta无需走完整 TDD。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `core/specs/shared/glossary.md`。修改已有测试格式 / 重命名类 typo 可跳过。
+</CONTEXT>
 
 # Test-Driven Development
 

@@ -3,10 +3,9 @@ name: grill
 description: "Use when 用户说「帮我理清」「先别写」「grill me」「我想想怎么做」「需求不清楚」, or 用户给出「写登录 / 加字段 / 加 API」之类模糊描述需要澄清。替代旧 /enhance 与 quick-plan Step 1 Ambiguity Gate。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**,按其必读清单执行。
-本 skill 的跳过条件:用户只要 prompt 字面改写(无代码库诉求)时可跳过 code-specs,但仍须读 glossary。
-</PRE-FLIGHT>
+<CONTEXT>
+产出涉及代码库需求时 Read `core/specs/shared/glossary.md`。纯 prompt 改写（无代码库诉求）可跳过。
+</CONTEXT>
 
 # Grill
 

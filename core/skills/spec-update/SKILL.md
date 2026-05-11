@@ -3,9 +3,9 @@ name: spec-update
 description: "Use when 用户调用 /spec-update, or 工作中沉淀出新约定/接口契约/模式需要落到 .claude/code-specs/, or workflow-review 末尾建议沉淀 code-spec。"
 ---
 
-<PRE-FLIGHT>
-**在继续之前,请用 `Read` 工具读 `core/specs/shared/pre-flight.md`**。沉淀新 convention 前不读 glossary 容易引入术语 drift(比如写成 "subagent" 而不是 `subagent`)。
-</PRE-FLIGHT>
+<CONTEXT>
+Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `core/specs/shared/glossary.md`。
+</CONTEXT>
 
 # /spec-update
 
