@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.5] - 2026-05-11
+
+### Changed
+
+- **`figma-data` skill 文档增强**：补充执行路径说明和目录权限错误的 fallback 流程，明确使用场景与执行模式。
+- **`figma-data` CLI 错误处理**：`cli/figma.mjs` 增加异常处理改进。
+- **`figma-ui` skill description 修订**：细化基于用户意图的触发条件，明确与 `figma-data` 的职责边界。
+
+## [6.2.4] - 2026-05-11
+
+### Changed
+
+- **`figma-data` skill 拆分**：从 `figma-ui` 剥离 MCP 数据获取 + 资源分诊为独立 `figma-data` skill，含 CLI 命令结构和详细使用示例。
+- **`figma-ui` skill 精简**：明确依赖 `figma-data` 做设计检索，移除冗余数据获取逻辑。
+- **`CLAUDE.md` Figma pipeline 文档同步**：反映 `figma-data` / `figma-ui` 二分架构。
+- **Codex 委托协议描述修订**：`core/CLAUDE.md` 统一为"用户主动调用或 skill 内部触发"表述。
+
+## [6.2.3] - 2026-05-11
+
+### Changed
+
+- **`figma-ui` skill 文档全面增强**：补充 CLI 命令用法示例、设计上下文检索流程、资源管理指引。
+- **`figma-ui` CLI 脚本新增**：`cli/figma.mjs`（512 行）提供 Figma MCP 操作的命令行封装。
+- **`figma-ui` troubleshooting 文档扩充**：覆盖 Desktop / Remote MCP 两种模式的常见连接问题和配置步骤。
+- **`ux-elaboration` skill 微调**：同步引用路径。
+
+## [6.2.2] - 2026-05-11
+
+### Changed
+
+- **`bug-batch` skill 精简重写**：SKILL.md 从 438 行简化，工作流步骤结构化重组；缺陷分析视图和关系矩阵模板增加置信度和证据摘要。
+- **`bug-batch` references 整合**：删除过时的 `commit-rebuild.md`（133 行）和 `coverage-graph.md`（82 行），相关内容并入现有文档。
+
+## [6.2.1] - 2026-05-11
+
+### Changed
+
+- **`workflow-spec` SKILL.md 流程优化**：设计深化和用户审批步骤表述精简，跳过条件和路由决策逻辑更清晰。
+
 ## [6.2.0] - 2026-05-11
 
 ### ⚠️ BREAKING CHANGES
