@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.6] - 2026-05-13
+
+### Added
+
+- **Skill routing hook**：新增 `core/hooks/skill-routing.js`，绑定到 `ToolSearch` 和 `UserPromptSubmit` 两个事件。检测到 Figma URL（`figma.com/(design|file|proto)/`）或 alidocs URL（`alidocs.dingtalk.com` / `mcp-gw.dingtalk.com` / `dentryUuid=` / `nodeId=`）时，按意图关键词路由到对应 skill（`figma-ui` / `figma-data` / `alidocs`），并提示禁止用 WebFetch 走必返 403 的路径。
+- **`core/hooks/skill-routing-table.json`**：声明式路由表，集中维护 URL pattern、意图关键词（implement vs data）、skill 映射、hint 文案，以及全量 `project_skill_names` 清单。
+- **路由表 fixture 套件**：`core/hooks/__fixtures__/skill-routing/` 含 13 个 input 用例 + `run.sh`，覆盖 Figma 实现/读取/无意图、alidocs、bk 不拦截、ToolSearch 三类匹配（精确名 / fuzzy / 真实工具名）、子串安全、其他工具透传、多 URL 共存、env 变量跳过等场景。
+- **`scripts/validate.js` 新增 `validateSkillRoutingTable`**：比对 `skill-routing-table.json` 的 `project_skill_names` 与 `core/skills/` 实际目录，缺项/冗余均报错，防止 skill 增删后路由表漂移。
+
 ## [6.2.5] - 2026-05-11
 
 ### Changed
