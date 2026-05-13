@@ -924,6 +924,29 @@ async function validateGlossaryDrift(repoRoot, packageRoot) {
   }
 }
 
+async function validateSkillRoutingTable(packageRoot, errors) {
+  const tablePath = path.join(packageRoot, 'hooks', 'skill-routing-table.json');
+  if (!(await fs.pathExists(tablePath))) return;
+  let table;
+  try {
+    table = JSON.parse(await fs.readFile(tablePath, 'utf8'));
+  } catch (e) {
+    errors.push(`skill-routing-table.json 解析失败: ${e.message}`);
+    return;
+  }
+  const declared = new Set(table.project_skill_names || []);
+  const skillsDir = path.join(packageRoot, 'skills');
+  const actual = new Set(
+    (await fs.readdir(skillsDir, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+  );
+  const missing = [...actual].filter((n) => !declared.has(n));
+  const extra = [...declared].filter((n) => !actual.has(n));
+  if (missing.length) errors.push(`skill-routing-table.json: project_skill_names 缺少 ${missing.join(', ')}`);
+  if (extra.length) errors.push(`skill-routing-table.json: project_skill_names 多出（已删除的 skill）${extra.join(', ')}`);
+}
+
 async function validate() {
   const repoRoot = path.join(__dirname, '..');
   const templatesDir = path.join(repoRoot, 'templates');
@@ -966,6 +989,7 @@ async function validate() {
   await validatePathReferences(repoRoot, packageRoot, errors);
   await validateCodeSpecsManifests(repoRoot, packageRoot, errors);
   await validatePluginManifests(repoRoot, packageRoot, errors);
+  await validateSkillRoutingTable(packageRoot, errors);
   validateCodeSpecsTemplateContracts(errors);
   validatePlatformParityContract(errors);
   runContractTests(repoRoot, errors);

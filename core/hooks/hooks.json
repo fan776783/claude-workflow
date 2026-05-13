@@ -19,6 +19,25 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-execute-inject.js\""
           }
         ]
+      },
+      {
+        "matcher": "ToolSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/skill-routing.js\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/skill-routing.js\""
+          }
+        ]
       }
     ],
     "TeammateIdle": [

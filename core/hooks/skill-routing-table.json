@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "url_rules": [
+    {
+      "id": "figma",
+      "pattern": "figma\\.com/(design|file|proto)/",
+      "intent_keywords": {
+        "implement": ["还原", "实现", "构建", "convert", "restore", "build", "match", "create code", "implement", "换 icon", "换icon", "按设计稿", "和设计不一致", "对照设计", "像素级"],
+        "data": ["读取", "查看", "看下", "看看", "提取", "导出", "分析", "节点分析", "结构", "设计稿结构", "token"]
+      },
+      "skill_implement": "agent-workflow:figma-ui",
+      "skill_data": "agent-workflow:figma-data",
+      "fallback_skill": "agent-workflow:figma-data",
+      "hint_implement": "检测到 Figma URL + 实现意图 → 走 agent-workflow:figma-ui (像素级还原 / 资源替换 / 代码生成)。禁止用 WebFetch 访问 figma.com — 必返 403，会浪费一次失败往返。figma-ui 通过 MCP 鉴权拿节点数据，按需委托 figma-data 取设计数据。",
+      "hint_data": "检测到 Figma URL（无明确实现意图）→ 走 agent-workflow:figma-data (读取/分析/提取 token/导出资源)。禁止用 WebFetch 访问 figma.com — 必返 403。"
+    },
+    {
+      "id": "alidocs",
+      "pattern": "alidocs\\.dingtalk\\.com|mcp-gw\\.dingtalk\\.com|dentryUuid=|nodeId=",
+      "skill": "agent-workflow:alidocs",
+      "hint": "检测到 alidocs / 钉钉文档链接 → 走 agent-workflow:alidocs (本地 mcp-gw CLI)。WebFetch 不会带 mcp-gw 鉴权，必失败。节点链接先用 doc get_document_info 判类型，再分流 doc/sheet/aitable server。"
+    }
+  ],
+  "project_skill_names": [
+    "alidocs",
+    "api-smoke",
+    "bk",
+    "bug-batch",
+    "collaborating-with-codex",
+    "diagnose",
+    "diff-review",
+    "dispatching-parallel-agents",
+    "figma-data",
+    "figma-ui",
+    "fix-bug",
+    "grill",
+    "handoff",
+    "improve-architecture",
+    "prototype",
+    "quick-plan",
+    "research",
+    "scan",
+    "spec-bootstrap",
+    "spec-review",
+    "spec-update",
+    "system-design",
+    "tdd",
+    "ux-elaboration",
+    "workflow-archive",
+    "workflow-delta",
+    "workflow-execute",
+    "workflow-plan",
+    "workflow-review",
+    "workflow-spec",
+    "workflow-status",
+    "write-a-skill",
+    "zoom-out"
+  ]
+}
