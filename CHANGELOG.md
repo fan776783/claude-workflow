@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.4.3] - 2026-05-21
+
+### Added
+
+- **`collaborating-with-codex` Oracle Review 模式**：codex-bridge 新增 `--oracle-review` 高风险只读分析模式（Amp Oracle 风格 advisor），调用方需显式提供 `--prompt` / `--context` / `--files` / `--risk-signals` / `--non-goals`；bridge 渲染 `prompts/oracle-review.md` 后返回 Codex 原始消息字符串，**不**解析 JSON、不自动把 findings 转 blocker，由 parent agent 走 Result Triage。Mode boundaries 表区分 `--oracle-review` / `--adversarial-review` / `--review` / `task --read-only` / `task` 五档语义。SKILL.md 新增 Effort policy 表（routine/sanity/security/stuck → `medium`/`low`/`high`/`xhigh`），默认立场改为「Codex 作只读 oracle 优先，workspace-write 仅在显式委托或多次实现失败时启用」。
+- **`core/specs/shared/codex-routing.md` 重写为 risk-signal 路由**：原「前端 / 后端 / 全栈」决策表替换为 6 个显式风险信号（`security_boundary` / `data_safety` / `concurrency_ordering` / `cross_task_contract` / `stuck_or_looping` / `direct_verification`），命中高风险信号 → Codex 只读 oracle review；仅有 `direct_verification` → 当前模型直接 review。Invocation Contract 指向 `--oracle-review` 模式，附旧版 bridge 的 `task --read-only` fallback。
+- **`core/specs/shared/subagent-worker-contract.md`**：新建 worker-level role 与 invariant 契约文档，被 `collaborating-with-codex` 与 `codex-routing.md` 共用引用。
+
+### Changed
+
+- **`workflow-execute` / `workflow-review` / `diff-review` / `fix-bug` review 路由统一引用新表**：相关 SKILL.md 切到 risk-signal 表述；`prompts/implementer.md` / `prompts/reviewer.md` 与 `references/subagent-driven.md` 同步只读约束。
+- **`core/utils/workflow/task_bundle.js`**：调整 task bundle 渲染以承接 risk-signal / oracle review 元数据。
+- **`core/agents/review-*.md`** review subagent 描述微调，明确各 reviewer 的只读边界。
+
+## [6.4.2] - 2026-05-21
+
+### Added
+
+- **`workflow-execute --tdd` 手动开启 TDD**（**breaking 行为变更**）：默认不再自动进入 TDD 路径，只有用户显式传入 `--tdd` 时才启用，启用后再叠加原有 4 项触发条件（phase 为 `implement` / `ui-*`、项目存在 Spec + 测试命令、actions 含 `create_file`/`edit_file`、文件类型非豁免）。CLI 返回新增 `tdd_enabled` 字段；`tdd_enabled !== true` 时即使任务形态适合测试先行，implementer 也不得引用 `/tdd` skill 或要求先写失败测试。落地点：`execution_sequencer.js`、`workflow_cli.js`、`prompts/implementer.md`、`references/subagent-driven.md`、`core/specs/workflow-runtime/execute-entry.md`、中文指南 §3.7.5。
+- **`tests/test_workflow_helpers.js`**：新增用例验证仅在 `--tdd` flag + 条件全满足时启用 TDD。
+
+### Changed
+
+- **`workflow-execute` HARD-GATE 第 3 条**：从"TDD 铁律：满足条件即触发"改为"TDD 手动开启铁律：仅 `--tdd` 时进入"。
+
+## [6.4.1] - 2026-05-21
+
+### Fixed
+
+- **`bug-batch` / `fix-bug` commit message 格式**（39ae66c）：缺陷号统一保留为无中括号 + 空格分隔形式，两个 skill 的 SKILL.md commit template 同步，避免不同 workflow 在 issue tracker 关联时格式漂移。
+
 ## [6.4.0] - 2026-05-21
 
 ### Added
