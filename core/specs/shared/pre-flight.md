@@ -15,7 +15,7 @@ skill 内部用到下列跨 skill 的协议时,写引用而非复写:
 | `glossary.md` | 产出 normative 文档前 | `core/specs/shared/glossary.md` |
 | `architecture-language.md` | 讨论 module / interface / depth / seam / adapter / refactor 时 | `core/specs/shared/architecture-language.md § Terms` |
 | `manual-intervention-reasons.md` | 产出 manual_intervention 分支(fix-bug/bug-batch) | `core/specs/shared/manual-intervention-reasons.md` |
-| `codex-routing.md` | review路径判定 | `core/specs/shared/codex-routing.md § 决策表` |
+| `codex-routing.md` | review路径判定 | `core/specs/shared/codex-routing.md § Decision Table` |
 | `status-readiness.md` | 缺陷 / issue 状态流转(fix-bug/bug-batch) | `core/specs/shared/status-readiness.md` |
 | `impact-analysis-template.md` | 影响面分析 | `core/specs/shared/impact-analysis-template.md § 6 个维度` |
 | `hard-stop-templates.md` | 两类 Hard Stop 卡点语义(fix-bug/bug-batch) | `core/specs/shared/hard-stop-templates.md` |

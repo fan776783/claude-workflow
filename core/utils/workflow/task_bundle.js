@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * @file task_bundle.js — task-bundle 构建：读当前 workflow 的 plan.md，提取单个 task 的
- *   结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）。
+ *   结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading +
+ *   verification + write-scope guardrails）。
  *
- * controller 派发 implementer subagent 前调一次，按固定 7 字段填充 prompt 模板，
+ * controller 派发 implementer subagent 前调一次，按固定字段填充 prompt 模板，
  * 取代手工 Read plan.md 切片。
  *
  * CommonJS。task block 定位/提取一律复用 task_parser，不自写解析。
@@ -19,6 +20,19 @@ const {
   extractListField,
 } = require('./task_parser')
 const { escapeRegExp } = require('./status_utils')
+
+// Operational mirror of `core/specs/shared/subagent-worker-contract.md` § Invariants
+// for write_serial_worker. Subagents read the prompt, not the contract doc — keep aligned.
+const DEFAULT_FORBIDDEN_ACTIONS = [
+  'Do not modify files outside allowed_write_paths; if scope expansion is required, return DONE_WITH_CONCERNS with type "scope" first.',
+  'Do not edit spec, plan, workflow state, or review artifacts unless the task explicitly lists them.',
+  'Do not commit, amend, rebase, reset, or change git remotes.',
+  'Do not add dependencies, run formatters, rename files, or perform cleanup outside the task scope.',
+]
+
+function uniqueNonEmpty(items) {
+  return [...new Set((items || []).map((item) => String(item || '').trim()).filter(Boolean))]
+}
 
 /**
  * 把 `**字段名**` 之后的缩进 bullet 列表抠出来，返回每行去掉 `- ` 前缀的原文数组。
@@ -179,20 +193,53 @@ function extractPatternsToMirror(block) {
 }
 
 /**
- * 提取 Mandatory Reading → string[]（路径数组）。缺失该段 → `[]`。
- * bullet 形如 `` `path` — desc `` → 取反引号内路径；无反引号则取 ` — ` 之前原文。
+ * 解析单条 Mandatory Reading bullet → `{path, reason, symbols, line_hint}`。
+ * bullet 形如 `` `path` — why ``、`` `path` (lines 10-20) — why ``，
+ * 或 `` `path` — symbols: Foo, bar; why ``。
+ * Symbols 列表用顶层逗号拆分(`splitTopLevelCsv` 已经处理 `()` 嵌套)；
+ * `;` 与 `—` 作为 symbols clause 的终止符,故 symbol 名本身不可包含分号或破折号。
+ *
+ * @param {string} raw
+ * @returns {{path:string, reason:string, symbols:string[], line_hint:string}}
+ */
+function parseMandatoryReadingBullet(raw) {
+  const text = String(raw || '').trim()
+  const dashMatch = text.match(/^(.*?)\s+[—–-]\s+(.+)$/)
+  const head = (dashMatch ? dashMatch[1] : text).trim()
+  const tail = (dashMatch ? dashMatch[2] : '').trim()
+  const tick = head.match(/`([^`]+)`/) || text.match(/`([^`]+)`/)
+  const pathValue = tick ? tick[1].trim() : head.replace(/`/g, '').trim()
+  const lineMatch = text.match(/(?:lines?|line_hint)\s*[:#]?\s*([0-9]+(?:[,\s-]+[0-9]+)*)/i)
+  const symbolMatch = text.match(/(?:symbols?|符号)\s*[:：]\s*([^;；—–]+)/i)
+  const symbols = symbolMatch ? splitTopLevelCsv(symbolMatch[1]) : []
+  const reason = tail
+    .replace(/(?:symbols?|符号)\s*[:：]\s*[^;；—–]+[;；]?\s*/i, '')
+    .replace(/\(?\s*(?:lines?|line_hint)\s*[:#]?\s*[0-9]+(?:[,\s-]+[0-9]+)*\s*\)?/ig, '')
+    .replace(/^[\s—–\-:;,，]+/, '')
+    .trim()
+  return {
+    path: pathValue,
+    reason,
+    symbols,
+    line_hint: lineMatch ? lineMatch[1].trim() : '',
+  }
+}
+
+/**
+ * 提取 Mandatory Reading → `[{path, reason, symbols, line_hint}]`。缺失该段 → `[]`。
  *
  * @param {string} block
- * @returns {string[]}
+ * @returns {Array<{path:string, reason:string, symbols:string[], line_hint:string}>}
  */
 function extractMandatoryReading(block) {
-  return extractBulletSection(block, 'Mandatory Reading').map((raw) => {
-    const text = String(raw || '').trim()
-    const tick = text.match(/`([^`]+)`/)
-    if (tick) return tick[1].trim()
-    const dashMatch = text.match(/^(.*?)\s+[—–-]\s+/)
-    return (dashMatch ? dashMatch[1] : text).trim()
-  }).filter(Boolean)
+  return extractBulletSection(block, 'Mandatory Reading')
+    .map(parseMandatoryReadingBullet)
+    .filter((item) => item.path)
+}
+
+function buildAllowedWritePaths(task) {
+  if (!task || typeof task.all_files !== 'function') return []
+  return uniqueNonEmpty(task.all_files())
 }
 
 /**
@@ -232,7 +279,8 @@ function extractVerification(block) {
  * @param {string} [opts.projectRoot] 项目根（保留参数，与上游 CLI 对齐）
  * @param {string} [opts.statePath]   显式覆盖 state 文件路径
  * @returns {object} `{task_id, task_text, acceptance_criteria, critical_constraints,
- *   patterns_to_mirror, mandatory_reading, verification}` 或 `{error, task_id}`
+ *   patterns_to_mirror, mandatory_reading, verification, allowed_write_paths,
+ *   forbidden_actions}` 或 `{error, task_id}`
  */
 function buildTaskBundle(taskId, opts = {}) {
   const { projectId, statePath: statePathOverride } = opts || {}
@@ -258,6 +306,8 @@ function buildTaskBundle(taskId, opts = {}) {
     critical_constraints: extractCriticalConstraints(block),
     patterns_to_mirror: extractPatternsToMirror(block),
     mandatory_reading: extractMandatoryReading(block),
+    allowed_write_paths: buildAllowedWritePaths(task),
+    forbidden_actions: [...DEFAULT_FORBIDDEN_ACTIONS],
     verification: extractVerification(block),
   }
 }
@@ -269,7 +319,9 @@ module.exports = {
   extractCriticalConstraints,
   parsePatternBullet,
   extractPatternsToMirror,
+  parseMandatoryReadingBullet,
   extractMandatoryReading,
+  buildAllowedWritePaths,
   extractVerification,
   splitTopLevelCsv,
 }

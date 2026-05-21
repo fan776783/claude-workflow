@@ -51,6 +51,10 @@ const options = {
   sessionId: null,
   review: null,
   adversarialReview: null,
+  riskSignals: "",
+  files: "",
+  context: "",
+  nonGoals: "",
   readOnly: false,
   background: false,
   status: null,
@@ -80,6 +84,13 @@ for (let i = 0; i < args.length; i++) {
     const next = args[i + 1];
     options.adversarialReview = (next !== undefined && !next.startsWith("--")) ? args[++i] : "working-tree";
   }
+  else if (a === "--oracle-review") {
+    command = "oracle-review";
+  }
+  else if (a === "--risk-signals") options.riskSignals = args[++i] ?? "";
+  else if (a === "--files") options.files = args[++i] ?? "";
+  else if (a === "--context") options.context = args[++i] ?? "";
+  else if (a === "--non-goals") options.nonGoals = args[++i] ?? "";
   else if (a === "--read-only") options.readOnly = true;
   else if (a === "--background") options.background = true;
   else if (a === "--status") options.status = args[++i];
@@ -108,6 +119,9 @@ if (options.model && MODEL_ALIASES.has(options.model)) {
 if (command === "task" && !options.status && !options.cancel && !options.result && !options.prompt && !options.internalJobId) {
   exitWithError("--prompt is required for task mode.");
 }
+if (command === "oracle-review" && !options.status && !options.cancel && !options.result && !options.prompt && !options.internalJobId) {
+  exitWithError("--prompt is required for oracle-review mode.");
+}
 if (command === "review" && options.prompt) {
   exitWithError("--review does not accept --prompt. Use --adversarial-review <target> --prompt for focused review.");
 }
@@ -116,6 +130,12 @@ if (command === "review" && options.sessionId) {
 }
 if (command === "adversarial-review" && options.sessionId) {
   exitWithError("--adversarial-review does not support --session-id (always fresh read-only).");
+}
+if (command === "oracle-review" && options.sessionId) {
+  exitWithError("--oracle-review does not support --session-id (always fresh read-only).");
+}
+if (command !== "oracle-review" && (options.riskSignals || options.files || options.context || options.nonGoals)) {
+  exitWithError("--risk-signals/--files/--context/--non-goals are oracle-review only.");
 }
 
 // ─── 状态查询 / 终态结果 ───────────────────────────────────────
@@ -422,6 +442,17 @@ async function finalizeJob(jobId, logFile, result) {
   });
 }
 
+function renderOracleReviewPrompt() {
+  const tpl = loadPromptTemplate("oracle-review");
+  return interpolateTemplate(tpl, {
+    TASK: options.prompt,
+    CONTEXT: options.context || "(none provided)",
+    FILES: options.files || "(no file scope provided)",
+    RISK_SIGNALS: options.riskSignals || "(no risk signals provided)",
+    NON_GOALS: options.nonGoals || "(none)",
+  });
+}
+
 async function runForeground() {
   // 前台模式也给一个临时 jobId 用于 log 文件
   let activeJobId = options.internalJobId;
@@ -448,19 +479,24 @@ async function runForeground() {
 
   try {
     await client.start();
-    const isReview = command === "review" || command === "adversarial-review";
+    const isBuiltInReview = command === "review";
+    const isTemplateReview = command === "adversarial-review" || command === "oracle-review";
+    const isReviewLike = isBuiltInReview || isTemplateReview;
     let threadId;
     let state;
 
-    if (isReview) {
+    if (isReviewLike) {
       await setPhase("starting", "Starting review thread (read-only).");
       const res = await client.request("thread/start", {
         cwd: options.cd, approvalPolicy: "never", sandbox: "read-only", ephemeral: true,
       });
       threadId = res.thread.id;
-      const target = parseReviewTarget(options.review || options.adversarialReview || "working-tree");
 
-      if (command === "review") {
+      let target = null;
+      let targetInput = null;
+      if (isBuiltInReview) {
+        targetInput = options.review || "working-tree";
+        target = parseReviewTarget(targetInput);
         await setPhase("reviewing", `Built-in reviewer on ${target.label}.`);
         state = await captureTurn(client, threadId, () =>
           client.request("review/start", {
@@ -469,7 +505,9 @@ async function runForeground() {
           }),
           { onLog }
         );
-      } else {
+      } else if (command === "adversarial-review") {
+        targetInput = options.adversarialReview || "working-tree";
+        target = parseReviewTarget(targetInput);
         await setPhase("reviewing", `Adversarial reviewer on ${target.label}.`);
         let prompt;
         try {
@@ -487,6 +525,13 @@ async function runForeground() {
           client.request("turn/start", buildTurnStart(threadId, input)),
           { onLog }
         );
+      } else {
+        await setPhase("reviewing", "Oracle reviewer on explicit prompt context.");
+        const input = [{ type: "text", text: renderOracleReviewPrompt(), text_elements: [] }];
+        state = await captureTurn(client, threadId, () =>
+          client.request("turn/start", buildTurnStart(threadId, input)),
+          { onLog }
+        );
       }
 
       const finalAnswer = state.reviewText || state.lastAgentMessage || "Review completed without text.";
@@ -498,7 +543,15 @@ async function runForeground() {
         sessionId: threadId,
         threadId,
         turnId: state.turnId || null,
-        target: { input: options.review || options.adversarialReview, ...target },
+        ...(target ? { target: { input: targetInput, ...target } } : {}),
+        ...(command === "oracle-review" ? {
+          oracleInput: {
+            riskSignals: options.riskSignals,
+            files: options.files,
+            contextProvided: Boolean(options.context),
+            nonGoals: options.nonGoals,
+          },
+        } : {}),
         agentMessages: finalAnswer,
         reviewText: state.reviewText,
         reasoningSummary: state.reasoningSummary,

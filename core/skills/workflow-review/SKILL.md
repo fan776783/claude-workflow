@@ -161,6 +161,8 @@ Stage 2 只补 per-task review 结构上看不到的 workflow 级维度（per-ta
 
 命中 → Codex 第二意见，**只针对 spec §1 成功标准 + 跨 task contract一致性**（不重审单 task 代码质量）。
 
+This remains `--adversarial-review` (not `--oracle-review`) because the gate is a spec-level blocker audit with the checklist in `references/codex-spec-augmentation-checklist.md`; do not add oracle fan-out here.
+
 ```
 1. 生成 review_cycle_id = {workflow_id}-{commitHash}-{timestamp}
 2. dispatch 后台 Codex (--adversarial-review, prompt 聚焦：spec §1 成功标准是否兑现 / 跨 task contract是否前后一致 / 整workflow是否引入未声明的contract变化)

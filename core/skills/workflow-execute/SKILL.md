@@ -156,7 +156,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/task_parser.js parse --task-id
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js task-bundle <task-id>
 ```
 
-返回 JSON 含 `task_text` / `acceptance_criteria` / `critical_constraints` / `patterns_to_mirror` / `mandatory_reading` / `verification`。controller 按 [`prompts/implementer.md`](prompts/implementer.md) 模板的 `${bundle.*}` 占位填充 prompt;不再手工 Read plan.md 切片。
+返回 JSON 含 `task_text` / `acceptance_criteria` / `critical_constraints` / `patterns_to_mirror` / `mandatory_reading` / `allowed_write_paths` / `forbidden_actions` / `verification`。controller 按 [`prompts/implementer.md`](prompts/implementer.md) 模板的 `${bundle.*}` 占位填充 prompt;不再手工 Read plan.md 切片。
 
 task-bundle 失败(`task_id` not found / state.json 异常)→ 走 Step 2 状态自愈,不要手工切片绕过。
 

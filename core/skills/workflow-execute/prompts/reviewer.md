@@ -26,6 +26,10 @@ ${bundle.acceptance_criteria}
 ${bundle.critical_constraints}
 </task-critical-constraints>
 
+<allowed-write-scope>
+${bundle.allowed_write_paths}
+</allowed-write-scope>
+
 <implementer-output>
 status: { DONE | DONE_WITH_CONCERNS }
 summary: <implementer 一句话总结>
@@ -56,7 +60,8 @@ Phase 1 决策为 REVISE → output schema 中 phase2 段写 `{ "skipped": true,
    - 用 grep / Read 在 files_changed 中定位实现位置
    - 标出未覆盖的 AC
 2. 超额：是否存在 task 没要求但 implementer 多做的改动？
-   - 不在 task 声明范围内的 files_changed → 列为 overage
+   - 对比 files_changed 与 allowed-write-scope；不在 allowed-write-scope 内的 files_changed → 列为 overage
+   - allowed-write-scope 为空时,降级按 task 声明范围和 acceptance 判断,不要因旧 plan 缺字段直接 fail
    - 不在 acceptance 中的新增字段 / 新增 API → 列为 overage
 3. 关键约束：critical-constraints 中的 C-* 是否都被守住？
 4. 输出 phase1 段（见 output schema）。如有未覆盖 / overage / constraint violation → `decision: REVISE` + revise_instructions。
@@ -145,6 +150,7 @@ reviewer.md 模板有两类占位，controller 渲染时来源不同。
 |------|------------------|----------|
 | `${bundle.acceptance_criteria}` | `acceptance_criteria[]` | 每条一行 `- ` bullet（与 implementer 一致） |
 | `${bundle.critical_constraints}` | `critical_constraints[]` | 每条一行 `- ` bullet（与 implementer 一致） |
+| `${bundle.allowed_write_paths}` | `allowed_write_paths[]` | 每条一行 `- ` bullet；空数组 → `(none declared — fall back to task scope)` |
 
 ### Controller-injected（**不**在 task-bundle 字段中，controller dispatch 前单独装配）
 

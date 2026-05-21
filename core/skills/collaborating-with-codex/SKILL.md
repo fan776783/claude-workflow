@@ -9,8 +9,59 @@ Codex prompt 中引用的术语应符合 `core/specs/shared/glossary.md`。纯�
 
 ## Selection Guidance
 
+Worker-level roles and invariants follow [`../../specs/shared/subagent-worker-contract.md`](../../specs/shared/subagent-worker-contract.md).
+
+- **Default stance**: use Codex as a read-only oracle for analysis / review first. Workspace-write task mode is an exception for dirty prototypes only when the user or parent explicitly asks for Codex to implement, or after repeated implementation failures.
 - **Proactive Trigger**: Do not wait for the user to explicitly ask for Codex. Use this skill proactively when you encounter complex algorithm issues, hard-to-locate bugs, or have failed at least 2 retry attempts. Hand substantial debugging or implementation tasks to Codex.
 - Do not grab simple asks that you can finish quickly on your own.
+
+### Effort policy
+
+| Scenario | Effort |
+|---|---|
+| Routine oracle review | `medium` |
+| Quick sanity check | `low` |
+| Security / data / migration / concurrency | `high` |
+| Stuck multi-step refactor / root-cause analysis | `high` or `xhigh` |
+
+## Oracle Review Mode
+
+Use `--oracle-review` as the default high-risk read-only path from [`../../specs/shared/codex-routing.md`](../../specs/shared/codex-routing.md). It is an Amp Oracle-style advisor mode: Codex reasons over explicit caller-provided context, but does not implement, patch, format, commit, or mutate state.
+
+Input shape:
+
+| Field | Meaning |
+|---|---|
+| `task` / `--prompt` | Concrete question, root cause, planned fix, or review objective. Required. |
+| `context` / `--context` | Relevant diff, acceptance criteria, constraints, or caller-provided evidence. |
+| `files` / `--files` | Comma-separated files or prose scope; inserted into the prompt as-is. |
+| `risk_signals` / `--risk-signals` | Comma-separated signals from `codex-routing.md § Decision Table`; inserted as-is. |
+| `non_goals` / `--non-goals` | Out-of-scope refactors, cleanup, speculative hardening, or unrelated domains. |
+
+Default command:
+
+```bash
+node scripts/codex-bridge.mjs --cd "<repo>" \
+  --oracle-review \
+  --prompt "<task>" \
+  --risk-signals "<signals>" \
+  --files "<files>" \
+  --context "<context>" \
+  --non-goals "<non-goals>" \
+  --background
+```
+
+`--oracle-review` is always fresh and read-only. The bridge renders `prompts/oracle-review.md` and returns Codex's message string; it does **not** parse the JSON or turn findings into blockers. Parent agent must apply [Result Triage](#result-triage-filter-over-engineering) before acting.
+
+Mode boundaries:
+
+| Mode | Use for | Stance | Mutation |
+|---|---|---|---|
+| `--oracle-review` | High-risk second opinion / hard reasoning | Balanced oracle advisor | Read-only |
+| `--adversarial-review` | Ship/no-ship blocker hunt | Skeptical reviewer | Read-only |
+| `--review` | Built-in Codex reviewer | Built-in reviewer | Read-only |
+| `task --read-only` | Freeform analysis | Custom | Read-only |
+| `task` | Dirty prototype implementation | Implementer | Workspace-write |
 
 ## Interaction Rhythm
 
@@ -213,6 +264,7 @@ Usage:
   node scripts/codex-bridge.mjs task [options]
   node scripts/codex-bridge.mjs --review <target> [options]
   node scripts/codex-bridge.mjs --adversarial-review <target> [options]
+  node scripts/codex-bridge.mjs --oracle-review [options]
   node scripts/codex-bridge.mjs --status <id> [--detail] [--wait [--tick N]]
   node scripts/codex-bridge.mjs --result <id>
   node scripts/codex-bridge.mjs --cancel <id>
@@ -223,6 +275,11 @@ Options:
   --session-id <id>            Resume the specified codex session (task mode only).
   --review <target>            Built-in reviewer. `working-tree` or branch name. No --prompt.
   --adversarial-review <target>  Adversarial review via prompt template. Accepts --prompt for focus.
+  --oracle-review              Oracle advisor via prompts/oracle-review.md. Requires --prompt.
+  --risk-signals <signals>     Comma-separated risk signals inserted as-is.
+  --files <files>              Comma-separated files or prose scope inserted as-is.
+  --context <text>             Caller-provided diff, constraints, or evidence for oracle mode.
+  --non-goals <text>           Explicit out-of-scope items for oracle mode.
   --read-only                  Read-only sandbox (default: workspace-write for task).
   --model <name>               Codex model (e.g. `spark` → gpt-5.3-codex-spark).
   --effort <level>             Reasoning effort: none|minimal|low|medium|high|xhigh.
@@ -252,6 +309,13 @@ Options:
 - `turn/start` with `prompts/adversarial-review.md` template.
 - Always fresh read-only thread.
 - Accepts `--prompt` to specify focus areas.
+
+### Oracle Review Mode (`--oracle-review`)
+- `turn/start` with `prompts/oracle-review.md` template.
+- Always fresh read-only thread.
+- Requires `--prompt`.
+- Accepts `--context`, `--files`, `--risk-signals`, and `--non-goals`.
+- Returns Codex's message string; the bridge does not parse the JSON.
 
 ## Multi-turn Sessions
 

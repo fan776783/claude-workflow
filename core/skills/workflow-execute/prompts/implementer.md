@@ -29,6 +29,14 @@ ${bundle.patterns_to_mirror}
 ${bundle.mandatory_reading}
 </mandatory-reading>
 
+<allowed-write-scope>
+${bundle.allowed_write_paths}
+</allowed-write-scope>
+
+<forbidden-actions>
+${bundle.forbidden_actions}
+</forbidden-actions>
+
 <verification>
 ${bundle.verification}
 </verification>
@@ -42,11 +50,12 @@ ${bundle.verification}
 
 <your-mandate>
 1. 读 mandatory-reading 中的文件,确认你理解上下文
-2. 按 acceptance-criteria 实现代码;不要超额(不要做 task 没要求的事)
-3. 按 critical-constraints 守住边界
-4. 按 <verification> 跑验证命令,确认通过
-5. 自查代码质量(命名 / 类型 / 测试)
-6. 提交一份 status report,见下方 output schema
+2. 只在 allowed-write-scope 内实现代码;不要超额(不要做 task 没要求的事)
+3. 遵守 forbidden-actions;如果必须扩 scope,先返回 DONE_WITH_CONCERNS 且 concern.type="scope"
+4. 按 acceptance-criteria 实现代码,按 critical-constraints 守住边界
+5. 按 <verification> 跑验证命令,确认通过
+6. 自查代码质量(命名 / 类型 / 测试)
+7. 提交一份 status report,见下方 output schema
 </your-mandate>
 
 <output-schema>
@@ -63,7 +72,13 @@ ${bundle.verification}
     "result": "pass" | "fail",
     "output_summary": "<关键输出，≤200 字>"
   },
-  "concerns": ["<DONE_WITH_CONCERNS 时，每条简短>"],
+  "concerns": [
+    {
+      "type": "correctness" | "scope" | "verification" | "observation",
+      "severity": "blocking" | "non_blocking",
+      "message": "<DONE_WITH_CONCERNS 时，每条简短>"
+    }
+  ],
   "questions": ["<NEEDS_CONTEXT 时，每条简短>"],
   "blocker": "<BLOCKED 时，一句话根因 + 建议>"
 }
@@ -92,7 +107,9 @@ ${bundle.verification}
 | `${bundle.acceptance_criteria}` | acceptance_criteria[] | 每条一行 `- ` bullet |
 | `${bundle.critical_constraints}` | critical_constraints[] | 每条一行 `- ` bullet |
 | `${bundle.patterns_to_mirror}` | patterns_to_mirror[] | 每条：`line` 在 → `- file:line — note`；`line` 缺失 → `- file — note`；空数组 → "无 — 参考 mandatory-reading 推断" |
-| `${bundle.mandatory_reading}` | mandatory_reading[] | 每条一行路径；bundle 只含路径，如需一句话作用由 controller 另补 |
+| `${bundle.mandatory_reading}` | mandatory_reading[] | 每条：`- path — reason`；`symbols` / `line_hint` 存在则附加；旧 string[] bundle 可按路径降级渲染 |
+| `${bundle.allowed_write_paths}` | allowed_write_paths[] | 每条一行 `- ` bullet；空数组 → "未声明 — 按 task block 的创建/修改/测试文件推断,不得自行扩大" |
+| `${bundle.forbidden_actions}` | forbidden_actions[] | 每条一行 `- ` bullet |
 | `${bundle.verification}` | verification.{command, require_files, expected} | "运行 `<command>`；期望 `<expected>`；require_files: `<list 或 none>`"（require_files 一期恒空） |
 
 > Degraded 平台（无 subagent）：controller 主会话扮 implementer，本占位映射照样适用（自渲染自执行）。
@@ -102,7 +119,7 @@ ${bundle.verification}
 | 状态 | controller 动作 |
 |------|---------|
 | `DONE` | 进入 Step 5.2 reviewer 派发（合并 AC+质量，见 `reviewer.md`） |
-| `DONE_WITH_CONCERNS` | 读 concerns;correctness 类先派 implementer 修;observation 类记录后进 5.2 |
+| `DONE_WITH_CONCERNS` | 读取结构化 `concerns[]`;`type=correctness/scope/verification` 或 `severity=blocking` → implementer 修 / 补 context 后再 review;`type=observation` 且 `severity=non_blocking` → 记录 journal 后进 5.2(与 `references/subagent-driven.md § Implementer 状态分流` 保持一致) |
 | `NEEDS_CONTEXT` | 调 `AskUserQuestion` 收集用户回答 → 把答案塞回 prompt `<your-mandate>` 末尾 → 重派 |
 | `BLOCKED` | 评估根因:context 缺失 → 补 context 重派;reasoning 不足 → 升级 model;task 过大 → 拆 task;plan 错 → escalate user |
 

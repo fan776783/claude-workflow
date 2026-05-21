@@ -2,6 +2,8 @@
 
 > 本文件聚焦 workflow-execute **如何**默认走 fresh-subagent-per-task 主路径。Prompt 模板见 `../prompts/{implementer,reviewer}.md`。每 task 1 个 reviewer subagent（合并 AC+质量两 phase）。
 
+Worker-level roles and invariants follow [`../../../specs/shared/subagent-worker-contract.md`](../../../specs/shared/subagent-worker-contract.md); this file only defines workflow-execute routing.
+
 ## 默认架构
 
 ```
@@ -38,7 +40,7 @@ controller (主会话)
 | 状态 | controller 处理 |
 |---|---|
 | `DONE` | 进 Step 5.2 reviewer |
-| `DONE_WITH_CONCERNS` | concerns 是 correctness → implementer 修后再 review；observation → 记录 journal 后进 5.2 |
+| `DONE_WITH_CONCERNS` | 读取结构化 `concerns[]`；`type=correctness/scope/verification` 或 `severity=blocking` → implementer 修 / 补 context 后再 review；`type=observation` 且 `severity=non_blocking` → 记录 journal 后进 5.2 |
 | `NEEDS_CONTEXT` | controller `AskUserQuestion` → 答案塞回 prompt → 重派 |
 | `BLOCKED` | 评估根因 → 补 context / 升 model / 拆 task / escalate user |
 

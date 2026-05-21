@@ -12,7 +12,7 @@ This Skill enables Claude to delegate coding tasks to Codex CLI, combining the s
 - **Event-driven Completion**: Waits for the real `turn/completed` notification instead of polling or sleeping — the bridge returns results only after Codex has fully finished processing.
 - **Streaming Live Progress**: Real-time status logs of Codex executing tools, commands, and edits are piped to `stderr` preventing silent timeouts.
 - **Multi-turn sessions**: Maintain conversation context across multiple interactions via `--session-id`. Task threads are persisted (`ephemeral: false`) to support cross-process resume.
-- **Separated Review Modes**: Built-in review (`--review`) and adversarial review (`--adversarial-review`) are distinct command modes with proper isolation.
+- **Separated Review Modes**: Built-in review (`--review`), adversarial review (`--adversarial-review`), and oracle review (`--oracle-review`) are distinct command modes with proper isolation.
 - **Background Job Engine**: Fork Codex into a detached process so Claude doesn't have to wait (`--background`). Cancel via `--cancel` using worker PID termination.
 
 ## Installation
@@ -65,6 +65,20 @@ node scripts/codex-bridge.mjs --cd "/project" --adversarial-review "working-tree
 node scripts/codex-bridge.mjs --cd "/project" --adversarial-review "main" --prompt "Focus on auth boundary"
 ```
 
+### Oracle Review
+
+Run a read-only Amp Oracle-style advisor pass using `prompts/oracle-review.md`. This mode has no target argument: provide scope explicitly through `--prompt`, `--context`, `--files`, `--risk-signals`, and `--non-goals`. The bridge renders the prompt and returns Codex's message string; it does not parse the JSON findings.
+
+```bash
+node scripts/codex-bridge.mjs --cd "/project" \
+  --oracle-review \
+  --prompt "Check whether this auth change can leak tenant data" \
+  --risk-signals "security_boundary,data_safety" \
+  --files "src/auth/session.ts, src/api/users.ts" \
+  --context "Diff and acceptance criteria supplied by caller" \
+  --non-goals "No style review, no refactor suggestions"
+```
+
 ### Background Jobs
 
 Push a heavy refactor task into the background:
@@ -90,8 +104,14 @@ node scripts/codex-bridge.mjs task --cd "/project" --cancel <jobId>
 | `--session-id` | No | Resume a previous session (task mode only, not allowed for reviews) |
 | `--review <target>` | No | Built-in code review. No `--prompt`, no `--session-id` |
 | `--adversarial-review <target>` | No | Adversarial review via prompt template. Accepts `--prompt` for focus |
+| `--oracle-review` | No | No-target read-only oracle advisor via `prompts/oracle-review.md`. Requires `--prompt` |
+| `--risk-signals <signals>` | Oracle: Optional | Comma-separated risk signals inserted as-is |
+| `--files <files>` | Oracle: Optional | Comma-separated files or prose scope inserted as-is |
+| `--context <text>` | Oracle: Optional | Caller-provided diff, constraints, or evidence inserted as-is |
+| `--non-goals <text>` | Oracle: Optional | Explicit out-of-scope items inserted as-is |
 | `--background` | No | Run detached in the background |
 | `--status <jobId>` | No | Query status of a background job (requires `--cd`) |
+| `--result <jobId>` | No | Read terminal job result (requires `--cd`) |
 | `--cancel <jobId>` | No | Cancel a running background job (requires `--cd`) |
 
 ### Output Format
@@ -103,7 +123,8 @@ node scripts/codex-bridge.mjs task --cd "/project" --cancel <jobId>
   "sessionId": "uuid",
   "turnId": "turn-uuid",
   "agentMessages": "Codex response text.",
-  "target": { "input": "main", "type": "baseBranch", "branch": "main", "label": "branch diff vs main" }
+  "target": { "input": "main", "type": "baseBranch", "branch": "main", "label": "branch diff vs main" },
+  "oracleInput": { "riskSignals": "security_boundary", "files": "src/auth.ts", "contextProvided": true, "nonGoals": "No refactors" }
 }
 ```
 
@@ -130,6 +151,7 @@ The bridge implements the Codex App Server JSON-RPC protocol:
 4. **Review modes**:
    - `--review` → `review/start` (built-in reviewer, no instructions)
    - `--adversarial-review` → `turn/start` with `prompts/adversarial-review.md` template
+   - `--oracle-review` → `turn/start` with `prompts/oracle-review.md` template; always fresh read-only, no target argument, JSON returned as text
 5. **Multi-thread support**: Tracks subagent threads and infers completion when all subagent turns drain
 
 ## Migration from v1 (Python)
@@ -145,12 +167,14 @@ v2 完全重写了桥接脚本（Python → Node.js），旧入口 `scripts/code
 | `--READ_ONLY` | `--read-only` |
 | *N/A* | `--review <target>` |
 | *N/A* | `--adversarial-review <target>` |
+| *N/A* | `--oracle-review` |
+| *N/A* | `--risk-signals` / `--files` / `--context` / `--non-goals` |
 | *N/A* | `--background` / `--status` / `--cancel` |
 
 **Breaking changes**:
 - 所有参数改为 kebab-case 小写（`--PROMPT` → `--prompt`）
 - 输出格式从纯文本改为结构化 JSON
-- 新增 review 模式和后台任务管理
+- 新增 review / oracle-review 模式和后台任务管理
 
 ## License
 

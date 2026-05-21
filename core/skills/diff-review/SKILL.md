@@ -44,7 +44,7 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 所有review遵循以下 8 阶段：
 
 1. **review范围确认**：用自然语言在报告中描述范围
-2. **Diff Acquisition + File Classification**：获取 diff 与delta文件，做前后端分类（按 `core/specs/shared/codex-routing.md § 决策表`）
+2. **Diff Acquisition + File Classification**：获取 diff 与delta文件，按文件扩展名做前/后端分桶（见 `references/deep-mode.md § Layer B`）并按 `core/specs/shared/codex-routing.md § Decision Table` 标注 risk signals 供 Layer C 派发判定
 3. **Candidate Finding Discovery**：Codex + 当前模型并行发现候选问题
 4. **Finding Verification**：验证问题真实存在、由本次delta引入、且适用于当前代码库
 5. **Impact Analysis**：对 material findings 评估影响范围、blast radius、回归风险与验证面（见 `specs/impact-analysis.md` + `core/specs/shared/impact-analysis-template.md`）
