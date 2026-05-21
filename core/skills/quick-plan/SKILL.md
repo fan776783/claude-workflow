@@ -31,18 +31,11 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 - 信心 < 5 → 建议切 `/workflow-spec`,不硬塞
 - 复杂度评估见 [references/complexity-scoring.md](references/complexity-scoring.md)
 - XL 级(跨 module / 新子系统) → 建议切 `/workflow-spec`
-- 产出后不自动执行,告诉用户下一步选项:
-  - 直接实施或交 `/workflow-execute`
-  - 修改 plan → 回复反馈
-  - 升级完整 workflow → `/workflow-spec`
-- 不调 AskUserQuestion。用户直接回复即可。
-
-## 与 workflow 的对接
-
-- quick-plan 只生成轻量文档,不进入 workflow 状态机
-- `/workflow-execute` 消费时:检测 plan 存在但 spec 不存在 → 自愈逻辑标记 `user_spec_review = skipped`
-- ≤3 task 且无 gate/HITL → 自动进入 brief mode
-- 用户可随时用 `/workflow-spec` 升级
+- 产出后不自动执行,告诉用户下一步选项,带编号便于快速回复:
+  - `1` 直接实施(人工 / `/tdd`)
+  - `2` 修改 plan → 回复反馈
+  - `3` 升级完整 workflow → `/workflow-spec`
+- 不调 AskUserQuestion。用户直接回复编号或内容即可。
 
 ## 与其他 skill 的关系
 

@@ -47,9 +47,7 @@
 
 ## Quality Check
 
-1. `git diff --name-only` 确认改动范围
-2. 对照 Guidelines Index 逐条核对
-3. 运行 lint / type-check / test
+完成后自检清单见根 [`index.md` 的 Quality Check 段](../../index.md#quality-check)（全项目单一来源）。本层若有特有检查项，在此追加，不复制通用清单。
 
 ---
 

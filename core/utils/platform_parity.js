@@ -22,7 +22,6 @@ const REQUIRED_AGENTS = [
   'gemini-cli',
   'github-copilot',
   'opencode',
-  'qoder',
 ]
 
 const REQUIRED_AGENT_FIELDS = ['name', 'displayName', 'skillsDir', 'globalSkillsDir', 'detectInstalled']
@@ -54,6 +53,9 @@ function listSkills() {
   if (!fs.existsSync(skillsRoot)) return []
   return fs.readdirSync(skillsRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
+    // Underscore-prefixed dirs are cross-skill shared modules (e.g. _shared/),
+    // not user-facing skills. Filter them out from skill discovery / validation.
+    .filter((entry) => !entry.name.startsWith('_'))
     .map((entry) => entry.name)
     .sort()
 }

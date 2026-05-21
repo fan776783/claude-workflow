@@ -22,6 +22,17 @@ Inspired by `mattpocock/skills` 的 `improve-codebase-architecture/LANGUAGE.md` 
 
 If a specific occurrence is intentional (e.g. quoting an external source, historical comment), append `// glossary-allow` to the end of the line.
 
+## 术语更新路由
+
+质询 / 讨论 / 根因分析中确认了术语时,按执行上下文决定写入哪个文件:
+
+| 上下文 | 写入 | 说明 |
+|---|---|---|
+| 开发本 repo(在 `core/` 下工作) | `core/specs/shared/glossary.md`(本文件) | 框架层术语 |
+| 部署的 skill 在用户项目执行 | `.claude/code-specs/shared/business-glossary.md`(不存在则建) | 业务层术语,协议见 `core/specs/shared/business-glossary.md` |
+
+操作:新术语追加到 `## Terms` 尾部,格式同现有条目;定义变化原地改 Definition 行。不确定 / 用户未确认 → 不写,列入产出交 `/spec-update` 固化。
+
 ## Terms
 
 ### workflow

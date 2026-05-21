@@ -7,31 +7,25 @@ const { readState, writeState, completeWorkflow } = require('./state_manager')
 const { getWorkflowStatePath, getWorkflowsDir } = require('./path_utils')
 const {
   cmdComplete,
-  cmdCompleteBatch,
   cmdContextBudget,
   cmdList,
   cmdNext,
-  cmdParallel,
   cmdProgress,
   cmdStatus,
   detectProjectId,
   detectProjectRoot,
   resolveStateAndTasks,
 } = require('./task_manager')
-const { cmdArchive, cmdDelta, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdUnblock, recoverArchiveTombstone, planLegacyProjectIdMigration, applyLegacyProjectIdMigration } = require('./lifecycle_cmds')
+const { cmdArchive, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdPlanReview, cmdPlanEdit, cmdUnblock, cmdAcceptDeviation, recoverArchiveTombstone } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
-const { LEGACY_STATUS_TO_HALT_REASON, buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
+const { buildTaskBundle } = require('./task_bundle')
+const { runReadiness } = require('./readiness_checks')
+const { loadProjectConfig, resolveSpecDocsRoot } = require('./project_setup')
 const os = require('os')
-const { buildBatchPassGateResult, writeBatchQualityGateResult } = require('./quality_review')
-const { finishBatch, getBatchRecord, setBatchReviewGroup, failWritableBatch } = require('./batch_orchestrator')
-const {
-  getRepoRoot,
-  getIntegrationWorktreeDir,
-  finalMergeToMain,
-  discardIntegrationWorktree,
-} = require('./merge_strategist')
 
 const EXECUTION_MODE_ALIASES = {
   继续: 'continuous',
@@ -60,7 +54,12 @@ function detectGitHead(projectRoot) {
 function inferSpecRelativeFromPlan(planRelative, projectRoot) {
   const normalizedPlan = String(planRelative || '').replace(/\\/g, '/')
   const candidates = []
-  // 新路径格式：绝对路径指向 workflowDir/plans/
+  // spec.md 默认在项目内 docs/workflows/specs/，从 plan.md 同 baseName 反查。
+  const specDocsRoot = resolveSpecDocsRoot(loadProjectConfig(projectRoot))
+  if (normalizedPlan) {
+    candidates.push(path.posix.join(specDocsRoot, path.basename(normalizedPlan)))
+  }
+  // 旧 user 级路径：绝对路径指向 workflowDir/plans/
   if (path.isAbsolute(normalizedPlan) && normalizedPlan.includes('/plans/')) {
     const dir = path.dirname(normalizedPlan)
     const base = path.basename(normalizedPlan)
@@ -107,6 +106,7 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
     const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
     const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
     state.progress = inferred.progress
+    if (inferred.halt_reason) state.halt_reason = inferred.halt_reason
     if (specFile) {
       state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
     } else {
@@ -122,17 +122,13 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
     return {
       initialized: true, project_id: pid, state_path: statePath, plan_file: planRelative,
       spec_file: specFile, first_task: inferred.current_task_id, workflow_status: inferred.workflow_status,
+      halt_reason: inferred.halt_reason,
       progress: inferred.progress, upgrade_required: !specFile, spec_review_status: specFile ? 'approved' : 'skipped',
     }
   }
 
   // 不能用 resolveStateAndTasks——它要求 state 文件已存在。直接扫描当前支持的 plan 产物路径。
-  const legacyCandidates = ['.claude/plan.md', '.claude/plans/plan.md', '.cursor/plan.md']
   const planCandidates = []
-  for (const candidate of legacyCandidates) {
-    const absolute = path.join(root, candidate)
-    if (fs.existsSync(absolute)) planCandidates.push(absolute)
-  }
   // 扫描项目目录下的 .claude/plans/
   const plansDir = path.join(root, '.claude', 'plans')
   if (fs.existsSync(plansDir)) {
@@ -182,8 +178,9 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
   const initialTasks = inferred.current_task_id ? [inferred.current_task_id] : []
   const state = ensureStateDefaults(buildMinimumState(pid, planRelative, specFile, initialTasks, inferred.workflow_status))
   state.progress = inferred.progress
+  if (inferred.halt_reason) state.halt_reason = inferred.halt_reason
   // spec 文件存在 → 推断历史上已通过审批，标记为 system-recovery
-  // 无 spec → 可能来自 quick-plan，标记为 skipped（不伪造审批记录）
+  // 无 spec → 标记 skipped 留痕，不伪造审批记录
   if (specFile) {
     state.review_status.user_spec_review = buildUserSpecReview('approved', 'execute', 'system-recovery')
   } else {
@@ -205,8 +202,9 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
     spec_file: specFile,
     first_task: inferred.current_task_id,
     workflow_status: inferred.workflow_status,
+    halt_reason: inferred.halt_reason,
     progress: inferred.progress,
-    // 当 plan 存在但无 spec 时（如来自 /quick-plan），提示调用方引导升级
+    // plan 存在但无 spec → 提示调用方引导 spec 重建或显式 --force
     upgrade_required: !specFile,
     spec_review_status: specFile ? 'approved' : 'skipped',
   }
@@ -238,12 +236,17 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
     if (pid) {
       const nextId = nextTask && typeof nextTask === 'object' ? nextTask.id : nextTask
       const label = Array.isArray(completedTaskIds) ? completedTaskIds.join(',') : completedTaskIds
+      // T6 兼容层：advance --journal "string" 上游 CLI 路径，把 string 包装成 evidence 最小结构。
+      // 直接调 `node journal.js add --summary "string"` 仍走 hard-reject。
+      const summaryForJournal = typeof journalSummary === 'string'
+        ? { commands_run: [], diff_summary: journalSummary, coverage_evidence: '', unverified_items: [] }
+        : journalSummary
       journalResult = cmdAdd(
         pid,
         `完成 ${label}${nextId ? ` → ${nextId}` : ''}`,
         pid,
         Array.isArray(completedTaskIds) ? completedTaskIds : [completedTaskIds],
-        journalSummary,
+        summaryForJournal,
         decisions || [],
         nextId ? [`下一任务: ${nextId}`] : []
       )
@@ -253,240 +256,68 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
   return { nextTask, workflowStatus: state ? state.status : null, journalResult }
 }
 
-function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId = null, projectRoot = null) {
+// 治理 halt 恢复：仅当 status=halted && halt_reason=governance 时翻为 running，避免误用清掉真实 failure halt。
+function cmdResumeFromGovernanceHalt(projectId = null, projectRoot = null) {
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
+  if (state.status !== 'halted') {
+    return { error: `当前状态为 ${state.status}，不是 halted。该动词仅用于治理 halt 恢复。`, state_status: state.status }
+  }
+  if (state.halt_reason !== 'governance') {
+    return { error: `halt_reason=${state.halt_reason}，非 governance halt。其他 halt（failure/dependency）必须经各自恢复路径。`, halt_reason: state.halt_reason }
+  }
+  const previousReason = state.halt_reason
+  state.status = 'running'
+  state.halt_reason = null
+  writeState(statePath, state)
+  return {
+    resumed: true,
+    project_id: state.project_id || projectId || null,
+    previous_status: 'halted',
+    previous_halt_reason: previousReason,
+    workflow_status: 'running',
+  }
+}
+
+// set-report-path：写顶层 state.review_report_path，避免 controller 手编 state.json 触发 harness 全文件 system-reminder 重注入。
+function cmdSetReportPath(reportPath, projectId = null, projectRoot = null, { unset = false } = {}) {
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
+  if (!unset && (!reportPath || !String(reportPath).trim())) {
+    return { error: 'report path 不能为空（如需清除请加 --unset）' }
+  }
+  const previous = state.review_report_path || null
+  state.review_report_path = unset ? null : String(reportPath).trim()
+  writeState(statePath, state)
+  return {
+    updated: true,
+    review_report_path: state.review_report_path,
+    previous_value: previous,
+  }
+}
+
+// advance 默认响应仅回 {id, name}，完整 task 数据走 task-bundle <id>（Step 5.1.0 流程）。
+// 调用方需要全量 task 时显式传 --full（CLI）或 { full: true }（程序调用）。
+function slimNextTask(nextTask) {
+  if (nextTask == null) return null
+  if (typeof nextTask === 'string') return { id: nextTask, name: null }
+  if (typeof nextTask === 'object') return { id: nextTask.id || null, name: nextTask.name || null }
+  return nextTask
+}
+
+function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId = null, projectRoot = null, { full = false } = {}) {
   const completeResult = cmdComplete(taskId, projectId, projectRoot)
   if (completeResult.error) return completeResult
   const { nextTask, workflowStatus, journalResult } = advanceAfterComplete(taskId, journalSummary, decisions, projectId, projectRoot)
   const result = {
     advanced: true,
     completed_task: taskId,
-    next_task: nextTask,
+    next_task: full ? nextTask : slimNextTask(nextTask),
     workflow_status: workflowStatus,
   }
   if (completeResult.status_transition) result.status_transition = completeResult.status_transition
   if (journalResult) result.journal = journalResult
   return result
-}
-
-function collectBatchGateInputs(state, taskIds, tasksContent) {
-  const tasks = tasksContent ? parseTasksV2(tasksContent) : []
-  const taskMap = new Map(tasks.map((task) => [task.id, task]))
-  const requirementIds = new Set()
-  const criticalConstraints = new Set()
-  const perTaskStage1 = {}
-
-  const missingStage1 = []
-  const failedStage1 = []
-  for (const taskId of taskIds) {
-    const task = taskMap.get(taskId)
-    for (const requirementId of task?.requirement_ids || []) requirementIds.add(requirementId)
-    for (const constraint of task?.critical_constraints || []) criticalConstraints.add(constraint)
-
-    const gate = ((state || {}).quality_gates || {})[taskId] || {}
-    const stage1 = gate.stage1
-    const hasStage1 = stage1 && typeof stage1 === 'object'
-    const stage1Passed = hasStage1 && stage1.passed === true
-    if (!hasStage1) missingStage1.push(taskId)
-    else if (!stage1Passed) failedStage1.push(taskId)
-    perTaskStage1[taskId] = {
-      passed: stage1Passed,
-      attempts: Math.max(1, Number((stage1 && stage1.attempts) || gate.attempt || 1)),
-      issues_found: Math.max(0, Number((stage1 && stage1.issues_found) || 0)),
-    }
-  }
-
-  return {
-    requirementIds: [...requirementIds],
-    criticalConstraints: [...criticalConstraints],
-    perTaskStage1,
-    missingStage1,
-    failedStage1,
-  }
-}
-
-function cmdAdvanceBatch(taskIds, journalSummary = null, decisions = null, projectId = null, projectRoot = null, batchId = null, batchMeta = {}) {
-  const [stateBeforeComplete, statePathBeforeComplete, tasksContentBeforeComplete] = resolveStateAndTasks(projectId, projectRoot)
-  let batchRecord = null
-  const effectiveMeta = { ...(batchMeta || {}) }
-  const gitActions = []
-
-  if (batchId && stateBeforeComplete) {
-    batchRecord = getBatchRecord(stateBeforeComplete, batchId)
-    if (!batchRecord) return { error: `并行批次不存在: ${batchId}` }
-    if (batchRecord.kind === 'writable') {
-      if (batchRecord.status === 'completed' && batchRecord.merge_state === 'completed') {
-        return {
-          advanced: true,
-          completed_tasks: [...taskIds],
-          next_task: null,
-          workflow_status: stateBeforeComplete.status || null,
-          batch_id: batchId,
-          idempotent: true,
-          merged_commit: batchRecord.diff_window?.to_commit || null,
-        }
-      }
-      if (effectiveMeta.stage2_passed !== true) return { error: `writable 批次 ${batchId} 尚未通过 stage2 审查，禁止推进完成` }
-
-      const preCheck = collectBatchGateInputs(stateBeforeComplete, taskIds, tasksContentBeforeComplete || '')
-      if (preCheck.missingStage1.length) {
-        return { error: `writable 批次 ${batchId} 存在缺失 stage1 记录的任务：${preCheck.missingStage1.join(', ')}`, batch_id: batchId }
-      }
-      if (preCheck.failedStage1.length) {
-        return { error: `writable 批次 ${batchId} 存在 stage1 未通过的任务：${preCheck.failedStage1.join(', ')}`, batch_id: batchId }
-      }
-
-      // Git 侧合并先于状态登记：merged_commit 缺失时尝试内部 finalMergeToMain
-      if (!effectiveMeta.merged_commit) {
-        if (batchRecord.merge_state === 'merged_awaiting_state' && batchRecord.merge_commit) {
-          // 上次合并成功但后续 state 写入失败；复用已登记的 merge_commit，跳过二次 git merge
-          effectiveMeta.base_commit = effectiveMeta.base_commit || batchRecord.merge_base || null
-          effectiveMeta.merged_commit = batchRecord.merge_commit
-          gitActions.push({ action: 'reuse_merge_intent', batch_id: batchId, merge_commit: batchRecord.merge_commit })
-        } else {
-          const root = projectRoot || process.cwd()
-          const repoRoot = getRepoRoot(root)
-          if (!repoRoot) return { error: '不在 git 仓库中，无法执行 integration merge', batch_id: batchId }
-          const effectiveProjectId = projectId || detectProjectId(projectRoot) || stateBeforeComplete.project_id || null
-          let integrationPath
-          try { integrationPath = getIntegrationWorktreeDir(repoRoot, batchId, effectiveProjectId) }
-          catch (err) { return { error: `解析 integration worktree 失败: ${err.message}`, batch_id: batchId } }
-
-          // Pre-merge intent：记录"正在合并"，落盘后再执行 git 操作
-          batchRecord.merge_state = 'merging'
-          batchRecord.merge_started_at = new Date().toISOString()
-          batchRecord.merge_base = stateBeforeComplete.initial_head_commit || null
-          writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
-
-          const mergeResult = finalMergeToMain(repoRoot, integrationPath, batchId, effectiveProjectId, batchRecord.merge_base || null)
-          gitActions.push({ action: 'final_merge_to_main', result: mergeResult })
-          if (mergeResult.error) {
-            // 合并失败：清理 merge_state，避免后续被误判为 merged_awaiting_state
-            batchRecord.merge_state = 'failed'
-            writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
-            return {
-              error: `integration worktree 合并到主分支失败: ${mergeResult.error}`,
-              batch_id: batchId,
-              git_actions: gitActions,
-            }
-          }
-          effectiveMeta.base_commit = effectiveMeta.base_commit || mergeResult.main_head_before || stateBeforeComplete.initial_head_commit || null
-          effectiveMeta.merged_commit = mergeResult.main_head_after || mergeResult.integration_commit
-
-          // Post-merge intent：main 已前进；若后续 state 写入失败，可据此恢复
-          batchRecord.merge_state = 'merged_awaiting_state'
-          batchRecord.merge_commit = effectiveMeta.merged_commit
-          batchRecord.merge_base = effectiveMeta.base_commit
-          writeState(statePathBeforeComplete, stateBeforeComplete, effectiveProjectId)
-        }
-      }
-      if (!effectiveMeta.merged_commit) return { error: `writable 批次 ${batchId} 缺少 merged_commit，禁止推进完成` }
-    }
-  }
-
-  const completeResult = cmdCompleteBatch(taskIds, projectId, projectRoot)
-  if (completeResult.error) return completeResult
-
-  if (batchId) {
-    const [state, statePath] = resolveStateAndTasks(projectId, projectRoot)
-    if (state && statePath) {
-      const diffWindow = effectiveMeta.merged_commit
-        ? {
-          from_commit: effectiveMeta.base_commit || state.initial_head_commit || null,
-          to_commit: effectiveMeta.merged_commit,
-          files_changed: Math.max(0, Number(effectiveMeta.files_changed || 0)),
-        }
-        : null
-      if (batchRecord?.kind === 'writable' && effectiveMeta.stage2_passed === true) {
-        const gateInputs = collectBatchGateInputs(stateBeforeComplete || state, taskIds, tasksContentBeforeComplete || '')
-        const gateResult = buildBatchPassGateResult(
-          batchId,
-          taskIds,
-          effectiveMeta.base_commit || state.initial_head_commit || null,
-          effectiveMeta.merged_commit,
-          diffWindow ? diffWindow.files_changed : 0,
-          gateInputs.requirementIds,
-          gateInputs.criticalConstraints,
-          gateInputs.perTaskStage1,
-          Math.max(1, Number(effectiveMeta.stage2_attempts || 1)),
-          Math.max(0, Number(effectiveMeta.critical_count || 0)),
-          Math.max(0, Number(effectiveMeta.important_count || 0)),
-          Math.max(0, Number(effectiveMeta.minor_count || 0)),
-          effectiveMeta.reviewer || 'subagent'
-        )
-        const qualityGates = state.quality_gates || (state.quality_gates = {})
-        qualityGates[batchId] = gateResult
-        writeBatchQualityGateResult(statePath, batchId, gateResult, projectId || detectProjectId(projectRoot))
-        setBatchReviewGroup(state, batchId, {
-          quality_gate_id: effectiveMeta.quality_gate_id || batchId,
-          stage2_passed: true,
-        })
-      }
-      finishBatch(state, batchId, 'completed', diffWindow)
-      const completedRecord = getBatchRecord(state, batchId)
-      if (completedRecord && batchRecord?.kind === 'writable') {
-        completedRecord.merge_state = 'completed'
-        if (effectiveMeta.merged_commit) completedRecord.merge_commit = effectiveMeta.merged_commit
-      }
-      writeState(statePath, state)
-    }
-  }
-
-  const { nextTask, workflowStatus, journalResult } = advanceAfterComplete(taskIds, journalSummary, decisions, projectId, projectRoot)
-  const result = {
-    advanced: true,
-    completed_tasks: [...taskIds],
-    next_task: nextTask,
-    workflow_status: workflowStatus,
-  }
-  if (completeResult.status_transition) result.status_transition = completeResult.status_transition
-  if (batchId) result.batch_id = batchId
-  if (gitActions.length) result.git_actions = gitActions
-  if (effectiveMeta.merged_commit) result.merged_commit = effectiveMeta.merged_commit
-  if (journalResult) result.journal = journalResult
-  return result
-}
-
-function cmdBatchFail(batchId, { nextAction = 'discard_integration_worktree', failedTaskId = null, reason = null, projectId = null, projectRoot = null } = {}) {
-  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流', code }
-  const record = getBatchRecord(state, batchId)
-  if (!record) return { error: `并行批次不存在: ${batchId}` }
-
-  const gitActions = []
-  const effectiveProjectId = projectId || detectProjectId(projectRoot) || state.project_id || null
-  if (nextAction === 'discard_integration_worktree') {
-    const root = projectRoot || process.cwd()
-    const repoRoot = getRepoRoot(root) || root
-    const discard = discardIntegrationWorktree(repoRoot, batchId, { forceDeleteBranch: true, projectId: effectiveProjectId })
-    gitActions.push({ action: 'discard_integration_worktree', result: discard })
-    // 即使存在 errors（例如 worktree 不存在）也继续推进状态清理，避免脏状态残留
-  }
-
-  const finalStatus = nextAction === 'discard_integration_worktree' ? 'discarded' : 'failed'
-  failWritableBatch(state, statePath, batchId, finalStatus, projectId || detectProjectId(projectRoot))
-
-  // 重新读取以补充 conflict_detected / failed_task_id 并清理 current_tasks
-  const [afterState, afterPath] = resolveStateAndTasks(projectId, projectRoot)
-  if (afterState && afterPath) {
-    const updated = getBatchRecord(afterState, batchId)
-    if (updated) {
-      updated.conflict_detected = true
-      if (failedTaskId) updated.failed_task_id = failedTaskId
-      if (reason) updated.failure_reason = String(reason).slice(0, 500)
-    }
-    const taskSet = new Set(record.task_ids || [])
-    afterState.current_tasks = (afterState.current_tasks || []).filter((id) => !taskSet.has(id))
-    writeState(afterPath, afterState)
-  }
-
-  return {
-    batch_failed: true,
-    batch_id: batchId,
-    status: finalStatus,
-    next_action: nextAction,
-    cleared_tasks: [...(record.task_ids || [])],
-    git_actions: gitActions,
-  }
 }
 
 function cmdReviewAdvance(outcome, failedTaskIds = null, projectId = null, projectRoot = null) {
@@ -593,49 +424,6 @@ function splitCsv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
 }
 
-// One-shot upgrader: rewrites legacy top-level {paused,blocked,failed,planning} into the new model.
-// Backups go under <workflowDir>/.migrations/<ts>/. Active state files are migrated in place.
-function cmdMigrateState(options = {}) {
-  const root = path.join(os.homedir(), '.claude', 'workflows')
-  if (!fs.existsSync(root)) return { migrated: 0, total: 0, root }
-  const dryRun = Boolean(options.dryRun)
-  const entries = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory())
-  const results = []
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-')
-  for (const entry of entries) {
-    const workflowDir = path.join(root, entry.name)
-    const statePath = path.join(workflowDir, 'workflow-state.json')
-    if (!fs.existsSync(statePath)) continue
-    let state
-    try { state = JSON.parse(fs.readFileSync(statePath, 'utf8')) } catch { results.push({ project_id: entry.name, skipped: 'parse_error' }); continue }
-    const originalStatus = state.status || null
-    const reason = LEGACY_STATUS_TO_HALT_REASON[originalStatus] || null
-    const planningRemap = originalStatus === 'planning'
-    if (!reason && !planningRemap) {
-      results.push({ project_id: entry.name, skipped: 'already_new', status: originalStatus })
-      continue
-    }
-    if (dryRun) {
-      results.push({ project_id: entry.name, would_migrate: originalStatus, target_status: reason ? 'halted' : 'spec_review' })
-      continue
-    }
-    const backupDir = path.join(workflowDir, '.migrations', timestamp)
-    fs.mkdirSync(backupDir, { recursive: true })
-    fs.copyFileSync(statePath, path.join(backupDir, 'workflow-state.json'))
-    if (reason) {
-      state.status = 'halted'
-      state.halt_reason = reason
-    } else if (planningRemap) {
-      state.status = 'spec_review'
-      state.halt_reason = null
-    }
-    state.updated_at = new Date().toISOString()
-    fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
-    results.push({ project_id: entry.name, migrated_from: originalStatus, migrated_to: state.status, halt_reason: state.halt_reason || null, backup_dir: backupDir })
-  }
-  const migrated = results.filter((r) => r.migrated_from || r.would_migrate).length
-  return { migrated, total: results.length, root, dry_run: dryRun, results }
-}
 
 function parseArgs(argv) {
   const args = [...argv]
@@ -666,17 +454,10 @@ const SUBCOMMAND_HELP = {
   advance: `advance - 标记任务完成并推进，或推进 review 结果。
 
 用法：
-  advance <task-id> [--journal STR] [--decisions a,b,c]
+  advance <task-id> [--journal STR] [--decisions a,b,c] [--full]
     标记单任务完成。planned 状态下自动升为 running（返回 status_transition）。
-  advance --batch "T1,T2" --batch-id ID \\
-          [--merged-commit SHA --base-commit SHA --files-changed N] \\
-          [--stage2-passed --stage2-attempts N --reviewer subagent] \\
-          [--critical-count N --important-count N --minor-count N] \\
-          [--quality-gate-id ID]
-    写入并行批次完成。writable 批次需 --stage2-passed。
-  advance --batch-fail --batch-id ID [--next-action discard_integration_worktree] \\
-          [--failed-task ID --reason STR]
-    标记批次失败；默认丢弃 integration worktree。
+    默认 next_task 仅返回 {id, name}。--full 返回完整 task 对象。
+    完整数据走 task-bundle <id>（execute Step 5.1.0 标准流程）。
   advance --review-passed
     review_pending → completed（需事先跑完 /workflow-review）。
   advance --review-failed --failed-tasks "T1,T2"
@@ -734,6 +515,27 @@ function main() {
       }
     } catch {}
 
+    // T2 codex review halt-resume: 任何 CLI 命令进入前，扫一次 in_progress codex job 终态。
+    // hasActiveCodexReview short-circuit — 无 codex review 时立即返回不打开 state 文件。
+    try {
+      const scanPid = pid || detectProjectId(projectRoot)
+      if (scanPid) {
+        const { scanCodexJobsForResume } = require('./codex_review_runner')
+        const { readState, writeState } = require('./state_manager')
+        const workflowDir = getWorkflowsDir(scanPid)
+        if (workflowDir) {
+          const statePath = require('path').join(workflowDir, 'workflow-state.json')
+          if (fs.existsSync(statePath)) {
+            const state = readState(statePath, scanPid)
+            const scanResult = scanCodexJobsForResume(state, { projectRoot })
+            if (!scanResult.short_circuit && (scanResult.resumed > 0 || scanResult.expired > 0)) {
+              writeState(statePath, state, scanPid)
+            }
+          }
+        }
+      }
+    } catch {}
+
     if (command === 'help') {
       process.stdout.write(renderSubcommandHelp(args[0]))
       return
@@ -744,18 +546,24 @@ function main() {
       const mode = option(args, '--mode')
       const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
       const normalizedMode = mode || (intent && EXECUTION_MODE_ALIASES[intent]) || intent
-      result = buildExecuteEntry(command, intent, normalizedMode, root, { force: args.includes('--force') })
-      const parallelFlag = option(args, '--parallel')
-      if (args.includes('--no-parallel')) {
-        result.parallel_override = { enabled: false, max_concurrency: 1 }
-      } else if (parallelFlag) {
-        result.parallel_override = { enabled: true, max_concurrency: Math.max(1, Number(parallelFlag) || 2) }
-      }
+      result = buildExecuteEntry(command, intent, normalizedMode, root, { force: args.includes('--force'), tdd: args.includes('--tdd') })
     } else if (command === 'next') {
       result = cmdNext(pid, projectRoot)
     } else if (command === 'plan' || command === 'start') {
       const requirement = args[0]
-      result = cmdPlan(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null))
+      result = cmdPlan(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null), option(args, '--task-name', null))
+    } else if (command === 'plan-review') {
+      result = cmdPlanReview(pid, projectRoot)
+    } else if (command === 'plan-edit') {
+      result = cmdPlanEdit({
+        anchor: option(args, '--anchor', null),
+        mode: option(args, '--mode', 'replace_between'),
+        contentFile: option(args, '--content-file', null),
+        allowLegacy: args.includes('--allow-legacy'),
+        allowAnchorChange: args.includes('--allow-anchor-change'),
+        projectId: pid,
+        projectRoot,
+      })
     } else if (command === 'spec-review') {
       result = cmdSpecReview(optionOrArg(args, '--choice', option(args, '--spec-choice', null)), pid, projectRoot)
     } else if (command === 'delta') {
@@ -771,75 +579,96 @@ function main() {
       } else if (deltaSubcommand === 'sync') {
         result = cmdDeltaSync(option(args, '--dependency') || args[1], pid, projectRoot)
       } else {
-        // Legacy: 旧的单参数模式
-        result = cmdDelta(args[0] || '', pid, projectRoot)
+        process.stderr.write(`Unknown delta subcommand: ${deltaSubcommand}. Use init|impact|apply|fail|sync.\n`)
+        process.exitCode = 1
+        return
       }
     } else if (command === 'archive') {
       result = cmdArchive(args.includes('--summary'), pid, projectRoot)
-    } else if (command === 'migrate-state') {
-      result = cmdMigrateState({ dryRun: args.includes('--dry-run') })
-    } else if (command === 'migrate-project-id') {
-      const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
-      if (args.includes('--apply')) result = applyLegacyProjectIdMigration(root)
-      else result = planLegacyProjectIdMigration(root)
     } else if (command === 'unblock') {
       result = cmdUnblock(args[0], pid, projectRoot)
+    } else if (command === 'accept-deviation') {
+      // T8 偏离决策闭环。需要 --confirmed 显式确认（hard stop）。
+      result = cmdAcceptDeviation({
+        originalIntent: option(args, '--original-intent'),
+        acceptedImplementation: option(args, '--accepted-impl'),
+        specSection: option(args, '--spec-section'),
+        requiresSpecReview: !args.includes('--no-spec-review'),
+        confirmed: args.includes('--confirmed'),
+      }, pid, projectRoot)
     } else if (command === 'advance') {
       if (args.includes('--review-passed')) {
         result = cmdReviewAdvance('passed', null, pid, projectRoot)
       } else if (args.includes('--review-failed')) {
         result = cmdReviewAdvance('failed', splitCsv(option(args, '--failed-tasks', '')), pid, projectRoot)
-      } else if (args.includes('--batch-fail')) {
-        const batchId = option(args, '--batch-id', null)
-        if (!batchId) {
-          result = { error: 'advance --batch-fail 需要 --batch-id' }
-        } else {
-          result = cmdBatchFail(batchId, {
-            nextAction: option(args, '--next-action', 'discard_integration_worktree'),
-            failedTaskId: option(args, '--failed-task', null),
-            reason: option(args, '--reason', null),
-            projectId: pid,
-            projectRoot,
-          })
-        }
-      } else if (args.includes('--batch')) {
-        const batchTaskIds = splitCsv(option(args, '--batch'))
-        const batchId = option(args, '--batch-id', null)
-        result = cmdAdvanceBatch(
-          batchTaskIds,
-          option(args, '--journal'),
-          splitCsv(option(args, '--decisions', '')),
-          pid,
-          projectRoot,
-          batchId,
-          {
-            base_commit: option(args, '--base-commit', null),
-            merged_commit: option(args, '--merged-commit', null),
-            files_changed: option(args, '--files-changed', 0),
-            quality_gate_id: option(args, '--quality-gate-id', null),
-            stage2_passed: args.includes('--stage2-passed'),
-            stage2_attempts: option(args, '--stage2-attempts', 1),
-            critical_count: option(args, '--critical-count', 0),
-            important_count: option(args, '--important-count', 0),
-            minor_count: option(args, '--minor-count', 0),
-            reviewer: option(args, '--reviewer', null),
-          }
-        )
       } else {
-        result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot)
+        result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot, { full: args.includes('--full') })
       }
+    } else if (command === 'resume-from-governance-halt') {
+      result = cmdResumeFromGovernanceHalt(pid, projectRoot)
+      if (result && result.error) process.exitCode = 1
+    } else if (command === 'set-report-path') {
+      const unset = args.includes('--unset')
+      const reportPath = optionOrArg(args, '--path')
+      result = cmdSetReportPath(reportPath, pid, projectRoot, { unset })
+      if (result && result.error) process.exitCode = 1
     } else if (command === 'context') {
       result = cmdContext(pid, projectRoot)
+    } else if (command === 'task-bundle') {
+      const taskId = args.find((arg) => !String(arg).startsWith('--'))
+      if (!taskId) {
+        result = { error: 'task_id 必填' }
+        process.exitCode = 1
+      } else {
+        const resolvedPid = pid || detectProjectId(projectRoot)
+        result = buildTaskBundle(taskId, {
+          projectId: resolvedPid,
+          projectRoot,
+          statePath: option(args, '--state'),
+        })
+        if (result && result.error) process.exitCode = 1
+      }
+    } else if (command === 'verify-readiness') {
+      const root = detectProjectRoot(projectRoot)
+      const { loadProjectConfig } = require('./project_setup')
+      const projectConfig = loadProjectConfig(root) || {}
+      const workflowConfig = projectConfig.workflow || {}
+      const checkNames = Array.isArray(workflowConfig.readiness) ? workflowConfig.readiness : []
+      const readinessOptions = (workflowConfig.readinessOptions && typeof workflowConfig.readinessOptions === 'object')
+        ? workflowConfig.readinessOptions
+        : {}
+      try {
+        result = runReadiness(checkNames, root, readinessOptions)
+      } catch (readinessError) {
+        if (readinessError && readinessError.code === 'CHECK_NOT_REGISTERED') {
+          result = { error: 'readiness check not registered', check: readinessError.check }
+          process.exitCode = 1
+        } else {
+          throw readinessError
+        }
+      }
     } else if (command === 'status') {
       result = cmdStatus(pid, projectRoot)
     } else if (command === 'list') {
       result = cmdList(pid, projectRoot)
     } else if (command === 'progress') {
       result = cmdProgress(pid, projectRoot)
-    } else if (command === 'parallel') {
-      result = cmdParallel(pid, projectRoot)
     } else if (command === 'budget') {
       result = cmdContextBudget(pid, projectRoot)
+    } else if (command === 'triage') {
+      const jobId = option(args, '--result')
+      const strict = args.includes('--strict')
+      const jobResult = loadCodexJobResult(jobId, projectRoot)
+      if (jobResult.error) {
+        result = jobResult
+        process.exitCode = 1
+      } else {
+        const root = detectProjectRoot(projectRoot)
+        const { loadProjectConfig } = require('./project_setup')
+        const projectConfig = loadProjectConfig(root)
+        result = evaluateTriage(jobResult.touchedFiles, projectConfig)
+        if (strict && result.out_of_scope.length) process.exitCode = 1
+      }
     } else if (command === 'init') {
       result = cmdInit(pid, projectRoot, option(args, '--plan'))
     } else if (command === 'journal') {
@@ -860,7 +689,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|execute|continue|init|spec-review|delta|archive|unblock|advance|context|status|list|progress|parallel|budget|journal|migrate-state|migrate-project-id|help> ...\n  plan (alias: start) - 启动规划流程\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  migrate-state - 一次性升级 legacy 状态到 halted+halt_reason（可 --dry-run）\n  migrate-project-id - 检测并迁移 legacy 纯 hex projectId（默认 dry-run，--apply 执行）\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...\n  plan (alias: start) - 启动规划流程\n  plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON\n  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json\n  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入\n  triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1\n  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）\n  verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）\n')
       process.exitCode = 1
       return
     }
@@ -875,11 +704,12 @@ function main() {
 module.exports = {
   EXECUTION_MODE_ALIASES,
   cmdAdvance,
-  cmdAdvanceBatch,
-  cmdBatchFail,
   cmdContext,
   cmdInit,
+  cmdResumeFromGovernanceHalt,
+  cmdSetReportPath,
   cmdReviewAdvance,
+  inferSpecRelativeFromPlan,
 }
 
 if (require.main === module) main()

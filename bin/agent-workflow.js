@@ -9,9 +9,6 @@ const semver = require('semver');
 
 const pkg = require('../package.json');
 const {
-  ensureClaudeHome,
-  installFresh,
-  upgradeFrom,
   installForAgents,
   linkRepoToAgents,
   getInstallationStatus,
@@ -24,7 +21,6 @@ const {
   agents,
   detectInstalledAgents,
   getCanonicalDir,
-  parseAgentArg,
 } = require('../lib/agents');
 const {
   runInteractiveInstall,
@@ -127,7 +123,7 @@ if (process.argv.length === 2) {
     console.log('  doctor   诊断配置问题');
     console.log('\n示例:');
     console.log(`  ${CLI_NAME} sync`);
-    console.log(`  ${CLI_NAME} sync -a claude-code,cursor`);
+    console.log(`  ${CLI_NAME} sync --project`);
   }
 } else {
   const program = new Command();
@@ -139,68 +135,22 @@ if (process.argv.length === 2) {
 
   program
     .command('sync')
-    .description('同步工作流模板到 AI 编码工具')
-    .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
+    .description('同步工作流模板到所有已检测到的 AI 编码工具')
     .option('--project', '项目级安装（当前目录）')
-    .option('--legacy', '使用旧版安装模式（仅 Claude Code）')
     .option('-i, --interactive', '交互式安装模式')
     .option('-y, --yes', '跳过确认提示')
 
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
-        const currentVersion = pkg.version;
 
-        if (options.interactive || (process.stdin.isTTY && !options.agent && !options.yes && !options.legacy)) {
+        if (options.interactive || (process.stdin.isTTY && !options.yes)) {
           await runInteractiveInstall({ templatesDir: repoRoot });
           return;
         }
 
-        if (options.legacy) {
-          // --legacy 模式不支持 Claude Code（Plugin 是必经路径）
-          const legacyTargets = parseAgentArg(options.agent);
-          if (legacyTargets.includes('claude-code')) {
-            console.error(`${LOG_PREFIX} --legacy 模式不支持 claude-code，Claude Code 请使用 Plugin 安装`);
-            console.error(`  运行: agent-workflow sync -a claude-code`);
-            process.exitCode = 1;
-            return;
-          }
-          const claudeDir = path.join(homeDir, '.claude');
-          const metaDir = path.join(claudeDir, LEGACY_META_DIR);
-          const metaFile = path.join(metaDir, 'meta.json');
-
-          await ensureClaudeHome(claudeDir, metaDir);
-
-          let previousVersion = null;
-          if (await fs.pathExists(metaFile)) {
-            const meta = await fs.readJson(metaFile);
-            previousVersion = meta.version || null;
-          }
-
-          if (!previousVersion) {
-            await installFresh({ claudeDir, metaDir, templatesDir: repoRoot, version: currentVersion });
-          } else {
-            await upgradeFrom({
-              fromVersion: previousVersion,
-              toVersion: currentVersion,
-              claudeDir,
-              metaDir,
-              templatesDir: repoRoot,
-            });
-          }
-
-          await fs.writeJson(metaFile, {
-            version: currentVersion,
-            installedAt: new Date().toISOString(),
-            npmPackage: pkg.name,
-          }, { spaces: 2 });
-
-          console.log(`${LOG_PREFIX} sync 完成（旧版模式）`);
-          return;
-        }
-
         const global = !options.project;
-        let targetAgents = parseAgentArg(options.agent);
+        let targetAgents = detectInstalledAgents();
 
         // CI / 容器环境跳过 Claude Code Plugin 自动安装
         if (process.env.AGENT_WORKFLOW_SKIP_CC_PLUGIN === '1' && targetAgents.includes('claude-code')) {
@@ -209,17 +159,9 @@ if (process.argv.length === 2) {
         }
 
         if (targetAgents.length === 0) {
-          // Claude Code 由 Plugin 机制管理，不再默认安装到任何 agent；
-          // 检测到其他工具时给出提示，否则退出引导用户显式指定
-          const detected = detectInstalledAgents().filter(a => a !== 'claude-code');
-          if (detected.length === 0) {
-            console.log(`${LOG_PREFIX} 未检测到可安装的 Agent`);
-            console.log('  Claude Code 请通过 Plugin 机制安装：agent-workflow sync -a claude-code');
-            console.log('  其他工具请通过 -a 显式指定（例：-a cursor,codex）');
-            return;
-          }
-          targetAgents = detected;
-          console.log(`${LOG_PREFIX} 未指定目标，使用检测到的 Agent: ${detected.join(', ')}`);
+          console.log(`${LOG_PREFIX} 未检测到任何支持的 AI 编码工具`);
+          console.log('  请先安装 Claude Code / Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid 中的任一个');
+          return;
         }
 
         const { ccTargets, otherTargets } = partitionAgents(targetAgents);
@@ -296,33 +238,26 @@ if (process.argv.length === 2) {
 
   program
     .command('link')
-    .description('将受管目录直接链接到当前仓库，便于本地调试 skills')
-    .option('-a, --agent <agents>', '指定目标 Agent（逗号分隔，* 表示全部）')
+    .description('将受管目录直接链接到当前仓库，便于本地调试 skills（除 Claude Code 外的所有已检测工具）')
     .option('--project', '项目级安装（当前目录）')
 
     .action(async (options) => {
       try {
         const repoRoot = path.join(__dirname, '..');
         const global = !options.project;
-        let targetAgents = parseAgentArg(options.agent);
 
-        // 拆出 claude-code；link 模式下 Claude Code 只打印开发者提示
-        const { ccTargets, otherTargets } = partitionAgents(targetAgents);
-        if (ccTargets.length > 0) {
+        // link 不支持 Claude Code (Plugin 缓存分发)，检测到时只打开发者提示
+        const detected = detectInstalledAgents();
+        if (detected.includes('claude-code')) {
           console.log(`${LOG_PREFIX} Claude Code 不支持 link 模式 (Plugin 缓存分发)`);
           console.log(`  开发者请使用：claude --plugin-dir ${path.join(repoRoot, 'core')}`);
           console.log('');
         }
-        targetAgents = otherTargets;
+        const targetAgents = detected.filter(a => a !== 'claude-code');
 
         if (targetAgents.length === 0) {
-          const detected = detectInstalledAgents().filter(a => a !== 'claude-code');
-          if (detected.length === 0) {
-            console.log(`${LOG_PREFIX} 未检测到可 link 的 Agent`);
-            return;
-          }
-          targetAgents = detected;
-          console.log(`${LOG_PREFIX} 未指定目标，使用检测到的 Agent: ${detected.join(', ')}`);
+          console.log(`${LOG_PREFIX} 未检测到可 link 的 Agent`);
+          return;
         }
 
         console.log(`${LOG_PREFIX} 链接到 ${targetAgents.length} 个 Agent...`);
@@ -550,14 +485,14 @@ if (process.argv.length === 2) {
           } else if (pluginStatus.cliAvailable === false) {
             console.log(`    ○ claude CLI 未在 PATH，无法查询 Plugin 状态`);
           } else {
-            console.log(`    ✗ 未安装 - 运行 ${CLI_NAME} sync -a claude-code 安装`);
+            console.log(`    ✗ 未安装 - 运行 ${CLI_NAME} sync 安装`);
           }
           if (pluginStatus.residue?.hasResidue) {
             const r = pluginStatus.residue;
             console.log(
               `    ⚠️  检测到 v5.x 残留：${r.settingsHooks.length} 个 settings.json hook、${r.legacyDirs.length} 个 legacy 目录`
             );
-            console.log(`       运行 ${CLI_NAME} sync -a claude-code -y 自动清理`);
+            console.log(`       运行 ${CLI_NAME} sync -y 自动清理`);
           }
         } else {
           console.log('  状态: 未安装');

@@ -123,8 +123,8 @@ async function main() {
       console.log(`${LOG_PREFIX} 使用环境变量指定的 Agent: ${targetAgents.join(', ')}`);
     } else {
       // Claude Code 从 v6.0.0 起通过 Plugin 分发，不再参与 installer 自动路径。
-      // postinstall 只为其他 8 个工具复制模板；Claude Code 需要用户显式执行
-      // `agent-workflow sync -a claude-code` 触发 Plugin 安装。
+      // postinstall 只为其他 7 个工具复制模板；Claude Code 需要用户显式执行
+      // `agent-workflow sync` 触发 Plugin 安装。
       targetAgents = detectInstalledAgents().filter(a => a !== 'claude-code');
       if (targetAgents.length === 0) {
         console.log(`${LOG_PREFIX} 未检测到需要自动 sync 的 Agent`);
@@ -156,7 +156,7 @@ async function main() {
           console.log('');
           console.log(`${LOG_PREFIX} ⚠️  检测到 Claude Code v5.x 残留安装${previousVersion ? ` (v${previousVersion})` : ''}`);
           console.log(`${LOG_PREFIX}    v6.0.0 起 Claude Code 已迁移到 Plugin 机制`);
-          console.log(`${LOG_PREFIX}    运行 \`${CLI_NAME} sync -a claude-code\` 清理残留并安装 Plugin`);
+          console.log(`${LOG_PREFIX}    运行 \`${CLI_NAME} sync\` 清理残留并安装 Plugin`);
           console.log(`${LOG_PREFIX}    详见 CHANGELOG.md 的 v6.0.0 条目`);
           console.log('');
         }

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "1",
+  "promotedAt": "2026-05-15T08:19:13.086Z",
+  "toolCount": 6,
+  "extras": {
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "name": "get_design_context",
+      "required": [],
+      "enums": {}
+    },
+    {
+      "name": "get_variable_defs",
+      "required": [],
+      "enums": {}
+    },
+    {
+      "name": "get_screenshot",
+      "required": [],
+      "enums": {}
+    },
+    {
+      "name": "get_metadata",
+      "required": [],
+      "enums": {}
+    },
+    {
+      "name": "create_design_system_rules",
+      "required": [],
+      "enums": {}
+    },
+    {
+      "name": "get_figjam",
+      "required": [],
+      "enums": {}
+    }
+  ]
+}

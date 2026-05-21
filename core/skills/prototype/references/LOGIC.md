@@ -11,7 +11,7 @@
 
 如果问题是"应该长什么样" → 错分支,用 [UI.md](UI.md)。
 
-## 流程
+## workflow
 
 ### 1. 写明问题
 
@@ -21,9 +21,9 @@
 
 用 host 项目的语言和工具链。不为 prototype 引入新 runtime 或 package manager。
 
-### 3. 隔离逻辑为纯模块
+### 3. 隔离逻辑为纯 module
 
-核心逻辑放在小的、纯的 interface 后面,可以将来直接提取到正式代码中。TUI 是丢弃壳;逻辑模块不是。
+核心逻辑放在小的、纯的 interface 后面,可以将来直接提取到正式代码中。TUI 是丢弃壳;逻辑 module 不是。
 
 合适的形状取决于问题:
 - **Pure reducer** — `(state, action) => state`。action 是离散事件、state 是单值时。
@@ -61,4 +61,4 @@ prototype 完成使命后,答案是唯一值得保留的东西。问用户学到
 - 连真实数据库。用内存,除非问题就是关于持久化。
 - 泛化。不考虑"万一以后要支持 X"。
 - 逻辑和 TUI 混在一起。reducer/machine 里出现 `console.log` / prompt / escape code → 不可提取。
-- 把 TUI shell 发布到生产。shell 是为手动驱动优化的;逻辑模块才是值得留的。
+- 把 TUI shell 发布到生产。shell 是为手动驱动优化的;逻辑 module 才是值得留的。

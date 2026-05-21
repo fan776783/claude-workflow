@@ -37,7 +37,7 @@ Read `core/specs/shared/glossary.md`（产出 normative spec 内容须用 canoni
 
 **验证**：
 - §4.1 Primary Flow 非空（推导 API 的依据）
-- §5.1 Module Responsibilities 非空（确认模块划分）
+- §5.1 Module Responsibilities 非空（确认 module 划分）
 - §5.6 章节为空或仅含模板占位（避免覆盖已有内容）
 
 验证失败 → 告知用户缺少前置内容，建议先完成 Spec 核心章节。
@@ -83,7 +83,7 @@ Edit 写入 spec.md § 5.6.2。
 ```
 
 要求：
-- 与 §5.1 模块一一对应
+- 与 §5.1 module 一一对应
 - 标注同步/异步通信方式
 - 明确跨服务事务处理策略
 
@@ -91,8 +91,8 @@ Edit 写入 spec.md § 5.6.3。
 
 ## Step 5: § 5.6.4 Data Migration（条件）
 
-**触发条件**：Spec 涉及 schema 变更（新表、字段变更、索引变更）。
-**跳过条件**：无 schema 变更时删除本节占位。
+**触发条件**：Spec 涉及 schema migration（新表、字段调整、索引调整）。
+**跳过条件**：无 schema migration 时删除本节占位。
 
 填写内容：
 - 迁移脚本描述（up/down）
@@ -106,9 +106,9 @@ Edit 写入 spec.md § 5.6.4。
 设计深化完成后立即执行，发现问题直接修复：
 
 - **API 覆盖** — §5.6.1 API Contract 覆盖 §4.1 Primary Flow 的所有触发点
-- **数据流对齐** — §5.6.2 Data Flow 对应 §5.1 模块划分
-- **边界一致** — §5.6.3 Service Boundaries 与 §5.1 模块边界一致
-- **迁移完整** — 涉及 schema 变更时 §5.6.4 已填写
+- **数据流对齐** — §5.6.2 Data Flow 对应 §5.1 module 划分
+- **边界一致** — §5.6.3 Service Boundaries 与 §5.1 module 边界一致
+- **迁移完整** — 涉及 schema migration 时 §5.6.4 已填写
 - **约束传递** — §3 Constraints 中的技术约束在设计中体现
 
 ---

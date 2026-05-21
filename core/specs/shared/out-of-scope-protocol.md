@@ -29,7 +29,6 @@
 
 ## 哪些 skill 检查
 
-- `/grill` — Deep Mode 开始前扫描
 - `/workflow-spec` — Step 2 代码库分析末尾
 - `/improve-architecture` — Explore 阶段开始前
 
@@ -37,7 +36,6 @@
 
 ## 写入时机
 
-- `/grill` 质询后用户明确说"不做"且给出 load-bearing 理由
 - `/workflow-spec` 需求被用户否决
 - Code review 中建议被否决且原因是方向性的
 

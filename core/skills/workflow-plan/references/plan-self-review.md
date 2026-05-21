@@ -1,50 +1,43 @@
-# Plan Self-Review 检查项
+# Plan Self-Review
 
-> Plan 生成后立即执行。只检查**无需执行即可判断**的内容（语法、格式、覆盖率）。
-> 语义正确性验证推迟到执行阶段的 Verification Iron Law 和质量关卡。
-> 发现问题直接修复，无需重审。
+> Plan 扩写完成后调 `node workflow_cli.js plan-review`,CLI 自动跑所有 lint + 算 confidence。本文档只描述 ready 判定矩阵与各 lint 含义。
+> 语义正确性验证(task 是否真的解决需求)推迟到执行阶段的 Verification Iron Law。
 
-## 必检项
+## CLI 入口
 
-### 1. 需求覆盖
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
+```
 
-逐条检查 Spec 的 in_scope 需求，确认每条都有对应 task。发现缺失立即补充 task。
+返回 JSON:`{ ready, lints, coverage, confidence, summary, plan_file, spec_file }`。
 
-### 2. PRD Coverage Drift
+## ready 判定矩阵
 
-根据 spec.md 内容与原始需求即时计算覆盖率，检查 partial/uncovered 段落是否在 Plan 的 task 中有落点（通过 spec_ref 匹配）。未覆盖的段落需标注警告。
+| Lint | 硬 block ready? | 计入 confidence? |
+|------|-------------|------------------|
+| `lints.placeholder.hits`(`TBD` / `TODO` / 中文占位 / 模板残留) | ✅ 是 | — |
+| `coverage.uncovered_ids`(spec 有 plan 无) | ✅ 是 | — |
+| `coverage.partial_ids`(spec 多处提及 plan 仅 1 task) | ❌ 否 | ✅ PRD 维度扣 1 分 |
+| `lints.anchor_integrity`(v2 plan,orphans + missing,Phase B 后启用) | ✅ 是 | — |
+| `lints.anchor_integrity`(v1 plan 无锚点) | ❌ 否 | ❌ 不挡 |
+| `lints.mandatory_reading`(声明区块且有不合规行,Phase C) | ✅ 是 | — |
+| `lints.mandatory_reading`(完全无该区块) | ❌ 否 | ❌ 不挡(小 plan 合法) |
+| `lints.command_syntax.issues`(Phase C) | ❌ 否 | ✅ verification 维度封顶,无加分 |
+| `lints.pattern_fidelity.unresolved`(Phase C) | ❌ 否 | ✅ patterns 维度封顶,无加分 |
+| `lints.type_consistency.pairs`(Phase C) | ❌ 否 | ❌ 完全不进 rubric(假阳性后患) |
+| `lints.atomicity.warnings` | ❌ 否 | ❌ 不扣 |
 
-### 3. Placeholder 扫描
+## 各 lint 含义
 
-搜索以下禁止内容并修复：
-- "TBD"、"TODO"、"implement later"、"fill in details"
-- "Add appropriate error handling" / "add validation"
-- "Write tests for the above"（未提供实际测试代码）
-- "Similar to Task N"（必须重复代码，读者可能乱序阅读）
-- 描述"做什么"但不展示"怎么做"的步骤（代码步骤必须有代码块）
+- **placeholder** — 见 [`no-placeholders.md`](no-placeholders.md)
+- **coverage** — spec 内 `R-\d{3,}` ID 集合 vs plan 内 task `需求 ID:` 字段引用集合
+- **anchor_integrity** — `<!-- WF:ANCHOR:<id>:(begin|end) -->` 配对完整性
+- **mandatory_reading** — 声明的 Mandatory Reading 表行必须含 `file:lineStart-lineEnd` 行号范围
+- **command_syntax** — `验证命令` 字段语法校验(括号/管道闭合);路径在 Files to Change 表里
+- **pattern_fidelity** — `Patterns to Mirror` 区块的 `// SOURCE: file:lines` 引用存在性
+- **type_consistency** — 跨 task 类似命名符号(`clearLayers` vs `clearFullLayers`)。预过滤短符号 / 大小写等价 / 词序重排 / 数字结尾。
+- **atomicity** — Task N≥5 子项必拆 sub-task 规则
 
-### 4. 类型一致性
+## 修复后
 
-检查跨 task 的类型名、函数名、属性名是否一致。例如 Task 3 用 `clearLayers()` 但 Task 7 用 `clearFullLayers()` = bug。
-
-### 5. 命令语法 + 路径存在性
-
-- 验证命令格式合理性（括号匹配、管道符使用）
-- 引用的文件路径是否在 File Structure 中声明
-- **不验证**命令执行后是否通过，语义验证在执行阶段完成
-
-### 6. Discussion Drift Check
-
-详见 SKILL.md Step 2 Discussion Drift Check。
-
-### 7. Pattern 保真
-
-- `Patterns to Mirror` 中引用的每个源文件是否真实存在
-- `keySnippet` 中引用的符号是否在源文件中能找到
-- 不存在的引用标记为 unverified 或尝试重新定位
-
-### 8. 零上下文可执行性
-
-- 每个 task 是否有明确的文件路径（而非相对描述）
-- 每个代码步骤是否有完整代码块
-- 一个没有项目上下文的工程师是否能按 plan 直接执行，无需猜测
+`ready=true` 后,Step 3 直接 paste `summary` + `confidence` + `coverage` 字段给用户。无需人工扫 plan。

@@ -323,6 +323,11 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   for (const file of hookScriptFiles) {
     contractArgs.push('--script', file);
   }
+  // T1 field_consumer_contract: pass actual workflow utils content so doc_contracts can verify
+  // that schema fields with trigger semantics have a consumer (防止 dead config 再现).
+  for (const file of scriptFiles) {
+    contractArgs.push('--script-content', path.join(scriptsDir, file));
+  }
 
   const contractCheck = runNodeValidation(contractArgs);
   if (!contractCheck.ok) {
@@ -357,6 +362,12 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   }
   if (data.doc_placeholders?.length) {
     errors.push(`workflow 文档存在 placeholder: ${data.doc_placeholders.join(', ')}`);
+  }
+  // T1 field_consumer_contract：schema 字段必须有 consumer，防止 dead config 再现
+  if (data.field_consumer_contract && !data.field_consumer_contract.ok) {
+    for (const finding of data.field_consumer_contract.findings || []) {
+      errors.push(`workflow field consumer 缺失: ${finding.message}`);
+    }
   }
   // Agents 契约：core/agents/ 必须存在且每个 agent 文件包含必要的路由元数据
   const agentsDir = path.join(packageRoot, '..', 'core', 'agents');
@@ -607,6 +618,8 @@ function runContractTests(repoRoot, errors) {
     path.join(repoRoot, 'tests', 'test_spec_contracts.js'),
     path.join(repoRoot, 'tests', 'test_quality_review_stage1.js'),
     path.join(repoRoot, 'tests', 'test_task_aware_injection.js'),
+    path.join(repoRoot, 'tests', 'test_execution_sequencer.js'),
+    path.join(repoRoot, 'tests', 'test_workflow_cli.js'),
   ];
   const existing = testFiles.filter((file) => fs.existsSync(file));
   if (!existing.length) {
@@ -939,6 +952,9 @@ async function validateSkillRoutingTable(packageRoot, errors) {
   const actual = new Set(
     (await fs.readdir(skillsDir, { withFileTypes: true }))
       .filter((d) => d.isDirectory())
+      // Underscore-prefixed dirs (e.g. _shared/) are cross-skill shared modules,
+      // not standalone skills. Exclude from routing-table parity check.
+      .filter((d) => !d.name.startsWith('_'))
       .map((d) => d.name)
   );
   const missing = [...actual].filter((n) => !declared.has(n));

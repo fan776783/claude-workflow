@@ -3,7 +3,7 @@ name: workflow-status
 description: "Use when 用户调用 /workflow-status, or 需要查看当前 workflow 的状态/进度/下一步建议。只读操作,不修改任何文件。"
 ---
 
-> 路径约定见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。
+> 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。
 
 # workflow-status
 
@@ -38,63 +38,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 
 ## Step 3: 格式化输出
 
-**简洁模式**:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 工作流状态报告
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**状态**：{workflow_status}
-**进度**：{progress_percent}%（{completed + skipped} / {total_tasks}）
-
-{progress_bar}
-
-| 状态 | 数量 |
-|------|------|
-| ✅ 已完成 | {completed} |
-| ⏭️ 已跳过 | {skipped} |
-| ❌ 失败 | {failed} |
-| ⏸️ 待执行 | {pending} |
-
-📍 **当前任务**：{current_task.id} - {current_task.name}
-📘 **Spec**：{spec_file}
-🧭 **Plan**：{plan_file}
-
-🚀 **下一步**：{next_action}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-**详细模式**追加任务清单 / 最近 5 条 journal / 质量关卡 / 上下文预算。
-
-**JSON 模式**直接输出 status 原始 JSON。
-
-### 条件字段展示
-
-| 条件 | 展示 |
-|------|------|
-| `failure_reason` 非空 | 状态行下加 `⚠️ 失败原因：{failure_reason}` |
-| 存在 `blocked` 任务 | 任务表加 `⏳ 阻塞 \| {blocked_count}` 行 |
-| `quality_gates[taskId]` 存在 | 显示各关卡通过状态 |
-| `continuation.handoff_required` 为 true（从磁盘 state JSON 读取） | 显示 `🔄 需要 handoff：{reason}` |
-| 存在 journal 记录 | 最近 5 条摘要 + 最新一条的 `next_steps` 与 `decisions` |
+按模式渲染,模板与条件字段表见 [`references/output-format.md`](references/output-format.md)。简洁默认;`--detail` 追加任务清单/journal/关卡/预算;`--json` 直出原始 JSON。
 
 ## Step 4: 下一步建议
 
-| 当前状态 | 建议 |
-|---------|------|
-| `spec_review` | review `spec.md` 后确认 Spec 审批 |
-| `planned` | `/workflow-plan` 扩写详细计划,完成后 `/workflow-execute` |
-| `running` | 继续 `/workflow-execute` |
-| `halted` (governance) | 处理暂停原因后 `/workflow-execute` 恢复 |
-| `halted` (dependency) | `workflow_cli.js unblock <dep>` 解除依赖 |
-| `halted` (failure) | `/workflow-execute --retry` 或 `--skip` |
-| `review_pending` | `/workflow-review` 全量完成 review |
-| `completed` | 🎉 可 `/workflow-archive` |
-| `archived` | 新需求请 `/workflow-spec` |
+按 `workflow_status` + `halt_reason` 选建议,完整映射表 + halt_reason 解读见 [`references/next-action.md`](references/next-action.md)。CLI `next` 命令只返回下一个 task 对象,不出 next-action,建议由本 skill 翻译。
 
-> **注意**: CLI `status` 命令返回 `workflow_status: 'halted'` 但不含 `halt_reason`。区分 halted 子类型需直接读 `workflow-state.json` 的 `halt_reason` 字段。
-
-> Legacy 状态 `paused` / `blocked` / `failed` / `planning` 会被 CLI 投影为上述新状态。需一次性升级旧文件运行 `workflow_cli.js migrate-state`。
+> Legacy 状态 `paused` / `blocked` / `failed` / `planning` 会被 CLI 投影为新状态。一次性升级旧文件运行 `workflow_cli.js migrate-state`。
 >
-> `/workflow-status` 只读 workflow runtime;若用户用 `/team`,改查 `/team status`。
+> 本 skill 只读 workflow runtime;若用户用 `/team`,改查 `/team status`。

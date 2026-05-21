@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 
 const fs = require('fs')
+const path = require('path')
 const { findPlaceholders } = require('./traceability')
 
 const CLI_COMMAND_REGEX = /(?:sub\.add_parser\(\s*"([a-z0-9_-]+)"|command === '([a-z0-9_-]+)')/gi
 const WORKFLOW_COMMAND_DOC_REGEX = /\/workflow\s+([a-z0-9_-]+)/gi
 const SCRIPT_REF_REGEX = /`(?:scripts\/)?([a-zA-Z0-9_./-]+\.(?:py|js))`/g
 
-const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '{{requirement_coverage}}', '## Requirement Coverage', '## Tasks', '## Self-Review Checklist']
+const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '{{requirement_coverage}}', '## Requirement Coverage', '## Tasks', '<!-- WF:ANCHOR:file_structure:begin -->', '<!-- WF:ANCHOR:tasks:begin -->', '<!-- WF:ANCHOR:verification_summary:begin -->']
 const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{critical_constraints}}', '{{scope_summary}}', '{{acceptance_criteria}}', '## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']
 const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])
-const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure', '"tbd"', '"todo"', '“tbd”', '“todo”']
+const IGNORED_PLACEHOLDER_LINE_HINTS = ['placeholder', 'no placeholders', 'no tbd', '搜索 tbd/todo', '禁止 tbd/todo', '替换为实际内容', '占位符', 'similar to task', 'implement later', 'fill in details', 'write tests for', 'add appropriate', 'plan failure', '"tbd"', '"todo"', '“tbd”', '“todo”', '`tbd`', '`todo`', '`待补充`', '`待确认`']
 
 function unique(items) {
   return [...new Set(items)]
@@ -64,6 +65,36 @@ function validateCommandContract(cliContent, documentedCommands) {
   return { ok: missing.length === 0, implemented_commands: implemented, documented_commands: documented, missing_commands: missing }
 }
 
+// T1 field_consumer_contract：state schema 字段必须有 consumer 函数引用。
+// 防止 dead config 再现 — rm-agent-benchmark 失败案例的根因正是 codex_*_review 字段被填充
+// 但 runtime 无 consumer 真消费。新增"具触发语义"字段时把它加到下面的表里。
+const REQUIRED_FIELD_CONSUMERS = {
+  codex_spec_review: ['triggerCodexReview', 'scanCodexJobsForResume', 'updateCodexSpecReview'],
+  codex_plan_review: ['triggerCodexReview', 'scanCodexJobsForResume', 'updateCodexPlanReview'],
+}
+
+function validateFieldConsumerContract(scriptContents) {
+  // scriptContents: { filename: content } 来自 workflow utils 目录
+  const findings = []
+  const joined = Object.values(scriptContents || {}).join('\n')
+  for (const [field, expectedConsumers] of Object.entries(REQUIRED_FIELD_CONSUMERS)) {
+    if (!joined.includes(field)) {
+      findings.push({ field, code: 'field_undefined', message: `field "${field}" not referenced in workflow utils` })
+      continue
+    }
+    const found = expectedConsumers.filter((name) => joined.includes(name))
+    if (found.length === 0) {
+      findings.push({
+        field,
+        code: 'no_consumer',
+        expected_consumers: expectedConsumers,
+        message: `field "${field}" has no consumer function (expected one of: ${expectedConsumers.join(', ')})`,
+      })
+    }
+  }
+  return { ok: findings.length === 0, findings, required_fields: Object.keys(REQUIRED_FIELD_CONSUMERS) }
+}
+
 function validateScriptReferences(docContents, existingScriptNames) {
   const referenced = unique((docContents || []).flatMap((content) => extractScriptRefs(content)))
   const existing = new Set((existingScriptNames || []).flatMap((name) => {
@@ -78,20 +109,25 @@ function validateScriptReferences(docContents, existingScriptNames) {
   return { ok: missing.length === 0, referenced_scripts: referenced, missing_scripts: missing }
 }
 
-function validateWorkflowDocContracts(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames) {
+function validateWorkflowDocContracts(cliContent, overviewDocContent, specTemplateContent, planTemplateContent, otherDocContents, existingScriptNames, scriptContents = null) {
   const commandDocs = [...(overviewDocContent ? [overviewDocContent] : []), ...(otherDocContents || [])]
   const documentedCommands = unique(commandDocs.flatMap((content) => extractDocumentedWorkflowCommands(content)))
   const commandContract = validateCommandContract(cliContent, documentedCommands)
   const specTemplateContract = validateSpecTemplate(specTemplateContent)
   const planTemplateContract = validatePlanTemplate(planTemplateContent)
   const scriptReferenceContract = validateScriptReferences(commandDocs, existingScriptNames)
+  // T1 字段 consumer 契约：仅当上游传入 scriptContents 时启用。
+  const fieldConsumerContract = scriptContents
+    ? validateFieldConsumerContract(scriptContents)
+    : { ok: true, findings: [], required_fields: [], skipped: true }
   const docPlaceholders = unique([...commandDocs, specTemplateContent, planTemplateContent].flatMap((content) => findNonInstructionalPlaceholders(content)))
   return {
-    ok: commandContract.ok && specTemplateContract.ok && planTemplateContract.ok && scriptReferenceContract.ok && docPlaceholders.length === 0,
+    ok: commandContract.ok && specTemplateContract.ok && planTemplateContract.ok && scriptReferenceContract.ok && fieldConsumerContract.ok && docPlaceholders.length === 0,
     command_contract: commandContract,
     spec_template_contract: specTemplateContract,
     plan_template_contract: planTemplateContract,
     script_reference_contract: scriptReferenceContract,
+    field_consumer_contract: fieldConsumerContract,
     doc_placeholders: docPlaceholders,
   }
 }
@@ -135,7 +171,21 @@ function main() {
     const planTemplateFile = args[args.indexOf('--plan-template') + 1]
     const docs = parseRepeatedOption(args, '--doc')
     const scripts = parseRepeatedOption(args, '--script')
-    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), overviewContent, readText(specTemplateFile), readText(planTemplateFile), docs.map(readText), scripts))}\n`)
+    // T1：--script-content <file> 传入 utils 实际内容，启用 field_consumer_contract。
+    const scriptContentFiles = parseRepeatedOption(args, '--script-content')
+    let scriptContents = null
+    if (scriptContentFiles.length > 0) {
+      scriptContents = {}
+      for (const f of scriptContentFiles) scriptContents[path.basename(f)] = readText(f)
+    }
+    process.stdout.write(`${JSON.stringify(validateWorkflowDocContracts(readText(cliFile), overviewContent, readText(specTemplateFile), readText(planTemplateFile), docs.map(readText), scripts, scriptContents))}\n`)
+    return
+  }
+  if (command === 'field-consumer') {
+    const scriptContentFiles = parseRepeatedOption(args, '--script-content')
+    const scriptContents = {}
+    for (const f of scriptContentFiles) scriptContents[path.basename(f)] = readText(f)
+    process.stdout.write(`${JSON.stringify(validateFieldConsumerContract(scriptContents))}\n`)
     return
   }
   process.stderr.write('Usage: node doc_contracts.js <cli-commands|doc-commands|spec-template|plan-template|workflow-contracts> ...\n')
@@ -150,6 +200,8 @@ module.exports = {
   validatePlanTemplate,
   validateCommandContract,
   validateScriptReferences,
+  validateFieldConsumerContract,
+  REQUIRED_FIELD_CONSUMERS,
   findNonInstructionalPlaceholders,
   validateWorkflowDocContracts,
 }

@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 /**
- * @file lifecycle_cmds.js — 桥接文件，保持 workflow_cli / hooks / tests / markdown 字符串引用向后兼容
+ * @file lifecycle_cmds.js — 桥接文件，re-export lifecycle 各模块的函数给 workflow_cli / hooks / tests。
  *
  * 实际实现拆分在：
- *   - project_setup.js       项目 config / ID / legacy 迁移
+ *   - project_setup.js       项目 config / ID
  *   - runtime_locator.js     workflow runtime 定位（跨 plan/delta/archive 共用）
  *   - plan_composer.js       Plan 生成 / Spec Review 命令
  *   - delta_archive_cmds.js  Delta 变更流转 / 归档 / 解除阻塞
- *
- * 保持 36 个导出键与拆分前完全一致。
  */
 
 const projectSetup = require('./project_setup')
@@ -17,16 +15,13 @@ const planComposer = require('./plan_composer')
 const deltaArchive = require('./delta_archive_cmds')
 
 module.exports = {
-  // project_setup (11)
+  // project_setup
   loadProjectConfig: projectSetup.loadProjectConfig,
   extractProjectId: projectSetup.extractProjectId,
   summarizeText: projectSetup.summarizeText,
   slugifyFilename: projectSetup.slugifyFilename,
   stableProjectId: projectSetup.stableProjectId,
   projectNameSlug: projectSetup.projectNameSlug,
-  isLegacyStableProjectId: projectSetup.isLegacyStableProjectId,
-  planLegacyProjectIdMigration: projectSetup.planLegacyProjectIdMigration,
-  applyLegacyProjectIdMigration: projectSetup.applyLegacyProjectIdMigration,
   buildProjectConfig: projectSetup.buildProjectConfig,
   ensureProjectConfig: projectSetup.ensureProjectConfig,
 
@@ -36,7 +31,7 @@ module.exports = {
   buildTechStackSummary: runtimeLocator.buildTechStackSummary,
   resolveWorkflowRuntime: runtimeLocator.resolveWorkflowRuntime,
 
-  // plan_composer (9, cmdStart 是 cmdPlan 的 alias)
+  // plan_composer (cmdStart 是 cmdPlan 的 alias)
   renderTemplate: planComposer.renderTemplate,
   extractRequirementItems: planComposer.extractRequirementItems,
   buildRequirementCoverage: planComposer.buildRequirementCoverage,
@@ -46,10 +41,12 @@ module.exports = {
   cmdPlan: planComposer.cmdPlan,
   cmdStart: planComposer.cmdPlan,
   cmdSpecReview: planComposer.cmdSpecReview,
+  cmdPlanReview: planComposer.cmdPlanReview,
+  cmdPlanEdit: planComposer.cmdPlanEdit,
+  lintAnchorIntegrity: planComposer.lintAnchorIntegrity,
 
-  // delta_archive_cmds (12)
+  // delta_archive_cmds
   detectDeltaTrigger: deltaArchive.detectDeltaTrigger,
-  cmdDelta: deltaArchive.cmdDelta,
   cmdDeltaInit: deltaArchive.cmdDeltaInit,
   cmdDeltaImpact: deltaArchive.cmdDeltaImpact,
   cmdDeltaApply: deltaArchive.cmdDeltaApply,
@@ -57,6 +54,7 @@ module.exports = {
   cmdDeltaSync: deltaArchive.cmdDeltaSync,
   cmdArchive: deltaArchive.cmdArchive,
   cmdUnblock: deltaArchive.cmdUnblock,
+  cmdAcceptDeviation: deltaArchive.cmdAcceptDeviation,
   recoverArchiveTombstone: deltaArchive.recoverArchiveTombstone,
   ARCHIVE_MARKER_FILE: deltaArchive.ARCHIVE_MARKER_FILE,
   ARCHIVE_MARKER_VERSION: deltaArchive.ARCHIVE_MARKER_VERSION,

@@ -70,4 +70,4 @@
 ## 注意
 
 - 报告为只读总结，不触发新的review或修复
-- 生成后增加到 `workflow-state.json` 的 `report_path` 字段
+- 生成后通过 `workflow_cli.js set-report-path <path>` 写入 `workflow-state.json` 的 `review_report_path` 字段（**禁止手编 state.json**）

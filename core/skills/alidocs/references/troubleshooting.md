@@ -6,6 +6,7 @@
 - [按报错文案速查](#by-msg)
 - [凭证相关](#creds)
 - [字段 / 参数约束](#params)
+- [Tool 漂移检测（diff-tools）](#drift)
 - [遇到疑似破坏性工具未被 CLI 拦截](#report-destructive)
 
 ---
@@ -13,13 +14,19 @@
 <a name="by-exit"></a>
 ## 按退出码分档
 
+三个 wrapper skill（`bk` / `alidocs` / `figma-data`）共享同一套退出码（ADR-0001）：
+
 | exit | 含义 | 第一步看哪 |
 | --- | --- | --- |
 | 0 | 成功；doctor / list-tools / schema 也都是 0 | stdout JSON |
-| 1 | 通用错：网络 / DNS / JSON 解析 / 参数错 | stderr 文案 |
-| 2 | 凭证缺失 / `auth --verify` 失败 / 401 / 403 | 跑 `doctor`；看 `servers.<kind>.connectivity.error` |
+| 1 | 通用错：网络 / DNS / JSON 解析 / 参数错 / `diff-tools` 检出 drift 未 `--promote` | stderr 文案 |
+| 2 | 凭证缺失 / `auth --verify` 失败 / 401 / 403；归一化 `{kind:"auth"}` | 跑 `doctor`；看 `servers.<kind>.connectivity.error` |
 | 3 | 危险工具无 `--yes` | stderr 的 blocked JSON；与用户确认再加 `--yes` |
 | 4 | MCP `body.error` 或 `result.isError=true` | stderr 的 JSON；通常是 MCP 协议层错（不是业务错） |
+| 5 | tool_not_found；归一化 `{kind:"tool_not_found"}` | 走 [diff-tools 段](#drift) |
+| 6 | enum_invalid；归一化 `{kind:"enum_invalid"}` | schema cache 重 refresh + 同步 SKILL.md snapshot |
+
+`5` / `6` 由 `_shared/mcp-baseline.mjs` 归一化，stderr 输出 `{kind, hint, originalMessage}` 结构化对象。
 
 > **注意**：钉钉 MCP 把**业务错**（如 baseId 不存在）归类为 `result.isError=false` + `structuredContent.status="error"`，**不会触发 exit 4**。exit 0 但 JSON 里有 `"status":"error"` / `"success":false` 也要当作失败处理。
 
@@ -53,10 +60,20 @@
 **原因**：MCP 网关临时不可用；或 URL 完整但路径的 hash 写错了（MCP gateway 可能返 5xx 而非 404）。
 **修**：重试一次；仍失败 → 让用户核对 URL 的 `/server/<hash>` 片段是否正确。
 
-### `tool not found: <kind>.<name>`
+### `tool not found: <kind>.<name>`（exit 5）
 
 **原因**：schema 缓存里没有这个工具名。
-**修**：CLI 会自动 `--refresh` 一次兜底；仍找不到说明服务端没这个工具，让用户核对拼写。`list-tools <kind>` 看全量列表。
+**修**：CLI 会自动 `--refresh` 一次兜底；仍找不到说明：
+- 用户拼错 → 让用户核对，`list-tools <kind>` 看全量列表
+- **上游 MCP 改名 / 下线** → stderr 会有 `{"kind":"tool_not_found",...}`；按 [diff-tools 段](#drift) 走漂移处理 workflow
+
+### `enum value rejected` / 服务端枚举返回 invalid（exit 6）
+
+**原因**：传给 tool 的 enum 值不在服务端当前合法集里。常见于字段类型 / 视图类型 / 权限角色等枚举。
+**修**：
+1. `node cli/dingtalk-mcp.mjs schema <kind>.<tool> --refresh` 重拉 schema cache
+2. 如果 enum 集真的变了 → 同步更新 SKILL.md 末尾 `<!-- snapshot YYYY-MM-DD -->` 注释为今天日期
+3. 如用户给的输入用了旧值 → 告知"服务端枚举已变"，让用户挑当前合法值
 
 ### `blocked` / exit 3
 
@@ -140,6 +157,35 @@ DINGTALK_DOC_URL="https://mcp-gw.dingtalk.com/server/<other>?key=<other>" \
 
 ---
 
+<a name="drift"></a>
+## Tool 漂移检测（diff-tools）
+
+`alidocs` 通过双层 baseline 应对上游钉钉 MCP 漂移（ADR-0001）：checkin 权威 baseline 在 `core/skills/alidocs/baseline-schema.json`（随 repo 提交，覆盖 `doc` / `sheet` / `aitable` 三 kind），本地 schema cache 在 `~/.cache/dingtalk-mcp/`。
+
+### 主动巡检
+
+```bash
+node cli/dingtalk-mcp.mjs diff-tools                  # 比对当前三 kind 工具表与 checkin baseline
+node cli/dingtalk-mcp.mjs diff-tools --promote        # 已确认 drift 是预期的 → 写入新 baseline
+node cli/dingtalk-mcp.mjs diff-tools --promote-initial   # 仅首次建立 baseline 用
+```
+
+输出按 kind 分组：`drift.doc.added` / `drift.doc.removed` / `drift.doc.changed`，`sheet` / `aitable` 同。`has_drift=true` 且未 `--promote` 时 CLI 退 1。
+
+### drift 报警处理顺序
+
+1. **先看 `removed`**：上游下线 tool → 全文搜旧 name → 替换为新等价 tool（或标记 deprecated）→ promote
+2. **再看 `changed`**：required / 静态 enum 变了 → 同步更新 SKILL.md `<!-- snapshot YYYY-MM-DD -->` 注释 + references 字段约束表 → promote
+3. **最后看 `added`**：上游新增 tool → 评估是否要在 SKILL.md 暴露 → promote
+
+**先 sync SKILL.md / references 再 promote**，反过来会让 baseline 早于文档对齐，下次 spec-review 会标 stale。
+
+### `spec-review` 第 7 类周巡
+
+`spec-review` 扫 SKILL.md 中 `<!-- snapshot YYYY-MM-DD -->`，>90d 标 warning / >180d 升 advisory，提醒手动跑一次 `diff-tools` + `schema <kind>.<tool> --refresh` 拉最新动态枚举。
+
+---
+
 <a name="report-destructive"></a>
 ## 遇到疑似破坏性工具未被 CLI 拦截
 
@@ -149,7 +195,7 @@ CLI 的危险门有两层：**显式清单**（13 项）+ **前缀模式兜底**
 - 或会**改变公开可见性**（share / public / publish 类）
 - 或会**全量覆盖**内容（`update_*` + overwrite 语义）
 
-但**不在清单、也不命中前缀**，这是一个 bug。处理流程：
+但**不在清单、也不命中前缀**，这是一个 bug。处理 workflow：
 
 1. **立刻暂停**该工具的调用（不管加不加 `--yes`）
 2. 跟用户说明：skill 的硬门漏了一个危险工具，暂不执行，等 skill 更新
@@ -160,4 +206,4 @@ CLI 的危险门有两层：**显式清单**（13 项）+ **前缀模式兜底**
 
 维护者会把工具加进 `DANGEROUS_TOOLS` 或调整 `DANGEROUS_PREFIXES`。
 
-> 例子：未来钉钉 MCP 可能新增 `publish_chart`（公开发布到外部），如果没加进清单，前缀模式 `delete_` 等也命中不了。这时就按上面流程报。
+> 例子：未来钉钉 MCP 可能新增 `publish_chart`（公开发布到外部），如果没加进清单，前缀模式 `delete_` 等也命中不了。这时就按上面 workflow 报。

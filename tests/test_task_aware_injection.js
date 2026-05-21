@@ -195,6 +195,34 @@ test('task-aware code-specs injection', async (t) => {
     )
   })
 
+  await t.test('explicit scope with missing pkg dir does not leak full tree', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-missing-pkg-'))
+    makeCodeSpecs(root, 'my-pkg')
+
+    // 显式 scope（source='task'）指向不存在的包 → 不应回退到全树
+    const explicitMissing = taskRuntime.getCodeSpecsContextScoped(
+      root,
+      { activePackage: 'phantom-pkg', source: 'task', taskLayer: null, changedFileHints: [] },
+      5000
+    )
+    assert.equal(explicitMissing, null, 'explicit scope with missing pkg dir must return null, not full tree')
+
+    // 同样指向不存在的包但来源是 config 兜底 → 沿用旧行为回退全树（向后兼容）
+    const fallbackMissing = taskRuntime.getCodeSpecsContextScoped(
+      root,
+      { activePackage: 'phantom-pkg', source: 'config', taskLayer: null, changedFileHints: [] },
+      5000
+    )
+    assert.ok(fallbackMissing, 'config-fallback scope still falls back to full tree')
+
+    // collectSpecFiles 同样应在显式 scope + 缺包时返回 scopeDenied
+    const collection = taskRuntime.collectSpecFiles(root, {
+      activePackage: 'phantom-pkg', source: 'flag', taskLayer: null, changedFileHints: [],
+    })
+    assert.equal(collection.scopeDenied, true)
+    assert.match(collection.reason, /phantom-pkg/)
+  })
+
   await t.test('normalizeChangedFileHints dedupes and cleans path separators', () => {
     const normalized = taskRuntime.normalizeChangedFileHints([
       'src\\api\\foo.ts',

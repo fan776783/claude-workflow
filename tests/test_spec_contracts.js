@@ -69,10 +69,10 @@ test('spec contracts', async (t) => {
   })
 
   await t.test('REQUIRED_AGENTS / REQUIRED_AGENT_FIELDS constants stay in sync with platform-parity spec', () => {
-    // 9 个必须支持的 agents：与 core/specs/platform-parity.md 的清单逐字对齐。
+    // 8 个必须支持的 agents：与 core/specs/platform-parity.md 的清单逐字对齐。
     const expected = [
       'antigravity', 'claude-code', 'codex', 'cursor', 'droid',
-      'gemini-cli', 'github-copilot', 'opencode', 'qoder',
+      'gemini-cli', 'github-copilot', 'opencode',
     ]
     assert.deepEqual([...platformParity.REQUIRED_AGENTS].sort(), [...expected].sort(),
       'REQUIRED_AGENTS drift from platform-parity.md — docs or constants must be updated together')

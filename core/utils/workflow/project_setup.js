@@ -19,6 +19,17 @@ function loadProjectConfig(projectRoot) {
   }
 }
 
+const DEFAULT_SPEC_DOCS_ROOT = 'docs/workflows/specs'
+
+function resolveSpecDocsRoot(config) {
+  const raw = ((config || {}).workflow || {}).specDocsRoot
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : DEFAULT_SPEC_DOCS_ROOT
+}
+
+function isLegacySpecLocation(config) {
+  return Boolean(((config || {}).workflow || {}).legacySpecLocation)
+}
+
 function extractProjectId(config) {
   if (!config) return null
   const project = config.project || {}
@@ -34,8 +45,15 @@ function summarizeText(value, limit = 80) {
 }
 
 function slugifyFilename(value) {
-  const slug = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return slug ? slug.slice(0, 80) : ''
+  // Preserve ASCII alphanumeric + CJK (Chinese, Japanese Hiragana/Katakana, Korean Hangul).
+  // Filesystems handle UTF-8 fine; meaningful Chinese names beat md5 hash fallbacks.
+  const lowered = String(value || '').toLowerCase()
+  const slug = lowered
+    .replace(/[^a-z0-9一-鿿぀-ゟ゠-ヿ가-힯]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  if (!slug) return ''
+  const hasCJK = /[一-鿿぀-ゟ゠-ヿ가-힯]/.test(slug)
+  return slug.slice(0, hasCJK ? 30 : 80)
 }
 
 function projectNameSlug(projectRoot) {
@@ -49,10 +67,6 @@ function stableProjectId(projectRoot) {
   const hash = crypto.createHash('md5').update(String(resolved).toLowerCase()).digest('hex').slice(0, 12)
   const slug = projectNameSlug(resolved)
   return slug ? `${slug}-${hash}` : hash
-}
-
-function isLegacyStableProjectId(projectId) {
-  return /^[a-f0-9]{12}$/.test(String(projectId || ''))
 }
 
 function detectGitHead(projectRoot) {
@@ -92,55 +106,6 @@ function buildProjectConfig(projectRoot, existing = null, forcedProjectId = null
   return current
 }
 
-function planLegacyProjectIdMigration(projectRoot) {
-  const root = path.resolve(projectRoot)
-  const config = loadProjectConfig(root)
-  const currentId = extractProjectId(config)
-  if (!currentId || !isLegacyStableProjectId(currentId)) return { needed: false }
-
-  const newId = stableProjectId(root)
-  if (newId === currentId) return { needed: false }
-
-  const workflowsRoot = path.join(os.homedir(), '.claude', 'workflows')
-  const oldDir = path.join(workflowsRoot, currentId)
-  const newDir = path.join(workflowsRoot, newId)
-  return {
-    needed: true,
-    currentId,
-    newId,
-    oldDir,
-    newDir,
-    oldDirExists: fs.existsSync(oldDir),
-    newDirExists: fs.existsSync(newDir),
-    configPath: path.join(root, '.claude', 'config', 'project-config.json'),
-  }
-}
-
-function applyLegacyProjectIdMigration(projectRoot) {
-  const root = path.resolve(projectRoot)
-  const plan = planLegacyProjectIdMigration(root)
-  if (!plan.needed) return { migrated: false, reason: 'not_legacy' }
-
-  if (plan.newDirExists) {
-    return { migrated: false, reason: 'target_state_dir_exists', ...plan }
-  }
-
-  const config = loadProjectConfig(root) || {}
-  const project = { ...(config.project || {}) }
-  project.id = plan.newId
-  const updated = { ...config, project }
-  if (typeof config.projectId === 'string') updated.projectId = plan.newId
-  fs.mkdirSync(path.dirname(plan.configPath), { recursive: true })
-  fs.writeFileSync(plan.configPath, `${JSON.stringify(updated, null, 2)}\n`)
-
-  if (plan.oldDirExists) {
-    fs.mkdirSync(path.dirname(plan.newDir), { recursive: true })
-    fs.renameSync(plan.oldDir, plan.newDir)
-  }
-
-  return { migrated: true, ...plan }
-}
-
 function ensureProjectConfig(projectRoot, forcedProjectId = null) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
   const existing = loadProjectConfig(projectRoot)
@@ -158,14 +123,14 @@ function ensureProjectConfig(projectRoot, forcedProjectId = null) {
 module.exports = {
   loadProjectConfig,
   extractProjectId,
+  resolveSpecDocsRoot,
+  isLegacySpecLocation,
+  DEFAULT_SPEC_DOCS_ROOT,
   summarizeText,
   slugifyFilename,
   projectNameSlug,
   stableProjectId,
-  isLegacyStableProjectId,
   detectGitHead,
   buildProjectConfig,
-  planLegacyProjectIdMigration,
-  applyLegacyProjectIdMigration,
   ensureProjectConfig,
 }

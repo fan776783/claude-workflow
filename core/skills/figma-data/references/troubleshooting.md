@@ -1,5 +1,52 @@
 # 故障排查
 
+## CLI 退出码
+
+三个 wrapper skill（`bk` / `alidocs` / `figma-data`）共享同一套退出码（ADR-0001）：
+
+| code | 含义 | 第一步看哪 |
+| --- | --- | --- |
+| 0 | 成功 | stdout JSON |
+| 1 | 本地错：参数 / 网络 / JSON 解析 / `diff-tools` 检出 drift 未 `--promote` | stderr 文案 |
+| 2 | auth 错：401 / 403 / OAuth 失败；归一化 `{kind:"auth"}` | 跑 `figma doctor` 或重做 OAuth |
+| 3 | 危险工具未 `--yes` | stderr 的 blocked JSON；与用户确认再加 `--yes` |
+| 4 | 服务端业务错：tool 返回 `body.error` | stderr JSON；按 hint 修参数后重试 |
+| 5 | tool_not_found；归一化 `{kind:"tool_not_found"}` | 走 [Tool 漂移检测](#drift) |
+| 6 | enum_invalid；归一化 `{kind:"enum_invalid"}` | 用 schema 重 refresh + 同步 SKILL.md snapshot |
+
+`5` / `6` 由 `_shared/mcp-baseline.mjs` 归一化，stderr 输出 `{kind, hint, originalMessage}` 结构化对象。
+
+---
+
+<a name="drift"></a>
+## Tool 漂移检测（diff-tools）
+
+`figma-data` 通过双层 baseline 应对上游 Figma Dev MCP 漂移（ADR-0001）：checkin 权威 baseline 在 `core/skills/figma-data/baseline-schema.json`（随 repo 提交），本地 cache 由 CLI 透明维护。
+
+### 主动巡检
+
+```bash
+node cli/figma.mjs diff-tools                 # 比对当前 MCP 工具表与 checkin baseline
+node cli/figma.mjs diff-tools --promote       # 已确认 drift 是预期的 → 写入新 baseline
+node cli/figma.mjs diff-tools --promote-initial   # 仅首次建立 baseline 用
+```
+
+输出：`has_drift` / `drift.added` / `drift.removed` / `drift.changed`。`has_drift=true` 且未 `--promote` 时 CLI 退 1（CI-friendly）。
+
+### drift 报警处理顺序
+
+1. **先看 `removed`**：上游下线 tool（如曾经叫 `get_code` 现在叫 `get_design_context`）→ 全文搜旧 name → 替换为新等价 tool → promote
+2. **再看 `changed`**：required / 静态 enum 变了 → 同步更新 SKILL.md `<!-- snapshot YYYY-MM-DD -->` + Design Package 字段映射 → 必要时 bump `schemaVersion` → promote
+3. **最后看 `added`**：上游新增 tool → 评估是否暴露给 figma-ui → promote
+
+**`schemaVersion` 升版规则**：Design Package 的 `schemaVersion` 是 figma-data 与 figma-ui 之间的 contract。新增字段（向后兼容）可保持 `"1.0"`；字段语义变化 / 移除必填字段时 bump 到 `"1.1"` 或 `"2.0"`，同步更新 figma-ui Phase A Gate 0 的 assert。
+
+### `spec-review` 第 7 类周巡
+
+`spec-review` 扫 SKILL.md 中 `<!-- snapshot YYYY-MM-DD -->`，>90d 标 warning / >180d 升 advisory。Figma MCP 迭代相对较快，建议每次 Figma Desktop 大版本升级后跑一次 `diff-tools`。
+
+---
+
 ## MCP 连接
 
 ### Issue: MCP server not found / 连接拒绝
@@ -96,6 +143,21 @@
 **原因**: URL 中 `node-id=1-2` 传给 MCP 时需要转为 `1:2`
 
 **解决**: 将 `-` 替换为 `:`。正则：`/^(?:-?\d+[:-]-?\d+)$/`
+
+### Issue: exit 5 + stderr `{"kind":"tool_not_found",...}`
+
+**原因**: 上游 Figma Dev MCP 改名 / 下线了某个 tool。
+
+**解决**: 走 [Tool 漂移检测](#drift)。**不要** 在 fallback 路径里硬编码旧 tool name 重试——会刷一波无效请求。
+
+### Issue: exit 6 + stderr `{"kind":"enum_invalid",...}`
+
+**原因**: 传给 tool 的 enum 值不在 Figma MCP 当前合法集（如 `format` / `imageType` 等）。
+
+**解决**:
+1. `node cli/figma.mjs schema <tool> --refresh` 重拉 schema cache
+2. 如发现 enum 集真的变了 → 同步更新 SKILL.md `<!-- snapshot YYYY-MM-DD -->`
+3. 通知 figma-ui Phase A 调用方采用当前合法 enum
 
 ---
 

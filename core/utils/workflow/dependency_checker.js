@@ -76,32 +76,6 @@ function classifyDeps(taskName, filePaths, unresolvedDependencies = null) {
 }
 
 /**
- * 判断两个任务是否可以并行执行（文件冲突、依赖关系、共享状态检查）
- * @param {string[]} taskAFiles - 任务 A 的文件列表
- * @param {string[]} taskADepends - 任务 A 的依赖列表
- * @param {string} taskAIntent - 任务 A 的步骤描述文本
- * @param {string} taskAId - 任务 A 的 ID
- * @param {string[]} taskBFiles - 任务 B 的文件列表
- * @param {string[]} taskBDepends - 任务 B 的依赖列表
- * @param {string} taskBIntent - 任务 B 的步骤描述文本
- * @param {string} taskBId - 任务 B 的 ID
- * @returns {{parallel: boolean, reason: string}} 是否可并行及原因
- */
-function canRunParallel(taskAFiles, taskADepends, taskAIntent, taskAId, taskBFiles, taskBDepends, taskBIntent, taskBId) {
-  const filesA = new Set(taskAFiles || [])
-  const filesB = new Set(taskBFiles || [])
-  const overlap = [...filesA].filter((file) => filesB.has(file))
-  if (overlap.length) return { parallel: false, reason: `文件冲突: ${overlap.join(', ')}` }
-  if ((taskADepends || []).includes(taskBId) || (taskBDepends || []).includes(taskAId)) return { parallel: false, reason: '存在直接依赖关系' }
-  const aShared = (taskAFiles || []).some((file) => SHARED_PATHS.some((segment) => file.includes(`/${segment}/`)))
-  const bShared = (taskBFiles || []).some((file) => SHARED_PATHS.some((segment) => file.includes(`/${segment}/`)))
-  if (aShared && bShared) return { parallel: false, reason: '同时操作共享状态目录' }
-  if ((taskAFiles || []).some((file) => file && String(taskBIntent || '').includes(file))) return { parallel: false, reason: 'B 的步骤引用了 A 操作的文件' }
-  if ((taskBFiles || []).some((file) => file && String(taskAIntent || '').includes(file))) return { parallel: false, reason: 'A 的步骤引用了 B 操作的文件' }
-  return { parallel: true, reason: '通过所有独立性检查' }
-}
-
-/**
  * 评估单个任务的独立性等级，判断是否可并行化
  * @param {Object} task - 任务对象
  * @param {boolean} hasParallelBoundary - 是否存在可证明独立的同阶段边界
@@ -155,77 +129,6 @@ function summarizeTaskIndependence(task, hasParallelBoundary = false) {
   }
 }
 
-/**
- * 检查 taskId 是否通过依赖链间接依赖 targetId
- * @param {string} taskId - 起始任务 ID
- * @param {string} targetId - 目标任务 ID
- * @param {Object} depsMap - 任务 ID 到依赖 ID 数组的映射
- * @param {Set} visited - 已访问节点集合（防止循环）
- * @returns {boolean} 是否存在传递依赖
- */
-function hasTransitiveDep(taskId, targetId, depsMap, visited = new Set()) {
-  if (visited.has(taskId)) return false
-  visited.add(taskId)
-  for (const depId of depsMap[taskId] || []) {
-    if (depId === targetId) return true
-    if (hasTransitiveDep(depId, targetId, depsMap, visited)) return true
-  }
-  return false
-}
-
-/**
- * 在待执行任务中发现可并行执行的任务分组
- * @param {Object[]} tasks - 全部任务数组
- * @param {string[]} completed - 已完成的任务 ID
- * @param {string[]} blocked - 被阻塞的任务 ID
- * @param {string[]} skipped - 已跳过的任务 ID
- * @param {string[]} failed - 已失败的任务 ID
- * @returns {string[][]} 可并行执行的任务 ID 分组数组
- */
-function findParallelGroups(tasks, completed, blocked, skipped, failed) {
-  const excluded = new Set([...(completed || []), ...(blocked || []), ...(skipped || []), ...(failed || [])])
-  const pending = (tasks || []).filter((task) => !excluded.has(task.id))
-  if (pending.length < 2) return []
-  const currentPhase = pending[0].phase || ''
-  const samePhase = pending.filter((task) => (task.phase || '') === currentPhase)
-  if (samePhase.length < 2) return []
-  const depsMap = {}
-  for (const task of tasks || []) depsMap[task.id] = task.depends || []
-  const filesOf = (task) => [...((task.files || {}).create || []), ...((task.files || {}).modify || []), ...((task.files || {}).test || [])]
-  const intentOf = (task) => (task.steps || []).map((step) => `${step.id || ''} ${step.description || ''} ${step.expected || ''}`).join(' ')
-  const groups = []
-  const assigned = new Set()
-  for (let i = 0; i < samePhase.length; i += 1) {
-    const taskI = samePhase[i]
-    if (assigned.has(taskI.id)) continue
-    const group = [taskI.id]
-    assigned.add(taskI.id)
-    for (let j = i + 1; j < samePhase.length; j += 1) {
-      const taskJ = samePhase[j]
-      if (assigned.has(taskJ.id)) continue
-      let allOk = true
-      for (const groupId of group) {
-        const groupTask = (tasks || []).find((task) => task.id === groupId)
-        if (hasTransitiveDep(groupId, taskJ.id, depsMap) || hasTransitiveDep(taskJ.id, groupId, depsMap)) {
-          allOk = false
-          break
-        }
-        const result = canRunParallel(filesOf(groupTask), groupTask.depends || [], intentOf(groupTask), groupId, filesOf(taskJ), taskJ.depends || [], intentOf(taskJ), taskJ.id)
-        if (!result.parallel) {
-          allOk = false
-          break
-        }
-      }
-      if (allOk) {
-        group.push(taskJ.id)
-        assigned.add(taskJ.id)
-      }
-    }
-    if (group.length > 1) groups.push(group)
-  }
-  return groups
-}
-
 function main() {
   const args = [...process.argv.slice(2)]
   const command = args.shift()
@@ -246,14 +149,7 @@ function main() {
     process.stdout.write(`${JSON.stringify({ dependencies: classifyDeps(option('--name'), split(option('--files'))) })}\n`)
     return
   }
-  if (command === 'parallel') {
-    const file = option('--file') || option('--tasks-file')
-    if (!file) throw new Error('parallel 需要提供 --file')
-    const tasks = JSON.parse(require('fs').readFileSync(file, 'utf8'))
-    process.stdout.write(`${JSON.stringify({ parallel_groups: findParallelGroups(tasks, split(option('--completed')), split(option('--blocked')), [], []) })}\n`)
-    return
-  }
-  process.stderr.write('Usage: node dependency_checker.js <check-deps|check-blocked|classify|parallel> ...\n')
+  process.stderr.write('Usage: node dependency_checker.js <check-deps|check-blocked|classify> ...\n')
   process.exitCode = 1
 }
 
@@ -262,9 +158,7 @@ module.exports = {
   checkBlockedDeps,
   reconcileBlockedTasks,
   classifyDeps,
-  canRunParallel,
   summarizeTaskIndependence,
-  findParallelGroups,
 }
 
 if (require.main === module) main()

@@ -25,11 +25,11 @@ UI prototype 在**真实上下文中**更容易判断——真 header、真 side
 
 仅当要 prototype 的东西确实没有任何现有页面可以宿主时——全新 top-level surface / 无法嵌入的 flow。
 
-创建 throwaway 路由,遵循项目已有路由约定。路径或文件名含 `prototype` 字样。同样 `?variant=` 模式。
+创建 throwaway 路由,遵循项目已有路由 convention。路径或文件名含 `prototype` 字样。同样 `?variant=` 模式。
 
 选 B 前自问:真的没有现有页面可以嵌入?空路由隐藏了有填充页面才会暴露的设计问题。
 
-## 流程
+## workflow
 
 ### 1. 明确问题,定 N 个变体
 

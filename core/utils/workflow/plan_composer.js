@@ -28,6 +28,7 @@ const {
 } = require('./state_manager')
 const { detectProjectRoot } = require('./task_manager')
 const { getCodeSpecsContext, getCodeSpecsContextScoped } = require('./task_runtime')
+const { triggerCodexReview } = require('./codex_review_runner')
 const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
 const {
   buildSpecReviewSummary,
@@ -39,14 +40,14 @@ const {
   shouldRunUxDesignGate,
 } = require('./planning_gates')
 const {
-  buildInjectedContext,
-  buildAgentPrompt,
   resolveRoleProfile,
 } = require('./role_injection')
 const {
   detectGitHead,
   extractProjectId,
+  isLegacySpecLocation,
   loadProjectConfig,
+  resolveSpecDocsRoot,
   slugifyFilename,
   summarizeText,
 } = require('./project_setup')
@@ -349,7 +350,8 @@ function buildTaskBlock(entry, index, allEntries = [], pkg = '', specRef = '') {
   const criticalConstraints = (entry.protected_details && entry.protected_details.length ? entry.protected_details : ['保持现有功能不受影响']).join(', ')
   const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
   const specLine = specRef ? String(specRef).replace(/\\/g, '/') : `${fileBucket}/${fileSlug}.md`
-  return `## ${taskId}: 实现 ${entry.id} ${entry.summary}
+  return `<!-- WF:ANCHOR:task:${taskId}:begin -->
+## ${taskId}: 实现 ${entry.id} ${entry.summary}
 - **阶段**: implement
 ${packageLine}- **Spec 参考**: ${entry.spec_section}, §7
 - **Plan 参考**: P${index + 1}
@@ -367,14 +369,346 @@ ${packageLine}- **Spec 参考**: ${entry.spec_section}, §7
 ${steps}
 - **验证命令**: npm test -- ${fileSlug}.test.ts
 - **验证期望**: PASS, ${entry.id} covered
+<!-- WF:ANCHOR:task:${taskId}:end -->
 `
+}
+
+// T4 Task Atomicity Rule lint：扫 plan markdown，找 task 描述里的 "N 个 / N 项 / N 列" 关键字配 sub-task 数。
+// 当 N >= 5 且对应 task 的 sub-bullet (`  - A` / `- A` 等) 数 < N 时，emit 一条 warning。
+// 不阻断 — plan 上游消费者按需展示给用户。
+function lintTaskAtomicity(planMarkdown, thresholdN = 5) {
+  if (!planMarkdown || typeof planMarkdown !== 'string') return { warnings: [], checked_tasks: 0 }
+  const warnings = []
+  const taskBlocks = String(planMarkdown).split(/\n(?=## T\d+:|### T\d+:)/g)
+  let checked = 0
+  for (const block of taskBlocks) {
+    const idMatch = block.match(/^(?:## |### )?(T\d+):/m)
+    if (!idMatch) continue
+    checked++
+    const taskId = idMatch[1]
+    // 找数字 + 单位的关键字
+    const subItemMatch = block.match(/(\d+)\s*(个|项|列|字段|筛选项|标签|tab|列|sub-?task)/i)
+    if (!subItemMatch) continue
+    const declared = Number(subItemMatch[1])
+    if (declared < thresholdN) continue
+    // 统计 sub-bullet 数（A1/A2/... 或 `  - 一句一行`）
+    const subSteps = block.match(/^\s*-\s*[A-Z]\d+:|^\s*-\s+\*\*[^*]+\*\*/gm) || []
+    const subStepCount = subSteps.length
+    if (subStepCount < declared) {
+      warnings.push({
+        task_id: taskId,
+        declared_subitems: declared,
+        observed_substeps: subStepCount,
+        unit: subItemMatch[2],
+        message: `${taskId} 声明含 ${declared} 个 ${subItemMatch[2]} 但 sub-steps 仅 ${subStepCount} 条；按 Task Atomicity Rule 应拆为 ${declared} 个 sub-task 各带独立 acceptance bullet`,
+      })
+    }
+  }
+  return { warnings, checked_tasks: checked }
+}
+
+// T1 lintPlaceholder：扫 plan markdown 寻找 TBD/TODO/中文占位/模板残留。
+// 命中即 push 一条 {line, token, context}。不阻断本函数,由 cmdPlanReview 聚合时 hard-block ready。
+const PLACEHOLDER_TOKENS_EN = [
+  'TBD',
+  'TODO',
+  'implement later',
+  'fill in details',
+  'Add appropriate error handling',
+  'add validation',
+  'Write tests for the above',
+]
+const PLACEHOLDER_TOKENS_ZH = [
+  '待补充',
+  '暂未确定',
+  '稍后完善',
+  'TODO 后续完善',
+  '[填这里]',
+  '[待定]',
+  '占位',
+  '【占位】',
+]
+
+// 元描述 / 指令性短语：含任一 hint 的行 = 在"描述占位符 / 解释扫描规则"而非"使用占位符",
+// 跳过整行 placeholder 扫描。修复 plan-template.md 自带 Self-Review Checklist 行被误判的 F-01。
+// **匹配范围必须窄**：避免误伤真实 plan 内容中出现 `placeholder` / `占位符` 单词的违规行
+// (例 `- TODO placeholder implementation` 应当被捕获,而非整行跳过)。F-06 把宽泛词收窄为多词短语。
+// 与 doc_contracts.IGNORED_PLACEHOLDER_LINE_HINTS 的差异：doc_contracts 跑在文档表面,
+// 把 `similar to task` / `implement later` 等 **pattern 描述本身**也加入 IGNORE；而 lintPlaceholder
+// 跑在 **plan 实体文件**上,这些 pattern 短语出现 = 真违规,**不应**加入豁免。
+const PLACEHOLDER_INSTRUCTIONAL_HINTS = [
+  // 检查规则描述短语(多词锚定,避免误伤单词)
+  '搜索 tbd/todo',
+  '禁止 tbd/todo',
+  'no tbd',
+  'no placeholders',
+  'placeholder scan',
+  'placeholder rules',
+  '禁止占位符',
+  '占位符规则',
+  '替换为实际内容',
+  'plan failure',
+  // 引号包裹的 token = 元描述(典型出现在 references / 教程文档)
+  '"tbd"',
+  '"todo"',
+  '“tbd”',
+  '“todo”',
+  '`tbd`',
+  '`todo`',
+  '`待补充`',
+  '`待确认`',
+]
+
+function isInstructionalLine(line) {
+  const lowered = String(line || '').toLowerCase()
+  return PLACEHOLDER_INSTRUCTIONAL_HINTS.some((hint) => lowered.includes(hint))
+}
+
+function lintPlaceholder(planMarkdown) {
+  if (!planMarkdown || typeof planMarkdown !== 'string') return { hits: [] }
+  const hits = []
+  const lines = String(planMarkdown).split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (isInstructionalLine(line)) continue
+    const lineNo = i + 1
+    const context = line.trim().slice(0, 80)
+    // F-15: 英文 token 大小写不敏感(`tbd` / `todo` 小写写法也应捕获);中文 token 保持原样。
+    const lineLower = line.toLowerCase()
+    for (const token of PLACEHOLDER_TOKENS_EN) {
+      if (lineLower.includes(token.toLowerCase())) {
+        hits.push({ line: lineNo, token, context })
+      }
+    }
+    for (const token of PLACEHOLDER_TOKENS_ZH) {
+      if (line.includes(token)) {
+        hits.push({ line: lineNo, token, context })
+      }
+    }
+    // Similar to Task N
+    const similarMatch = line.match(/Similar to Task \d+/i)
+    if (similarMatch) {
+      hits.push({ line: lineNo, token: similarMatch[0], context })
+    }
+    // 模板未渲染残留 {{name}}
+    const unrenderedMatch = line.match(/\{\{\w+\}\}/g)
+    if (unrenderedMatch) {
+      for (const m of unrenderedMatch) {
+        hits.push({ line: lineNo, token: 'unrendered_template', context: m })
+      }
+    }
+  }
+  return { hits }
+}
+
+// T11 lintAnchorIntegrity：校验 plan.md 内 <!-- WF:ANCHOR:<id>:(begin|end) --> 配对完整性。
+// orphans = 无配对的锚点(only begin / only end / 不平衡)；
+// missing = 期望集合缺失的 ID(file_structure / tasks / verification_summary + 每个 task:Tn)。
+// expected 列表只在 v2 plan 上有意义；v1 plan 调用方可忽略此 lint。
+const REQUIRED_TOP_LEVEL_ANCHORS = ['file_structure', 'tasks', 'verification_summary']
+
+function lintAnchorIntegrity(planMarkdown) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const ANCHOR_RE = /<!--\s*WF:ANCHOR:([\w:\-]+?):(begin|end)\s*-->/g
+  const seen = {}
+  let m
+  while ((m = ANCHOR_RE.exec(planMd)) !== null) {
+    const id = m[1]
+    const side = m[2]
+    seen[id] = seen[id] || { begin: 0, end: 0 }
+    seen[id][side]++
+  }
+  const orphans = []
+  for (const id of Object.keys(seen)) {
+    const { begin, end } = seen[id]
+    if (begin !== 1 || end !== 1) {
+      orphans.push({ id, begin, end })
+    }
+  }
+  // 期望集合:顶层 3 个 + 每个 `## Tn:` / `### Tn:` 标题都必须有对应的 task:Tn 锚点对。
+  // 与 extractTaskRequirementRefs / derivePlanSummary / lintCommandSyntax 等共用 heading 形态(`##` 或 `###`)。
+  const taskIds = (planMd.match(/^(?:##|###)\s+(T\d+):/gm) || []).map((s) => s.match(/T\d+/)[0])
+  const expectedTaskAnchors = taskIds.map((tid) => `task:${tid}`)
+  const expected = [...REQUIRED_TOP_LEVEL_ANCHORS, ...expectedTaskAnchors]
+  const missing = []
+  for (const id of expected) {
+    if (!seen[id]) missing.push(id)
+  }
+  // F-12: stale task anchors — observed task:* 没有对应 `## Tn:` heading,
+  // 通常是 plan-edit 替换 heading 但没清理旧 anchor 的残留。会让 state.current_tasks[0]
+  // 指向已不存在的 task。
+  const expectedSet = new Set(expected)
+  const stale = []
+  for (const id of Object.keys(seen)) {
+    if (!id.startsWith('task:')) continue
+    if (!expectedSet.has(id)) stale.push(id)
+  }
+  return { orphans, missing, stale, expected, observed_ids: Object.keys(seen) }
+}
+
+// T2 checkRequirementCoverage：对比 spec 中的 R-ID 与 plan 内 task 引用的 R-ID。
+// covered = 交集；uncovered = spec 有 plan 无（hard-block ready）；
+// partial = spec 多处提及但 plan 仅 1 个 task 触及（soft warning，扣 PRD 1 分）。
+function extractTaskRequirementRefs(planMarkdown) {
+  // 每个 task 块抽 `- **需求 ID**: <ids>` 字段，split 逗号/空格/中文逗号。
+  // F-08：先 strip backticks(与 task_parser.extractField L80 行为一致),否则 `R-001` 形式漏检。
+  const refs = []
+  const taskBlocks = String(planMarkdown).split(/\n(?=## T\d+:|### T\d+:)/g)
+  for (const block of taskBlocks) {
+    const idHeaderMatch = block.match(/^(?:## |### )?(T\d+):/m)
+    if (!idHeaderMatch) continue
+    const taskId = idHeaderMatch[1]
+    const fieldMatch = block.match(/-\s*\*\*需求\s*ID\*\*\s*[:：]\s*([^\n]+)/)
+    if (!fieldMatch) continue
+    const tokens = fieldMatch[1]
+      .replace(/`/g, '')
+      .split(/[,，\s]+/)
+      .map((t) => t.trim())
+      .filter((t) => /^R-\d{3,}$/.test(t))
+    for (const r of tokens) {
+      refs.push({ task: taskId, requirement_id: r })
+    }
+  }
+  return refs
+}
+
+// F-07：仅从 spec §2.1 In Scope 提取 R-IDs。§2.2 Out of Scope / §2.3 Blocked / §3 Constraints
+// 等其它章节可能 reference R-ID,但按 traceability rule 不进入 plan 覆盖判定。
+// 找不到 In Scope 章节时退化为全文扫描(向后兼容,避免新规则误杀老 spec)。
+function extractInScopeRequirementIds(specMarkdown) {
+  const specMd = String(specMarkdown || '')
+  // 章节定位:### 2.1 In Scope ... 直到下一个 ## / ### / --- / EOF
+  const headingMatch = specMd.match(/^###\s+2\.1\s+In Scope.*$/m)
+  if (!headingMatch) {
+    // fallback：老 spec 没有标准 §2.1 → 全文扫描(保留向后兼容)
+    return Array.from(new Set(specMd.match(/\bR-\d{3,}\b/g) || []))
+  }
+  const startIdx = specMd.indexOf(headingMatch[0]) + headingMatch[0].length
+  const tail = specMd.slice(startIdx)
+  const stopMatch = tail.match(/\n(##\s|###\s|---)/)
+  const section = stopMatch ? tail.slice(0, stopMatch.index) : tail
+  return Array.from(new Set(section.match(/\bR-\d{3,}\b/g) || []))
+}
+
+function checkRequirementCoverage(planMarkdown, specMarkdown) {
+  const safe = (s) => (typeof s === 'string' ? s : '')
+  const planMd = safe(planMarkdown)
+  const specMd = safe(specMarkdown)
+  if (!specMd) {
+    return { uncovered_ids: [], partial_ids: [], covered_ids: [], note: 'spec_missing' }
+  }
+  const specIds = extractInScopeRequirementIds(specMd)
+  const planRefs = extractTaskRequirementRefs(planMd)
+  const planIds = Array.from(new Set(planRefs.map((r) => r.requirement_id)))
+  const covered = specIds.filter((id) => planIds.includes(id))
+  const uncovered = specIds.filter((id) => !planIds.includes(id))
+  const partial = []
+  for (const id of covered) {
+    const escaped = id.replace(/[-]/g, '\\-')
+    const specMentions = (specMd.match(new RegExp(`\\b${escaped}\\b`, 'g')) || []).length
+    const planTaskRefs = planRefs.filter((r) => r.requirement_id === id).length
+    if (specMentions >= 2 && planTaskRefs === 1) partial.push(id)
+  }
+  return { uncovered_ids: uncovered, partial_ids: partial, covered_ids: covered }
+}
+
+// T3 derivePlanSummary：解析 plan body 抽 Step 3 输出摘要字段。
+// state 用于注入 spec_file / plan_file 路径（plan body 内不强求出现）。
+const INTERACTION_LEGEND = 'AFK = 不需人介入 / HITL = 需人工介入(QA、文案、PM 确认)'
+
+function parseTaskMetaBlock(block) {
+  const get = (label) => {
+    const re = new RegExp(`-\\s*\\*\\*${label}\\*\\*\\s*[:：]\\s*([^\\n]+)`)
+    const m = block.match(re)
+    return m ? m[1].trim() : ''
+  }
+  const idMatch = block.match(/^(?:## |### )?(T\d+):\s*(.+)$/m)
+  return {
+    id: idMatch ? idMatch[1] : '',
+    title: idMatch ? idMatch[2].trim() : '',
+    phase: get('阶段'),
+    deliverable: get('创建文件') || get('修改文件'),
+    deps: get('依赖'),
+    interaction: get('Interaction') || 'AFK',
+  }
+}
+
+function derivePlanSummary(planMarkdown, state = {}) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const blocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
+  const task_table = blocks.map(parseTaskMetaBlock)
+  const planRefs = extractTaskRequirementRefs(planMd)
+  const coveredIdsInPlan = Array.from(new Set(planRefs.map((r) => r.requirement_id)))
+  return {
+    paths: {
+      spec: state.spec_file || '',
+      plan: state.plan_file || '',
+    },
+    req_stats: {
+      total_referenced: coveredIdsInPlan.length,
+      tasks_with_refs: planRefs.length,
+    },
+    task_count: task_table.length,
+    task_table,
+    interaction_legend: INTERACTION_LEGEND,
+  }
+}
+
+// T4 scoreConfidence：按 rubric 算 0-10 分。
+// PRD +3 / Patterns +2 / Verification +3 / Test Task +2；partial 命中 PRD -1。
+// F-10: command_syntax issues 非空 → verification 维度封顶为 0(命令本身坏不算合格验证);
+//       pattern_fidelity unresolved 非空 → patterns 维度封顶为 0(引用不真实的 pattern 不算可复用)。
+function scoreConfidence(planMarkdown, { coverage, atomicity, commandSyntax, patternFidelity } = {}) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const breakdown = { prd_coverage: 0, patterns: 0, verification: 0, test_task: 0 }
+
+  // PRD 覆盖率
+  if (coverage && (coverage.covered_ids || coverage.uncovered_ids)) {
+    const covered = (coverage.covered_ids || []).length
+    const uncovered = (coverage.uncovered_ids || []).length
+    const total = covered + uncovered
+    if (total > 0) {
+      const rate = covered / total
+      if (rate >= 0.9) {
+        breakdown.prd_coverage = (coverage.partial_ids || []).length > 0 ? 2 : 3
+      }
+    }
+  }
+
+  // Patterns to Mirror（要求至少 3 个 ### 头紧跟 `// SOURCE:`）
+  // F-10: pattern_fidelity 有 unresolved 引用 → 不给分(引用文件不存在,pattern 不可复用)
+  const patternMatches = planMd.match(/^### .+\n+\/\/ SOURCE:/gm) || []
+  const patternUnresolvedCount = (patternFidelity && patternFidelity.unresolved) ? patternFidelity.unresolved.length : 0
+  if (patternMatches.length >= 3 && patternUnresolvedCount === 0) breakdown.patterns = 2
+
+  // Verification 维度：每 task 必须 验证命令 + 验证期望 同时非空
+  // F-10: command_syntax 有 issues → 不给分(命令本身语法坏,验证不可信)
+  const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
+  const commandIssuesCount = (commandSyntax && commandSyntax.issues) ? commandSyntax.issues.length : 0
+  if (taskBlocks.length > 0 && commandIssuesCount === 0) {
+    const allQualified = taskBlocks.every((b) => {
+      const cmd = b.match(/-\s*\*\*验证命令\*\*\s*[:：]\s*([^\n]+)/)
+      const exp = b.match(/-\s*\*\*验证期望\*\*\s*[:：]\s*([^\n]+)/)
+      return !!(cmd && cmd[1].trim() && exp && exp[1].trim())
+    })
+    if (allQualified) breakdown.verification = 3
+  }
+
+  // Test task 存在
+  if (/-\s*\*\*阶段\*\*\s*[:：]\s*test\b/m.test(planMd)) breakdown.test_task = 2
+
+  const score = breakdown.prd_coverage + breakdown.patterns + breakdown.verification + breakdown.test_task
+  const level = score >= 8 ? 'high' : score >= 6 ? 'medium' : 'low'
+  // atomicity 仅记录，不进 rubric（与 ready 矩阵一致）
+  return { score, level, breakdown, atomicity_warnings_count: (atomicity && atomicity.warnings) ? atomicity.warnings.length : 0 }
 }
 
 function buildPlanTasks(requirementCoverage = [], pkg = '', specRef = '') {
   if (!requirementCoverage.length) {
     const packageLine = pkg ? `- **Package**: ${pkg}\n` : ''
     const specLine = specRef ? String(specRef).replace(/\\/g, '/') : 'src/shared/r-001.md'
-    return `## T1: 实现核心需求
+    return `<!-- WF:ANCHOR:task:T1:begin -->
+## T1: 实现核心需求
 - **阶段**: implement
 ${packageLine}- **Spec 参考**: §2, §5, §7
 - **Plan 参考**: P1
@@ -393,6 +727,7 @@ ${packageLine}- **Spec 参考**: §2, §5, §7
   - A2: 实施代码修改与必要验证 → 输出满足验收项的结果（验证：核心需求可验证完成）
 - **验证命令**: npm test -- r-001.test.ts
 - **验证期望**: PASS
+<!-- WF:ANCHOR:task:T1:end -->
 `
   }
   return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries, pkg, specRef)).join('\n')
@@ -400,7 +735,13 @@ ${packageLine}- **Spec 参考**: §2, §5, §7
 
 function inferPlanRelativeFromSpec(specRelative, taskName, workflowDir = null) {
   const normalizedSpec = String(specRelative || '').replace(/\\/g, '/')
-  // 新路径格式：绝对路径指向 workflowDir/specs/
+  // plan.md 始终落到 workflowDir/plans/（user 级），与 spec 落点无关。
+  // 优先取已知 base name 沿用同 slug-MMDD，避免规划期重新派生不一致。
+  const baseName = normalizedSpec ? path.basename(normalizedSpec) : null
+  if (workflowDir && baseName) {
+    return path.join(workflowDir, 'plans', baseName)
+  }
+  // 旧的 user 级 spec 在 workflowDir/specs/ 时按目录平移（向后兼容）
   if (path.isAbsolute(normalizedSpec) && normalizedSpec.includes('/specs/')) {
     const dir = path.dirname(normalizedSpec)
     const base = path.basename(normalizedSpec)
@@ -418,7 +759,78 @@ function inferPlanRelativeFromSpec(specRelative, taskName, workflowDir = null) {
   return path.join('.claude', 'plans', `${slug}.md`).replace(/\\/g, '/')
 }
 
-function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan') {
+// specStored/planStored 是 forward-slash 标准化后的存储路径（写入 state.spec_file/plan_file 用）。
+// 返回的 bundle 喂给 applyReviewRecords 同步到 state.context_injection——signals/planning/execution 即真理，无独立工件。
+// existingSignals: cmdSpecReview 透传 cmdPlan 已落盘到 state.context_injection.signals 的 signals
+// 跳过 deriveRoleSignals——避免 summary 来源不同（requirementText vs spec.md In Scope）导致跨阶段漂移。
+function buildRoleContextBundle({ requirementText, summary, taskName, analysisPatterns, discussionArtifact, specStored, planStored, existingSignals = null }) {
+  const signals = existingSignals && typeof existingSignals === 'object'
+    ? existingSignals
+    : deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
+  const planProfile = resolveRoleProfile('plan_generation', signals)
+  const planReviewProfile = resolveRoleProfile('plan_review', signals)
+  const executionReviewProfile = resolveRoleProfile('quality_review_stage2', signals)
+  return { signals, planProfile, planReviewProfile, executionReviewProfile }
+}
+
+// Plan-template 15-key 渲染输入。cmdPlan 和 cmdSpecReview 都用这套字段渲染 plan.md。
+function buildPlanRenderValues({ requirementSource, createdAt, specStored, planStored, taskName, summary, config, roleSignals, planProfile, requirementCoverage, planPackage }) {
+  return {
+    requirement_source: requirementSource,
+    created_at: createdAt,
+    spec_file: specStored,
+    task_name: taskName,
+    goal: summary,
+    architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
+    tech_stack: buildTechStackSummary(config),
+    role_profile: planProfile.profile || planProfile.role || 'planner',
+    context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
+    injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
+    files_create: `- ${specStored}\n- ${planStored}`,
+    files_modify: '- 无',
+    files_test: '- 无',
+    requirement_coverage: renderRequirementCoverage(requirementCoverage),
+    tasks: buildPlanTasks(requirementCoverage, planPackage, specStored),
+  }
+}
+
+// planGenerated=false 时只更新 spec 阶段的 codex 钩子（plan.md 未生成阶段）。
+function applyReviewRecords(state, { roleContext, specContent, planContent, planGenerated }) {
+  const { signals, planProfile, planReviewProfile, executionReviewProfile } = roleContext
+  const codexSpec = shouldRunCodexSpecReview(specContent, signals)
+  const codexPlan = shouldRunCodexPlanReview(planContent || '', specContent, signals)
+  updateContextInjection(state, {
+    schema_version: '1',
+    signals,
+    planning: {
+      plan_generation: { role: planProfile.role, profile: planProfile.profile },
+      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
+      codex_spec_review: { triggered: codexSpec.run, reason: codexSpec.reason },
+      codex_plan_review: { triggered: codexPlan.run, reason: codexPlan.reason },
+    },
+    execution: {
+      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
+    },
+  })
+  const existingSpec = (state.review_status || {}).codex_spec_review || {}
+  if (!existingSpec.status || existingSpec.status === 'pending' || existingSpec.status === 'skipped') {
+    updateCodexSpecReview(state, { status: codexSpec.run ? 'pending' : 'skipped', trigger_reason: codexSpec.reason })
+  }
+  if (planGenerated) {
+    updateCodexPlanReview(state, { status: codexPlan.run ? 'pending' : 'skipped', trigger_reason: codexPlan.reason })
+    updatePlanReviewRecord(state, {
+      status: 'pending',
+      review_mode: 'machine_loop',
+      reviewer: 'subagent',
+      role: planReviewProfile.role,
+      profile: planReviewProfile.profile,
+      signals_snapshot: signals,
+      next_action: 'compile_tasks',
+    })
+  }
+}
+
+function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan', taskNameOverride = null) {
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
 
@@ -447,18 +859,20 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   }
 
   const [requirementSource, requirementText, sourcePath] = resolveRequirementInput(requirement, root)
-  const taskName = deriveTaskName(requirementText, sourcePath)
+  const taskName = (taskNameOverride && String(taskNameOverride).trim()) || deriveTaskName(requirementText, sourcePath)
   const summary = summarizeText(requirementText, 120)
   const slug = slugifyFilename(taskName) || `workflow-${crypto.createHash('md5').update(requirementText).digest('hex').slice(0, 12)}`
   const dateSuffix = getDateSuffix()
 
-  // 产物存放到 ~/.claude/workflows/{pid}/ 下，文件名带日期后缀
-  const specPath = path.join(workflowDir, 'specs', `${slug}-${dateSuffix}.md`)
+  // spec → 项目内（team 可见，可入 git）；plan/state 仍在 user 级（过程性 + 高频变动）。
+  // legacySpecLocation=true 回退 user 级旧路径。
+  const specPath = isLegacySpecLocation(config)
+    ? path.join(workflowDir, 'specs', `${slug}-${dateSuffix}.md`)
+    : path.join(root, resolveSpecDocsRoot(config), `${slug}-${dateSuffix}.md`)
   const planPath = path.join(workflowDir, 'plans', `${slug}-${dateSuffix}.md`)
-  // specRelative/planRelative 名义保留（state.spec_file/plan_file 字段历史叫法），
-  // 但在新路径方案下其值是 OS 展开后的绝对路径；下游通过 path.isAbsolute 区分新旧格式
-  const specRelative = specPath
-  const planRelative = planPath
+  // 存绝对路径；下游 `path.isAbsolute ? specStored : path.join(root, specStored)` 兼容旧相对路径 state。
+  const specStored = specPath.replace(/\\/g, '/')
+  const planStored = planPath.replace(/\\/g, '/')
 
   if (!force) {
     if (fs.existsSync(specPath)) return { error: `Spec 已存在: ${specPath}` }
@@ -471,44 +885,10 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   const discussionArtifact = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: [] }
 
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
-  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionArtifact, { taskName, summary })
-  const planProfile = resolveRoleProfile('plan_generation', roleSignals)
-  const planReviewProfile = resolveRoleProfile('plan_review', roleSignals)
-  const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)
-  const roleContextPath = path.join(workflowDir, 'role-context.json')
-  const planInjectedContext = buildInjectedContext(
-    { kind: 'document', ref: specRelative.replace(/\\/g, '/'), requirement_ids: [], critical_constraints: [] },
-    planProfile,
-    roleSignals,
-    { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
-  )
-  const planAgentPrompt = buildAgentPrompt(planProfile, planInjectedContext, 'claude-code')
-  const roleContextArtifact = {
-    schema_version: '1',
-    signals: roleSignals,
-    planning: {
-      plan_generation: { role: planProfile.role, profile: planProfile.profile },
-      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
-    },
-    execution: {
-      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
-    },
-    prompts: {
-      plan_generation: { preview: planAgentPrompt },
-      quality_review_stage2: {
-        preview: buildAgentPrompt(
-          executionReviewProfile,
-          buildInjectedContext(
-            { kind: 'diff_window', ref: 'HEAD', requirement_ids: [], critical_constraints: [] },
-            executionReviewProfile,
-            roleSignals,
-            { spec_file: specRelative.replace(/\\/g, '/'), plan_file: planRelative.replace(/\\/g, '/') }
-          ),
-          'claude-code'
-        ),
-      },
-    },
-  }
+  const roleContext = buildRoleContextBundle({
+    requirementText, summary, taskName, analysisPatterns, discussionArtifact, specStored, planStored,
+  })
+  const { signals: roleSignals, planProfile } = roleContext
   const uxRequired = shouldRunUxDesignGate(requirementText, analysisPatterns, discussionArtifact)
 
   const now = new Date().toISOString()
@@ -534,7 +914,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     critical_constraints: requirementItems.filter((item) => item.constraints.length).map((item) => `- ${item.id}: ${item.constraints.join(', ')}`).join('\n') || '- 保持现有功能不受影响\n- 优先复用现有模块与状态管理能力',
     user_facing_behavior: `- 按需求实现并交付：${summary}`,
     architecture_summary: `- 以现有代码结构为基线，采用最小必要改动完成需求\n- 优先复用现有模块、状态流转与验证能力`,
-    file_structure: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
+    file_structure: `- ${specStored}\n- ${planStored}`,
     acceptance_criteria: requirementItems.map((item) => `- [ ] ${item.id}: ${item.acceptance_signal || item.normalized_summary}`).join('\n') || `- [ ] ${summary}`,
     implementation_slices: requirementItems.map((item, index) => `- Slice ${index + 1}：响应 ${item.id} / ${item.normalized_summary}`).join('\n') || `- Slice 1：响应 ${summary}`,
     code_specs_constraints: codeSpecsConstraints,
@@ -545,23 +925,12 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   const shouldGeneratePlan = specReview.status === 'approved'
   const planRequirementCoverage = buildRequirementCoverageFromSpec(specContent)
   const planContent = shouldGeneratePlan
-    ? renderTemplate(planTemplate, {
-      requirement_source: requirementSource,
-      created_at: now,
-      spec_file: specRelative.replace(/\\/g, '/'),
-      task_name: taskName,
-      goal: summary,
-      architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
-      tech_stack: buildTechStackSummary(config),
-      role_profile: planProfile.profile || planProfile.role || 'planner',
-      context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
-      injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
-      files_create: `- ${specRelative.replace(/\\/g, '/')}\n- ${planRelative.replace(/\\/g, '/')}`,
-      files_modify: '- 无',
-      files_test: '- 无',
-      requirement_coverage: renderRequirementCoverage(planRequirementCoverage),
-      tasks: buildPlanTasks(planRequirementCoverage, planPackage, specRelative.replace(/\\/g, '/')),
-    })
+    ? renderTemplate(planTemplate, buildPlanRenderValues({
+      requirementSource, createdAt: now, specStored, planStored, taskName, summary,
+      config, roleSignals, planProfile,
+      requirementCoverage: planRequirementCoverage,
+      planPackage,
+    }))
     : null
 
   const parsedTasks = planContent ? parseTasksV2(planContent) : []
@@ -575,76 +944,61 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     fs.writeFileSync(planPath, planContent)
   }
   const prdCoverageReport = buildPRDCoverageReport(requirementItems, specContent)
-  fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
 
   const finalWorkflowStatus = shouldGeneratePlan ? 'planned' : specReview.workflow_status
   const state = ensureStateDefaults(buildMinimumState(
     resolvedProjectId,
-    shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null,
-    specRelative.replace(/\\/g, '/'),
+    shouldGeneratePlan ? planStored : null,
+    specStored,
     shouldGeneratePlan && parsedTasks.length ? [parsedTasks[0].id] : [],
     finalWorkflowStatus
   ))
   state.initial_head_commit = detectGitHead(root)
-  state.plan_file = shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null
+  state.plan_file = shouldGeneratePlan ? planStored : null
   state.project_root = root
   state.task_name = taskName
   state.requirement_source = requirementSource
   state.requirement_text = requirementText
   updateDiscussionRecord(state, (discussionArtifact.clarifications || []).length, !discussionRequired)
 
-  const codexSpecResult = shouldRunCodexSpecReview(specContent, roleSignals)
-  const codexPlanResult = shouldRunCodexPlanReview(planContent || '', specContent, roleSignals)
-  updateContextInjection(state, {
-    schema_version: '1',
-    signals: roleSignals,
-    planning: {
-      plan_generation: { role: planProfile.role, profile: planProfile.profile },
-      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
-      codex_spec_review: { triggered: codexSpecResult.run, reason: codexSpecResult.reason },
-      codex_plan_review: { triggered: codexPlanResult.run, reason: codexPlanResult.reason },
-    },
-    execution: {
-      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
-    },
-    artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
+  applyReviewRecords(state, {
+    roleContext, specContent, planContent,
+    planGenerated: shouldGeneratePlan,
   })
-  const existingSpecReview = (state.review_status || {}).codex_spec_review || {}
-  if (!existingSpecReview.status || existingSpecReview.status === 'pending' || existingSpecReview.status === 'skipped') {
-    updateCodexSpecReview(state, { status: codexSpecResult.run ? 'pending' : 'skipped', trigger_reason: codexSpecResult.reason })
-  }
-  if (shouldGeneratePlan) {
-    updateCodexPlanReview(state, { status: codexPlanResult.run ? 'pending' : 'skipped', trigger_reason: codexPlanResult.reason })
-  }
-  if (shouldGeneratePlan) {
-    updatePlanReviewRecord(state, {
-      status: 'pending',
-      review_mode: 'machine_loop',
-      reviewer: 'subagent',
-      role: planReviewProfile.role,
-      profile: planReviewProfile.profile,
-      signals_snapshot: roleSignals,
-      next_action: 'compile_tasks',
-    })
-  }
   updateUxDesignRecord(state, 0, 0, false, uxRequired)
   updateUserSpecReview(state, specReview.status, specReview.next_action)
   if (!shouldGeneratePlan) state.current_tasks = []
   writeState(statePath, state)
+
+  // T2 codex_*_review consumer：spec/plan 阶段闸门触发。trigger_reason 非空且 status=pending 时
+  // fire-and-forget 调 codex-bridge --background，立即拿 jobId 回写 state。失败不阻塞主线（state 保持 pending 由后续重试）。
+  const codexTriggers = []
+  const specTrigger = triggerCodexReview(state, 'spec', { projectRoot: root })
+  if (specTrigger.triggered) codexTriggers.push({ phase: 'spec', ...specTrigger })
+  if (shouldGeneratePlan) {
+    const planTrigger = triggerCodexReview(state, 'plan', { projectRoot: root })
+    if (planTrigger.triggered) codexTriggers.push({ phase: 'plan', ...planTrigger })
+  }
+  if (codexTriggers.length > 0) writeState(statePath, state)
+
+  // T4 Task Atomicity Rule lint：扫生成的 plan，把多子项 task 未拆分的警告返回给上游展示。
+  const atomicityLint = shouldGeneratePlan ? lintTaskAtomicity(planContent || '') : { warnings: [], checked_tasks: 0 }
 
   return {
     started: true,
     project_id: resolvedProjectId,
     config_healed: false,
     workflow_status: state.status,
-    spec_file: specRelative.replace(/\\/g, '/'),
-    plan_file: shouldGeneratePlan ? planRelative.replace(/\\/g, '/') : null,
+    spec_file: specStored,
+    plan_file: shouldGeneratePlan ? planStored : null,
     task_count: parsedTasks.length,
     current_tasks: state.current_tasks || [],
     discussion_required: discussionRequired,
     ux_gate_required: uxRequired,
     awaiting_user_spec_review: !shouldGeneratePlan,
     spec_review_summary: buildSpecReviewSummary(specContent),
+    codex_review_triggers: codexTriggers,
+    plan_atomicity_lint: atomicityLint,
   }
 }
 
@@ -671,6 +1025,10 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   if (specReview.status !== 'approved') {
     normalizedState.status = specReview.workflow_status
     writeState(statePath, normalizedState)
+    // split 分支把 state 推到 idle（语义=放弃当前 workflow）。state.status='idle' 时下一次 `plan`
+    // 不带 --force 也允许覆盖（cmdPlan 通过 status !== 'idle' && !force 才拒绝）。提示上游 skill
+    // 让用户重新发起 plan 或手动清理旧 spec.md。
+    const isSplitScope = specReview.next_action === 'split_scope'
     return {
       review_recorded: true,
       project_id: resolvedProjectId,
@@ -678,16 +1036,20 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
       plan_file: normalizedState.plan_file || null,
       awaiting_user_spec_review: normalizedState.status === 'spec_review',
       spec_review_status: normalizedState.review_status.user_spec_review.status,
+      next_action: specReview.next_action,
+      next_step_hint: isSplitScope
+        ? '当前工作流已放弃。请将范围拆分为更小的需求后重新执行 /workflow-spec 启动新流程；旧 spec.md 保留在 specs/ 目录可参考。'
+        : '请在反馈中说明需要修改的章节，AI 将基于现有 spec.md 增量调整后再次提交 /workflow-spec spec-review。',
     }
   }
 
   const config = loadProjectConfig(root)
   if (!config) return { error: '缺少项目配置，无法继续生成 Plan' }
 
-  const specRelative = String(normalizedState.spec_file || '').replace(/\\/g, '/')
-  if (!specRelative) return { error: '缺少 spec_file，无法继续生成 Plan', project_id: resolvedProjectId }
+  const specStored = String(normalizedState.spec_file || '').replace(/\\/g, '/')
+  if (!specStored) return { error: '缺少 spec_file，无法继续生成 Plan', project_id: resolvedProjectId }
   // 支持绝对路径（新格式）和相对路径（旧格式兼容）
-  const specPath = path.isAbsolute(specRelative) ? specRelative : path.join(root, specRelative)
+  const specPath = path.isAbsolute(specStored) ? specStored : path.join(root, specStored)
   if (!fs.existsSync(specPath)) return { error: 'spec 文件不存在，无法继续生成 Plan', project_id: resolvedProjectId }
   const specContent = fs.readFileSync(specPath, 'utf8')
 
@@ -696,114 +1058,48 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   const taskName = normalizedState.task_name || deriveTaskName(requirementText, null)
   const summary = summarizeText(extractSubsection(extractNamedSection(specContent, 'Scope'), 'In Scope') || requirementText, 120)
 
-  const planRelative = inferPlanRelativeFromSpec(normalizedState.plan_file || specRelative, taskName, workflowDir)
-  const planPath = path.isAbsolute(planRelative) ? planRelative : path.join(root, planRelative)
+  const planStored = String(inferPlanRelativeFromSpec(normalizedState.plan_file || specStored, taskName, workflowDir)).replace(/\\/g, '/')
+  const planPath = path.isAbsolute(planStored) ? planStored : path.join(root, planStored)
   const discussionState = normalizedState.discussion || {}
   const discussionForSignals = { requirementSource, clarifications: [], selectedApproach: null, unresolvedDependencies: discussionState.unresolved_dependencies || [] }
   const analysisPatterns = (((config.tech) || {}).frameworks || []).map((framework) => ({ name: framework }))
-  const roleSignals = deriveRoleSignals(requirementText, analysisPatterns, discussionForSignals, { taskName, summary })
-  const planProfile = resolveRoleProfile('plan_generation', roleSignals)
-  const planReviewProfile = resolveRoleProfile('plan_review', roleSignals)
-  const executionReviewProfile = resolveRoleProfile('quality_review_stage2', roleSignals)
-  const roleContextPath = path.join(workflowDir, 'role-context.json')
-  const planInjectedContext = buildInjectedContext(
-    { kind: 'document', ref: specRelative, requirement_ids: [], critical_constraints: [] },
-    planProfile,
-    roleSignals,
-    { spec_file: specRelative, plan_file: planRelative }
-  )
-  const roleContextArtifact = {
-    schema_version: '1',
-    signals: roleSignals,
-    planning: {
-      plan_generation: { role: planProfile.role, profile: planProfile.profile },
-      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
-    },
-    execution: {
-      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
-    },
-    prompts: {
-      plan_generation: { preview: buildAgentPrompt(planProfile, planInjectedContext, 'claude-code') },
-      quality_review_stage2: {
-        preview: buildAgentPrompt(
-          executionReviewProfile,
-          buildInjectedContext(
-            { kind: 'diff_window', ref: 'HEAD', requirement_ids: [], critical_constraints: [] },
-            executionReviewProfile,
-            roleSignals,
-            { spec_file: specRelative, plan_file: planRelative }
-          ),
-          'claude-code'
-        ),
-      },
-    },
-  }
+  // 复用 cmdPlan 已落盘的 signals 避免跨阶段漂移（参见 buildRoleContextBundle existingSignals 注释）。
+  const persistedSignals = ((normalizedState.context_injection || {}).signals) || null
+  const roleContext = buildRoleContextBundle({
+    requirementText, summary, taskName, analysisPatterns,
+    discussionArtifact: discussionForSignals,
+    specStored, planStored,
+    existingSignals: persistedSignals,
+  })
+  const { signals: roleSignals, planProfile } = roleContext
 
   const templateRoot = path.resolve(__dirname, '..', '..', 'specs', 'workflow-templates')
   const planTemplate = fs.readFileSync(path.join(templateRoot, 'plan-template.md'), 'utf8')
   const requirementCoverage = buildRequirementCoverageFromSpec(specContent)
   const resumePlanPackage = inferTaskPackage(root, config)
-  const planContent = renderTemplate(planTemplate, {
-    requirement_source: requirementSource,
-    created_at: new Date().toISOString(),
-    spec_file: specRelative,
-    task_name: taskName,
-    goal: summary,
-    architecture_summary: '基于现有实现做最小必要改动，并复用已有模块与状态流转能力。',
-    tech_stack: buildTechStackSummary(config),
-    role_profile: planProfile.profile || planProfile.role || 'planner',
-    context_profile: JSON.stringify({ signals: roleSignals, phase: planProfile.phase }),
-    injected_context_summary: `- role: ${planProfile.role || 'planner'}\n- profile: ${planProfile.profile || 'default'}\n- signals: ${Object.entries(roleSignals).filter(([, value]) => Boolean(value)).map(([key]) => key).join(', ') || 'default'}`,
-    files_create: `- ${specRelative}\n- ${planRelative}`,
-    files_modify: '- 无',
-    files_test: '- 无',
-    requirement_coverage: renderRequirementCoverage(requirementCoverage),
-    tasks: buildPlanTasks(requirementCoverage, resumePlanPackage, specRelative),
-  })
+  const planContent = renderTemplate(planTemplate, buildPlanRenderValues({
+    requirementSource, createdAt: new Date().toISOString(), specStored, planStored, taskName, summary,
+    config, roleSignals, planProfile,
+    requirementCoverage,
+    planPackage: resumePlanPackage,
+  }))
   const parsedTasks = parseTasksV2(planContent)
   if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析', project_id: resolvedProjectId }
 
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.writeFileSync(planPath, planContent)
-  fs.writeFileSync(roleContextPath, `${JSON.stringify(roleContextArtifact, null, 2)}\n`)
 
   normalizedState.status = 'planned'
-  normalizedState.plan_file = planRelative
+  normalizedState.plan_file = planStored
   normalizedState.project_root = root
   if (!normalizedState.initial_head_commit) normalizedState.initial_head_commit = detectGitHead(root)
   normalizedState.task_name = taskName
   normalizedState.requirement_source = requirementSource
   normalizedState.requirement_text = requirementText
   normalizedState.current_tasks = [parsedTasks[0].id]
-  const codexSpecTrigger = shouldRunCodexSpecReview(specContent, roleSignals)
-  const codexPlanTrigger = shouldRunCodexPlanReview(planContent, specContent, roleSignals)
-  updateContextInjection(normalizedState, {
-    schema_version: '1',
-    signals: roleSignals,
-    planning: {
-      plan_generation: { role: planProfile.role, profile: planProfile.profile },
-      plan_review: { role: planReviewProfile.role, profile: planReviewProfile.profile },
-      codex_spec_review: { triggered: codexSpecTrigger.run, reason: codexSpecTrigger.reason },
-      codex_plan_review: { triggered: codexPlanTrigger.run, reason: codexPlanTrigger.reason },
-    },
-    execution: {
-      quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
-    },
-    artifact_path: path.relative(root, roleContextPath).replace(/\\/g, '/'),
-  })
-  const existingSpecCodexReview = (normalizedState.review_status || {}).codex_spec_review || {}
-  if (!existingSpecCodexReview.status || existingSpecCodexReview.status === 'pending' || existingSpecCodexReview.status === 'skipped') {
-    updateCodexSpecReview(normalizedState, { status: codexSpecTrigger.run ? 'pending' : 'skipped', trigger_reason: codexSpecTrigger.reason })
-  }
-  updateCodexPlanReview(normalizedState, { status: codexPlanTrigger.run ? 'pending' : 'skipped', trigger_reason: codexPlanTrigger.reason })
-  updatePlanReviewRecord(normalizedState, {
-    status: 'pending',
-    review_mode: 'machine_loop',
-    reviewer: 'subagent',
-    role: planReviewProfile.role,
-    profile: planReviewProfile.profile,
-    signals_snapshot: roleSignals,
-    next_action: 'compile_tasks',
+  applyReviewRecords(normalizedState, {
+    roleContext, specContent, planContent,
+    planGenerated: true,
   })
   writeState(statePath, normalizedState)
 
@@ -811,12 +1107,373 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
     review_recorded: true,
     project_id: resolvedProjectId,
     workflow_status: normalizedState.status,
-    spec_file: specRelative,
-    plan_file: planRelative,
+    spec_file: specStored,
+    plan_file: planStored,
     task_count: parsedTasks.length,
     current_tasks: normalizedState.current_tasks,
     awaiting_user_spec_review: false,
     spec_review_status: normalizedState.review_status.user_spec_review.status,
+  }
+}
+
+// T5 cmdPlanReview：读 active workflow state → 读 spec.md / plan.md → 跑全部 lint → 汇总成统一 JSON。
+// ready 判定矩阵见 workflow-plan plan §T20:
+//   - placeholder.hits / coverage.uncovered_ids → hard block
+//   - 其他 lint 由 Phase B/C 任务陆续接入
+function cmdPlanReview(projectId = null, projectRoot = null) {
+  const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
+  if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有活跃的工作流' }
+  if (!state.plan_file) return { error: 'plan_file 未生成', project_id: resolvedProjectId }
+  const planAbs = path.isAbsolute(state.plan_file) ? state.plan_file : path.join(root, state.plan_file)
+  if (!fs.existsSync(planAbs)) return { error: `plan_file 不存在: ${planAbs}`, project_id: resolvedProjectId }
+  const planMd = fs.readFileSync(planAbs, 'utf8')
+  // F-13: spec 不可加载就不能放行 ready —— traceability 需要 spec 作为 R-ID 基准。
+  let specMd = ''
+  let specStatus = 'ok'
+  if (!state.spec_file) {
+    specStatus = 'spec_file_not_configured'
+  } else {
+    const specAbs = path.isAbsolute(state.spec_file) ? state.spec_file : path.join(root, state.spec_file)
+    if (!fs.existsSync(specAbs)) {
+      specStatus = 'spec_file_missing'
+    } else {
+      try {
+        specMd = fs.readFileSync(specAbs, 'utf8')
+      } catch (e) {
+        specStatus = 'spec_read_error'
+      }
+    }
+  }
+  const planVersion = detectPlanVersion(planMd)
+  const isV2Plan = planVersion === 2
+  const anchorIntegrity = lintAnchorIntegrity(planMd)
+  const lints = {
+    placeholder: lintPlaceholder(planMd),
+    atomicity: lintTaskAtomicity(planMd),
+    anchor_integrity: { ...anchorIntegrity, plan_version: planVersion, enforced: isV2Plan },
+    mandatory_reading: lintMandatoryReading(planMd),
+    command_syntax: lintCommandSyntax(planMd),
+    pattern_fidelity: lintPatternFidelity(planMd, root),
+    type_consistency: lintTypeConsistency(planMd),
+  }
+  const coverage = checkRequirementCoverage(planMd, specMd)
+  const confidence = scoreConfidence(planMd, {
+    coverage,
+    atomicity: lints.atomicity,
+    commandSyntax: lints.command_syntax,
+    patternFidelity: lints.pattern_fidelity,
+  })
+  const summary = derivePlanSummary(planMd, state)
+  const anchorOk = isV2Plan
+    ? (anchorIntegrity.orphans.length === 0
+       && anchorIntegrity.missing.length === 0
+       && (anchorIntegrity.stale || []).length === 0)
+    : true
+  const mandatoryOk = !(lints.mandatory_reading.declared && lints.mandatory_reading.violations.length > 0)
+  const specOk = specStatus === 'ok'
+  const ready =
+    lints.placeholder.hits.length === 0 &&
+    coverage.uncovered_ids.length === 0 &&
+    anchorOk &&
+    mandatoryOk &&
+    specOk
+  return {
+    ready,
+    project_id: resolvedProjectId,
+    plan_file: state.plan_file,
+    spec_file: state.spec_file || null,
+    spec_status: specStatus,
+    lints,
+    coverage,
+    confidence,
+    summary,
+  }
+}
+
+// T16 lintMandatoryReading：抽 Mandatory Reading 表行,正则强制 file:lineStart-lineEnd 格式。
+// 区分 declared=false(无该区块,不挡)/declared=true 且有违规(hard block)。
+function lintMandatoryReading(planMarkdown) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  // 截取 Mandatory Reading section：从 heading 起,直到下一个 ## heading / --- 分隔 / 文件末尾。
+  const headingMatch = planMd.match(/^##\s*Mandatory Reading.*$/m)
+  if (!headingMatch) return { violations: [], declared: false }
+  const startIdx = planMd.indexOf(headingMatch[0])
+  const tail = planMd.slice(startIdx + headingMatch[0].length)
+  const stopMatch = tail.match(/\n(##\s|---)/)
+  const section = stopMatch ? tail.slice(0, stopMatch.index) : tail
+  const violations = []
+  const ROW_RE = /^\|\s*P\d+\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
+  let row
+  while ((row = ROW_RE.exec(section)) !== null) {
+    const file = row[1].trim()
+    const lines = row[2].trim()
+    // 允许的格式: `123` 或 `123-456` 或反引号包裹版本
+    const cleanedLines = lines.replace(/^`|`$/g, '').trim()
+    if (!/^\d+(-\d+)?$/.test(cleanedLines)) {
+      violations.push({ file, lines, reason: 'lines 字段须形如 N 或 N-M' })
+    }
+  }
+  return { violations, declared: true }
+}
+
+// T17 lintCommandSyntax：抽 task 块的 `验证命令` 字段,做轻量语法校验。
+// 不依赖第三方 shell parser(避免引入 npm 依赖),仅做括号 / 引号 / 管道闭合校验。
+function lintCommandSyntax(planMarkdown) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const issues = []
+  const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
+  for (const block of taskBlocks) {
+    const idMatch = block.match(/^(?:## |### )?(T\d+):/m)
+    if (!idMatch) continue
+    const taskId = idMatch[1]
+    const cmdMatch = block.match(/-\s*\*\*验证命令\*\*\s*[:：]\s*([^\n]+)/)
+    if (!cmdMatch) continue
+    const cmd = cmdMatch[1].trim()
+    const issuesForCmd = []
+    // 括号配对
+    const open = (cmd.match(/[([{]/g) || []).length
+    const close = (cmd.match(/[)\]}]/g) || []).length
+    if (open !== close) issuesForCmd.push('bracket_mismatch')
+    // 引号闭合(单/双)
+    if (((cmd.match(/'/g) || []).length) % 2 !== 0) issuesForCmd.push('single_quote_unclosed')
+    if (((cmd.match(/"/g) || []).length) % 2 !== 0) issuesForCmd.push('double_quote_unclosed')
+    // 管道末尾不应裸悬空
+    if (/\|\s*$/.test(cmd)) issuesForCmd.push('trailing_pipe')
+    if (issuesForCmd.length > 0) {
+      issues.push({ task: taskId, command: cmd, kinds: issuesForCmd })
+    }
+  }
+  return { issues }
+}
+
+// T18 lintPatternFidelity：检查 Patterns to Mirror 区块的 `// SOURCE: file:lines` 引用真实存在。
+function lintPatternFidelity(planMarkdown, projectRoot = process.cwd()) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const unresolved = []
+  const SRC_RE = /\/\/\s*SOURCE:\s*(\S+?)(?::(\d+)(?:-(\d+))?)?$/gm
+  let m
+  while ((m = SRC_RE.exec(planMd)) !== null) {
+    const file = m[1]
+    const startLine = m[2] ? Number(m[2]) : null
+    const endLine = m[3] ? Number(m[3]) : startLine
+    const abs = path.isAbsolute(file) ? file : path.join(projectRoot, file)
+    if (!fs.existsSync(abs)) {
+      unresolved.push({ file, reason: 'file_not_found' })
+      continue
+    }
+    if (startLine !== null) {
+      try {
+        const totalLines = fs.readFileSync(abs, 'utf8').split('\n').length
+        if (startLine > totalLines || (endLine && endLine > totalLines)) {
+          unresolved.push({ file, lines: `${startLine}-${endLine || ''}`, reason: 'line_out_of_range', total_lines: totalLines })
+        }
+      } catch {
+        unresolved.push({ file, reason: 'read_error' })
+      }
+    }
+  }
+  return { unresolved }
+}
+
+// T19 lintTypeConsistency：跨 task 找命名相似但不等的符号。
+// 预过滤降噪：长度 ≥ 5 / case-insensitive 等价跳过 / 词序重排跳过 / 数字结尾跳过。
+function levenshtein(a, b) {
+  if (a === b) return 0
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+    }
+  }
+  return dp[m][n]
+}
+
+function camelToTokens(name) {
+  return String(name).replace(/[A-Z]/g, (c) => ` ${c}`).trim().toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+function endsWithDigit(name) {
+  return /\d$/.test(String(name))
+}
+
+function lintTypeConsistency(planMarkdown) {
+  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+  const symbolMap = new Map() // symbol → Set<taskId>
+  const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
+  for (const block of taskBlocks) {
+    const idMatch = block.match(/^(?:## |### )?(T\d+):/m)
+    if (!idMatch) continue
+    const taskId = idMatch[1]
+    // 抽取符号：function/class/interface/type 声明 + 函数调用 foo(
+    const declRe = /\b(?:function|class|interface|type)\s+([A-Za-z_][\w]+)/g
+    const callRe = /\b([a-z][\w]+)\s*\(/g
+    let dm
+    while ((dm = declRe.exec(block)) !== null) {
+      const sym = dm[1]
+      if (!symbolMap.has(sym)) symbolMap.set(sym, new Set())
+      symbolMap.get(sym).add(taskId)
+    }
+    while ((dm = callRe.exec(block)) !== null) {
+      const sym = dm[1]
+      if (!symbolMap.has(sym)) symbolMap.set(sym, new Set())
+      symbolMap.get(sym).add(taskId)
+    }
+  }
+  // 预过滤
+  const symbols = [...symbolMap.keys()].filter((s) => s.length >= 5 && !endsWithDigit(s))
+  const pairs = []
+  for (let i = 0; i < symbols.length; i++) {
+    for (let j = i + 1; j < symbols.length; j++) {
+      const a = symbols[i]
+      const b = symbols[j]
+      if (a.toLowerCase() === b.toLowerCase()) continue // case-insensitive 等价
+      const ta = camelToTokens(a).slice().sort().join(' ')
+      const tb = camelToTokens(b).slice().sort().join(' ')
+      if (ta === tb) continue // 词序重排
+      const d = levenshtein(a, b)
+      if (d > 0 && d <= 2) {
+        pairs.push({
+          name: a,
+          variants: [b],
+          locations: [...new Set([...(symbolMap.get(a) || []), ...(symbolMap.get(b) || [])])],
+          distance: d,
+        })
+      }
+    }
+  }
+  return { pairs }
+}
+
+// T12 + T12.5 cmdPlanEdit：锚点 section 级替换 + v1 plan 检测降级。
+// 读 front matter `version` 字段：v2 走锚点路径,其他默认拒绝（除非 --allow-legacy）。
+function detectPlanVersion(planMd) {
+  // F-09: 行尾 `\r?\n` 兼容 CRLF / LF;否则 Windows 保存的 plan 永远走 legacy 路径。
+  const fmMatch = String(planMd || '').match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!fmMatch) return null
+  const versionMatch = fmMatch[1].match(/^version\s*:\s*(\d+)\s*$/m)
+  return versionMatch ? Number(versionMatch[1]) : null
+}
+
+function cmdPlanEdit({ anchor, mode = 'replace_between', contentFile, allowLegacy = false, allowAnchorChange = false, projectId = null, projectRoot = null } = {}) {
+  if (!anchor) return { error: '缺少 --anchor 参数' }
+  if (!contentFile) return { error: '缺少 --content-file 参数' }
+  if (!fs.existsSync(contentFile)) return { error: `--content-file 不存在: ${contentFile}` }
+  if (mode !== 'replace_between' && mode !== 'replace_full') {
+    return { error: `非法 --mode: ${mode},仅支持 replace_between / replace_full` }
+  }
+  if (mode === 'replace_full' && !allowAnchorChange) {
+    return { error: 'replace_full 模式会替换锚点行本身,需 --allow-anchor-change 显式确认' }
+  }
+  const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
+  if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有活跃的工作流' }
+  if (!state.plan_file) return { error: 'plan_file 未生成' }
+  const planAbs = path.isAbsolute(state.plan_file) ? state.plan_file : path.join(root, state.plan_file)
+  if (!fs.existsSync(planAbs)) return { error: `plan_file 不存在: ${planAbs}` }
+  const planMd = fs.readFileSync(planAbs, 'utf8')
+
+  const version = detectPlanVersion(planMd)
+  const isV2 = version === 2
+  if (!isV2 && !allowLegacy) {
+    return {
+      error: 'legacy_plan_no_anchors',
+      detected_version: version,
+      suggestion: '本 plan 为旧格式(无 version:2 标记),plan-edit 默认拒绝。请用 Edit 工具直接修改,或加 --allow-legacy 强制(将整文件替换,失去锚点保护)。',
+    }
+  }
+
+  const newContent = fs.readFileSync(contentFile, 'utf8')
+  const bytesBefore = Buffer.byteLength(planMd, 'utf8')
+
+  if (!isV2 && allowLegacy) {
+    // 降级路径：整文件替换,stderr 警告
+    process.stderr.write(`[plan-edit] WARNING: legacy plan v${version} 整文件覆盖（--allow-legacy 已确认）\n`)
+    fs.writeFileSync(planAbs, newContent)
+    return {
+      written: true,
+      legacy_overwrite: true,
+      plan_file: state.plan_file,
+      bytes_before: bytesBefore,
+      bytes_after: Buffer.byteLength(newContent, 'utf8'),
+      anchors_intact: false,
+    }
+  }
+
+  // v2 锚点路径
+  const anchorBegin = `<!-- WF:ANCHOR:${anchor}:begin -->`
+  const anchorEnd = `<!-- WF:ANCHOR:${anchor}:end -->`
+  if (!planMd.includes(anchorBegin) || !planMd.includes(anchorEnd)) {
+    return { error: `锚点未找到: ${anchor}`, anchor_begin: anchorBegin, anchor_end: anchorEnd }
+  }
+  const escId = anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // 行尾用 `\r?\n` 兼容 CRLF / LF;否则 Windows / Notepad 编辑过的 plan 会无声 no-op(F-09)。
+  const reBetween = new RegExp(`(<!--\\s*WF:ANCHOR:${escId}:begin\\s*-->\\r?\\n)([\\s\\S]*?)(\\r?\\n<!--\\s*WF:ANCHOR:${escId}:end\\s*-->)`)
+  const reFull = new RegExp(`<!--\\s*WF:ANCHOR:${escId}:begin\\s*-->[\\s\\S]*?<!--\\s*WF:ANCHOR:${escId}:end\\s*-->`)
+  // 用 callback 而非 replacement string 避免 newContent 中的 `$&` / `$1` / `$$` 等 metachar
+  // 被 JS String.replace 当成 backreference 展开(F-05)。callback 返回值按字面插入。
+  // F-09:无声 no-op 防御 —— 先 .test 确认正则会匹配,匹配失败 → error 而非"silent succeed"。
+  const targetRe = mode === 'replace_between' ? reBetween : reFull
+  if (!targetRe.test(planMd)) {
+    return {
+      error: 'anchor_pattern_mismatch',
+      anchor,
+      mode,
+      note: '锚点 begin/end 都存在但 pattern 未匹配(可能 CRLF 行尾或锚点形状异常),拒绝写入避免静默 no-op。',
+    }
+  }
+  let newMd
+  if (mode === 'replace_between') {
+    newMd = planMd.replace(reBetween, (_match, begin, _existing, end) => `${begin}${newContent}${end}`)
+  } else {
+    newMd = planMd.replace(reFull, () => newContent)
+  }
+  // 写回前校验锚点完整性。
+  // v2 plan 同时挡 orphans + missing —— replace_full --allow-anchor-change 可能整段删掉必需锚点对,
+  // 此时 orphans=[] 但 missing 非空,旧逻辑会放行写盘致 plan 损坏。修复 F-02。
+  const integrity = lintAnchorIntegrity(newMd)
+  const integrityBroken =
+    integrity.orphans.length > 0
+    || (isV2 && integrity.missing.length > 0)
+    || (isV2 && (integrity.stale || []).length > 0)
+  if (integrityBroken) {
+    return {
+      error: 'anchor_integrity_broken_after_edit',
+      orphans: integrity.orphans,
+      missing: isV2 ? integrity.missing : [],
+      stale: isV2 ? (integrity.stale || []) : [],
+      note: '写入会破坏锚点配对 / 删除必需锚点 / 残留无对应 heading 的 task anchor,已拒绝。',
+    }
+  }
+  // 防止编辑后 plan 不再包含 state.current_tasks 引用的 task heading,
+  // 让 workflow-execute 失锚。`##` / `###` 两种 heading 都视作 task。
+  const currentTasks = Array.isArray(state.current_tasks) ? state.current_tasks : []
+  if (currentTasks.length > 0) {
+    const newTaskIds = new Set((newMd.match(/^(?:##|###)\s+(T\d+):/gm) || []).map((s) => s.match(/T\d+/)[0]))
+    const orphaned = currentTasks.filter((tid) => !newTaskIds.has(tid))
+    if (orphaned.length > 0) {
+      return {
+        error: 'current_tasks_orphaned_by_edit',
+        orphaned_task_ids: orphaned,
+        current_tasks: currentTasks,
+        note: `编辑后 plan 不再包含 state.current_tasks 中的任务 ${orphaned.join(', ')},workflow-execute 会失锚。请先调整 state.current_tasks 或保留这些 task。`,
+      }
+    }
+  }
+  fs.writeFileSync(planAbs, newMd)
+  return {
+    written: true,
+    plan_file: state.plan_file,
+    anchor,
+    mode,
+    bytes_before: bytesBefore,
+    bytes_after: Buffer.byteLength(newMd, 'utf8'),
+    anchors_intact: true,
   }
 }
 
@@ -827,6 +1484,19 @@ module.exports = {
   renderRequirementCoverage,
   buildPRDCoverageReport,
   buildPlanTasks,
+  lintTaskAtomicity,
+  lintPlaceholder,
+  checkRequirementCoverage,
+  derivePlanSummary,
+  scoreConfidence,
   cmdPlan,
   cmdSpecReview,
+  cmdPlanReview,
+  cmdPlanEdit,
+  lintAnchorIntegrity,
+  detectPlanVersion,
+  lintMandatoryReading,
+  lintCommandSyntax,
+  lintPatternFidelity,
+  lintTypeConsistency,
 }

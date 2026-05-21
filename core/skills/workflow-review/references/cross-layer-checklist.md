@@ -7,7 +7,7 @@
 >
 > Probe E 依赖 Code Specs Check（执行workflow第 5 项）产出的 code-spec 映射，必须在其之后执行。
 >
-> A–D 共 4 个维度，只做 diff 启发式早期警示。Stage 2 子 Agent 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 Stage 2 发现同一问题，应合并为一条，避免上下游重复。
+> A–D 共 4 个维度，只做 diff 启发式早期警示。execute Step 5.2 reviewer Phase 2 会对 `代码复用` 与 `跨层完整性` 做更深判断；若 per-task reviewer 发现同一问题，应合并为一条，避免上下游重复（P3 重定位后，workflow-review 不再重审 per-task 代码质量）。
 
 ## 如何使用
 
@@ -89,6 +89,16 @@
 - [ ] 对每份 spec 逐段核对 7 段是否达标；缺失段名要具体
 - [ ] 给用户明确修复路径：`/spec-update` 补齐 → 重跑 `/workflow-review`
 
+**渲染模板**（Stage 1 输出块，命中时追加在主框架后）：
+
+```
+**Probe E Infra Depth (Blocking):**
+- 关键路径文件：src/api/export.ts, src/migrations/20260419_add_export.sql
+- 关联 code-spec：my-pkg/backend/export-api.md
+- 缺失段：Validation & Error Matrix, Tests Required
+- 建议：用 /spec-update 补齐对应段落后再重跑 /workflow-review
+```
+
 **阻塞行为**：
 
 - 调用 `quality_review.js fail --failed-stage stage1 --cross-layer-depth-gap true` 并提供：
@@ -114,14 +124,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js fail T3 \
   --last-result-json '{}'
 ```
 
-## 与 Stage 2 的去重
+## 与 per-task review 的去重
 
-Stage 2 `stage2-review-checklist.md` 已覆盖：
+execute Step 5.2 reviewer Phase 2 已覆盖（per-task 粒度，由单 reviewer subagent 把关）：
 
-- **代码复用** — 子 Agent 会对照运行时 `.claude/.agent-workflow/specs/guides/code-reuse-checklist.md`
-- **跨层完整性** — 子 Agent 会对照运行时 `.claude/.agent-workflow/specs/guides/cross-layer-checklist.md`
+- **代码复用** — 对照运行时 `.claude/.agent-workflow/specs/guides/code-reuse-checklist.md`
+- **跨层完整性** — 对照运行时 `.claude/.agent-workflow/specs/guides/cross-layer-checklist.md`
 
-Stage 1 的 probe 是**更便宜的早期警示**；Stage 2 的判断权威更高。若同一问题两者都命中，以 Stage 2 的详细判定为准，在最终报告里合并为一条。
+本 Stage 1 probe 是**workflow 级**的早期警示（per-task review 看不到跨 task 维度）。同一问题两者都命中时，以 per-task reviewer 判定为权威（细到行号），本 probe 在汇总报告里合并为一条。
 
 ## 调用语义（面向 SKILL.md 实现）
 
@@ -146,6 +156,7 @@ if shared_parent_dir_count(files, min=2):
   advisory.push(section="D 同层一致性", checklist_from="§D")
 
 render_block("Cross-Layer (Advisory)", advisory)
+# 每条形如：- [A 数据流] 本次 diff 触及 3+ 层，请按 §A 自检
 
 # Probe E 单独判断：只有命中且 code-spec 深度不足时才阻塞
 infra = classifyInfraDepth(files)   # role_injection.js

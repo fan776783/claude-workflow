@@ -1,6 +1,6 @@
 # Figma MCP 工具参考
 
-> 本文件是底层参数参考。workflow 流程见 SKILL.md + playbook.md，CLI 用法见 SKILL.md "运行入口"。
+> 本文件是底层参数参考。workflow 见 SKILL.md + playbook.md，CLI 用法见 SKILL.md "运行入口"。
 
 ---
 

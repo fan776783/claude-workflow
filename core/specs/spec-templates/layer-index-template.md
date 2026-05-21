@@ -67,9 +67,4 @@ Status 合法值：Not Started / Draft / Done
 
 ## Quality Check
 
-完成后自检清单，每条指向具体检查项与可执行命令：
-
-- [ ] 运行 `git diff --name-only` 确认改动范围
-- [ ] 对照相关 guideline 文件逐条核对（指向 Guidelines Index）
-- [ ] 运行 lint / type-check / test：`(填入具体命令)`
-- [ ] 补齐测试：新 pure function → unit test；bug fix → regression test；init/update → integration test
+完成后自检清单见根 [`index.md` 的 Quality Check 段](../../index.md#quality-check)（全项目单一来源）。本层若有特有检查项，在此追加，不复制通用清单。

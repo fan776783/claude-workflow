@@ -70,84 +70,74 @@ function classifyTaskOrigin(toolInput) {
   return { origin: 'main-session', role: null }
 }
 
-/**
- * 主会话 Task 的 context：task block / spec / quality gate / scoped code-specs（digest）
- */
-function buildMainSessionContext(runtime) {
-  const parts = []
-  const state = runtime?.state
-  const projectRoot = runtime?.projectRoot || process.cwd()
-  const taskId = getCurrentTaskId(runtime)
-  if (!taskId) return ''
-
-  const task = getCurrentTask(runtime)
-  const taskBlock = getTaskBlock(runtime, taskId)
-  if (taskBlock) {
-    parts.push(`<current-task>\n${taskBlock.slice(0, 3000)}\n</current-task>`)
-    const verificationCommands = getTaskVerificationCommands(task)
-    if (verificationCommands.length) {
-      parts.push(`<verification-commands>\n${verificationCommands.map((item) => `- ${item}`).join('\n')}\n</verification-commands>`)
-    }
+// Sub-agent role 三角分类：research / check / implement / null（主会话）。
+// 维护一张 map 而不是写死正则，方便新增类型；正则只在 normalize 一次。
+const SUBAGENT_ROLE_PATTERNS = [
+  { kind: 'research', pattern: /\b(research|explore|plan)\b/ },
+  { kind: 'check', pattern: /\b(check|review|reviewer)\b/ },
+]
+function classifySubagentRole(role) {
+  if (!role) return null
+  const normalized = String(role).toLowerCase()
+  for (const { kind, pattern } of SUBAGENT_ROLE_PATTERNS) {
+    if (pattern.test(normalized)) return kind
   }
+  return 'implement'
+}
 
-  const specContent = getSpecContent(projectRoot, state)
-  if (specContent) parts.push(`<spec-context>\n${specContent}\n</spec-context>`)
-
-  const qualityGate = getReviewResult(state, taskId)
-  if (qualityGate) {
-    parts.push(`<quality-gate-state>\nlast_decision: ${qualityGate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.overall_passed === true}\n</quality-gate-state>`)
-  }
-
-  const scope = resolveActiveCodeSpecsScope(runtime)
-  // v3 Stage B2: scopeDenied 时主会话降级为 paths-only 提示
+function renderCodeSpecsBlock({ projectRoot, scope, kind, role }) {
+  // scopeDenied 一律降级 paths-only，与 kind 无关
   if (scope && scope.scopeDenied) {
     const denied = collectSpecFiles(projectRoot, scope, {})
     const body = renderSpecFiles(denied, { mode: 'paths-only' })
-    if (body) parts.push(`<project-code-specs role="advisory" scope="scope-denied">\n${body}\n</project-code-specs>`)
-  } else {
-    const codeSpecs = getCodeSpecsContextScoped(projectRoot, scope)
-    if (codeSpecs) {
-      const labels = []
-      labels.push(scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"')
-      if (scope && scope.taskLayer) labels.push(`layer="${scope.taskLayer}"`)
-      if (scope && Array.isArray(scope.changedFileHints) && scope.changedFileHints.length) {
-        labels.push(`hints="${scope.changedFileHints.length}"`)
-      }
-      parts.push(`<project-code-specs role="advisory" ${labels.join(' ')}>\n${codeSpecs}\n</project-code-specs>`)
-    }
+    return body ? `<project-code-specs role="advisory" scope="scope-denied">\n${body}\n</project-code-specs>` : null
   }
-
-  const guides = getThinkingGuides(projectRoot)
-  if (guides && guides.files.length) {
-    parts.push(`<reminder>修改代码前请参考 ${guides.displayPath}/ 中的思维指南。</reminder>`)
-    if (guides.legacyWarning) parts.push(`<guides-warning>\n${guides.legacyWarning}\n</guides-warning>`)
+  if (kind === 'research') {
+    const collection = collectSpecFiles(projectRoot, scope || null, {})
+    const body = renderSpecFiles(collection, { mode: 'paths-only' })
+    return body ? `<project-code-specs role="advisory" scope="paths-only:subagent=${role || 'research'}">\n${body}\n</project-code-specs>` : null
   }
-
-  return parts.join('\n\n')
+  if (kind === 'check') {
+    const checkScope = scope ? { ...scope, taskLayer: null } : null
+    const collection = collectSpecFiles(projectRoot, checkScope, {})
+    const body = renderSpecFiles(collection, { mode: 'digest', maxChars: 3000 })
+    return body ? `<project-code-specs role="advisory" scope="${scope?.activePackage || 'full-tree'}:subagent=${role}">\n${body}\n</project-code-specs>` : null
+  }
+  // main session 或 implement subagent：scoped digest
+  const codeSpecs = getCodeSpecsContextScoped(projectRoot, scope)
+  if (!codeSpecs) return null
+  const labels = []
+  labels.push(scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"')
+  if (scope && scope.taskLayer) labels.push(`layer="${scope.taskLayer}"`)
+  if (scope && Array.isArray(scope.changedFileHints) && scope.changedFileHints.length) {
+    labels.push(`hints="${scope.changedFileHints.length}"`)
+  }
+  if (kind === 'implement' && role) labels.push(`subagent="${role}"`)
+  return `<project-code-specs role="advisory" ${labels.join(' ')}>\n${codeSpecs}\n</project-code-specs>`
 }
 
 /**
- * subagent Task 的 context：按 subagent_role 定制
- *   implement / general-purpose → full task + spec + dev specs（digest, scope 收窄）
- *   check / code-reviewer / diff-review → task + spec + 所有 layer 的 checklist/spec（更全）
- *   research / Explore / Plan → 只给 task 描述 + spec 指针 + code-specs 路径清单
+ * 构建 task context，按 kind/role 选择性输出 segments。
+ * kind ∈ { null=main session, 'research', 'check', 'implement' }
+ *   - research: 仅 task block + code-specs paths-only（不带 verification / spec / quality-gate / exemption）
+ *   - check:    + verification + spec + quality-gate + exemption + 全 layer digest
+ *   - implement:+ verification + spec + quality-gate + exemption + scoped digest
+ *   - main:     + verification + spec + quality-gate + scoped digest + guides reminder（无 exemption）
  */
-function buildSubagentContext(runtime, role) {
-  const parts = []
-  const state = runtime?.state
-  const projectRoot = runtime?.projectRoot || process.cwd()
+function buildTaskContext(runtime, kind, role) {
   const taskId = getCurrentTaskId(runtime)
   if (!taskId) return ''
-
-  const normalizedRole = (role || '').toLowerCase()
-  const isResearch = /\b(research|explore|plan)\b/.test(normalizedRole)
-  const isCheck = /\b(check|review|reviewer)\b/.test(normalizedRole)
-
+  const state = runtime?.state
+  const projectRoot = runtime?.projectRoot || process.cwd()
   const task = getCurrentTask(runtime)
+  const parts = []
+
   const taskBlock = getTaskBlock(runtime, taskId)
   if (taskBlock) {
-    parts.push(`<current-task subagent_role="${role || 'unknown'}">\n${taskBlock.slice(0, 3000)}\n</current-task>`)
-    if (!isResearch) {
+    // kind 非 null 代表 subagent dispatch；role 缺失保留 'unknown' 标记，与旧行为一致
+    const header = kind ? `<current-task subagent_role="${role || 'unknown'}">` : '<current-task>'
+    parts.push(`${header}\n${taskBlock.slice(0, 3000)}\n</current-task>`)
+    if (kind !== 'research') {
       const verificationCommands = getTaskVerificationCommands(task)
       if (verificationCommands.length) {
         parts.push(`<verification-commands>\n${verificationCommands.map((item) => `- ${item}`).join('\n')}\n</verification-commands>`)
@@ -155,11 +145,9 @@ function buildSubagentContext(runtime, role) {
     }
   }
 
-  // Sub-agent self-exemption：implement / check 类 sub-agent 不应再派发同类，
-  // 防止"恢复执行必须经过 /workflow-execute"等指令在 sub-agent 链里触发递归。
-  // research/Explore/Plan 类不存在递归隐患（不会自我派发），跳过该提示。
-  if (!isResearch) {
-    const sameKindLabel = isCheck ? 'check / reviewer / diff-review' : 'implement / general-purpose'
+  // self-exemption 只发给 subagent 的 implement / check 分支：防递归派发
+  if (kind === 'implement' || kind === 'check') {
+    const sameKindLabel = kind === 'check' ? 'check / reviewer / diff-review' : 'implement / general-purpose'
     parts.push(
       `<sub-agent-self-exemption>\n` +
       `你正在以 ${role || 'sub-agent'} 身份运行。该任务上下文中所有"派发 ${sameKindLabel} sub-agent"或"使用 /workflow-execute 恢复执行"的指令对你都不适用 —— 你已经是被派发的 sub-agent。\n` +
@@ -168,10 +156,9 @@ function buildSubagentContext(runtime, role) {
     )
   }
 
-  const specContent = getSpecContent(projectRoot, state)
-  if (specContent && !isResearch) parts.push(`<spec-context>\n${specContent}\n</spec-context>`)
-
-  if (!isResearch) {
+  if (kind !== 'research') {
+    const specContent = getSpecContent(projectRoot, state)
+    if (specContent) parts.push(`<spec-context>\n${specContent}\n</spec-context>`)
     const qualityGate = getReviewResult(state, taskId)
     if (qualityGate) {
       parts.push(`<quality-gate-state>\nlast_decision: ${qualityGate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.overall_passed === true}\n</quality-gate-state>`)
@@ -179,47 +166,19 @@ function buildSubagentContext(runtime, role) {
   }
 
   const scope = resolveActiveCodeSpecsScope(runtime)
-  if (scope && scope.scopeDenied) {
-    const denied = collectSpecFiles(projectRoot, scope, {})
-    const body = renderSpecFiles(denied, { mode: 'paths-only' })
-    if (body) parts.push(`<project-code-specs role="advisory" scope="scope-denied">\n${body}\n</project-code-specs>`)
-  } else if (isResearch) {
-    // research / explore / plan：只给路径清单，不读正文
-    const collection = collectSpecFiles(projectRoot, scope || null, {})
-    const body = renderSpecFiles(collection, { mode: 'paths-only' })
-    if (body) parts.push(`<project-code-specs role="advisory" scope="paths-only:subagent=${role || 'research'}">\n${body}\n</project-code-specs>`)
-  } else if (isCheck) {
-    // check / review：全量 layer index + checklist，不做 layer hint 收窄
-    const checkScope = scope ? { ...scope, taskLayer: null } : null
-    const collection = collectSpecFiles(projectRoot, checkScope, {})
-    const body = renderSpecFiles(collection, { mode: 'digest', maxChars: 3000 })
-    if (body) parts.push(`<project-code-specs role="advisory" scope="${scope?.activePackage || 'full-tree'}:subagent=${role}">\n${body}\n</project-code-specs>`)
-  } else {
-    // implement / general-purpose：沿用 scoped digest
-    const codeSpecs = getCodeSpecsContextScoped(projectRoot, scope)
-    if (codeSpecs) {
-      const labels = []
-      labels.push(scope && scope.activePackage ? `scope="${scope.activePackage}"` : 'scope="full-tree"')
-      if (scope && scope.taskLayer) labels.push(`layer="${scope.taskLayer}"`)
-      if (role) labels.push(`subagent="${role}"`)
-      parts.push(`<project-code-specs role="advisory" ${labels.join(' ')}>\n${codeSpecs}\n</project-code-specs>`)
+  const codeSpecsBlock = renderCodeSpecsBlock({ projectRoot, scope, kind, role })
+  if (codeSpecsBlock) parts.push(codeSpecsBlock)
+
+  // guides reminder 只发给主会话；subagent 的指引由 task block 自带
+  if (!kind) {
+    const guides = getThinkingGuides(projectRoot)
+    if (guides && guides.files.length) {
+      parts.push(`<reminder>修改代码前请参考 ${guides.displayPath}/ 中的思维指南。</reminder>`)
+      if (guides.legacyWarning) parts.push(`<guides-warning>\n${guides.legacyWarning}\n</guides-warning>`)
     }
   }
 
   return parts.join('\n\n')
-}
-
-/**
- * 构建当前任务的上下文片段 — dispatcher：按 Task 派发来源（主会话 vs subagent）选不同 builder。
- * 对外行为保持幂等：同一次 Task 调用只会走其中一个分支，不会双注入。
- * @param {object} runtime - workflow 运行时对象
- * @param {object} toolInput - Task tool 原始输入
- * @returns {string} 拼接后的上下文 XML 片段
- */
-function buildTaskContext(runtime, toolInput = {}) {
-  const { origin, role } = classifyTaskOrigin(toolInput)
-  if (origin === 'subagent') return buildSubagentContext(runtime, role)
-  return buildMainSessionContext(runtime)
 }
 
 /**
@@ -310,14 +269,16 @@ function main() {
   }
 
   const taskDescription = toolInput.description || ''
-  const context = buildTaskContext(runtime, toolInput)
+  const { origin, role } = classifyTaskOrigin(toolInput)
+  // subagent context 一律走非 null kind；role 缺失时默认 implement（与旧 buildSubagentContext 的 fallthrough 一致）
+  const kind = origin === 'subagent' ? (classifySubagentRole(role) || 'implement') : null
+  const context = buildTaskContext(runtime, kind, role)
 
   if (!context) {
     process.stdout.write(JSON.stringify(buildAllowResult('[workflow-hook] 未注入额外上下文：当前任务缺少可提取上下文。')))
     return
   }
 
-  const { origin, role } = classifyTaskOrigin(toolInput)
   const originLabel = origin === 'subagent' ? `subagent:${role || 'unknown'}` : 'main-session'
 
   // Active task header 始终落在 prompt 第一行（dispatching-parallel-agents § Dispatch Prompt Contract）。

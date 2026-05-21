@@ -18,7 +18,11 @@ CLI 路径（相对本 skill）：`cli/figma.mjs`，Node >= 18，无需安装依
 node <skill-root>/figma-data/cli/figma.mjs <subcommand> [args...]
 ```
 
+<!-- snapshot 2026-05-15 — Figma Desktop MCP Server v1.0.0 exposes 6 tools (get_design_context / get_screenshot / get_metadata / get_variable_defs / get_figjam / create_design_system_rules). refresh: `node cli/figma.mjs list-tools --refresh` and `diff-tools` for drift detection. See ADR-0001 Decision 1/2. -->
+
 CLI 封装 Figma Desktop MCP Server（`http://127.0.0.1:3845/mcp`）全部工具，替代原生 MCP tool 调用，并自动管理资产临时目录和差集计算。
+
+**Design Package** 输出含 `schemaVersion: "1.0"`（ADR-0001 Decision 6）；下游 `figma-ui` Phase A Gate 0 必须 assert。`get_design_context` 不可用时自动降级到 `screenshot + get_metadata` 只读模式，输出 `mode: "read-only-fallback"`。
 
 ### 高频命令
 
@@ -96,7 +100,7 @@ node cli/figma.mjs doctor
 
 连接失败或首次配置 → 见 [`references/troubleshooting.md`](references/troubleshooting.md)。
 
-## Design Package 输出契约
+## Design Package 输出 contract
 
 本 skill 的最终产出是一个 **Design Package**，供下游 skill 消费：
 
@@ -217,6 +221,7 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 - **refetch-parent 阻断** — AssetPlan 中存在 `refetch-parent` 时 Design Package 未就绪
 - **通过 CLI `design` 命令调用** — CLI 自动管理 `dirForAssetWrites`；直接 raw call 时必须手动传
 - **当前模型执行** — 不调用外部模型处理数据获取和分诊
+- **AskUserQuestion enum 来自 cache 时强制 refresh**（ADR-0001 Decision 8）— 让用户从 enum 候选（如节点类型选项）选择前，若候选取自 schema cache，先跑 `list-tools --refresh` 或 `get_metadata` 内省避免 server 漂移导致选中已废值
 
 ## 降级：dirForAssetWrites 不可用
 

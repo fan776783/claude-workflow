@@ -9,6 +9,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.4.0] - 2026-05-21
+
+### Added
+
+- **`workflow-plan` Plan 骨架扩写校验增强**：新增 `references/no-placeholders.md`，并扩写 `plan-self-review.md`。Plan 扩写完成后统一走 `workflow_cli.js plan-review`，由 CLI 输出 ready / confidence / coverage / lint 摘要，避免人工扫 plan body。
+- **`workflow-plan` 锚点级编辑能力**：`plan_composer.js` 大幅扩展，支持 v2 plan 锚点 section 级替换与更严格的 task / coverage / placeholder / atomicity 校验；`workflow_cli.js` 暴露 `plan-edit` / `plan-review` 相关能力，配套新增 `tests/test_plan_composer.js`。
+- **`ux-elaboration` wireframe / 时序图规范**：§4.4 输出新增 ASCII wireframe 的“形状 + 比例”约束；复杂前端交互可追加 Mermaid `sequenceDiagram`，Page Hierarchy 增加「关键交互」列，帮助 plan 阶段识别非主路径交互。
+
+### Changed
+
+- **`workflow-spec` / `workflow-plan` 文件处理增强**：改进 spec / plan 路径推导与项目初始化辅助逻辑，降低从已批准 spec 生成 plan 骨架时的路径漂移风险。
+- **文档同步到 v6.4.0 执行模型**：README 与内部工作流指南更新为 fresh-subagent-per-task、单 reviewer、只读 fan-out 的当前语义，清理已删除 writable parallel execution / `batch_orchestrator.js` / `merge_strategist.js` 相关描述。
+
+### Removed
+
+- **移除过渡期 reviewer alignment spec**：删除已被 `workflow-execute` reviewer 合并模型吸收的 `workflow-execution-review-alignment-spec.md`，避免旧双 reviewer / writable parallel 语义继续漂移。
+
+## [6.3.4] - 2026-05-20
+
+### Changed
+
+- **`workflow-execute` reviewer 合并**：取消 spec-reviewer + code-quality-reviewer 双 subagent，合并为单一 `reviewer` 子角色，一次性评估 acceptance criteria 与代码质量，串行紧跟在 implementer 之后。`prompts/spec-reviewer.md` / `prompts/code-quality-reviewer.md` 删除，新增 `prompts/reviewer.md`；governance 逻辑按 review 结论决定 post-execution 路径。引用：`core/specs/workflow-runtime/workflow-execution-review-alignment-spec.md`。
+- **`workflow-execute` Fresh-Subagent-Per-Task 模型**：每个 task 起一个全新 implementer subagent，串行交给 reviewer 复核；废弃 writable parallel execution 子系统（使用率低 + 维护成本高），并入只读 fan-out 立场。新增 ADR `core/skills/code-specs/adr/0002-drop-writable-parallel.md`。`dispatching-parallel-agents` SKILL.md 精简为只读 fan-out 单一定位。
+- **清理 parallel dispatch 残留脚本**：删除 `agent_registry.js` / `dispatch_runner.js` / `result_collector.js` / `worktree_manager.js` / `batch_orchestrator.js` / `merge_strategist.js` 及对应 `.claude/config/agent-registry.json` 配置和 `references/parallel-dispatch.md` 文档（共 -1911 行）。
+- **`workflow-execute` upgrade_required 检测 + self-healing**：refine SKILL.md 中 review 状态自愈协议与升级判定描述。
+- **`handoff` 输出格式微调**：SKILL.md 改善交接文档结构与格式。
+- **`bug-batch` Phase 表述澄清**：SKILL.md 与 `status-and-reporting.md` 同步 phase 边界与状态流转语义。
+
+## [6.3.3] - 2026-05-19
+
+### Changed
+
+- **CLI 简化：`sync` / `link` 取消 `-a/--agent` 参数**（**breaking**）：两个命令自动作用于所有检测到的工具，不再支持指定单个 agent；`sync` 同时移除已失效的 `--legacy` 模式（依赖 `-a` + 含未定义 `homeDir`）。Interactive installer 取消 agent 多选，安装时一律 install-to-all。测试切换为 touch 假目录检测代替 `-a` 注入。
+- **移除 Qoder 支持**：`lib/agents.js` 删除 qoder 注册项，`core/specs/platform-parity.md` / `core/utils/platform_parity.js` / README / CLAUDE.md / 中文体系指南同步清理。
+- **`collaborating-with-codex` Code Task `--model` / `--effort` 文档化**：SKILL.md 明确 `spark` alias、effort 旋钮取值、与 `workflow-execute` `--backend codex` 的互动关系，引用 user CLAUDE.md "代码主权" 协议。
+- **`workflow-execute` SKILL.md self-review 步骤 + task naming conventions**：新增 self-review checklist；task name 引入显式命名约定（meaningful file names）+ override 支持；`workflow-plan` `plan_composer` 适配 name override；`workflow-status` 拆出 `references/next-action.md` + `references/output-format.md`。
+- **`ux-elaboration` 设计一致性 self-review**：新增 checklist 段；resolved inconsistencies 独立列章，与 checklist 区分。
+
+## [6.3.2] - 2026-05-19
+
+### Fixed
+
+- **Plan / spec 文件路径处理**（91e400c）：spec/plan 路径统一存为 forward-slash 形式跨 OS 兼容；active package validation 显式 reject 畸形名称防止 scope 注入；role context bundle signal/profile 管理修正；测试改验绝对路径。
+- **Explicit scope 缺包不再 fallback 全树**（582ddc1）：`pre-execute-inject.js` 与 `task_runtime.js` task context 构造引入显式 role 分类；当 explicit scope 指向不存在的 package 目录时直接报错，不再静默 fallback 到 full-tree 暴露完整 code-specs。新增 `tests/test_task_aware_injection.js` 校验 explicit scope 不泄露。
+
+### Changed
+
+- **`workflow-review` 结构整理**：SKILL.md 与 `references/cross-layer-checklist.md` 重排，明确各 phase 输入输出与 reviewer 角色契约。
+
+## [6.3.1] - 2026-05-18
+
+### Added
+
+- **Task Atomicity Rule**：plan 阶段对包含 5+ parallel items 的 task 强制拆为 sub-task，每个 sub-task 独立 acceptance criteria，可追溯到具体执行单元。`workflow_types.js` / `plan_composer.js` / `scripts/validate.js` 同步落地约束。
+- **Deviation Acceptance Process**：retry 阶段新增 `cmdAcceptDeviation`——用户显式承认实施偏离已审批 spec，记入 journal 并触发 spec-update 流程。配套 `journal.js` evidence summary 结构化校验（reject 自由文本，强制 schema 化）。
+- **Codex Review Runner**：新增 `core/utils/workflow/codex_review_runner.js` 作为 quality_review 链路中 Codex 后端的执行单元；`collaborating-with-codex` SKILL.md 同步说明何时切到 Codex backend。
+- **Doc Contracts 扩展**：`doc_contracts.js` / `workflow_types.js` / `delta_archive_cmds.js` 增加跨阶段 doc 契约校验位点。
+
+## [6.3.0] - 2026-05-18
+
+### Added
+
+- **`collaborating-with-codex` 观察性 Phase 1**：codex-bridge.mjs 拆为 `scripts/codex-bridge.mjs` + `scripts/lib/{state,gc,capture,result}.mjs` 模块化布局。新增 per-job log 文件（单行事件流 ≤200 字符 / ISO timestamp / 完整 body 入 `<id>.json`），适配 Claude Code `Monitor "tail -F <logFile>"` push 观察；非 Claude 工具走 `--status <id> --wait --tick N` 阻塞 fallback 或自定义轮询 brief snapshot。新增 `--result <id>` 终态结果聚合（agentMessages / touchedFiles / fileChanges / commandExecutions / reasoningSummary / turnId / error），中间态拒绝。Job id 支持 bucket 内 prefix 匹配。GC 自动按 count=20 + age=14d 删终态文件。状态目录从 `<workspace>/.claude/tmp/codex-jobs/` 迁到 `~/.claude/tmp/codex-jobs/<basename>-<sha8(realpath(cwd))>/`，**不再污染工作区 git status**（旧路径数据不迁移，可手动 `rm -rf <workspace>/.claude/tmp/codex-jobs`）。
+- **`collaborating-with-codex` Code Tasks 一等模式**：bridge 新增 `--model <name>`（含 `spark` → `gpt-5.3-codex-spark` alias）与 `--effort <none|minimal|low|medium|high|xhigh>` 旋钮，透传 `turn/start`。SKILL.md 新增 `## Code Tasks` 章节（when to delegate / sandbox 选择 / multi-turn diff-resume 模式 / Code Task Triage 平行于现有 Result Triage，引用 user CLAUDE.md "代码主权"协议而非重复）。`--result` 默认暴露 `touchedFiles[]` 供 parent agent 精确 diff 审查。
+- **`collaborating-with-codex` capture 增强**：移植 codex-plugin-cc（Apache-2.0）的 reasoning 去重合并、`fileChanges[]` / `touchedFiles[]` / `commandExecutions[]` 完整捕获、子 agent 命名（thread/name/updated + agentNickname/agentRole）、webSearch / mcpToolCall 描述。Log 每条事件区分主线程 vs `Subagent <name>` 前缀。
+- **`npm run test:codex-bridge`**：`node:test` 内置框架，24 个用例覆盖 state 路径稳定性 / GC count + age cap / 并发幂等 / capture 行截断 + 去重 / result brief vs detail / `--result` 终态守卫 / prefix 匹配三态。**不**加入 `prepublishOnly`（不阻塞发版）。
+- **`core/skills/collaborating-with-codex/NOTICE`**：Apache-2.0 attribution 记 codex-plugin-cc commit hash + 各 ported 模块对照表。
+- **`collaborating-with-codex` SKILL.md Codex Backend Guidelines**：新增「何时委托 Codex」+ 强制 triage 流程章节，明确 `--backend codex` 开关与 TDD 协议互动，强调外部模型输出需经当前模型重构后落盘（呼应 user CLAUDE.md "代码主权"）。
+
+## [6.2.10] - 2026-05-15
+
+### Added
+
+- **MCP wrapper skills drift-resilience（ADR-0001）**：新增 `core/skills/_shared/mcp-baseline.mjs` 跨 skill 共享模块，统一三个 MCP 包装 skill（`bk` / `alidocs` / `figma-data`）的 tool snapshot / shape 解析 / 错误归一化逻辑。三 CLI 接入 `--shape` / `raw` / `diff-tools` / `schema` 等稳定 subcommand，错误归一化为三桶（`tool_not_found`=5 / `enum_invalid`=6 / `auth`=2），stderr 输出 `{kind, hint, originalMessage}` 结构化对象供调用方解析。配 50 个单测 + 三 baseline diff 校验 `has_drift=false`。
+- **双层 baseline 策略**：每个 wrapper skill 携带 checkin 权威 baseline（`baseline-schema.json`），本地 cache 由 CLI 调用时透明维护。`diff-tools` 子命令做主动漂移检测，L3 粒度按 tool name + required + 静态 enum 比对。
+- **`bk --shape issue-record` 输出契约**：新增 9 字段稳定 `IssueRecord` 形态（issue_number / title / description / priority / state / operator_user / reporter / created_at / screenshots / module_hint），`bug-batch` / `fix-bug` 已切换消费稳定形态而非原始 MCP 响应。
+- **Design Package `schemaVersion: "1.0"`**：`figma-data` 产出 Design Package 携带版本号，`figma-ui` Phase A Gate 0 做 schemaVersion assert，不匹配直接 fail-fast。
+- **`spec-review` 第 7 类检查「Snapshot 时间戳过期」**：扫描 SKILL.md 中 `<!-- snapshot YYYY-MM-DD -->` 注释，>90d 标 warning / >180d 升 advisory，提示同步动态 enum 快照。
+- **`core/skills/_*/` 下划线前缀目录约定**：跨 skill 私有共享模块入口，**非 user-facing skill**。`lib/installer.js` / `core/utils/platform_parity.js` / `scripts/validate.js` 三处按 `_*` 前缀过滤，不会被 mount 为 skill 也不会被 platform-parity 检查统计。
+- **AskUserQuestion enum cache refresh**：从 cache 读取 enum 时强制 refresh 一次，避免拿到过期枚举值。
+- **Shared protocols 新文档**：`core/specs/shared/` 下新增 `business-glossary.md` / `pre-flight.md` / `hard-stop-templates.md` / `manual-intervention-reasons.md` / `status-readiness.md`，跨 skill 协议引用而非复写；`fix-bug` / `bug-batch` 切换为引用形式。
+
+### Changed
+
+- **`bug-batch` / `fix-bug` 消费稳定 wrapper shape**：从直接解析 bk MCP raw response 切换到 `bk --shape issue-record` 输出的 9 字段 IssueRecord，下游 prompt / 模板对字段访问路径稳定不再依赖 MCP server 字段顺序。
+- **`figma-ui` Phase A 接入 Design Package schemaVersion assert**：消费 `figma-data` 产出前先 assert `schemaVersion === "1.0"`，schemaVersion 缺失或不匹配直接 Hard Stop；`figma-data` 在 `get_design_context` tool_not_found 时降级为 `screenshot + get_metadata`，stderr 透出降级原因。
+- **`hard-stop-templates` 反馈机制双轨**：按 review volume / feedback dimensions 区分 `AskUserQuestion` 与 pure text 模式；`bug-batch` / `fix-bug` 切换为 pure text 反馈，提供结构化响应格式与归一化路径。
+- **Glossary drift 83 → 0**：约定/契约/审查/归档/流程/模块/变更/分层 等术语在 27 个 normative 文件中统一为 canonical English（convention / contract / review / archive / workflow / module / delta / layer）。fenced code block 内的 CLI 示例字符串由 validator 豁免不受影响。
+- **Wrapper skills 文档对齐**：`bk` / `alidocs` / `figma-data` troubleshooting 统一记 exit code 表 (0/1/2/3/4/5/6 per ADR-0001) + diff-tools drift detection + promote workflow；内部 guide §5.4 同步 drift-resilience 块。
+- **README + CLAUDE.md drift-resilience 落地**：README §5.4 增 drift-resilience block + 3-bucket exit codes；§8.1 指向 `_shared/mcp-baseline.mjs` 与 ADR-0001；CLAUDE.md 目录树补 `_shared/` / `bk/` / `alidocs/` 并描述 `_*/` 前缀约定。
+- **Workflow 入口命令文档同步**：文档中 `/workflow-plan` 旧引用调整为 `/workflow-spec`（spec 阶段入口），明确 `workflow-spec` 与 `workflow-plan` 的分工。
+
+## [6.2.9] - 2026-05-14
+
+### Changed
+
+- **`bug-batch` 阶段重排**：Phase 6 改为「Review + 物化 + 流转到处理中」，新增 Phase 7「重建 squash commit（前置，无 Hard Stop）」，Phase 8 合并为「汇总报告 + 全量确认（Hard Stop）+ 流转到待验证」。commit 前置到人工验证之前——经办人在主工作树上实测最终提交态，而非自行拼凑散落的 worktree / stage commit。Phase 7 重建后清理已入 commit 单元的 worktree 及 `fix/<unit_id>` 分支，`[HARD-STOP:CONFIRM-COMMIT]` 只卡「流转到待验证」这一对外副作用。
+- **`spec-review` 新增第 7 类检查「冗余检测」（v2.3, advisory）**：定性判断、不设数字阈值，覆盖四类——同文件自重复（intra-file-dup）、包内跨文件重复（intra-package-dup）、跨包重复（cross-package-dup，建议上提 `guides/`）、样板重复（boilerplate-dup，建议收敛到根 `index.md`）。全 advisory 不计入阻塞数，修复走人工 / `/quick-plan`，spec-review 保持只读不自动 dedup。
+- **`spec-update` Step 3 增加防冗余检查**：写入前扫描范围扩展到同层 `index.md` + 兄弟 convention 文件，命中即提示——兄弟文件 / index.md 重叠（防 R2）、跨包上提（防 R5）、同文件 Rules/Common Mistakes 比对（R3）、目录树重画比对（R4）。Self-Review 清单同步细化。
+- **Code-specs 模板冗余治理**：根 `index-template.md` 取消「更新记录」段（与 `local.md` Changelog 重复），新增 canonical「Quality Check」段；`layer-index-template.md` 与 5 个 stack-template `index.md` 的通用 Quality Check 改为指向根 `index.md` 的指针。新增迁移 manifest `v6.3.0.json`（含 `delete-section` 自动迁移 + breaking 说明）。
+- **`scripts/generate-manifest.js`**：`mergeManualManifestEdits` 扩展为 `breaking` / `notes` 字段也走人工手写优先，避免自动生成覆盖人工编写的迁移说明。
+
+## [6.2.8] - 2026-05-14
+
+### Changed
+
+- **`fix-bug` workflow 从 4 Phase 扩为 6 Phase**：拆出 Phase 5「汇总报告 + 修复确认（Hard Stop）」和 Phase 6「Commit + 流转到待验证」，形成两段 Hard Stop——修复前确认方案、提交 + 流转前再确认并要求人工验证。commit 与状态流转从 Phase 3/4 后移到 Phase 6，review 对象明确为未提交的工作区改动。「处理中」为经办人进度状态可自动流转，对外可见的「待验证」流转留到 Hard Stop 之后。
+- **`bug-batch` Hard Stop 表述细化**：`[HARD-STOP:CONFIRM-COMMIT]` 无条件触发（含全 completed 批次），不调 `AskUserQuestion` 改为纯文本展示汇总 + 验证提示，经办人回 `ok` 才继续。FixUnit ID 固定格式 `FU-NN`（零填充顺序号），禁止把缺陷标识拼进 ID。
+
+## [6.2.7] - 2026-05-13
+
+### Changed
+
+- **`ux-elaboration` skill 文档重构**：HARD-GATE 明确主会话 vision 只输出 LayoutAnchor 写入 §4.4.3，不解 designContext / 不写其他项目文件；像素级还原归 `/figma-ui`。设计稿策展改为人工一次性贴入构建 DesignSourceMap，新增 `--design <dir>` 入口参数，校验错误信息指引更清晰。`workflow-spec` SKILL.md 同步调整委托表述。
+- **`diagnose` skill description 修订**：明确产出根因 + 推荐修复方案，修复交给 `/fix-bug` 消费。`quick-plan` SKILL.md 同步精简。
+
 ## [6.2.6] - 2026-05-13
 
 ### Added

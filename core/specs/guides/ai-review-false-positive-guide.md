@@ -81,9 +81,9 @@
 
 ## 在 workflow 中的应用
 
-### 质量关卡 Stage 2
+### 质量关卡（per-task reviewer Phase 2 + workflow-review codex_enhanced 增援）
 
-在两阶段review的 Stage 2（代码质量review）中：
+在 execute Step 5.2 reviewer 的 Phase 2（代码质量）以及 workflow-review Stage 2 `codex_enhanced` 的 spec-级第二意见中：
 1. 对所有 CRITICAL 发现执行上述验证workflow
 2. 标记误报原因（属于哪种模式）
 3. 仅将验证通过的发现计入最终结果

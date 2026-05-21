@@ -2,7 +2,7 @@
 
 用户想为选中的深化候选探索多种接口方案时用此协议。基于"Design It Twice"(Ousterhout)——第一个想法不太可能是最好的。
 
-## 流程
+## workflow
 
 ### 1. Frame 问题空间
 
@@ -41,4 +41,4 @@ Brief 中包含 `architecture-language.md` 词汇和项目 glossary 词汇。
 
 ### Fallback(不支持并行时)
 
-工具不支持并行 Agent 调用 → 顺序执行 3 个方案(每个用不同约束),其余流程不变。
+工具不支持并行 Agent 调用 → 顺序执行 3 个方案(每个用不同约束),其余 workflow 不变。

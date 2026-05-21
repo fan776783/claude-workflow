@@ -69,7 +69,16 @@ Read `.claude/config/project-config.json` + `core/specs/shared/glossary.md`。re
      - 默认过滤器可通过 `codeSpecs.packages.skipDefaultFilters: true` 关闭
    - single-package → 自动推断 `project.name` → `package.json.name` → 仓库目录名
    - `codeSpecs.packages.exclude` 永远作为post-execute过滤（支持 `*` glob）
-   - 若 CLI 返回 `pendingPackages`（含 `included` + `autoExcluded`），skill 应先用 `AskUserQuestion` 向用户展示"建议纳管 / 自动过滤"清单并让其确认，再把确认后的列表写回 `project-config.json.codeSpecs.packages.include`，以免下次再次命中自动过滤逻辑。
+   - 若 CLI 返回 `pendingPackages`（含 `included` + `autoExcluded`），skill 用 `AskUserQuestion` 让用户确认"要纳管哪些包"：
+     - `multiSelect: true`（每个包是独立决策，不能被压成单选）
+     - 每个候选包一个 option，`label` 为包名 + 标签（`✓ 建议纳管` / `✗ 自动过滤`），`description` 写过滤理由（如"匹配 *-config 模式"/"在 archivedApps 列表"）
+     - 用户确认后的列表写回 `project-config.json.codeSpecs.packages.include`，以免下次再次命中自动过滤逻辑
+   - 包数 > 8 时 `AskUserQuestion` 体感会差（modal 太长），改纯文本模式：原样输出"建议纳管 / 自动过滤"清单 + 编号反馈块：
+     ```
+     反馈方式：
+     1. 接受全部建议 → 回「1」或「OK」
+     2. 调整 → 直接说"也纳管 X / 排除 Y"，按反馈写回 include
+     ```
 4. 决定 layer（v2.2 bootstrap 期）：
    - `--stack <name>` 且栈模板的 `manifest.json` 声明了 layers → 用栈模板声明
    - 否则按 `tech.frameworks` 推断（命中前端框架 → `frontend`，后端 → `backend`）

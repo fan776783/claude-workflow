@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>agent-workflow Skills 实战回顾 · skymediafrontend</title>
+<style>
+/* light theme as primary; print = same theme + page-break tuning */
+:root{
+  --bg:#ffffff;
+  --bg-soft:#f7f9fc;
+  --bg-muted:#eef2f7;
+  --line:#e2e8f0;
+  --line-strong:#cbd5e1;
+  --fg:#0f172a;
+  --fg-mute:#475569;
+  --fg-soft:#64748b;
+  --acc:#2563eb;
+  --acc-soft:#eff6ff;
+  --ok:#047857;
+  --ok-soft:#ecfdf5;
+  --warn:#b45309;
+  --warn-soft:#fffbeb;
+
+  --tag-spec:#7c3aed;   --tag-spec-bg:#f5f3ff;   --tag-spec-bd:#ddd6fe;
+  --tag-plan:#2563eb;   --tag-plan-bg:#eff6ff;   --tag-plan-bd:#bfdbfe;
+  --tag-exec:#047857;   --tag-exec-bg:#ecfdf5;   --tag-exec-bd:#a7f3d0;
+  --tag-review:#b45309; --tag-review-bg:#fffbeb; --tag-review-bd:#fde68a;
+  --tag-archive:#64748b;--tag-archive-bg:#f8fafc;--tag-archive-bd:#cbd5e1;
+  --tag-figma:#db2777;  --tag-figma-bg:#fdf2f8;  --tag-figma-bd:#fbcfe8;
+  --tag-bug:#dc2626;    --tag-bug-bg:#fef2f2;    --tag-bug-bd:#fecaca;
+  --tag-codex:#0d9488;  --tag-codex-bg:#f0fdfa;  --tag-codex-bd:#99f6e4;
+  --tag-ux:#9333ea;     --tag-ux-bg:#faf5ff;     --tag-ux-bd:#e9d5ff;
+  --tag-ali:#0284c7;    --tag-ali-bg:#f0f9ff;    --tag-ali-bd:#bae6fd;
+  --tag-spec2:#a16207;  --tag-spec2-bg:#fefce8;  --tag-spec2-bd:#fde68a;
+}
+
+*{box-sizing:border-box}
+html,body{
+  margin:0;padding:0;
+  background:var(--bg);color:var(--fg);
+  /* 根因:macOS 26 (Tahoe) 把 PingFang 移到 /System/Library/PrivateFrameworks/.../Reserved/PingFangUI.ttc,
+     Chrome 无权访问 —— 显式声明 PingFang 会触发加载失败、打印 PDF 时 CJK 整段渲染失败。
+     必须用 Tahoe 公开目录里实际可访问的中文字体:Hiragino Sans GB (/System/Library/Fonts/),
+     这是 fc-match :lang=zh-CN 解析出来的系统默认中文字体。 */
+  font-family:"Hiragino Sans GB","Heiti SC",sans-serif;
+  font-size:15px;line-height:1.65;
+}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+code,pre,.mono,
+.sn-num,.sn-meta,.tag,.tl-dot,.tl-cmd,.tl-meta{
+  font-family:ui-monospace,Menlo,"Hiragino Sans GB",monospace;
+}
+
+.container{max-width:960px;margin:0 auto;padding:24px}
+
+/* hero */
+.hero{
+  padding:56px 24px 28px;
+  border-bottom:1px solid var(--line);
+}
+.hero-inner{max-width:960px;margin:0 auto}
+.hero h1{
+  margin:0 0 12px;
+  font-size:30px;font-weight:700;
+  letter-spacing:-0.02em;line-height:1.25;
+}
+.hero h1 .sep{color:var(--fg-soft);font-weight:400;margin:0 8px}
+.hero p.lead{
+  margin:0 0 14px;
+  font-size:16px;color:var(--fg-mute);
+  max-width:720px;
+}
+.hero .crumbs{font-size:13px;color:var(--fg-soft)}
+.hero .crumbs code{
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  padding:1px 6px;border-radius:4px;
+  color:var(--fg-mute);font-size:12px;
+}
+
+/* nav */
+.nav{
+  position:sticky;top:0;z-index:10;
+  background:rgba(255,255,255,0.92);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+  padding:8px 24px;
+}
+.nav-inner{
+  max-width:960px;margin:0 auto;
+  display:flex;gap:4px;flex-wrap:wrap;
+  font-size:13px;
+}
+.nav a{
+  padding:5px 10px;border-radius:6px;
+  color:var(--fg-mute);
+}
+.nav a:hover{
+  background:var(--bg-soft);
+  color:var(--fg);
+  text-decoration:none;
+}
+
+/* scenarios */
+.scenarios{padding:24px 0 64px}
+.sn{
+  margin-top:24px;
+  padding:24px;
+  background:var(--bg);
+  border:1px solid var(--line);
+  border-radius:10px;
+  position:relative;
+}
+.sn-head{
+  display:flex;align-items:flex-start;gap:14px;
+  margin-bottom:14px;
+  flex-wrap:wrap;
+}
+.sn-num{
+  flex-shrink:0;
+  width:32px;height:32px;
+  border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--acc-soft);
+  color:var(--acc);
+  font-weight:600;font-size:13px;
+}
+.sn-title-wrap{flex:1;min-width:0}
+.sn-title{
+  margin:0;
+  font-size:17px;font-weight:600;
+  color:var(--fg);line-height:1.4;
+}
+.sn-meta{
+  margin-top:4px;
+  font-size:12px;
+  color:var(--fg-soft);
+}
+.sn-tags{
+  display:flex;gap:6px;flex-wrap:wrap;
+  margin-top:8px;
+}
+
+/* tags */
+.tag{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:4px;
+  font-size:11.5px;
+  font-weight:500;
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  color:var(--fg-mute);
+}
+.tag.spec   {color:var(--tag-spec);   background:var(--tag-spec-bg);   border-color:var(--tag-spec-bd)}
+.tag.plan   {color:var(--tag-plan);   background:var(--tag-plan-bg);   border-color:var(--tag-plan-bd)}
+.tag.exec   {color:var(--tag-exec);   background:var(--tag-exec-bg);   border-color:var(--tag-exec-bd)}
+.tag.review {color:var(--tag-review); background:var(--tag-review-bg); border-color:var(--tag-review-bd)}
+.tag.archive{color:var(--tag-archive);background:var(--tag-archive-bg);border-color:var(--tag-archive-bd)}
+.tag.figma  {color:var(--tag-figma);  background:var(--tag-figma-bg);  border-color:var(--tag-figma-bd)}
+.tag.bug    {color:var(--tag-bug);    background:var(--tag-bug-bg);    border-color:var(--tag-bug-bd)}
+.tag.codex  {color:var(--tag-codex);  background:var(--tag-codex-bg);  border-color:var(--tag-codex-bd)}
+.tag.ux     {color:var(--tag-ux);     background:var(--tag-ux-bg);     border-color:var(--tag-ux-bd)}
+.tag.ali    {color:var(--tag-ali);    background:var(--tag-ali-bg);    border-color:var(--tag-ali-bd)}
+.tag.spec2  {color:var(--tag-spec2);  background:var(--tag-spec2-bg);  border-color:var(--tag-spec2-bd)}
+
+/* prompt */
+.sn-prompt{
+  margin:14px 0;
+  padding:14px 16px;
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-left:3px solid var(--acc);
+  border-radius:0 6px 6px 0;
+  font-size:13.5px;
+  color:var(--fg-mute);
+  line-height:1.6;
+}
+.sn-prompt .label{
+  display:block;
+  margin-bottom:6px;
+  font-size:10.5px;
+  color:var(--fg-soft);
+  text-transform:uppercase;
+  letter-spacing:1.2px;
+  font-weight:600;
+}
+.sn-prompt code{
+  color:var(--acc);
+  background:transparent;
+  font-size:12.5px;
+  word-break:break-all;
+}
+
+/* timeline */
+.timeline{
+  margin:18px 0 6px;
+  display:flex;flex-direction:column;
+}
+.tl-step{
+  display:grid;
+  grid-template-columns:32px 1fr;
+  gap:14px;
+  position:relative;
+  padding-bottom:18px;
+}
+.tl-step:not(:last-child)::before{
+  content:"";
+  position:absolute;
+  left:15px;top:32px;bottom:0;
+  width:2px;
+  background:var(--line);
+}
+.tl-dot{
+  width:32px;height:32px;
+  border-radius:50%;
+  background:var(--bg);
+  border:2px solid var(--line-strong);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;
+  color:var(--fg-soft);
+  font-weight:600;
+  z-index:1;
+}
+.tl-dot.s{border-color:var(--tag-spec);   color:var(--tag-spec)}
+.tl-dot.p{border-color:var(--tag-plan);   color:var(--tag-plan)}
+.tl-dot.e{border-color:var(--tag-exec);   color:var(--tag-exec)}
+.tl-dot.r{border-color:var(--tag-review); color:var(--tag-review)}
+.tl-dot.a{border-color:var(--tag-archive);color:var(--tag-archive)}
+.tl-dot.f{border-color:var(--tag-figma);  color:var(--tag-figma)}
+.tl-dot.b{border-color:var(--tag-bug);    color:var(--tag-bug)}
+.tl-dot.c{border-color:var(--tag-codex);  color:var(--tag-codex)}
+.tl-body{padding-top:5px;min-width:0}
+.tl-cmd{
+  font-size:13.5px;
+  color:var(--fg);
+  font-weight:600;
+  line-height:1.5;
+  word-break:break-word;
+}
+.tl-cmd .arg{color:var(--fg-mute);font-weight:400}
+.tl-desc{
+  font-size:13px;
+  color:var(--fg-mute);
+  margin-top:4px;
+  line-height:1.6;
+}
+.tl-quote{
+  margin-top:8px;
+  padding:9px 12px;
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  border-left:2px solid var(--line-strong);
+  border-radius:0 6px 6px 0;
+  font-size:12.5px;
+  color:var(--fg-mute);
+  line-height:1.6;
+}
+.tl-quote.hard-stop{
+  background:var(--warn-soft);
+  border-color:#fde68a;
+  border-left-color:var(--warn);
+  color:#92400e;
+}
+.tl-quote.hit{
+  background:var(--ok-soft);
+  border-color:#a7f3d0;
+  border-left-color:var(--ok);
+  color:#065f46;
+}
+.tl-meta{
+  font-size:11px;
+  color:var(--fg-soft);
+  margin-top:4px;
+}
+
+/* takeaway */
+.sn-take{
+  margin-top:18px;
+  padding:14px 16px;
+  background:var(--acc-soft);
+  border:1px solid var(--tag-plan-bd);
+  border-radius:6px;
+  font-size:13.5px;
+  color:#1e3a8a;
+  line-height:1.65;
+}
+.sn-take strong{color:var(--ok)}
+.sn-take code{
+  background:#ffffff;
+  border:1px solid var(--tag-plan-bd);
+  padding:0 5px;
+  border-radius:3px;
+  color:#1e40af;
+  font-size:12.5px;
+}
+
+/* footer */
+.footer{
+  padding:24px;
+  border-top:1px solid var(--line);
+  color:var(--fg-soft);
+  font-size:12.5px;
+  text-align:center;
+}
+.footer code{
+  background:var(--bg-soft);
+  border:1px solid var(--line);
+  padding:1px 6px;
+  border-radius:4px;
+  color:var(--fg-mute);
+  font-size:12px;
+}
+
+/* responsive */
+@media (max-width:760px){
+  .hero{padding:40px 20px 24px}
+  .hero h1{font-size:24px}
+  .container{padding:16px 20px}
+  .sn{padding:18px}
+  .tl-step{grid-template-columns:28px 1fr;gap:10px}
+  .tl-dot{width:28px;height:28px;font-size:11px}
+  .tl-step:not(:last-child)::before{left:13px;top:28px}
+}
+
+/* print: same light theme, only adjust sizing + page-break behaviour */
+@page{size:A4;margin:14mm 12mm}
+@media print{
+  html,body{
+    font-size:10.5pt;line-height:1.55;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .nav{display:none}
+  .hero{
+    padding:0 0 6mm;
+    break-after:avoid;page-break-after:avoid;
+  }
+  .hero h1{font-size:20pt;margin:0 0 3mm}
+  .hero p.lead{font-size:11pt;max-width:none;margin:0 0 3mm}
+  .hero .crumbs{font-size:9pt}
+  .container{max-width:none;padding:0}
+  .scenarios{padding:0}
+  .sn{
+    margin:5mm 0 0;
+    padding:5mm;
+    border-radius:4px;
+    box-shadow:none;
+    break-inside:auto;page-break-inside:auto;
+  }
+  .sn-head{margin-bottom:3mm;break-after:avoid;page-break-after:avoid}
+  .sn-title{font-size:13pt}
+  .sn-meta{font-size:8.5pt}
+  .sn-prompt{
+    font-size:10pt;padding:3mm 4mm;
+    break-inside:avoid;page-break-inside:avoid;
+  }
+  .timeline{margin:3mm 0 0}
+  .tl-step{
+    break-inside:avoid;page-break-inside:avoid;
+    padding-bottom:3mm;
+  }
+  .tl-cmd{font-size:10pt}
+  .tl-desc{font-size:9.5pt}
+  .tl-quote{font-size:9pt;padding:2mm 3mm}
+  .tl-meta{font-size:8pt}
+  .sn-take{
+    font-size:10pt;padding:3mm 4mm;
+    break-inside:avoid;page-break-inside:avoid;
+  }
+  .footer{
+    padding:4mm 0 0;text-align:left;
+    font-size:9pt;
+    break-before:avoid;
+  }
+  a{color:var(--acc) !important;text-decoration:none}
+}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <h1>agent-workflow Skills <span class="sep">·</span> 实战回顾</h1>
+    <p class="lead">
+      从 <code>~/.claude/projects/skymediafrontend</code> 抽取的真实会话，挑出 7 个经典场景，
+      还原每个 skill 在产线上是怎么被串起来用的——从 PRD 落地到 bug 批修，从 Figma 还原到 grill 对齐。
+    </p>
+    <p class="crumbs">
+      数据来源 <code>skymediafrontend</code> + <code>claude-workflow</code> · 抽样区间 2026-04 → 2026-05 ·
+      构建于 <code>@justinfan/agent-workflow</code>
+    </p>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#s1">① 完整 workflow</a>
+    <a href="#s2">② 完整 workflow v328</a>
+    <a href="#s3">③ Figma 还原</a>
+    <a href="#s4">④ bug-batch (重构后)</a>
+    <a href="#s5">⑤ Simplify+Diff</a>
+    <a href="#s6">⑥ Review 闭环</a>
+    <a href="#s7">⑦ grill→quick-plan</a>
+  </div>
+</nav>
+
+<main class="container scenarios">
+    <section class="sn" id="s1">
+      <div class="sn-head">
+        <div class="sn-num">01</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">完整 workflow 状态机：钉钉 PRD → 归档 + spec 沉淀</h2>
+          <div class="sn-meta">session c237d9df · 592 events · branch feat/team-v4 · 2026-04-23</div>
+          <div class="sn-tags"><span class="tag plan">/workflow-plan</span><span class="tag exec">/workflow-execute</span><span class="tag review">/workflow-review</span><span class="tag archive">/workflow-archive</span><span class="tag spec2">/spec-update</span><span class="tag spec2">/spec-review</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>/workflow-plan <code>https://alidocs.dingtalk.com/i/nodes/np9zOoBVBYwB2OZBILqL0BRbW1DK0g6l</code> <br/><span style="color:#6b7488">钉钉 PRD：「团队积分分配给组管理员」功能</span></div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot p">P</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-plan <span class="arg">&lt;钉钉 PRD 链接&gt;</span></div>
+              <div class="tl-desc">Planner 先做 PRD 拉取 + 代码库预检，直接从链接启动</div>
+              <div class="tl-quote ">我先获取钉钉文档内容并执行预检。<br/>钉钉文档需要登录授权，WebFetch 无法直接访问。<br/>→ 切到 ding-mcp 读取，得到 PRD：「团队积分分配给组管理员」。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot p">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">workflow_cli.js init <span class="arg">--task-name team-credit-group-admin</span></div>
+              <div class="tl-desc">Plan skill 通过固定 CLI 落盘 state（唯一合法写入口）</div>
+              
+              <div class="tl-meta">/Users/ws/.agents/agent-workflow/core/utils/workflow/workflow_cli.js</div>
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot p">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">生成 spec + plan</div>
+              <div class="tl-desc">Phase 0 代码分析 → Phase 1 Spec → Phase 2 Plan，逐步写入 state</div>
+              <div class="tl-quote ">用户要求先核实两点：接口是否支持按名字搜索 + 是否分页。<br/>方案升级为 C（混合搜索）+ 修复 page_size=999。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">E</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-execute</div>
+              <div class="tl-desc">按 plan 中的任务逐条实现，边做边更新 state 里的 task 状态</div>
+              
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">R</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-review <span class="arg">(第 1 轮)</span></div>
+              <div class="tl-desc">执行完成后自动进 review_pending；skill 跑 Stage 1 规格合规 + Stage 2 Codex adversarial</div>
+              <div class="tl-quote hit">前置检查通过：状态 review_pending，11/11 任务已完成。<br/>开始 Stage 1 规格合规审查，逐条读取源文件验证。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">R</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-review <span class="arg">(第 2 轮)</span></div>
+              <div class="tl-desc">review 发现 4 个问题 → 直接修 → 再评一次确认收敛</div>
+              
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot a">A</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-archive</div>
+              <div class="tl-desc">review 全绿才能归档。state 从 review_done → completed → archived</div>
+              <div class="tl-quote hit">归档写入 ~/.claude/workflows/{hash}/archive/，本轮工作流结束。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">S</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/spec-update</div>
+              <div class="tl-desc">把本轮沉淀的新约定（分页 + 混合搜索模式）回写到 .claude/code-specs/</div>
+              <div class="tl-quote ">从执行过程中提炼可复用决策：spids 回显用 ghost options + project_names 字段。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">S</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/spec-review</div>
+              <div class="tl-desc">spec 更新后跑 review，确认没有引入漂移或与其他包冲突</div>
+              
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong>skill 之间不是孤立的——plan 把 state 写入 <code>workflow_cli.js</code> 的 state 文件，execute/review/archive 全靠这个 state 续接。PRD 改了就走 <code>/workflow-delta</code>，review 过了再 <code>/spec-update</code> 把学到的东西沉淀成 code-spec。6 个 skill 串成一条合规链。</div>
+    </section>
+    <section class="sn" id="s2">
+      <div class="sn-head">
+        <div class="sn-num">02</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">完整 workflow v328：spec → plan → execute → review → archive 一条龙</h2>
+          <div class="sn-meta">3 sessions (5eba43cb / 36b98304 / 1d27c1bd) · branch feat/team-v5 · 2026-05-13 00:52 → 03:55</div>
+          <div class="sn-tags"><span class="tag spec">/workflow-spec</span><span class="tag ux">/ux-elaboration</span><span class="tag plan">/workflow-plan</span><span class="tag exec">/workflow-execute</span><span class="tag review">/workflow-review</span><span class="tag archive">/workflow-archive</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>/workflow-spec <code>https://alidocs.dingtalk.com/i/nodes/9bN7RYPWdMmYxDlYfk9lZlMBVZd1wyK0</code><br/><span style="color:#6b7488">钉钉 PRD：「团队资产库 + 项目资产优化 v328」(忽略「列表页--资产导入」)</span></div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot s">S</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-spec <span class="arg">&lt;钉钉 PRD nodeId 9bN7…wyK0&gt;</span></div>
+              <div class="tl-desc">读 PRD + 预检；CLI 一开始把 --force 当成 requirement 文本生成了 force-0513.md，先纠正再重建骨架</div>
+              <div class="tl-quote hit">CLI 把 --force 当成了需求文本（生成了 force-0513.md）。先把它正确归档/删除再重试。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">?</div>
+            <div class="tl-body">
+              <div class="tl-cmd">AskUserQuestion ×4</div>
+              <div class="tl-desc">PRD §2/§3 触点、入参落地方、搜索归属、批量上限 — 4 题一次性 modal 收齐</div>
+              <div class="tl-quote hard-stop">用户答：忽略这一点 / 后端自动带入 / 后端直接消化,不需要前端关注 / 对齐 100 上限</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">↻</div>
+            <div class="tl-body">
+              <div class="tl-cmd">spec-review 回写真实 API</div>
+              <div class="tl-desc">用户用自然语言推翻 modal 选项 — 直接指 autogen 路径要求按真实契约校</div>
+              <div class="tl-quote hard-stop">后端的接口都在 packages/api/lib/autogen/assetsApi.ts 里</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">U</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/ux-elaboration</div>
+              <div class="tl-desc">spec-review 第二轮选「先做前端设计深化」；逐个收 4 个 Figma frame URL 写 LayoutAnchor 进 §4.4</div>
+              <div class="tl-quote ">上一个 figma 链接已经包含了批量态 ui/底部 — 拒绝重复粘</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot p">P</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-plan <span class="arg">(8 task 拆分)</span></div>
+              <div class="tl-desc">Spec approved → status=planned；Plan 扩写后跑 Self-Review + plan-review subagent 双重兜底</div>
+              <div class="tl-quote hit">Plan 完整且结构合理。让我运行 plan review subagent 做最终校验。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">E</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-execute <span class="arg">T1 → T7</span></div>
+              <div class="tl-desc">7 task 顺序执行：类型 / Store / Drag / TagPicker / 详情页 / SaveDialog / 埋点；T7 标 HITL 强制人工回归</div>
+              <div class="tl-quote hard-stop">任务 T7 标记为 HITL……手工回归需要你在浏览器中验证。是否可以继续？→ proceed</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">R</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-review</div>
+              <div class="tl-desc">Stage 1 规范 + Stage 2 Codex 共抓 5 个 Important（2 个竞态 / JSON.parse / 批量态泄漏 / timer），全数修复</div>
+              <div class="tl-quote ">发现 5 个需修复的 Important 级别问题……排除了 2 个误报（pre-existing）。现在修复。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">fix during review</div>
+              <div class="tl-desc">修复中又抓到批量退出边界 bug — 调用方 handleTagSuccess 没显式 setBatch(false)</div>
+              <div class="tl-quote ">AssetGrid 的 handleTagSuccess 没调用 setBatch(false)。需要在批量模式下成功后退出。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot a">A</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-archive</div>
+              <div class="tl-desc">review 全绿 → archived；归档到 history/2026-05/v328-20260513-035503/，7/7 task 通过、15 文件改动</div>
+              <div class="tl-quote hit">归档完成……状态：archived，归档目录：…/history/2026-05/v328-20260513-035503/</div>
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong>整条状态机的硬卡点都在 hard-stop 上——<strong>需求澄清</strong>（4 题一收）、<strong>HITL T7</strong>（人工回归）、<strong>归档放行</strong>（review 全绿才动）。最反直觉的是 <strong>用户经常用自然语言推翻 AskUserQuestion 的预置选项</strong>（&ldquo;后端的接口都在 autogen 里&rdquo; 是一次自由文本覆盖）——skill 不能假设 modal 一定按选项收回。整条流程跨 3 个会话，state 文件是真正的&ldquo;接力棒&rdquo;。</div>
+    </section>
+    <section class="sn" id="s3">
+      <div class="sn-head">
+        <div class="sn-num">03</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">Figma 弹窗还原：figma-data 拉数据 → figma-ui 落代码</h2>
+          <div class="sn-meta">session 01f4dfc3 · 395 events · branch feat/team-v5 · 2026-05-12</div>
+          <div class="sn-tags"><span class="tag figma">/figma-ui</span><span class="tag figma">/figma-data</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>根据设计稿重新还原弹窗 <code>https://www.figma.com/design/v7mPQ8e5twlUJFlN4ti8U5/...?node-id=45159-97082&m=dev</code></div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot f">F</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Skill: figma-ui <span class="arg">&lt;Figma URL&gt;</span></div>
+              <div class="tl-desc">入口 skill；识别到用户明确要「还原 / 实现代码」，转入实现模式</div>
+              <div class="tl-quote ">触发条件：Figma URL + 实现意图（还原/实现/修改组件）。先走 Phase A 数据获取。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot f">↓</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Skill: figma-data <span class="arg">获取 Figma 设计稿数据并完成资源分诊</span></div>
+              <div class="tl-desc">figma-ui 内部委托 figma-data 调 MCP 拿 JSON + 导出 assets，产出 Design Package</div>
+              
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">读数据层 + 类型</div>
+              <div class="tl-desc">并行扫 composable / types / i18n，确认数据字段能承载新增列</div>
+              <div class="tl-quote hit">composable 输出已含 project_point / group_point / member_point 三个字段，7 列表格能直接消费现有数据。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">核对依赖组件</div>
+              <div class="tl-desc">Pagination 支持总计 / 每页 / 页码跳转，API 支持 sort_order → 不用再扩组件</div>
+              
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">并行改造 3 个 task</div>
+              <div class="tl-desc">Task 4 前置依赖确认完标 done，Task 1+3+2 并行开跑</div>
+              <div class="tl-quote ">开始重写 modal 组件。<br/>SVG 文件已被清理 → 改用 inline SVG 实现 sort 图标。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">V</div>
+            <div class="tl-body">
+              <div class="tl-cmd">视觉比对</div>
+              <div class="tl-desc">figma-ui 的收尾：截图对比 Figma 参考图，检查对齐 / 间距 / 字重</div>
+              
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong><code>figma-ui</code> 是外壳 skill——它先调 <code>figma-data</code> 把 MCP 拿回的节点 + 资源整理成 Design Package，再在主会话里用这个 Package 写 Vue 组件。整个过程不裸调 <code>mcp__figma-mcp</code>，避免 assets 散落到临时目录。</div>
+    </section>
+    <section class="sn" id="s4">
+      <div class="sn-head">
+        <div class="sn-num">04</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">重构后的 bug-batch：9 阶段精简流水线 + Hard Stop 容错降级</h2>
+          <div class="sn-meta">session 5a682847 · 111 events · branch feat/team-v5 · 2026-05-13 (refactor edf3314 @ 2026-05-11)</div>
+          <div class="sn-tags"><span class="tag bug">/bug-batch</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>/agent-workflow:bug-batch<br/><span style="color:#6b7488">无 args — skill 自取 config + 默认拉「经办人=我 / 状态=待处理」</span></div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot b">0</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 0: CONFIG</div>
+              <div class="tl-desc">读 project-config.json → bkProjectId=v10125；从 user 级 config 回填 operator_user=fanjj</div>
+              <div class="tl-quote ">Phase 0 完成。bkProjectId=v10125, operator_user=fanjj。开始拉取经办人为 fanjj 的&quot;待处理&quot;缺陷清单。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">1</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 1: FETCH <span class="arg">node bk.mjs list_issues</span></div>
+              <div class="tl-desc">bk CLI 不在 PATH → 回退到直跑 .mjs；拉到 1 个待处理 bug p328_9429（资产重命名字数上限有误）</div>
+              <div class="tl-quote hit">Phase 1 完成：经办人 fanjj 名下&quot;待处理&quot;BUG 共 1 个：p328_9429 资产重命名字数限制有误。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">2</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 2-3: NORMALIZE + ANALYZE</div>
+              <div class="tl-desc">include_all_fields=true 抓完整描述；Explore subagent 定位 AssetCard.vue:132 maxlength=20，AssetDetail.vue:61 已是 50 → 单边漏改</div>
+              <div class="tl-quote ">Phase 3 完成。根因 HIGH confidence：AssetCard.vue:132 的 maxlength: 20 应改为 50。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">!</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 4: HARD-STOP 容错 <span class="arg">AskUserQuestion 崩 3 次</span></div>
+              <div class="tl-desc">AskUserQuestion 连续 3 次抛 H.map undefined → skill 主动降级为纯文本 Hard Stop，不卡死</div>
+              <div class="tl-quote hard-stop">AskUserQuestion 工具异常，改为直接文本询问。<br/>[HARD-STOP:CONFIRM-PLAN] 请回复 confirm_plan / revise_plan / reduce_scope。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">用户确认</div>
+              <div class="tl-desc">用户回 confirm_plan，单 FixUnit unit_001 (RelationType: 单条独立) 进入实施</div>
+              <div class="tl-quote ">user: confirm_plan</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">✓</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 5: SCOPE 自律</div>
+              <div class="tl-desc">扫到 CreateFolderDialog / FolderContent 也有 maxlength=20，但属于文件夹业务（非资产），主动留给单独 ticket，不蹭批量扩散</div>
+              <div class="tl-quote hit">CreateFolderDialog.vue / FolderContent.vue 也有 maxlength: 20 — 文件夹业务，留给单独 ticket。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">6</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 5+6: FIX + COMMIT</div>
+              <div class="tl-desc">Edit 单行 20 → 50；git diff 自审；提交 commit 7874d423c；bk-mcp 流转 issue 到 处理中</div>
+              <div class="tl-quote ">commit 7874d423c on feat/team-v5</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot b">8</div>
+            <div class="tl-body">
+              <div class="tl-cmd">PHASE 7-8: WRAP</div>
+              <div class="tl-desc">单 unit 无须 squash；状态流转 待验证；产出 Phase 8 汇总报告表</div>
+              <div class="tl-quote hit">Phase 8 汇总报告：commit 7874d423c on feat/team-v5，最终状态 待验证。完成。</div>
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong>重构后的 bug-batch（<code>edf3314</code> @ 2026-05-11）把 SKILL.md 收成 <strong>9 阶段精简流水线 + <code>references/*</code> 延迟加载</strong>，比旧版（PHASE 5 并发协议混在主文 + bloat 前置检查）轻得多。本会话两个看点：① <strong>AskUserQuestion 工具崩 3 次后 skill 自动降级文本 Hard Stop</strong>——容错路径真写进了 skill 不是&ldquo;祝你好运&rdquo;；② <strong>扫到旁路命中（文件夹业务 maxlength=20）主动留给单独 ticket</strong>——不被批量任务诱导扩散，scope 自律。</div>
+    </section>
+    <section class="sn" id="s5">
+      <div class="sn-head">
+        <div class="sn-num">05</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">提交前自审：/simplify 先去冗余 → /diff-review 再拉 Codex 对抗审</h2>
+          <div class="sn-meta">session 0f42ff3e · 194 events · branch feat/team-v4 · 2026-04-28</div>
+          <div class="sn-tags"><span class="tag c">/simplify</span><span class="tag review">/diff-review</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>提交前先清一遍当前 diff 的冗余与可复用问题，再做一次对抗式 review</div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot c">S</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/simplify</div>
+              <div class="tl-desc">复用率 / 代码质量 / 效率三把尺；识别重复函数 + 过度防御</div>
+              <div class="tl-quote ">主要问题：verbose comments 违反项目约定、重复的 emptyFallback / EMPTY_FILE_INFO、过度防御的 init plugin、串行 loadMatchThumbnails。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot c">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">自动修复</div>
+              <div class="tl-desc">skill 发现问题直接改，不等二次确认</div>
+              <div class="tl-quote ">Trust dependsOn, drop the belt-and-suspenders.<br/>Consolidate regex patterns. Also address the broad dispatch regex concern.</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot c">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Lint 校验</div>
+              <div class="tl-desc">跑 lint 过一遍；区分「本次引入」vs「历史遗留」</div>
+              <div class="tl-quote hit">The lint errors are in unrelated archived apps/agent files. Let me verify our files individually.</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">R</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/diff-review</div>
+              <div class="tl-desc">默认主路径：只出 findings 和 verdict；要修 fix 需要明确确认</div>
+              <div class="tl-quote ">I'll launch Codex adversarial review and do my own discovery in parallel.</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot c">↓</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Codex adversarial 并行</div>
+              <div class="tl-desc">diff-review 在主会话继续 discovery 的同时，把 diff 甩给 Codex 做对抗视角审查</div>
+              <div class="tl-quote ">Codex flagged two candidate issues. Let me verify them.</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot !">!</div>
+            <div class="tl-body">
+              <div class="tl-cmd">回滚一处误改</div>
+              <div class="tl-desc">对抗 review 发现 uploader 分支 + catch 的语义变了</div>
+              <div class="tl-quote hit">uploader 分支 + catch 需要回滚——这两处现已恢复 HEAD 行为。<br/>重新跑一遍审查流程验证修复。</div>
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong><code>/simplify</code> 偏向&ldquo;删&rdquo;（重复、过度防御、冗余注释），<code>/diff-review</code> 偏向&ldquo;验&rdquo;（语义不变、边界没破）。两者组合的 anchor 是 <strong>Codex 作为对抗视角</strong>——主会话容易为自己改的代码辩护，Codex 不看历史上下文，只看 diff，更容易抓到&ldquo;回滚时漏改&rdquo;这类错误。</div>
+    </section>
+    <section class="sn" id="s6">
+      <div class="sn-head">
+        <div class="sn-num">06</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">workflow 内审 + 外部复审：workflow-review → /diff-review --deep</h2>
+          <div class="sn-meta">session 4be18fdf · 260 events · branch feat/team-v3 · 2026-04-15</div>
+          <div class="sn-tags"><span class="tag review">/workflow-review</span><span class="tag review">/diff-review --deep</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>执行阶段全部完成，进入 review_pending，对该工作流执行双阶段审查</div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot r">R</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/workflow-review</div>
+              <div class="tl-desc">skill 先跑前置检查：state / budget / baseline commit 全确认</div>
+              <div class="tl-quote hit">前置检查通过：状态 review_pending，11/11 任务已完成，projectId: a13dcda9d96c，base commit: 5f37a5a44。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Stage 1: 规格合规审查</div>
+              <div class="tl-desc">逐条读源文件验证 spec 中的验收点</div>
+              <div class="tl-quote ">开始修复 4 个问题。Fix 1: Store API 调用 bug。Fix 2: TeamAssetPicker 添加名称确认步骤。Fix 3: MaterialList.vue 添加批量保存功能。Fix 4: 入口文案。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">Stage 2: Codex adversarial</div>
+              <div class="tl-desc">用 Codex 做对抗视角，容易抓内存泄漏 / 硬编码语言 / 边界案例</div>
+              <div class="tl-quote ">Stage 2 发现问题：<br/>Issue 1 AssetDetail 硬编码语言检测<br/>Issue 2 URL.createObjectURL 内存泄漏<br/>Issue 5 跨文件夹勾选（Spec 明确不支持，不修）</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">修复 + 再验</div>
+              <div class="tl-desc">按 Spec 判定哪些修、哪些留——Issue 5 被 Spec 明确排除就不修</div>
+              <div class="tl-quote hit">Issue 5（跨文件夹勾选）— Spec 明确要求&quot;不支持跨文件夹勾选&quot;，符合预期，不修复。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot r">D</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/diff-review --deep</div>
+              <div class="tl-desc">workflow 完成后再来一次深度 diff-review 确认闭环</div>
+              
+              <div class="tl-meta">--deep 模式延长 Codex 思考预算，找跨文件影响</div>
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong><code>/workflow-review</code> 是 workflow 内置的 quality gate，Stage 1（规范合规）+ Stage 2（Codex 对抗）是固定结构；<code>/diff-review</code> 是独立 skill 可以随时来一次。本会话把两者串联，<code>--deep</code> 给 Codex 更多 token 预算做跨文件分析。Spec 明确排除的边界不修，避免被 reviewer 推着返工无关需求。</div>
+    </section>
+    <section class="sn" id="s7">
+      <div class="sn-head">
+        <div class="sn-num">07</div>
+        <div class="sn-title-wrap">
+          <h2 class="sn-title">grill 对齐 → quick-plan 落地：ux-elaboration 设计源入口重构</h2>
+          <div class="sn-meta">session d6dfd680 · branch master · claude-workflow · 2026-05-13 10:11 → 11:55</div>
+          <div class="sn-tags"><span class="tag spec2">/grill</span><span class="tag plan">/quick-plan</span><span class="tag ux">Skill: ux-elaboration</span></div>
+        </div>
+      </div>
+      <div class="sn-prompt"><span class="label">用户原始指令</span>workflow-spec 执行到末尾确认 spec 完成,执行设计深化和 plan 实际上都要调用不同的 skill,使用 ask 进行询问让用户选择体验好像不太好,评估一下</div>
+      <div class="timeline">
+          <div class="tl-step">
+            <div class="tl-dot s">?</div>
+            <div class="tl-body">
+              <div class="tl-cmd">问题陈述</div>
+              <div class="tl-desc">用户质疑 workflow-spec Step 6 把「审批 + 路由」两个正交决策塞进一个 AskUserQuestion modal</div>
+              <div class="tl-quote ">workflow-spec 执行到末尾……使用 ask 进行询问让用户选择体验好像不太好,评估一下</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">G</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/grill <span class="arg">&lt;还有没有遗漏点&gt;</span></div>
+              <div class="tl-desc">触发 Deep Mode：扫委托链路 + figma-data 返回结构 + Step 5/6 现状，挑出 4 个潜在盲点逐题质询</div>
+              <div class="tl-quote hit">走 Deep Mode。先扫了 workflow-spec Step 6 委托细节、figma-data 返回结构……挑了几个潜在遗漏</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">Q1</div>
+            <div class="tl-body">
+              <div class="tl-cmd">委托契约：自动 vs 人工</div>
+              <div class="tl-desc">Q1：workflow-spec → ux-elaboration 是否扫上下文自动传 Figma URL？用户否决</div>
+              <div class="tl-quote hard-stop">用户：ux-elaboration 阶段人工提供,因为需求文档中的图片并不一定全是有用的信息,需要人工挑选</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">Q2</div>
+            <div class="tl-body">
+              <div class="tl-cmd">existing skip + vision 降级</div>
+              <div class="tl-desc">Q2 existing 默认 skip / Q3 vision 置信分级取消静默 infer — 用户两次秒「对」</div>
+              <div class="tl-quote ">Step 5 默认 skip existing,只对 new/modify 跑 LayoutAnchor → 对</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot s">Q4</div>
+            <div class="tl-body">
+              <div class="tl-cmd">定位刷新边界</div>
+              <div class="tl-desc">Q4：§4.4 重跑机制 — 用户主动中断澄清定位：ux-elaboration 是 first-round priming，迭代走 figma-ui</div>
+              <div class="tl-quote hard-stop">ux-elaboration 的作用是确保 workflow 第一轮代码不要出现大的布局和交互偏差</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot p">P</div>
+            <div class="tl-body">
+              <div class="tl-cmd">/quick-plan</div>
+              <div class="tl-desc">grill 收敛后立刻接 quick-plan，产出 6 task plan 落到 workflows/{pid}/plans/</div>
+              <div class="tl-quote ">plan 写在 …/plans/ux-elaboration-step4-revamp-0513.plan.md。核心改造(6 个 task)</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot e">→</div>
+            <div class="tl-body">
+              <div class="tl-cmd">实施</div>
+              <div class="tl-desc">用户回「实施」→ 顺序改 SKILL.md：错误分流 / 入口参数 / Step 4-5 重写 / 清理子 Agent 残留</div>
+              <div class="tl-quote ">剩余的&quot;子 Agent&quot;/&quot;designContext&quot; 都是解释性提及……全部合理。</div>
+              
+            </div>
+          </div>
+          <div class="tl-step">
+            <div class="tl-dot !">!</div>
+            <div class="tl-body">
+              <div class="tl-cmd">course-correct</div>
+              <div class="tl-desc">实施完用户回头质疑前提 — 截图比 Figma URL 更省 token，且顶层 URL 路径在真实 frame 名下不可行</div>
+              <div class="tl-quote hard-stop">按照前面的讨论,是否应该改为提供截图而不是 figma 地址<br/>不用,同时需要把顶层 Figma URL 这一链路去掉,不具备可行性</div>
+              
+            </div>
+          </div>
+      </div>
+      <div class="sn-take"><strong>看点：</strong><code>/grill</code> 不是「问 4 个问题就锁结论」——它走 Deep Mode 把潜在盲点找出来，<strong>用户在收敛后仍能回头推翻前提</strong>。<code>/quick-plan</code> 紧接 grill 适合中等任务（这里 6 task），但 plan 不是合同——本例实施后还出现一次 course-correct 把顶层 Figma URL 路径整条砍掉。轻量规划留课正空间，是它和 <code>/workflow-plan</code> 状态机的本质区别。</div>
+    </section>
+  </main>
+
+<footer class="footer">
+  数据脚本 <code>scan.py</code> + <code>extract.py</code> · 静态页面 · 仅展示已脱敏的 prompt 与时间线·
+  会话原文位于 <code>~/.claude/projects/-Users-ws-dev-skymediafrontend/</code>
+</footer>
+
+</body>
+</html>

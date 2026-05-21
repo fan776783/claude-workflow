@@ -137,6 +137,7 @@ function isPathUnderRoot(filePath, allowedPrefix) {
     // lstat 必须为普通文件/目录；拒绝符号链接
     const lstat = fs.lstatSync(filePath)
     if (lstat.isSymbolicLink()) return false
+    // realpath 必须保留：lstat 只检测 leaf 是否 symlink，无法防御 ancestor 目录被软链到 prefix 外
     const resolved = fs.realpathSync(filePath)
     return resolved === allowedPrefix || resolved.startsWith(allowedPrefix + path.sep)
   } catch {
@@ -145,10 +146,14 @@ function isPathUnderRoot(filePath, allowedPrefix) {
 }
 
 function safeReadCodeSpecs(filePath, allowedPrefix, maxLen) {
-  if (!fs.existsSync(filePath)) return null
+  // path safety check 内部已 try/catch；不存在/无权限 → 返回 false → 安全返回 null
   if (!isPathUnderRoot(filePath, allowedPrefix)) return null
-  const content = readFile(filePath)
-  return maxLen ? content.slice(0, maxLen) : content
+  try {
+    const content = fs.readFileSync(filePath, 'utf8')
+    return maxLen ? content.slice(0, maxLen) : content
+  } catch {
+    return null
+  }
 }
 
 // 防止 code-specs 内容中嵌入的 </project-code-specs> / <system-reminder> 等标记破坏 hook 注入结构
@@ -166,10 +171,13 @@ function formatCodeSpecsBlock(label, content) {
 }
 
 function collectMarkdownFiles(dir, allowedPrefix = null) {
-  if (!fs.existsSync(dir)) return []
+  let entries
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
   const results = []
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name))
   for (const entry of entries) {
     const full = path.join(dir, entry.name)
     // 符号链接一律拒绝
@@ -225,6 +233,18 @@ function collectTaskChangedHints(task) {
     if (Array.isArray(files[key])) parts.push(...files[key])
   }
   return normalizeChangedFileHints(parts)
+}
+
+// 显式 scope 来源：用户/任务/runtime-scope 明确指定了 package。
+// pkgDir 不存在时，显式来源 → scopeDenied（不回退全树，防泄漏）；非显式来源 → 兜底全树（向后兼容）。
+const EXPLICIT_SCOPE_SOURCES = new Set([
+  'flag',
+  'task',
+  'runtime-scope:active_task',
+  'runtime-scope:allowlist',
+])
+function isExplicitScopeSource(source) {
+  return typeof source === 'string' && EXPLICIT_SCOPE_SOURCES.has(source)
 }
 
 // 规范化 codeSpecs.runtime.scope 配置：
@@ -455,12 +475,15 @@ function getCodeSpecsContextScoped(projectRoot = process.cwd(), scope = null, ma
   if (scope && scope.scopeDenied) return null
 
   const rawPackage = scope && scope.activePackage ? String(scope.activePackage) : null
-  // 对 activePackage 再做一次白名单校验（防御 resolver 外路径、或调用方手工构造 scope）
-  const activePackage = rawPackage && isValidPackageName(rawPackage) ? rawPackage : null
+  // malformed activePackage → 显式拒绝并返回 null，不静默回退全树（防 scope 注入泄漏全树）
+  if (rawPackage && !isValidPackageName(rawPackage)) return null
+  const activePackage = rawPackage
   const pkgDir = activePackage ? path.join(dirInfo.path, activePackage) : null
   const pkgExists = pkgDir && fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()
 
-  // 无 active package 或目录不存在 → 回退到全树（向后兼容；仅非 scopeDenied 场景）
+  // 显式 scope（用户/任务/runtime-scope 明确指定）+ pkgDir 缺失 → 不回退全树，避免泄漏
+  if (activePackage && !pkgExists && isExplicitScopeSource(scope && scope.source)) return null
+  // 兜底来源（config / package-json / repo-dir）或无 scope → 回退全树（向后兼容）
   if (!pkgExists) return getCodeSpecsContext(projectRoot, maxChars)
 
   const rootIndexBudget = options.rootIndexBudget || 300
@@ -617,8 +640,17 @@ function collectSpecFiles(projectRoot = process.cwd(), scope = null, options = {
   const scanRoots = []
   if (activePackage) {
     const pkgDir = path.join(dirInfo.path, activePackage)
-    if (fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()) {
+    const pkgExists = fs.existsSync(pkgDir) && fs.statSync(pkgDir).isDirectory()
+    if (pkgExists) {
       scanRoots.push({ root: pkgDir, displayPrefix: activePackage })
+    } else if (isExplicitScopeSource(scope && scope.source)) {
+      // 显式 scope 指定了 pkg 但目录不存在 → scopeDenied，让调用方走 paths-only / 空段
+      return {
+        files: [],
+        scopeDenied: true,
+        reason: `${scope.source}: code-specs package '${activePackage}' 目录不存在`,
+        dirInfo,
+      }
     }
   } else {
     // 无 scope：扫 code-specs 下所有一级目录（除了 guides，已单独处理）
@@ -756,6 +788,8 @@ module.exports = {
   renderSpecFiles,
   resolveActiveCodeSpecsScope,
   normalizeRuntimeScope,
+  isExplicitScopeSource,
+  EXPLICIT_SCOPE_SOURCES,
   isValidPackageName,
   normalizeTaskLayer,
   normalizeChangedFileHints,

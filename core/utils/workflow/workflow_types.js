@@ -54,7 +54,6 @@ const MINIMUM_CONTEXT_INJECTION = {
   execution: {
     quality_review_stage2: { role: 'reviewer', profile: null },
   },
-  artifact_path: null,
 }
 
 const MINIMUM_SESSIONS = {
@@ -62,22 +61,6 @@ const MINIMUM_SESSIONS = {
   executor: null,
 }
 
-const MINIMUM_PARALLEL_EXECUTION = {
-  enabled: false,
-  max_concurrency: 1,
-  current_batch: null,
-}
-
-const MINIMUM_BOUNDARY_SCHEDULING = {
-  enabled: false,
-  currentBoundary: null,
-  boundaryProgress: {},
-}
-
-
-// New canonical statuses + legacy values kept for backward compatibility during the migration window.
-// Legacy values (`planning`, `paused`, `blocked`, `failed`) may still appear on disk until the
-// one-shot `agent-workflow migrate-state` runs; deriveEffectiveStatus projects them to the new model.
 const MINIMUM_STATE_STATUSES = new Set([
   'idle',
   'spec_review',
@@ -87,11 +70,6 @@ const MINIMUM_STATE_STATUSES = new Set([
   'review_pending',
   'completed',
   'archived',
-  // legacy
-  'planning',
-  'paused',
-  'blocked',
-  'failed',
 ])
 const POST_SPEC_REVIEW_STATUSES = new Set([
   'planned',
@@ -99,28 +77,74 @@ const POST_SPEC_REVIEW_STATUSES = new Set([
   'halted',
   'review_pending',
   'completed',
-  // legacy
-  'planning',
-  'paused',
-  'blocked',
-  'failed',
 ])
 
-const LEGACY_STATUS_TO_HALT_REASON = {
-  paused: 'governance',
-  blocked: 'dependency',
-  failed: 'failure',
+// Enum 常量化：消除 stringly-typed 散落字面量。新代码应引用这些常量；旧字符串字面量仍兼容。
+const HALT_REASON = Object.freeze({
+  FAILURE: 'failure',
+  GOVERNANCE: 'governance',
+  DEPENDENCY: 'dependency',
+  AWAITING_CODEX_REVIEW: 'awaiting_codex_review',
+})
+
+const TRIGGER_REASON = Object.freeze({
+  SIGNAL_BACKEND_HEAVY: 'signal:backend_heavy',
+  SIGNAL_UI: 'signal:ui',
+  SIGNAL_DATA: 'signal:data',
+  SIGNAL_SECURITY: 'signal:security',
+  SIGNAL_WORKSPACE: 'signal:workspace',
+  USER_REQUESTED: 'user_requested',
+})
+
+const ATTEMPT_PHASE = Object.freeze({
+  STAGE1: 'stage1',
+  STAGE2: 'stage2',
+  CODEX_SPEC_REVIEW: 'codex_spec_review',
+  CODEX_PLAN_REVIEW: 'codex_plan_review',
+})
+
+const ATTEMPT_OUTCOME = Object.freeze({
+  PASS: 'pass',
+  REVISE: 'revise',
+  REJECTED: 'rejected',
+  PENDING: 'pending',
+})
+
+const FINDING_STATUS = Object.freeze({
+  NEW: 'new',
+  CARRIED: 'carried',
+  RESOLVED: 'resolved',
+})
+
+// T8：构建偏离审计 record。spec-update 触发前的二次确认由 CLI 层做，本函数只做 schema 归一化。
+function buildDeviationRecord({ originalIntent, acceptedImplementation, specSection, requiresSpecReview = true, decidedAt = null, decidedBy = 'user' } = {}) {
+  return {
+    deviation_id: `dev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    decided_at: decidedAt || isoNow(),
+    decided_by: decidedBy,
+    original_intent: String(originalIntent || ''),
+    accepted_implementation: String(acceptedImplementation || ''),
+    spec_section: specSection || null,
+    requires_spec_review: Boolean(requiresSpecReview),
+  }
 }
 
-// Project legacy top-level status values onto the new (status, halt_reason) model without mutating input.
-// Readers use this to stay status-agnostic during the migration window; writers should produce the new
-// shape directly (status='halted' + halt_reason=...) via the state_manager helpers.
+function buildAttemptRecord({ attemptId = null, phase, triggerReason = null, outcome, findingsRef = null, timestamp = null } = {}) {
+  return {
+    attempt_id: attemptId || `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    phase,
+    trigger_reason: triggerReason,
+    outcome,
+    findings_ref: findingsRef,
+    timestamp: timestamp || isoNow(),
+  }
+}
+
+// Pass-through projector for read-side consumers.
+// Halted state derives halt_reason from explicit field, defaulting to 'governance'.
 function deriveEffectiveStatus(state) {
   const source = state || {}
   const rawStatus = source.status || 'idle'
-  const reasonFromLegacy = LEGACY_STATUS_TO_HALT_REASON[rawStatus] || null
-  if (reasonFromLegacy) return { status: 'halted', halt_reason: reasonFromLegacy }
-  if (rawStatus === 'planning') return { status: 'spec_review', halt_reason: null }
   const haltReason = source.halt_reason || null
   return { status: rawStatus, halt_reason: rawStatus === 'halted' ? (haltReason || 'governance') : null }
 }
@@ -152,9 +176,6 @@ function ensureStateDefaults(state) {
   }
   if (!normalized.quality_gates) normalized.quality_gates = {}
   if (!normalized.task_runtime) normalized.task_runtime = {}
-  if (!Array.isArray(normalized.parallel_groups)) normalized.parallel_groups = []
-  if (!normalized.parallel_execution) normalized.parallel_execution = copyJson(MINIMUM_PARALLEL_EXECUTION)
-  if (!normalized.boundaryScheduling) normalized.boundaryScheduling = copyJson(MINIMUM_BOUNDARY_SCHEDULING)
   if (!normalized.unblocked) normalized.unblocked = []
   if (!normalized.sessions) normalized.sessions = copyJson(MINIMUM_SESSIONS)
   if (!normalized.delta_tracking) normalized.delta_tracking = copyJson(MINIMUM_DELTA_TRACKING)
@@ -170,6 +191,10 @@ function ensureStateDefaults(state) {
   if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
   if (!('halt_reason' in normalized)) normalized.halt_reason = null
+  // workflow-review 落地报告的路径（顶层字符串）。set-report-path CLI 动词写入，避免 controller 手编 state.json。
+  if (!('review_report_path' in normalized)) normalized.review_report_path = null
+  // T8 deviation_log: 用户"接受偏离"决策的审计日志,每条带 decided_at / spec_section / requires_spec_review。
+  if (!Array.isArray(normalized.deviation_log)) normalized.deviation_log = []
   if (!normalized.created_at) normalized.created_at = normalized.updated_at || isoNow()
   if (!normalized.updated_at) normalized.updated_at = isoNow()
   return normalized
@@ -177,16 +202,17 @@ function ensureStateDefaults(state) {
 
 function normalizeQualityGateRecord(taskId, record) {
   const stage1 = { ...(record.stage1 || {}) }
-  // Code Specs Check 是 Stage 1 的 advisory 子段，旧记录没有这个字段时补一个占位，方便下游无脑读取。
   if (!stage1.code_specs_check || typeof stage1.code_specs_check !== 'object') {
     stage1.code_specs_check = { performed: false, advisory: true, findings_count: 0 }
   }
+  const attempts = Array.isArray(record.attempts) ? record.attempts : []
   return {
     gate_task_id: record.gate_task_id || taskId,
     review_mode: record.review_mode || 'machine_loop',
     last_decision: record.last_decision || 'revise',
     stage1,
     stage2: record.stage2 || {},
+    attempts,
     overall_passed: Boolean(record.overall_passed || false),
     reviewed_at: record.reviewed_at || null,
   }
@@ -195,21 +221,7 @@ function normalizeQualityGateRecord(taskId, record) {
 function getReviewResult(state, taskId) {
   const qualityGates = (state || {}).quality_gates || {}
   if (qualityGates[taskId]) return normalizeQualityGateRecord(taskId, qualityGates[taskId])
-  const executionReviews = (state || {}).execution_reviews || {}
-  const legacy = executionReviews[taskId]
-  if (!legacy) return null
-  const stage1 = legacy.spec_compliance || legacy.stage1 || {}
-  const stage2 = legacy.code_quality || legacy.stage2 || {}
-  const overall = legacy.overall_passed == null ? Boolean(stage1.passed) && Boolean(stage2.passed) : legacy.overall_passed
-  return normalizeQualityGateRecord(taskId, {
-    gate_task_id: taskId,
-    review_mode: legacy.review_mode || 'machine_loop',
-    last_decision: legacy.last_decision || 'revise',
-    stage1,
-    stage2,
-    overall_passed: overall,
-    reviewed_at: legacy.reviewed_at || null,
-  })
+  return null
 }
 
 function summarizeProgress(state) {
@@ -322,17 +334,21 @@ module.exports = {
   MINIMUM_GIT_STATUS,
   MINIMUM_CONTEXT_INJECTION,
   MINIMUM_SESSIONS,
-  MINIMUM_PARALLEL_EXECUTION,
-  MINIMUM_BOUNDARY_SCHEDULING,
 
   MINIMUM_STATE_STATUSES,
-  LEGACY_STATUS_TO_HALT_REASON,
+  HALT_REASON,
+  TRIGGER_REASON,
+  ATTEMPT_PHASE,
+  ATTEMPT_OUTCOME,
+  FINDING_STATUS,
   isoNow,
   copyJson,
   buildMinimumState,
   ensureStateDefaults,
   deriveEffectiveStatus,
   normalizeQualityGateRecord,
+  buildAttemptRecord,
+  buildDeviationRecord,
   getReviewResult,
   summarizeProgress,
   buildUserSpecReview,

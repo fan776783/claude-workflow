@@ -155,7 +155,7 @@ review 重点：
 
 用户提供：`https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15`
 
-执行流程：
+执行 workflow：
 ```bash
 # Phase A（figma-data 执行）
 node core/skills/figma-data/cli/figma.mjs design --url "https://figma.com/design/kL9xQn2VwM8pYrTb4ZcHjF/DesignSystem?node-id=42-15" --taskId btn-primary
@@ -176,7 +176,7 @@ node core/skills/figma-data/cli/figma.mjs cleanup --taskId btn-primary
 
 用户提供：`https://figma.com/design/pR8mNv5KqXzGwY2JtCfL4D/Dashboard?node-id=10-5`
 
-执行流程：
+执行 workflow：
 ```bash
 # Phase A（figma-data 执行，分块获取）
 node core/skills/figma-data/cli/figma.mjs get_metadata --nodeId 10:5

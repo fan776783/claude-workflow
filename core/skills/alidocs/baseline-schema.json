@@ -1,0 +1,939 @@
+{
+  "schemaVersion": "1",
+  "promotedAt": "2026-05-15T08:19:14.251Z",
+  "kinds": {
+    "doc": {
+      "schemaVersion": "1",
+      "promotedAt": "2026-05-15T08:19:14.252Z",
+      "toolCount": 26,
+      "extras": null,
+      "tools": [
+        {
+          "name": "create_document",
+          "required": [
+            "name"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "list_document_blocks",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "insert_document_block",
+          "required": [
+            "nodeId",
+            "element"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_document_block",
+          "required": [
+            "nodeId",
+            "blockId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_document_block",
+          "required": [
+            "nodeId",
+            "blockId",
+            "element"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_document_content",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_document",
+          "required": [
+            "nodeId",
+            "markdown"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "search_documents",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "create_folder",
+          "required": [
+            "name"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "list_nodes",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "get_document_info",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_file",
+          "required": [
+            "name",
+            "type"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_file_upload_info",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "commit_uploaded_file",
+          "required": [
+            "uploadKey",
+            "name"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "download_file",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_doc_attachment_upload_info",
+          "required": [
+            "fileName",
+            "fileSize",
+            "mimeType",
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_document",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "rename_document",
+          "required": [
+            "newName",
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "copy_document",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "move_document",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "download_doc_attachment",
+          "required": [
+            "nodeId",
+            "resourceId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "add_permission",
+          "required": [
+            "nodeId",
+            "roleId",
+            "userIds"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_permission",
+          "required": [
+            "nodeId",
+            "roleId",
+            "userIds"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "list_permission",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "submit_export_job",
+          "required": [
+            "nodeId",
+            "exportFormat"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "query_export_job",
+          "required": [
+            "jobId"
+          ],
+          "enums": {}
+        }
+      ]
+    },
+    "aitable": {
+      "schemaVersion": "1",
+      "promotedAt": "2026-05-15T08:19:14.252Z",
+      "toolCount": 47,
+      "extras": null,
+      "tools": [
+        {
+          "name": "delete_table",
+          "required": [
+            "baseId",
+            "tableId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_table",
+          "required": [
+            "baseId",
+            "tableName",
+            "fields"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_table",
+          "required": [
+            "baseId",
+            "tableId",
+            "newTableName"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_base",
+          "required": [
+            "baseName"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_field",
+          "required": [
+            "baseId",
+            "tableId",
+            "fieldId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_field",
+          "required": [
+            "baseId",
+            "tableId",
+            "fieldId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "list_bases",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "search_bases",
+          "required": [
+            "query"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_base",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_records",
+          "required": [
+            "baseId",
+            "tableId",
+            "recordIds"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_records",
+          "required": [
+            "baseId",
+            "tableId",
+            "records"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_base",
+          "required": [
+            "baseId",
+            "newBaseName"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_base",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_records",
+          "required": [
+            "baseId",
+            "tableId",
+            "records"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "query_records",
+          "required": [
+            "baseId",
+            "tableId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "search_templates",
+          "required": [
+            "query"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_tables",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_fields",
+          "required": [
+            "baseId",
+            "tableId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_fields",
+          "required": [
+            "baseId",
+            "tableId",
+            "fields"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "prepare_attachment_upload",
+          "required": [
+            "baseId",
+            "fileName",
+            "size"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "export_data",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "prepare_import_upload",
+          "required": [
+            "baseId",
+            "fileName",
+            "fileSize"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "import_data",
+          "required": [
+            "importId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_views",
+          "required": [
+            "baseId",
+            "tableId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_view",
+          "required": [
+            "baseId",
+            "tableId",
+            "viewType"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_view",
+          "required": [
+            "baseId",
+            "tableId",
+            "viewId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_view",
+          "required": [
+            "baseId",
+            "tableId",
+            "viewId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_dashboard_config_example",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "get_dashboard",
+          "required": [
+            "baseId",
+            "dashboardId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_dashboard_widgets_example",
+          "required": [],
+          "enums": {}
+        },
+        {
+          "name": "create_dashboard",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_dashboard",
+          "required": [
+            "baseId",
+            "dashboardId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_dashboard",
+          "required": [
+            "baseId",
+            "dashboardId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_chart",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "chartId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_chart",
+          "required": [
+            "baseId",
+            "dashboardId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_chart",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "chartId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_chart",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "chartId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_dashboard_share",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "enabled"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_dashboard_share",
+          "required": [
+            "baseId",
+            "dashboardId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_chart_share",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "chartId",
+            "enabled"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_chart_share",
+          "required": [
+            "baseId",
+            "dashboardId",
+            "chartId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_base_primary_doc_id",
+          "required": [
+            "recordId",
+            "tableId",
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "copy_base",
+          "required": [
+            "baseId",
+            "onlyCopyMeta",
+            "targetFolderId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_guide_document",
+          "required": [
+            "baseId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_guide_document",
+          "required": [
+            "baseId",
+            "documentId",
+            "newDocumentName"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_guide_document",
+          "required": [
+            "baseId",
+            "documentId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "run_ai_field",
+          "required": [
+            "tableId",
+            "baseId",
+            "fieldIds"
+          ],
+          "enums": {}
+        }
+      ]
+    },
+    "sheet": {
+      "schemaVersion": "1",
+      "promotedAt": "2026-05-15T08:19:14.252Z",
+      "toolCount": 37,
+      "extras": null,
+      "tools": [
+        {
+          "name": "create_workspace_sheet",
+          "required": [
+            "name"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_all_sheets",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_sheet",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_range",
+          "required": [
+            "nodeId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_sheet",
+          "required": [
+            "nodeId",
+            "name"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_range",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "rangeAddress"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "append_rows",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "values"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "find_cells",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "text"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_filter",
+          "required": [
+            "nodeId",
+            "sheetId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_filter",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "range"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_filter",
+          "required": [
+            "nodeId",
+            "sheetId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_filter",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "criteria"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "set_filter_criteria",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "column",
+            "filterCriteria"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "clear_filter_criteria",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "column"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "sort_filter",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "field"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_filter_views",
+          "required": [
+            "nodeId",
+            "sheetId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "create_filter_view",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "name",
+            "range"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_filter_view",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "filterViewId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_filter_view",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "filterViewId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "set_filter_view_criteria",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "filterViewId",
+            "column",
+            "filterCriteria"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "clear_filter_view_criteria",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "filterViewId",
+            "column"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "merge_cells",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "rangeAddress"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "replace_all",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "text",
+            "replaceText"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "move_dimension",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "dimension",
+            "startIndex",
+            "endIndex",
+            "destinationIndex"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "add_dimension",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "dimension",
+            "length"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "unmerge_range",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "rangeAddress"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "insert_dimension",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "dimension",
+            "position",
+            "length"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_dimension",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "dimension",
+            "position",
+            "length"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_dimension",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "dimension",
+            "startIndex",
+            "length"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "write_image",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "rangeAddress",
+            "resourceId",
+            "resourceUrl"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "submit_export_job",
+          "required": [
+            "nodeId",
+            "exportFormat"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "query_export_job",
+          "required": [
+            "jobId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "update_sheet",
+          "required": [
+            "nodeId",
+            "sheetId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "copy_sheet",
+          "required": [
+            "nodeId",
+            "sheetId"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "set_dropdown_lists",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "range",
+            "options"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "get_dropdown_lists",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "range"
+          ],
+          "enums": {}
+        },
+        {
+          "name": "delete_dropdown_lists",
+          "required": [
+            "nodeId",
+            "sheetId",
+            "range"
+          ],
+          "enums": {}
+        }
+      ]
+    }
+  }
+}

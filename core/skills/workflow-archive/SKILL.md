@@ -1,9 +1,9 @@
 ---
 name: workflow-archive
-description: "Use when 用户调用 /workflow-archive, or workflow 状态为 completed 需要归档。"
+description: "Use when 用户调用 /workflow-archive, or workflow 状态为 completed 需要 archive。"
 ---
 
-> 路径约定见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。归档 summary 用 canonical 术语（Read `core/specs/shared/glossary.md`）。
+> 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。archive summary 用 canonical 术语（Read `core/specs/shared/glossary.md`）。
 
 # workflow-archive
 
@@ -13,11 +13,11 @@ description: "Use when 用户调用 /workflow-archive, or workflow 状态为 com
 
 ## Checklist
 
-1. ☐ 调用 CLI 执行归档
-2. ☐ 展示归档结果
+1. ☐ 调用 CLI 执行 archive
+2. ☐ 展示 archive 结果
 3. ☐ 下一步建议
 
-## Step 1: CLI 归档
+## Step 1: CLI archive
 
 ```bash
 # 基本归档

@@ -1,0 +1,31 @@
+collaborating-with-codex
+========================
+
+This skill is licensed under the MIT License (see LICENSE).
+
+It includes code adapted from the codex-plugin-cc project, licensed under
+the Apache License 2.0:
+
+    Project:  codex-plugin-cc
+    URL:      https://github.com/openai-claude/codex-plugin-cc
+    Commit:   807e03ac9d5aa23bc395fdec8c3767500a86b3cf
+    License:  Apache-2.0
+
+Specifically, the following modules under scripts/lib/ adapt patterns from
+codex-plugin-cc's plugins/codex/scripts/lib/:
+
+- state.mjs    — bucket layout, slug + hash naming, job JSON I/O
+                 (adapted from state.mjs)
+- gc.mjs       — count + age based prune over terminal jobs
+                 (adapted from state.mjs pruneJobs)
+- capture.mjs  — turn-state machine, notification dispatch, reasoning dedup,
+                 fileChange / commandExecution capture, subagent labeling
+                 (adapted from codex.mjs captureTurn / applyTurnNotification)
+- result.mjs   — brief / detail / result rendering, prefix-matched job id,
+                 elapsed-duration formatting, log tail preview
+                 (adapted from render.mjs / job-control.mjs)
+
+The original Apache-2.0 license text and copyright notices are preserved in
+each adapted file via SPDX headers and an attribution comment. No code from
+codex-plugin-cc's broker / hooks / commands / render layers / rescue agent
+is included in this skill.

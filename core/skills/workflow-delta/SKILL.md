@@ -3,7 +3,7 @@ name: workflow-delta
 description: "Use when 用户调用 /workflow-delta, or 已有 workflow 出现需求/PRD/API 变化需要影响分析与并入。"
 ---
 
-> 路径约定见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。当 delta 跨到新 `{pkg}/{layer}` 时,Read 新涉及 layer 的 `.claude/code-specs/{pkg}/{layer}/index.md`。
+> 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。当 delta 跨到新 `{pkg}/{layer}` 时,Read 新涉及 layer 的 `.claude/code-specs/{pkg}/{layer}/index.md`。
 
 # workflow-delta
 
@@ -158,7 +158,7 @@ CLI 自动:更新 `delta.json` 状态为 `applied` → 更新 `review-status.jso
 
 ## Delta 类型速查
 
-| 模式 | 用途 | 完整流程 |
+| 模式 | 用途 | 完整 workflow |
 |------|------|---------|
 | `sync`(无参数) | 后端接口就绪,执行 API 代码生成并解除 `api_spec` 阻塞 | Step 1 → 2 → 3(`delta sync`) → 7 |
 | `api`(指定 API 文件) | 单个 API 文件 delta,分析接口差异生成任务 delta | Step 1 → 2 → 3(`delta init`) → 4 → 5 → 6 → 7 |

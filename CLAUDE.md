@@ -18,9 +18,8 @@ npm run prepublishOnly    # Runs scripts/validate.js (the only validation gate)
 
 # CLI commands (after npm install -g)
 agent-workflow status    # Show installation status
-agent-workflow sync      # Sync templates to AI coding tools
-agent-workflow sync -a claude-code,cursor  # Install to specific agents
-agent-workflow link      # Refresh managed links without re-copying canonical payload
+agent-workflow sync      # Sync templates to every detected AI coding tool
+agent-workflow link      # Symlink core/ into detected non-Claude-Code tools (Claude Code uses Plugin; dev: `claude --plugin-dir <repo>/core`)
 agent-workflow init      # Init project config in current directory
 agent-workflow doctor    # Diagnose configuration issues
 
@@ -50,6 +49,7 @@ Notes:
 │   └── release.sh           # Release automation
 └── core/                    # Files synced to agents
     ├── skills/              # Skill definitions (portable across tools)
+    │   ├── _shared/         # Cross-skill private modules (NOT a skill; _*/ prefix never mounted)
     │   ├── workflow-spec/   # Spec generation entry for /workflow-spec
     │   ├── workflow-plan/   # Plan generation entry for /workflow-plan
     │   ├── workflow-execute/# Execution entry for /workflow-execute
@@ -66,13 +66,17 @@ Notes:
     │   ├── ux-elaboration/  # Frontend UX design elaboration (§4.4)
     │   ├── system-design/   # Backend system design elaboration (§5.6)
     │   ├── figma-data/      # Figma MCP data acquisition + asset triage
-    │   └── figma-ui/        # Figma to web code (consumes figma-data)
+    │   ├── figma-ui/        # Figma to web code (consumes figma-data)
+    │   ├── bk/              # MCP wrapper: 蓝鲸 CTeam / vTeam CLI
+    │   └── alidocs/         # MCP wrapper: 钉钉文档 / 表格 / AI 表格
     ├── commands/            # Command entry definitions
     ├── utils/               # Internal runtime utilities
     ├── docs/                # Supporting docs and templates
     ├── hooks/               # Hook scripts (installed under .agent-workflow/)
     └── specs/               # Specification documents
 ```
+
+**`_*/` 前缀目录约定**：`core/skills/` 下划线前缀目录 = 跨 skill 私有共享模块入口，**非 user-facing skill**。`lib/installer.js` / `core/utils/platform_parity.js` / `scripts/validate.js` 三处统一按 `_*` 前缀过滤——不会被 mount 为 skill，也不计入 platform-parity 检查。跨 skill 引用走相对路径（如 `../../_shared/mcp-baseline.mjs`），不要走 npm 包 / canonical 路径。
 
 ## Key Concepts
 
@@ -102,7 +106,7 @@ Notes:
 
 **Supported Agents:**
 
-- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
+- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode
 
 **Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
 
@@ -117,8 +121,9 @@ Skills are the portable unit shipped to each AI tool. The authoritative list liv
 - **Alignment & architecture** — `grill` (interview-until-alignment, replaces `enhance`), `zoom-out` (7-line abstraction escape hatch), `tdd` (red-green-refactor discipline), `write-a-skill` (meta-skill for creating new skills).
 - **Dispatch & research** — `dispatching-parallel-agents`, `research` (merged `search-first` + `deep-research`), `collaborating-with-codex`.
 - **Figma pipeline** — `figma-data` (MCP 数据获取 + 资源分诊 → Design Package), `figma-ui` (消费 Design Package → Web 代码还原 + 验证)。`ux-elaboration` 的布局提取也调用 `figma-data`。
-- **Other** — `scan`, `bk`, `api-smoke` (前端视角从 spec + YApi autogen 生成后端接口冒烟脚本,覆盖正常 + 异常场景).
-- **Shared protocols (`core/specs/shared/`)** — `glossary.md` + `architecture-language.md` (terms), `hard-stop-templates.md` / `manual-intervention-reasons.md` / `codex-routing.md` / `status-readiness.md` / `impact-analysis-template.md` (跨 skill 引用而非复写).
+- **MCP wrappers** — `bk` (蓝鲸 CTeam/vTeam), `alidocs` (钉钉文档/表格/AI 表格), `figma-data` (Figma Dev MCP)。三者通过 `core/skills/_shared/mcp-baseline.mjs` 共享 tool snapshot / shape 解析 / 错误归一化（三桶 `tool_not_found=5` / `enum_invalid=6` / `auth=2`），通过 checkin baseline + `<cli> diff-tools` 主动检测上游漂移。详见 `.claude/code-specs/adr/0001-mcp-wrapper-skill-drift-resilience.md`。
+- **Other** — `scan`, `api-smoke` (前端视角从 spec + YApi autogen 生成后端接口冒烟脚本,覆盖正常 + 异常场景).
+- **Shared protocols (`core/specs/shared/`)** — `glossary.md` / `architecture-language.md` / `business-glossary.md` (terms), `adr-protocol.md` / `hard-stop-templates.md` / `manual-intervention-reasons.md` / `status-readiness.md` / `codex-routing.md` / `impact-analysis-template.md` / `out-of-scope-protocol.md` (跨 skill 协议，引用而非复写), `pre-flight.md` (协议索引) + `workflow-cli.md` (CLI 契约).
 
 `/team` 命令直接走 Claude Code 原生 Agent Teams，不再有独立 skill 或 runtime；`core/commands/team.md` 负责命令契约，`core/hooks/team-idle.js` 与 `core/hooks/team-task-guard.js` 提供任务板守门和 cleanup 协调。
 

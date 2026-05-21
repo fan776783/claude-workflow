@@ -10,6 +10,38 @@ const { detectProjectIdFromRoot, getWorkflowsDir } = require('./path_utils')
 /** 单个索引文件中保留的最大会话数 */
 const MAX_SESSIONS_PER_INDEX = 100
 
+/** T6 证据摘要协议：session 摘要必须为结构化对象，含以下 4 字段。 */
+const EVIDENCE_FIELDS = ['commands_run', 'diff_summary', 'coverage_evidence', 'unverified_items']
+
+/** 缺字段时回显的填写模板（错误信息附带，让上游一次补齐）。 */
+const EVIDENCE_TEMPLATE = Object.freeze({
+  commands_run: ['例如：pnpm lint', 'pnpm test'],
+  diff_summary: '简述本次 diff 范围（改了哪些文件/模块）',
+  coverage_evidence: '覆盖的 R-XX / Acceptance Criteria 锚点',
+  unverified_items: ['未在浏览器手动验证 / 等待联调的功能点'],
+})
+
+function validateEvidenceSummary(summary) {
+  if (summary == null || summary === '') return { valid: false, errors: ['evidence summary is required'], reason: 'missing' }
+  if (typeof summary === 'string') {
+    // 旧 string summary 不再接受写入（archived state 加载时仍可读 — 见 cmdGet/cmdSearch）。
+    return { valid: false, errors: ['legacy string summary is no longer accepted; use structured evidence (4 fields)'], reason: 'legacy_string' }
+  }
+  if (typeof summary !== 'object' || Array.isArray(summary)) {
+    return { valid: false, errors: [`summary must be a JSON object, got ${Array.isArray(summary) ? 'array' : typeof summary}`], reason: 'wrong_type' }
+  }
+  const errors = []
+  for (const field of EVIDENCE_FIELDS) {
+    if (!(field in summary)) { errors.push(`missing field: ${field}`); continue }
+    if (field === 'commands_run' || field === 'unverified_items') {
+      if (!Array.isArray(summary[field])) errors.push(`${field} must be array`)
+    } else {
+      if (typeof summary[field] !== 'string') errors.push(`${field} must be string`)
+    }
+  }
+  return { valid: errors.length === 0, errors, reason: errors.length === 0 ? 'ok' : 'incomplete' }
+}
+
 /**
  * 获取指定项目的日志存储目录路径
  * @param {string} projectId - 项目 ID
@@ -74,6 +106,16 @@ function writeSession(journalDir, sessionId, data) {
  * @returns {{added: boolean, session_id: number, file: string}} 添加结果
  */
 function cmdAdd(projectId, title, workflowId = null, tasksCompleted = [], summary = null, decisions = [], nextSteps = []) {
+  // T6 hard-reject：写入前校验 evidence summary 结构（4 字段），缺即 throw 并附模板。
+  const validation = validateEvidenceSummary(summary)
+  if (!validation.valid) {
+    const err = new Error(`evidence summary invalid: ${validation.errors.join('; ')}`)
+    err.code = 'EVIDENCE_SUMMARY_INVALID'
+    err.template = EVIDENCE_TEMPLATE
+    err.required_fields = [...EVIDENCE_FIELDS]
+    err.reason = validation.reason
+    throw err
+  }
   const journalDir = getJournalDir(projectId)
   const index = readIndex(journalDir)
   const sessionId = Number(index.total_sessions || 0) + 1
@@ -83,7 +125,7 @@ function cmdAdd(projectId, title, workflowId = null, tasksCompleted = [], summar
     date: new Date().toISOString(),
     workflow_id: workflowId,
     tasks_completed: tasksCompleted || [],
-    summary: summary || '',
+    summary,
     decisions: decisions || [],
     next_steps: nextSteps || [],
   }
@@ -178,7 +220,30 @@ function main() {
     return index >= 0 ? args[index + 1] : ''
   }
   let result
-  if (command === 'add') result = cmdAdd(projectId, option('--title'), option('--workflow-id') || null, split(option('--tasks-completed')), option('--summary') || null, split(option('--decisions')), split(option('--next-steps')))
+  if (command === 'add') {
+    // T6：--summary-json 传 evidence 结构对象；保留 --summary 兼容入参但触发 hard-reject 返回模板。
+    let summaryInput = null
+    const summaryJson = option('--summary-json')
+    if (summaryJson) {
+      try { summaryInput = JSON.parse(summaryJson) } catch (err) {
+        process.stdout.write(`${JSON.stringify({ error: `--summary-json invalid JSON: ${err.message}`, template: EVIDENCE_TEMPLATE, required_fields: EVIDENCE_FIELDS }, null, 2)}\n`)
+        process.exitCode = 1
+        return
+      }
+    } else if (option('--summary')) {
+      summaryInput = option('--summary')
+    }
+    try {
+      result = cmdAdd(projectId, option('--title'), option('--workflow-id') || null, split(option('--tasks-completed')), summaryInput, split(option('--decisions')), split(option('--next-steps')))
+    } catch (err) {
+      if (err && err.code === 'EVIDENCE_SUMMARY_INVALID') {
+        process.stdout.write(`${JSON.stringify({ error: err.message, code: err.code, reason: err.reason, required_fields: err.required_fields, template: err.template }, null, 2)}\n`)
+        process.exitCode = 1
+        return
+      }
+      throw err
+    }
+  }
   else if (command === 'list') result = cmdList(projectId, Number(option('--limit') || 20))
   else if (command === 'search') result = cmdSearch(projectId, args[0])
   else if (command === 'get') result = cmdGet(projectId, Number(args[0]))
@@ -192,6 +257,9 @@ function main() {
 
 module.exports = {
   MAX_SESSIONS_PER_INDEX,
+  EVIDENCE_FIELDS,
+  EVIDENCE_TEMPLATE,
+  validateEvidenceSummary,
   getJournalDir,
   readIndex,
   writeIndex,

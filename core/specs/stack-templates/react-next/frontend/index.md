@@ -60,12 +60,9 @@
 
 ## Quality Check
 
-1. `git diff --name-only` 确认改动范围
-2. 对照 Guidelines Index 逐条核对
-3. 运行 lint / type-check / test：
-   ```bash
-   pnpm lint && pnpm tsc --noEmit
-   ```
+通用自检清单见根 [`index.md` 的 Quality Check 段](../../index.md#quality-check)（全项目单一来源）。本栈特有：
+
+- 运行 lint / type-check：`pnpm lint && pnpm tsc --noEmit`
 
 ---
 

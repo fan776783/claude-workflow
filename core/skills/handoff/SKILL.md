@@ -12,19 +12,9 @@ Read `core/specs/shared/glossary.md`（确保交接文档术语一致）。
 
 压缩当前会话为结构化交接文档,让下一个 session/agent 零成本接手。
 
-## 与 workflow-execute 的关系
-
-`workflow-execute` 有内置 `handoff-required` continuation artifact(context 压缩时自动触发)。本 skill 是**手动入口**,适用于:
-- 无 workflow 的自由对话
-- 跨工具交接(Claude Code → Cursor / Codex 等)
-- 主动结束 session
-
-有活跃 workflow 时提示用户:"当前有活跃 workflow,建议用 `/workflow-status` 查看续接信息。仍要生成 handoff 文档吗?"
-
 ## 文件位置
 
-- 有活跃 workflow → `~/.claude/workflows/{pid}/handoff-{YYYYMMDD-HHmm}.md`
-- 无 workflow → 写到 `/tmp/handoff-XXXXXX.md`(用 `mktemp`)
+写到 `~/.claude/tmp/handoff-{YYYYMMDD-HHmm}.md`(目录不存在则先创建)。
 
 ## 文档模板
 
@@ -53,3 +43,8 @@ Read `core/specs/shared/glossary.md`（确保交接文档术语一致）。
 - **不创造新信息**。只压缩和组织已有上下文
 - **如果用户传了参数**,作为下一个 session 的工作重点,tailored 文档内容
 - **推荐 skill 时给理由**。不是列清单,是说"因为 X 未完成,建议用 /Y 因为 Z"
+- **最终输出粘贴提示词**。文档落盘后,在对话里追加一段可直接复制到新窗口的 prompt,形如:
+  ```
+  接手上个 session,请先读 `~/.claude/tmp/handoff-XXX.md` 了解上下文,然后{一句话工作重点}。
+  ```
+  路径用实际生成的文件名,工作重点取自用户参数或文档「未完成」首项。

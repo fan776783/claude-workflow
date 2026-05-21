@@ -32,7 +32,6 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `status` | 快速workflow状态 | Step 1-2 of status.md |
 | `list` | 列出所有任务 | `parseWorkflowTasksV2FromMarkdown()` |
 | `progress` | 进度统计 | `calculateProgress()` |
-| `parallel` | 查找可并行任务 | `classifyTaskDependencies()` |
 | `budget` | 上下文预算评估 | `evaluateBudgetThresholds()` |
 | `journal list` | 最近会话记录 | — |
 
@@ -117,7 +116,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `history[].preTaskTokens` | number | 执行前 token |
 | `history[].postTaskTokens` | number | 执行后 token |
 | `history[].tokenDelta` | number | token delta |
-| `history[].executionPath` | `direct / single-subagent / parallel-boundaries` | 执行路径 |
+| `history[].executionPath` | `direct / single-subagent` | 执行路径 |
 
 > 动态任务上限由 `context_budget.js:calculateMaxTasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
 

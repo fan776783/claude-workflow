@@ -1,6 +1,6 @@
 ---
 name: spec-update
-description: "Use when 用户调用 /spec-update, or 工作中沉淀出新约定/接口契约/模式需要落到 .claude/code-specs/, or workflow-review 末尾建议沉淀 code-spec。"
+description: "Use when 用户调用 /spec-update, or 工作中沉淀出新 convention / 接口 contract / 模式需要落到 .claude/code-specs/, or workflow-review 末尾建议沉淀 code-spec。"
 ---
 
 <CONTEXT>
@@ -129,14 +129,19 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 3. **位置**：哪个 package / layer？（单包项目默认推断，monorepo 列出可选）
 4. **目标文件**（Step 3 fuzzy 匹配后确认）
 
-### Step 3: 主题 fuzzy 匹配
+### Step 3: 主题 fuzzy 匹配 + 防冗余
 
-写入前扫 `{pkg}/{layer}/*.md`：
+写入前扫描范围 = 同层 `{pkg}/{layer}/*.md`（topic 文件）**+ 同层 `index.md` + 兄弟 convention 文件**：
 
 1. 读每个文件的 H1 + Overview 首段
 2. 对用户输入的主题做子串/关键词模糊匹配
 3. 若命中候选：询问"追加到 `existing.md` 还是新建？"
 4. 若新建：建议文件名（kebab-case，对齐已存在命名风格）
+5. **防冗余检查**（命中即提示，不强制阻断）：
+   - **兄弟文件 / index.md 重叠**（防 R2）：要写的 Overview / 段落与同层 `index.md` 或兄弟 convention 文件已有内容在讲同一件事 → 提示"已有相近内容，改为指针而非复制？"
+   - **跨包上提**（防 R5）：要写的规则 fuzzy 命中多个其它包的同类内容 → 提示"这已出现在多个包，考虑上提到 `guides/`，各包改指针？"
+   - **R3 同文件比对**：若目标是追加到 Common Mistakes，先比对该文件 Rules 段是否已有同一 Bad/Good 块 → 命中则提示"改为引用 Rules，不重复整块"
+   - **R4 目录树比对**：若写入内容含 fenced 目录树，检查同包 `directory-structure.md` / `component-guidelines.md` 是否已画过同一棵树 → 命中则提示"目录树留一处，另一处改指针"
 
 ### Step 4: 写入
 
@@ -163,7 +168,9 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 - [ ] 内容包含真实代码示例（非抽象描述）
 - [ ] 有 Why 说明
 - [ ] 放对了文件（convention vs contract vs guide）
-- [ ] 不重复已有内容
+- [ ] 不与同层 `index.md` / 兄弟 convention 文件重复（重复改指针）
+- [ ] Common Mistakes 不与 Rules 重复同一 Bad/Good 块（重复改引用）
+- [ ] fenced 目录树不在多文件重画（留一处，其余改指针）
 
 ### 深度更新（convention）
 - [ ] Overview / Rules / DO-DONT / Common Mistakes 4 段都有内容

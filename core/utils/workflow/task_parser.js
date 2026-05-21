@@ -219,19 +219,26 @@ function summarizeTaskProgress(tasks) {
 
   const doneCount = progress.completed.length + progress.skipped.length
   const total = (tasks || []).length
-  const workflowStatus = total > 0 && doneCount >= total
-    ? 'completed'
-    : currentTaskStatus && currentTaskStatus.includes('failed')
-      ? 'failed'
-      : currentTaskStatus && currentTaskStatus.includes('blocked')
-        ? 'blocked'
-      : 'running'
+  let workflowStatus
+  let haltReason = null
+  if (total > 0 && doneCount >= total) {
+    workflowStatus = 'completed'
+  } else if (currentTaskStatus && currentTaskStatus.includes('failed')) {
+    workflowStatus = 'halted'
+    haltReason = 'failure'
+  } else if (currentTaskStatus && currentTaskStatus.includes('blocked')) {
+    workflowStatus = 'halted'
+    haltReason = 'dependency'
+  } else {
+    workflowStatus = 'running'
+  }
 
   return {
     progress,
     current_task_id: currentTaskId,
     current_task_status: currentTaskStatus,
     workflow_status: workflowStatus,
+    halt_reason: haltReason,
   }
 }
 

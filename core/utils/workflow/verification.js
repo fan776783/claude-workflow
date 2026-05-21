@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-function createEvidence(command, exitCode, outputSummary, passed, artifactRef) {
+const fs = require('fs')
+const path = require('path')
+
+function createEvidence(command, exitCode, outputSummary, passed, artifactRef, requireFiles) {
   const evidence = {
     command,
     exit_code: exitCode,
@@ -9,6 +12,9 @@ function createEvidence(command, exitCode, outputSummary, passed, artifactRef) {
     passed: Boolean(passed),
   }
   if (artifactRef) evidence.artifact_ref = artifactRef
+  if (Array.isArray(requireFiles) && requireFiles.length) {
+    evidence.require_files = requireFiles.map((f) => path.resolve(f))
+  }
   return evidence
 }
 
@@ -73,6 +79,13 @@ function validateEvidence(evidence) {
     violations.push('inconsistent:passed=false,exit_code=0,no_artifact_ref')
   }
 
+  // 必需文件校验：require_files 列出的文件必须存在
+  if (Array.isArray(evidence.require_files)) {
+    for (const f of evidence.require_files) {
+      if (!fs.existsSync(f)) violations.push(`missing_required_files:${f}`)
+    }
+  }
+
   return { valid: violations.length === 0, missing_fields: [], violations }
 }
 
@@ -102,6 +115,10 @@ function parseArgs(argv) {
     else if (token === '--output') options.output = args.shift()
     else if (token === '--passed') options.passed = true
     else if (token === '--artifact-ref') options.artifactRef = args.shift()
+    else if (token === '--require-files') {
+      const v = args.shift()
+      options.requireFiles = v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []
+    }
     else positionals.push(token)
   }
 
@@ -111,7 +128,7 @@ function parseArgs(argv) {
 function main() {
   const { command, args, options } = parseArgs(process.argv.slice(2))
   if (command === 'create') {
-    const evidence = createEvidence(options.cmd, options.exitCode, options.output, options.passed, options.artifactRef)
+    const evidence = createEvidence(options.cmd, options.exitCode, options.output, options.passed, options.artifactRef, options.requireFiles)
     const validation = validateEvidence(evidence)
     process.stdout.write(`${JSON.stringify({ ...evidence, validation }, null, 2)}\n`)
     if (!validation.valid) process.exitCode = 1

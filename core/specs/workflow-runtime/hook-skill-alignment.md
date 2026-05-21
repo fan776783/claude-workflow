@@ -18,7 +18,7 @@
 | `workflow-delta` | delta 分析与 apply | 无专属 hook |
 | `workflow-status` | `status` 运行时状态查看 | 无专属 hook |
 | `workflow-archive` | `archive` workflow | 无专属 hook |
-| `dispatching-parallel-agents` | 并行执行规则来源 | 无专属 hook |
+| `dispatching-parallel-agents` | 只读 fan-out 分派（debug / research / multi-bug 调查） | 无专属 hook |
 | `/team` 命令 | Claude Code 原生 Agent Teams | `TeammateIdle` / `TaskCreated` / `TaskCompleted` 由 `team-idle.js` / `team-task-guard.js` 守门 |
 
 ## Hook 列表

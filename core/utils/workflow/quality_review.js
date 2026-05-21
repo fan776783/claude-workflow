@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
+const crypto = require('crypto')
 const { readState, resolveStatePath, writeState } = require('./state_manager')
 const { createEvidence } = require('./verification')
 const { assertCanonicalWorkflowStatePath, detectProjectIdFromRoot } = require('./path_utils')
-const { ensureStateDefaults, getReviewResult } = require('./workflow_types')
+const { ensureStateDefaults, getReviewResult, buildAttemptRecord, ATTEMPT_PHASE, ATTEMPT_OUTCOME, FINDING_STATUS } = require('./workflow_types')
 const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile, STAGE2_REVIEW_MODE_SET } = require('./role_injection')
 
 const GATE_BUDGET = {
@@ -256,7 +257,6 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
     overall_passed: true,
     reviewed_at: now,
     reviewer,
-    reviewer_prompt_preview: reviewerPrompt.prompt,
   }
 }
 
@@ -289,7 +289,6 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
     blocking_issues: collectBlockingIssues(mergedLastResult),
     reviewed_at: now,
     reviewer,
-    reviewer_prompt_preview: reviewerPrompt.prompt,
     commit_hash: currentCommit || baseCommit,
     diff_window: diffWindow,
     stage1,
@@ -345,97 +344,99 @@ function resolveBaseCommitForCommand(state = {}, projectRoot = process.cwd(), ex
   return resolveReviewBaseline(state, projectRoot)
 }
 
-function aggregateStage1(taskIds, perTaskStage1) {
-  const entries = (taskIds || []).map((id) => perTaskStage1[id])
-  const allPresent = entries.every(Boolean)
-  const allPassed = allPresent && entries.length > 0 && entries.every((s) => s.passed)
-  const totalAttempts = entries.reduce((sum, s) => sum + ((s || {}).attempts || 0), 0)
-  const totalIssues = entries.reduce((sum, s) => sum + ((s || {}).issues_found || 0), 0)
-  return { allPassed, totalAttempts, totalIssues }
-}
-
-function buildBatchPassGateResult(groupId, taskIds, baseCommit, mergedCommit, filesChanged = 0, requirementIds = [], criticalConstraints = [], perTaskStage1 = {}, stage2Attempts = 1, criticalCount = 0, importantCount = 0, minorCount = 0, reviewer = 'subagent', state = {}) {
-  const now = isoNow()
-  const diffWindow = createDiffWindow(baseCommit, null, null, filesChanged)
-  const { allPassed: allStage1Passed, totalAttempts: totalStage1Attempts, totalIssues: totalStage1Issues } = aggregateStage1(taskIds, perTaskStage1)
+// T7 findings 三态：从 blocking_issues 提取 finding，与上轮 diff 标 new/carried/resolved。
+// finding_id 用 description 内容 sha1 前 10 位 — 同一 finding 跨轮可识别。
+function normalizeFinding(rawFinding, fallbackSeverity = 'medium') {
+  const description = typeof rawFinding === 'string'
+    ? rawFinding
+    : (rawFinding && (rawFinding.description || rawFinding.message)) || JSON.stringify(rawFinding || {})
+  const severity = (rawFinding && rawFinding.severity) || fallbackSeverity
+  const findingId = 'f-' + crypto.createHash('sha1').update(description).digest('hex').slice(0, 10)
   return {
-    review_type: 'quality_review',
-    review_mode: 'machine_loop',
-    gate_task_id: groupId,
-    scope: 'batch',
-    batch_id: groupId,
-    task_ids: [...taskIds],
-    per_task_stage1: { ...perTaskStage1 },
-    subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
-    max_attempts: GATE_BUDGET.max_total_loops,
-    attempt: totalStage1Attempts + stage2Attempts,
-    last_decision: 'pass',
-    next_action: 'continue_execution',
-    commit_hash: mergedCommit || baseCommit,
-    diff_window: diffWindow,
-    protected_requirement_ids: [...requirementIds],
-    protected_constraints: [...criticalConstraints],
-    stage1: { passed: allStage1Passed, attempts: totalStage1Attempts, issues_found: totalStage1Issues, completed_at: now },
-    stage2: { passed: true, attempts: stage2Attempts, assessment: 'approved', critical_count: criticalCount, important_count: importantCount, minor_count: minorCount, completed_at: now },
-    overall_passed: true,
-    reviewed_at: now,
-    reviewer,
+    finding_id: findingId,
+    description,
+    severity,
+    status: FINDING_STATUS.NEW,
   }
 }
 
-function buildBatchFailedGateResult(groupId, taskIds, failedStage, baseCommit, mergedCommit, filesChanged = 0, requirementIds = [], criticalConstraints = [], perTaskStage1 = {}, totalAttempts = 1, lastResult = null, reviewer = 'subagent') {
-  const now = isoNow()
-  const diffWindow = createDiffWindow(baseCommit, null, null, filesChanged)
-  const { allPassed: allStage1Passed, totalAttempts: totalStage1Attempts, totalIssues: totalStage1Issues } = aggregateStage1(taskIds, perTaskStage1)
-  const budgetExhausted = totalAttempts >= GATE_BUDGET.max_total_loops
-  const stage2Failed = failedStage === 'stage2'
-  const terminalDecision = budgetExhausted || stage2Failed ? 'rejected' : 'revise'
-  const nextAction = terminalDecision === 'rejected' ? 'discard_integration_worktree' : 'fix_and_retry_batch'
-  const result = {
-    review_type: 'quality_review',
-    review_mode: 'machine_loop',
-    gate_task_id: groupId,
-    scope: 'batch',
-    batch_id: groupId,
-    task_ids: [...taskIds],
-    per_task_stage1: { ...perTaskStage1 },
-    subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
-    max_attempts: GATE_BUDGET.max_total_loops,
-    attempt: totalAttempts,
-    last_decision: terminalDecision,
-    next_action: nextAction,
-    blocking_issues: collectBlockingIssues(lastResult),
-    commit_hash: mergedCommit || baseCommit,
-    diff_window: diffWindow,
-    protected_requirement_ids: [...requirementIds],
-    protected_constraints: [...criticalConstraints],
-    stage1: { passed: allStage1Passed, attempts: totalStage1Attempts, issues_found: totalStage1Issues, completed_at: now },
-    overall_passed: false,
-    reviewed_at: now,
-    reviewer,
+function extractFindingsFromGateResult(gateResult) {
+  const findings = []
+  const seen = new Set()
+  const blocking = Array.isArray(gateResult.blocking_issues) ? gateResult.blocking_issues : []
+  for (const item of blocking) {
+    const f = normalizeFinding(item, 'high')
+    if (!seen.has(f.finding_id)) { seen.add(f.finding_id); findings.push(f) }
   }
-  if (stage2Failed) {
-    const issues = typeof lastResult === 'object' && lastResult ? (lastResult.issues || {}) : {}
-    result.stage2 = {
-      passed: false,
-      attempts: Math.max(totalAttempts - totalStage1Attempts, 0),
-      assessment: (lastResult || {}).assessment || 'rejected',
-      critical_count: (issues.critical || []).length,
-      important_count: (issues.important || []).length,
-      minor_count: (issues.minor || []).length,
-      completed_at: now,
-    }
-  }
-  return result
+  return findings
 }
 
-function writeBatchQualityGateResult(statePath, groupId, gateResult, projectId = null) {
-  return writeQualityGateResult(statePath, groupId, gateResult, projectId)
+function diffFindings(prevFindings, currentFindings) {
+  const prevById = new Map((prevFindings || []).map((f) => [f.finding_id, f]))
+  const currentById = new Map(currentFindings.map((f) => [f.finding_id, f]))
+  const out = []
+  for (const f of currentFindings) {
+    out.push({ ...f, status: prevById.has(f.finding_id) ? FINDING_STATUS.CARRIED : FINDING_STATUS.NEW })
+  }
+  for (const f of (prevFindings || [])) {
+    if (!currentById.has(f.finding_id)) out.push({ ...f, status: FINDING_STATUS.RESOLVED })
+  }
+  return out
+}
+
+// 三态计数聚合 — workflow-status 展示用
+function summarizeFindings(findings) {
+  const summary = { new: 0, carried: 0, resolved: 0 }
+  for (const f of (findings || [])) {
+    if (f.status === FINDING_STATUS.NEW) summary.new++
+    else if (f.status === FINDING_STATUS.CARRIED) summary.carried++
+    else if (f.status === FINDING_STATUS.RESOLVED) summary.resolved++
+  }
+  return summary
+}
+
+// 从一次完整 gate result（含 stage1+stage2 快照）派生 attempts 数组的"本轮新增"条目。
+function buildAttemptsFromGateResult(gateResult) {
+  const attempts = []
+  const stage1 = gateResult.stage1 || {}
+  if (stage1.completed_at) {
+    attempts.push(buildAttemptRecord({
+      phase: ATTEMPT_PHASE.STAGE1,
+      outcome: stage1.passed ? ATTEMPT_OUTCOME.PASS : ATTEMPT_OUTCOME.REVISE,
+      findingsRef: stage1.cross_layer_depth_gap ? 'cross_layer_depth_gap' : null,
+      timestamp: stage1.completed_at,
+    }))
+  }
+  const stage2 = gateResult.stage2 || {}
+  if (stage2.completed_at) {
+    attempts.push(buildAttemptRecord({
+      phase: ATTEMPT_PHASE.STAGE2,
+      outcome: stage2.passed
+        ? ATTEMPT_OUTCOME.PASS
+        : (gateResult.last_decision === 'rejected' ? ATTEMPT_OUTCOME.REJECTED : ATTEMPT_OUTCOME.REVISE),
+      timestamp: stage2.completed_at,
+    }))
+  }
+  return attempts
 }
 
 function writeQualityGateResult(statePath, taskId, gateResult, projectId = null) {
   const state = ensureStateDefaults(readState(statePath, projectId))
   const qualityGates = state.quality_gates || (state.quality_gates = {})
+  // 跨轮追加 attempts[]：保留之前的 attempts，本次 stage1/stage2 各拼一条新 record。
+  const prev = qualityGates[taskId] || {}
+  const prevAttempts = Array.isArray(prev.attempts) ? prev.attempts : []
+  const newAttempts = buildAttemptsFromGateResult(gateResult)
+  // T7 findings 三态：与上一轮 last attempt 的 findings diff，挂到本轮最后一条 attempt record。
+  const prevLast = prevAttempts[prevAttempts.length - 1] || null
+  const prevFindings = prevLast && Array.isArray(prevLast.findings) ? prevLast.findings : []
+  const currentFindings = extractFindingsFromGateResult(gateResult)
+  const diffed = diffFindings(prevFindings, currentFindings)
+  if (newAttempts.length > 0) {
+    newAttempts[newAttempts.length - 1].findings = diffed
+  }
+  gateResult.attempts = [...prevAttempts, ...newAttempts]
+  gateResult.findings_summary = summarizeFindings(diffed)
   qualityGates[taskId] = gateResult
   writeState(statePath, state, projectId)
   return gateResult
@@ -615,9 +616,11 @@ module.exports = {
   collectBlockingIssues,
   buildPassGateResult,
   buildFailedGateResult,
-  buildBatchPassGateResult,
-  buildBatchFailedGateResult,
-  writeBatchQualityGateResult,
+  buildAttemptsFromGateResult,
+  extractFindingsFromGateResult,
+  diffFindings,
+  summarizeFindings,
+  normalizeFinding,
   resolveQualityReviewProfile,
   createReviewerPrompt,
   writeQualityGateResult,

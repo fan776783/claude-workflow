@@ -25,7 +25,7 @@ Canonical 源的枚举规则：
 `lib/agents.js` 必须满足：
 
 1. **必须存在的 agents**（至少包含）：
-   `antigravity`、`claude-code`、`codex`、`cursor`、`droid`、`gemini-cli`、`github-copilot`、`opencode`、`qoder`
+   `antigravity`、`claude-code`、`codex`、`cursor`、`droid`、`gemini-cli`、`github-copilot`、`opencode`
 2. **每个 agent 的字段**必须非空：
    - `name`（字符串）
    - `displayName`（字符串）
@@ -44,7 +44,7 @@ Canonical 源的枚举规则：
 
 ## CI 失败条件（由 validator 实施）
 
-- `lib/agents.js` 少于 9 个 agent
+- `lib/agents.js` 少于 8 个 agent
 - 任一 agent 缺少上述 5 个必填字段
 - `core/skills/<x>/` 存在但没有 `SKILL.md`
 - `core/commands/*.md` 里的命令文件命名与 `core/skills/` 提供的 skill 无法对应（仅警告，不阻塞；对应关系由 command doc 内容声明）

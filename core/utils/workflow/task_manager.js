@@ -7,7 +7,7 @@ const {
   evaluateBudgetThresholds,
   generateContextBar,
 } = require('./context_budget')
-const { checkTaskDeps, findParallelGroups } = require('./dependency_checker')
+const { checkTaskDeps } = require('./dependency_checker')
 const {
   detectProjectIdFromRoot,
   getWorkflowStatePath,
@@ -219,36 +219,6 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
 }
 
 /**
- * 批量将多个任务标记为已完成
- * @param {string[]} taskIds - 任务 ID 数组
- * @param {string|null} [projectId=null]
- * @param {string|null} [projectRoot=null]
- * @returns {Object} 操作结果
- */
-function cmdCompleteBatch(taskIds, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
-  const allTasks = parseTasksV2(tasksContent)
-  const taskMap = new Map(allTasks.map((t) => [t.id, t]))
-  const missing = (taskIds || []).filter((id) => !taskMap.has(id))
-  if (missing.length) return { error: `任务不存在于 plan 中：${missing.join(', ')}` }
-  let updatedContent = tasksContent
-  const progress = state.progress || (state.progress = {})
-  const completed = progress.completed || (progress.completed = [])
-  for (const taskId of taskIds) {
-    updatedContent = updateTaskStatusInMarkdown(updatedContent, taskId, 'completed')
-    addUnique(completed, taskId)
-    if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
-  }
-  fs.writeFileSync(tasksPath, updatedContent)
-  const statusTransition = liftPlannedToRunning(state)
-  writeState(statePath, state)
-  const result = { completed: true, task_ids: [...taskIds] }
-  if (statusTransition) result.status_transition = statusTransition
-  return result
-}
-
-/**
  * 将指定任务标记为失败
  * @param {string} taskId - 任务 ID
  * @param {string} reason - 失败原因
@@ -292,21 +262,6 @@ function cmdDeps(taskId, projectId = null, projectRoot = null) {
     depends: task.depends,
     blocked_by: task.blocked_by,
   }
-}
-
-/**
- * 查找可并行执行的任务分组
- * @param {string|null} [projectId=null] - 项目 ID
- * @param {string|null} [projectRoot=null] - 项目根目录
- * @returns {Object} 并行分组结果
- */
-function cmdParallel(projectId = null, projectRoot = null) {
-  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
-  const progress = state.progress || {}
-  const taskDicts = parseTasksV2(tasksContent).map(taskToDict)
-  const groups = findParallelGroups(taskDicts, progress.completed || [], progress.blocked || [], progress.skipped || [], progress.failed || [])
-  return { parallel_groups: groups, group_count: groups.length }
 }
 
 /**
@@ -390,13 +345,12 @@ function main() {
       complete: () => cmdComplete(args[0], options.projectId, options.projectRoot),
       fail: () => cmdFail(args[0], args[1], options.projectId, options.projectRoot),
       deps: () => cmdDeps(args[0], options.projectId, options.projectRoot),
-      parallel: () => cmdParallel(options.projectId, options.projectRoot),
       progress: () => cmdProgress(options.projectId, options.projectRoot),
       'context-budget': () => cmdContextBudget(options.projectId, options.projectRoot),
     }
     const handler = handlers[command]
     if (!handler) {
-      process.stderr.write('Usage: node task_manager.js [--project-id ID] [--project-root DIR] <status|list|next|complete|fail|deps|parallel|progress|context-budget> ...\n')
+      process.stderr.write('Usage: node task_manager.js [--project-id ID] [--project-root DIR] <status|list|next|complete|fail|deps|progress|context-budget> ...\n')
       process.exitCode = 1
       return
     }
@@ -418,10 +372,8 @@ module.exports = {
   cmdList,
   cmdNext,
   cmdComplete,
-  cmdCompleteBatch,
   cmdFail,
   cmdDeps,
-  cmdParallel,
   cmdProgress,
   cmdContextBudget,
   cmdRuntimeSummary,

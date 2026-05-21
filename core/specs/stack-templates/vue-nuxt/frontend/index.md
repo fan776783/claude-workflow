@@ -62,17 +62,9 @@
 
 ## Quality Check
 
-完成后自检清单：
+通用自检清单见根 [`index.md` 的 Quality Check 段](../../index.md#quality-check)（全项目单一来源）。本栈特有：
 
-1. 运行 `git diff --name-only` 确认改动范围
-2. 对照 Guidelines Index 中相关 guide 逐条核对
-3. 运行 lint / type-check / test：
-   ```bash
-   pnpm lint && pnpm build
-   ```
-4. 补齐测试：
-   - 新 pure function → unit test
-   - bug fix → regression test
+- 运行 lint / build：`pnpm lint && pnpm build`
 
 ---
 

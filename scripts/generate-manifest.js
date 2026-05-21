@@ -195,7 +195,7 @@ function normalize(p) {
 
 // v3 Stage C: 合并人工维护的 rename-section / delete-section 条目，避免自动生成覆盖。
 // 若 manifest 文件已存在，读取其 migrations 中这两种类型的条目保留下来；
-// protected_paths 同样走人工手写优先（自动生成只产出空 / 最小保护列表）。
+// protected_paths / breaking / notes 同样走人工手写优先（自动生成只产出空 / 最小 / 模板值）。
 function mergeManualManifestEdits(outPath, generated) {
   if (!fs.existsSync(outPath)) return generated
   let existing
@@ -209,12 +209,20 @@ function mergeManualManifestEdits(outPath, generated) {
     ? existing.migrations.filter((m) => m && manualTypes.has(m.type))
     : []
   const manualProtected = Array.isArray(existing.protected_paths) ? existing.protected_paths : null
+  const manualBreaking = Array.isArray(existing.breaking) ? existing.breaking : null
+  // notes 自动生成是确定性模板串（Release X based on Y）；人工改写过则与本次 generated.notes 不同 → 保留。
+  const manualNotes =
+    typeof existing.notes === 'string' && existing.notes && existing.notes !== generated.notes
+      ? existing.notes
+      : null
   return {
     ...generated,
     migrations: [...manualMigrations, ...generated.migrations],
     protected_paths: manualProtected && manualProtected.length
       ? manualProtected
       : generated.protected_paths,
+    breaking: manualBreaking && manualBreaking.length ? manualBreaking : generated.breaking,
+    notes: manualNotes || generated.notes,
     recommendMigrate: generated.recommendMigrate || manualMigrations.length > 0,
   }
 }

@@ -1,19 +1,58 @@
 #!/usr/bin/env node
 // figma — thin CLI over the Figma Desktop MCP Server (Streamable HTTP / SSE).
-// Wraps all Figma MCP tools + asset management (tmp dir, diff, cleanup).
+// Wraps Figma MCP tools + asset management (tmp dir, diff, cleanup).
+//
+// 共享基础设施（RPC / cache / fingerprint / arg parsing / danger / 错误归一化 /
+// baseline diff）来自 ../../_shared/mcp-baseline.mjs，见 ADR-0001。
+//
+// Design Package 输出 schemaVersion="1.0"（T9）。`design` 内部检测 get_design_context
+// tool_not_found 时降级到 screenshot + get_metadata 只读路径。
 
-import { readFileSync, readdirSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import {
+  readFileSync,
+  readdirSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { resolve, join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
-// ── config ───────────────────────────────────────────────────────────────────
+import {
+  parseToolArgs,
+  callTool,
+  listToolsRemote,
+  rpcRaw,
+  rpcNotify,
+  McpToolsCache,
+  dangerClass,
+  normalizeMcpError,
+  buildBaseline,
+  diffTools,
+  diffHasChanges,
+  EXIT_CODES,
+  ERROR_KINDS,
+} from "../../_shared/mcp-baseline.mjs";
+
+// ── config ────────────────────────────────────────────────────────────────
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:3845/mcp";
 const ENDPOINT = process.env.FIGMA_MCP_URL || DEFAULT_ENDPOINT;
+const CACHE_DIR = join(homedir(), ".cache", "figma-mcp");
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const INVOCATION = `node ${SCRIPT_PATH}`;
+const BASELINE_PATH = resolve(SCRIPT_DIR, "..", "baseline-schema.json");
+
+const DESIGN_PACKAGE_SCHEMA_VERSION = "1.0";
+
+// Figma MCP tools are read-only today; prefix fallback handles future destructive
+// additions. Listed registry intentionally empty.
+const DANGEROUS_TOOLS = {};
 
 const TOOLS = [
   "get_design_context",
@@ -24,129 +63,68 @@ const TOOLS = [
   "create_design_system_rules",
 ];
 
-// ── MCP transport ────────────────────────────────────────────────────────────
+const toolsCache = new McpToolsCache({ cacheDir: CACHE_DIR });
 
-async function parseMcpResponse(res) {
-  const ct = res.headers.get("content-type") || "";
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
-  }
-  if (ct.includes("application/json")) {
-    return { sessionId: res.headers.get("mcp-session-id"), body: JSON.parse(text) };
-  }
-  // SSE format
-  const events = text.split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
-  let data = null;
-  for (const ev of events) {
-    const lines = ev.split(/\n/);
-    const payload = lines
-      .filter((l) => l.startsWith("data:"))
-      .map((l) => l.slice(5).trimStart())
-      .join("\n");
-    if (payload) {
-      try { data = JSON.parse(payload); } catch { /* skip non-json */ }
-    }
-  }
-  if (!data) throw new Error(`empty MCP response (ct=${ct}): ${text.slice(0, 300)}`);
-  return { sessionId: res.headers.get("mcp-session-id"), body: data };
-}
-
-async function rpc({ sessionId, body }) {
-  const headers = {
-    "content-type": "application/json",
-    accept: "application/json, text/event-stream",
-  };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-  const res = await fetch(ENDPOINT, { method: "POST", headers, body: JSON.stringify(body) });
-  return parseMcpResponse(res);
-}
-
-async function sendNotification({ sessionId, body }) {
-  const headers = {
-    "content-type": "application/json",
-    accept: "application/json, text/event-stream",
-  };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-  const res = await fetch(ENDPOINT, { method: "POST", headers, body: JSON.stringify(body) });
-  if (!res.ok && res.status !== 202) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`notification failed: HTTP ${res.status} ${t.slice(0, 200)}`);
-  }
-}
-
-async function openSession() {
-  const init = await rpc({
-    sessionId: null,
-    body: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "figma-cli", version: "0.1.0" },
-      },
-    },
-  });
-  if (init.body.error) throw new Error(`initialize: ${JSON.stringify(init.body.error)}`);
-  const sessionId = init.sessionId;
-  await sendNotification({
-    sessionId,
-    body: { jsonrpc: "2.0", method: "notifications/initialized" },
-  });
-  return { sessionId, server: init.body.result };
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────
 
 function die(msg, code = 1) {
-  process.stderr.write(msg.endsWith("\n") ? msg : msg + "\n");
+  const out = typeof msg === "string" ? msg : String(msg);
+  process.stderr.write(out.endsWith("\n") ? out : out + "\n");
   process.exit(code);
 }
 
-function parseToolArgs(argv) {
-  const out = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--json" || a === "-j") {
-      const raw = argv[++i];
-      if (!raw) die("--json requires a value");
-      Object.assign(out, JSON.parse(raw));
-      continue;
-    }
-    if (!a.startsWith("--")) die(`unexpected argument: ${a}`);
-    let key, raw;
-    if (a.includes("=")) {
-      [key, raw] = [a.slice(2, a.indexOf("=")), a.slice(a.indexOf("=") + 1)];
-    } else {
-      key = a.slice(2);
-      raw = argv[++i];
-      if (raw === undefined) die(`--${key} requires a value`);
-    }
-    out[key] = coerce(raw);
+function dieOnRpc(errOrBody, fallback) {
+  const norm = normalizeMcpError(errOrBody);
+  if (norm) {
+    process.stderr.write(
+      JSON.stringify(
+        {
+          kind: norm.kind,
+          hint: norm.hint,
+          originalMessage: norm.originalMessage,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.exit(norm.exitCode);
   }
-  return out;
+  die(fallback);
 }
 
-function coerce(v) {
-  if (v === "true") return true;
-  if (v === "false") return false;
-  if (v === "null") return null;
-  if (/^-?\d+$/.test(v)) return parseInt(v, 10);
-  if (/^-?\d+\.\d+$/.test(v)) return parseFloat(v);
-  if ((v.startsWith("{") && v.endsWith("}")) || (v.startsWith("[") && v.endsWith("]"))) {
-    try { return JSON.parse(v); } catch { /* fall through */ }
+function sessionHeaders(sessionId) {
+  return sessionId ? { "mcp-session-id": sessionId } : {};
+}
+
+async function openSession() {
+  const init = await rpcRaw(ENDPOINT, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "figma-cli", version: "0.2.0" },
+    },
+  });
+  if (init.body.error) {
+    throw Object.assign(new Error(`initialize: ${JSON.stringify(init.body.error)}`), {
+      rpcError: init.body.error,
+    });
   }
-  return v;
+  const sessionId = init.sessionId;
+  await rpcNotify(
+    ENDPOINT,
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { headers: sessionHeaders(sessionId) },
+  );
+  return { sessionId, server: init.body.result };
 }
 
 function parseNodeId(url) {
   if (!url) return null;
-  // Figma URL: node-id query param
   const m = url.match(/node-id=([^&]+)/);
   if (m) return m[1].replace("-", ":");
-  // Already a node id
   if (/^-?\d+[:-]-?\d+$/.test(url)) return url.replace("-", ":");
   return null;
 }
@@ -156,13 +134,27 @@ function parseFileKey(url) {
   // Branch URL: /design/:fileKey/branch/:branchKey/:name → use branchKey
   const branchMatch = url.match(/\/design\/[^/]+\/branch\/([^/]+)/);
   if (branchMatch) return branchMatch[1];
-  // Standard URL: /design/:fileKey/:name
   const m = url.match(/\/design\/([^/]+)/);
   if (m) return m[1];
   return null;
 }
 
-// ── asset management ─────────────────────────────────────────────────────────
+function applyUrlConvenience(args) {
+  if (args.url) {
+    const url = args.url;
+    delete args.url;
+    if (!args.nodeId) {
+      const nid = parseNodeId(url);
+      if (nid) args.nodeId = nid;
+    }
+    if (!args.fileKey) {
+      const fk = parseFileKey(url);
+      if (fk) args.fileKey = fk;
+    }
+  }
+}
+
+// ── asset management ─────────────────────────────────────────────────────
 
 function getAssetsDir() {
   const cfgPath = resolve(process.cwd(), ".claude/config/ui-config.json");
@@ -186,135 +178,242 @@ function listDir(dir) {
   return readdirSync(dir);
 }
 
-// ── commands ─────────────────────────────────────────────────────────────────
+// ── cache helpers ────────────────────────────────────────────────────────
 
-async function cmdCall(tool, rest) {
-  if (!TOOLS.includes(tool)) {
-    die(`unknown tool: ${tool}\navailable: ${TOOLS.join(", ")}`);
-  }
-  const args = parseToolArgs(rest);
-
-  // Convenience: --url extracts fileKey + nodeId
-  if (args.url) {
-    const url = args.url;
-    delete args.url;
-    if (!args.nodeId) {
-      const nid = parseNodeId(url);
-      if (nid) args.nodeId = nid;
-    }
-    if (!args.fileKey) {
-      const fk = parseFileKey(url);
-      if (fk) args.fileKey = fk;
-    }
-  }
-
-  const { sessionId } = await openSession();
-  const res = await rpc({
-    sessionId,
-    body: {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: tool, arguments: args },
-    },
+async function ensureToolsCacheForFigma({ refresh = false } = {}) {
+  const fp = toolsCache.read("default", null);
+  if (!refresh && fp) return { payload: fp, cached: true };
+  const { sessionId, server } = await openSession();
+  const headers = sessionHeaders(sessionId);
+  const extras = server?.serverInfo?.version
+    ? { version: server.serverInfo.version }
+    : undefined;
+  return toolsCache.ensure({
+    key: "default",
+    url: ENDPOINT,
+    refresh: true,
+    headers,
+    extras,
   });
-  if (res.body.error) die(`tool error: ${JSON.stringify(res.body.error)}`);
-  const r = res.body.result;
-  if (r?.isError) {
-    process.stderr.write(JSON.stringify(r, null, 2) + "\n");
-    process.exit(2);
+}
+
+// ── tool invocation ──────────────────────────────────────────────────────
+
+async function invokeRaw(toolName, args, { onToolNotFound } = {}) {
+  let session;
+  try {
+    session = await openSession();
+  } catch (e) {
+    dieOnRpc(e.rpcError || e, `error: ${e.message || e}`);
   }
-  // Output content
-  const contents = r?.content || [];
-  for (const c of contents) {
-    if (c.type === "text") {
-      process.stdout.write(c.text + "\n");
-    } else if (c.type === "image") {
-      // Write base64 image to file
-      const ext = (c.mimeType || "image/png").split("/")[1] || "png";
-      const fname = `screenshot-${Date.now()}.${ext}`;
-      const buf = Buffer.from(c.data, "base64");
-      writeFileSync(fname, buf);
-      process.stdout.write(`[image saved: ${resolve(fname)}]\n`);
-    } else {
-      process.stdout.write(JSON.stringify(c, null, 2) + "\n");
+  const headers = sessionHeaders(session.sessionId);
+
+  let body;
+  try {
+    body = await callTool(ENDPOINT, toolName, args, { headers });
+  } catch (e) {
+    if (onToolNotFound) {
+      const norm = normalizeMcpError(e);
+      if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) return onToolNotFound(norm);
     }
+    dieOnRpc(e, `error: ${e.message || e}`);
   }
+  if (body.error) {
+    if (onToolNotFound) {
+      const norm = normalizeMcpError(body.error);
+      if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) return onToolNotFound(norm);
+    }
+    dieOnRpc(body.error, `tool error: ${JSON.stringify(body.error)}`);
+  }
+  const r = body.result;
+  if (r?.isError) {
+    if (onToolNotFound) {
+      const norm = normalizeMcpError(r);
+      if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) return onToolNotFound(norm);
+    }
+    const norm = normalizeMcpError(r);
+    if (norm) {
+      process.stderr.write(
+        JSON.stringify(
+          {
+            kind: norm.kind,
+            hint: norm.hint,
+            originalMessage: norm.originalMessage,
+            raw: r,
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      process.exit(norm.exitCode);
+    }
+    process.stderr.write(JSON.stringify(r, null, 2) + "\n");
+    process.exit(EXIT_CODES.SERVER_ERROR);
+  }
+  return { session, result: r };
+}
+
+// ── design command (high-level Design Package) ───────────────────────────
+
+async function fallbackReadOnly({ args, taskId, taskDir, reason }) {
+  // Degrade to get_screenshot + get_metadata. Used when get_design_context is
+  // unavailable (tool_not_found) or its dirForAssetWrites is rejected.
+  const output = {
+    schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
+    mode: "read-only-fallback",
+    reason,
+    taskId,
+    taskDir,
+  };
+
+  // get_screenshot
+  try {
+    const { result } = await invokeRaw("get_screenshot", args);
+    const contents = result?.content || [];
+    for (const c of contents) {
+      if (c.type === "image") {
+        const ext = (c.mimeType || "image/png").split("/")[1] || "png";
+        const fname = join(taskDir, `_screenshot.${ext}`);
+        writeFileSync(fname, Buffer.from(c.data, "base64"));
+        output.screenshot = fname;
+      }
+    }
+  } catch (e) {
+    output.screenshot_error = String(e.message || e);
+  }
+
+  // get_metadata
+  try {
+    const { result } = await invokeRaw("get_metadata", args);
+    const texts = (result?.content || []).filter((c) => c.type === "text").map((c) => c.text);
+    if (texts.length) output.metadata = texts.join("\n");
+  } catch (e) {
+    output.metadata_error = String(e.message || e);
+  }
+
+  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  process.stderr.write(
+    `info: figma-data emitted read-only fallback (reason: ${reason}). ` +
+      `downstream Design Package gates (figma-ui Phase B) will not satisfy — needs user action.\n`,
+  );
 }
 
 async function cmdDesign(rest) {
-  // High-level wrapper: handles dirForAssetWrites + diff automatically
-  const args = parseToolArgs(rest);
-
-  // Convenience: --url
-  if (args.url) {
-    const url = args.url;
-    delete args.url;
-    if (!args.nodeId) {
-      const nid = parseNodeId(url);
-      if (nid) args.nodeId = nid;
-    }
-    if (!args.fileKey) {
-      const fk = parseFileKey(url);
-      if (fk) args.fileKey = fk;
-    }
+  let parsed;
+  try {
+    parsed = parseToolArgs(rest);
+  } catch (e) {
+    die(e.message || String(e));
   }
+  const args = parsed.args;
 
-  // Auto-manage dirForAssetWrites
+  applyUrlConvenience(args);
+
   const assetsDir = args.assetsDir || getAssetsDir();
   delete args.assetsDir;
   const taskId = args.taskId || randomUUID().slice(0, 8);
   delete args.taskId;
   const taskDir = createTaskDir(assetsDir, taskId);
 
-  if (!args.dirForAssetWrites) {
-    args.dirForAssetWrites = taskDir;
-  }
+  if (!args.dirForAssetWrites) args.dirForAssetWrites = taskDir;
 
-  // Snapshot before
   const before = new Set(listDir(taskDir));
 
-  // Call get_design_context
-  const { sessionId } = await openSession();
-  const res = await rpc({
-    sessionId,
-    body: {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "get_design_context", arguments: args },
-    },
-  });
-  if (res.body.error) die(`tool error: ${JSON.stringify(res.body.error)}`);
-  const r = res.body.result;
+  let session;
+  try {
+    session = await openSession();
+  } catch (e) {
+    dieOnRpc(e.rpcError || e, `error: ${e.message || e}`);
+  }
+  const headers = sessionHeaders(session.sessionId);
+
+  let body;
+  try {
+    body = await callTool(ENDPOINT, "get_design_context", args, { headers });
+  } catch (e) {
+    const norm = normalizeMcpError(e);
+    if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) {
+      return fallbackReadOnly({
+        args,
+        taskId,
+        taskDir,
+        reason: "get_design_context not available on server (tool_not_found)",
+      });
+    }
+    dieOnRpc(e, `error: ${e.message || e}`);
+  }
+  if (body.error) {
+    const norm = normalizeMcpError(body.error);
+    if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) {
+      return fallbackReadOnly({
+        args,
+        taskId,
+        taskDir,
+        reason: "get_design_context not available on server (tool_not_found)",
+      });
+    }
+    die(`tool error: ${JSON.stringify(body.error)}`, EXIT_CODES.SERVER_ERROR);
+  }
+
+  const r = body.result;
   if (r?.isError) {
     const errorText = r.content?.[0]?.text || "";
-    const isDirNotAllowed = errorText.includes("Cannot write to this directory") || errorText.includes("allowed directories");
-    const structured = {
-      error: isDirNotAllowed ? "dir_not_allowed" : "tool_error",
-      message: errorText,
-      fallback: isDirNotAllowed ? "screenshot_and_metadata" : null,
-    };
-    process.stdout.write(JSON.stringify(structured, null, 2) + "\n");
-    process.exit(2);
+    const isDirNotAllowed =
+      errorText.includes("Cannot write to this directory") ||
+      errorText.includes("allowed directories");
+    if (isDirNotAllowed) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
+            error: "dir_not_allowed",
+            message: errorText,
+            fallback: "screenshot_and_metadata",
+            taskId,
+            taskDir,
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      process.exit(EXIT_CODES.SERVER_ERROR);
+    }
+    const norm = normalizeMcpError(r);
+    if (norm?.kind === ERROR_KINDS.TOOL_NOT_FOUND) {
+      return fallbackReadOnly({
+        args,
+        taskId,
+        taskDir,
+        reason: "get_design_context returned tool_not_found",
+      });
+    }
+    if (norm) {
+      process.stderr.write(
+        JSON.stringify(
+          { kind: norm.kind, hint: norm.hint, originalMessage: norm.originalMessage, raw: r },
+          null,
+          2,
+        ) + "\n",
+      );
+      process.exit(norm.exitCode);
+    }
+    process.stderr.write(JSON.stringify(r, null, 2) + "\n");
+    process.exit(EXIT_CODES.SERVER_ERROR);
   }
 
   // Wait for async asset writes
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  // Snapshot after → diff
+  await new Promise((res) => setTimeout(res, 3000));
   const after = new Set(listDir(taskDir));
   const newFiles = [...after].filter((f) => !before.has(f));
 
-  // Output
   const output = {
+    schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
     taskId,
     taskDir,
     newlyDownloadedFiles: newFiles,
     totalFilesInDir: after.size,
   };
 
-  // Extract text content
   const contents = r?.content || [];
   const textParts = [];
   for (const c of contents) {
@@ -326,42 +425,24 @@ async function cmdDesign(rest) {
       output.screenshot = fname;
     }
   }
-
   if (textParts.length) output.designContext = textParts.join("\n");
 
   process.stdout.write(JSON.stringify(output, null, 2) + "\n");
 }
 
+// ── screenshot command ───────────────────────────────────────────────────
+
 async function cmdScreenshot(rest) {
-  const args = parseToolArgs(rest);
-  if (args.url) {
-    const url = args.url;
-    delete args.url;
-    if (!args.nodeId) { const nid = parseNodeId(url); if (nid) args.nodeId = nid; }
-    if (!args.fileKey) { const fk = parseFileKey(url); if (fk) args.fileKey = fk; }
-  }
+  let parsed;
+  try { parsed = parseToolArgs(rest); } catch (e) { die(e.message); }
+  const args = parsed.args;
+  applyUrlConvenience(args);
 
   const outDir = args.outDir || ".";
   delete args.outDir;
 
-  const { sessionId } = await openSession();
-  const res = await rpc({
-    sessionId,
-    body: {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "get_screenshot", arguments: args },
-    },
-  });
-  if (res.body.error) die(`tool error: ${JSON.stringify(res.body.error)}`);
-  const r = res.body.result;
-  if (r?.isError) {
-    process.stderr.write(JSON.stringify(r, null, 2) + "\n");
-    process.exit(2);
-  }
-
-  const contents = r?.content || [];
+  const { result } = await invokeRaw("get_screenshot", args);
+  const contents = result?.content || [];
   for (const c of contents) {
     if (c.type === "image") {
       const ext = (c.mimeType || "image/png").split("/")[1] || "png";
@@ -375,8 +456,99 @@ async function cmdScreenshot(rest) {
   }
 }
 
+// ── generic tool call (whitelist) ────────────────────────────────────────
+
+async function cmdCall(tool, rest) {
+  if (!TOOLS.includes(tool)) {
+    die(
+      `unknown tool: ${tool}\n` +
+        `available: ${TOOLS.join(", ")}\n` +
+        `if this is a new server tool, use: ${INVOCATION} raw ${tool} [...] (bypasses whitelist)`,
+    );
+  }
+
+  let parsed;
+  try { parsed = parseToolArgs(rest); } catch (e) { die(e.message); }
+  const { args, yes } = parsed;
+  applyUrlConvenience(args);
+
+  const danger = dangerClass(tool, { registry: DANGEROUS_TOOLS });
+  if (danger && !yes) {
+    process.stderr.write(
+      JSON.stringify(
+        {
+          blocked: true,
+          tool,
+          type: danger.type,
+          note: danger.note,
+          hint: "add --yes to confirm.",
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.exit(EXIT_CODES.DESTRUCTIVE_BLOCKED);
+  }
+
+  const { result } = await invokeRaw(tool, args);
+  emitContent(result);
+}
+
+// raw: bypass TOOLS whitelist for ad-hoc / new server tools.
+async function cmdRaw(rest) {
+  const [toolName, ...toolRest] = rest;
+  if (!toolName) {
+    die(`usage: ${INVOCATION} raw <toolName> [--json '{...}'] [--key value ...]`);
+  }
+  let parsed;
+  try { parsed = parseToolArgs(toolRest); } catch (e) { die(e.message); }
+  const { args, yes } = parsed;
+  applyUrlConvenience(args);
+
+  const danger = dangerClass(toolName, { registry: DANGEROUS_TOOLS });
+  if (danger && !yes) {
+    process.stderr.write(
+      JSON.stringify(
+        {
+          blocked: true,
+          tool: toolName,
+          type: danger.type,
+          note: danger.note,
+          hint: "add --yes to confirm.",
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.exit(EXIT_CODES.DESTRUCTIVE_BLOCKED);
+  }
+
+  const { result } = await invokeRaw(toolName, args);
+  emitContent(result);
+}
+
+function emitContent(r) {
+  const contents = r?.content || [];
+  for (const c of contents) {
+    if (c.type === "text") {
+      process.stdout.write(c.text + "\n");
+    } else if (c.type === "image") {
+      const ext = (c.mimeType || "image/png").split("/")[1] || "png";
+      const fname = `screenshot-${Date.now()}.${ext}`;
+      writeFileSync(fname, Buffer.from(c.data, "base64"));
+      process.stdout.write(`[image saved: ${resolve(fname)}]\n`);
+    } else {
+      process.stdout.write(JSON.stringify(c, null, 2) + "\n");
+    }
+  }
+}
+
+// ── cleanup ──────────────────────────────────────────────────────────────
+
 function cmdCleanup(rest) {
-  const args = parseToolArgs(rest);
+  let parsed;
+  try { parsed = parseToolArgs(rest); } catch (e) { die(e.message); }
+  const args = parsed.args;
   const assetsDir = args.assetsDir || getAssetsDir();
   const taskId = args.taskId;
 
@@ -389,13 +561,10 @@ function cmdCleanup(rest) {
       die(`task dir not found: ${dir}`);
     }
   } else {
-    // Clean all tmp dirs
     const tmpRoot = join(assetsDir, ".figma-ui", "tmp");
     if (existsSync(tmpRoot)) {
       const dirs = readdirSync(tmpRoot);
-      for (const d of dirs) {
-        rmSync(join(tmpRoot, d), { recursive: true });
-      }
+      for (const d of dirs) rmSync(join(tmpRoot, d), { recursive: true });
       process.stdout.write(`removed ${dirs.length} task dir(s) from ${tmpRoot}\n`);
     } else {
       process.stdout.write("no tmp dirs to clean\n");
@@ -403,18 +572,150 @@ function cmdCleanup(rest) {
   }
 }
 
-async function cmdListTools() {
-  const { sessionId } = await openSession();
-  const res = await rpc({
-    sessionId,
-    body: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
-  });
-  if (res.body.error) die(`tools/list: ${JSON.stringify(res.body.error)}`);
-  const tools = res.body.result?.tools || [];
-  for (const t of tools) {
-    process.stdout.write(`${t.name} — ${(t.description || "").split("\n")[0]}\n`);
+// ── list-tools / schema (with cache) ─────────────────────────────────────
+
+async function cmdListTools(rest) {
+  let refresh = false;
+  for (const a of rest) {
+    if (a === "--refresh") refresh = true;
+    else die(`unexpected argument: ${a}`);
   }
+  const { payload, cached } = await ensureToolsCacheForFigma({ refresh });
+  process.stdout.write(
+    JSON.stringify(
+      {
+        count: payload.toolCount,
+        cached,
+        fetchedAt: payload.fetchedAt,
+        tools: payload.tools.map((t) => ({ name: t.name, description: (t.description || "").split("\n")[0] })),
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 }
+
+async function cmdSchema(rest) {
+  let toolName = null;
+  let refresh = false;
+  for (const a of rest) {
+    if (a === "--refresh") refresh = true;
+    else if (!toolName) toolName = a;
+    else die(`unexpected argument: ${a}`);
+  }
+  if (!toolName) die(`usage: ${INVOCATION} schema <tool> [--refresh]`);
+
+  let { payload, cached } = await ensureToolsCacheForFigma({ refresh });
+  let tool = payload.tools.find((t) => t.name === toolName);
+  if (!tool && cached) {
+    ({ payload } = await ensureToolsCacheForFigma({ refresh: true }));
+    tool = payload.tools.find((t) => t.name === toolName);
+  }
+  if (!tool) die(`tool not found: ${toolName}\nrun: ${INVOCATION} list-tools --refresh`);
+
+  const danger = dangerClass(toolName, { registry: DANGEROUS_TOOLS });
+  process.stdout.write(
+    JSON.stringify(
+      {
+        name: tool.name,
+        description: tool.description || null,
+        required: tool.inputSchema?.required || [],
+        properties: tool.inputSchema?.properties || {},
+        danger: danger ? { type: danger.type, note: danger.note } : null,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+}
+
+// ── diff-tools ───────────────────────────────────────────────────────────
+
+async function cmdDiffTools(rest) {
+  let promoteInitial = false;
+  let promote = false;
+  for (const a of rest) {
+    if (a === "--promote-initial") promoteInitial = true;
+    else if (a === "--promote") promote = true;
+    else die(`unexpected argument: ${a}`);
+  }
+
+  let session;
+  try {
+    session = await openSession();
+  } catch (e) {
+    dieOnRpc(e.rpcError || e, `error: ${e.message || e}`);
+  }
+  const headers = sessionHeaders(session.sessionId);
+
+  let listRes;
+  try {
+    listRes = await listToolsRemote(ENDPOINT, { headers });
+  } catch (e) {
+    dieOnRpc(e, `tools/list: ${e.message || e}`);
+  }
+  if (listRes.error) dieOnRpc(listRes.error, `tools/list: ${JSON.stringify(listRes.error)}`);
+  const currentTools = listRes.result?.tools || [];
+
+  const extras = session.server?.serverInfo?.version
+    ? { version: session.server.serverInfo.version }
+    : undefined;
+  const baselineExists = existsSync(BASELINE_PATH);
+
+  if (promoteInitial) {
+    if (baselineExists && !promote) {
+      die(`baseline already exists at ${BASELINE_PATH} — use --promote to overwrite`, 1);
+    }
+    const baseline = buildBaseline(currentTools, { extras });
+    writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + "\n");
+    process.stdout.write(
+      JSON.stringify(
+        {
+          ok: true,
+          action: "promote-initial",
+          path: BASELINE_PATH,
+          toolCount: currentTools.length,
+          extras: extras || null,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return;
+  }
+
+  if (!baselineExists) {
+    die(`no baseline at ${BASELINE_PATH}\nrun: ${INVOCATION} diff-tools --promote-initial`, 1);
+  }
+  const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+  const diff = diffTools(baseline, currentTools);
+  const hasDrift = diffHasChanges(diff);
+
+  process.stdout.write(
+    JSON.stringify(
+      {
+        baseline_path: BASELINE_PATH,
+        baseline_promoted_at: baseline.promotedAt,
+        baseline_tool_count: baseline.toolCount,
+        current_tool_count: currentTools.length,
+        drift: diff,
+        has_drift: hasDrift,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  if (promote && hasDrift) {
+    const newBaseline = buildBaseline(currentTools, { extras });
+    writeFileSync(BASELINE_PATH, JSON.stringify(newBaseline, null, 2) + "\n");
+    process.stderr.write(`promoted new baseline (${currentTools.length} tools)\n`);
+  }
+
+  process.exit(hasDrift && !promote ? 1 : 0);
+}
+
+// ── ping / doctor ────────────────────────────────────────────────────────
 
 async function cmdPing() {
   const { server } = await openSession();
@@ -428,16 +729,17 @@ async function cmdDoctor() {
       source: process.env.FIGMA_MCP_URL ? "env FIGMA_MCP_URL" : `default (${DEFAULT_ENDPOINT})`,
     },
     assetsDir: getAssetsDir(),
+    cache_dir: CACHE_DIR,
+    baseline_path: BASELINE_PATH,
+    baseline_present: existsSync(BASELINE_PATH),
     connectivity: null,
   };
-
   try {
     const { server } = await openSession();
     report.connectivity = { ok: true, server: server?.serverInfo };
   } catch (e) {
     report.connectivity = { ok: false, error: String(e.message || e) };
   }
-
   process.stdout.write(JSON.stringify(report, null, 2) + "\n");
 }
 
@@ -449,35 +751,43 @@ invoke as:
   ${INVOCATION} <subcommand> [...]
 
 commands:
-  design     Get design context + auto-manage asset downloads
-  screenshot Get visual screenshot of a node
-  cleanup    Remove task tmp directories
-  ping       Test MCP server connectivity
-  doctor     Full diagnostic report
-  list-tools List all available MCP tools from server
+  design       Get design context + auto-manage asset downloads (returns Design Package)
+  screenshot   Get visual screenshot of a node
+  cleanup      Remove task tmp directories
+  ping         Test MCP server connectivity
+  doctor       Full diagnostic report
+  list-tools   List server tools (cached; --refresh to force fetch)
+  schema <t>   Show tool inputSchema (auto-refresh on cache miss)
+  diff-tools   Compare server schema vs checkin baseline (--promote-initial / --promote)
+  raw <tool>   Raw MCP tool call (bypasses whitelist; for new server tools)
 
-  <tool>     Raw MCP tool call (${TOOLS.join(", ")})
+  <tool>       Whitelisted tool call (${TOOLS.join(", ")})
 
 usage examples:
-  # High-level: auto tmp dir + asset diff
   ${INVOCATION} design --url "https://figma.com/design/xxx/Name?node-id=42-15"
   ${INVOCATION} design --nodeId 42:15 --taskId my-task
-
-  # Screenshot
-  ${INVOCATION} screenshot --url "https://figma.com/design/xxx/Name?node-id=42-15"
-  ${INVOCATION} screenshot --nodeId 42:15 --outDir ./screenshots
-
-  # Raw tool calls
-  ${INVOCATION} get_design_context --nodeId 42:15 --dirForAssetWrites /tmp/assets
+  ${INVOCATION} screenshot --url "..."
   ${INVOCATION} get_metadata --nodeId 0:1
-  ${INVOCATION} get_variable_defs --nodeId 42:15
-
-  # Asset cleanup
+  ${INVOCATION} raw new_tool_name --json '{...}'      # for tools not in whitelist
+  ${INVOCATION} diff-tools                            # check server schema drift
   ${INVOCATION} cleanup --taskId my-task
-  ${INVOCATION} cleanup                     # remove all tmp dirs
 
-  # URL convenience: --url extracts fileKey + nodeId automatically
-  # Works with any tool or high-level command
+Design Package output: schemaVersion="${DESIGN_PACKAGE_SCHEMA_VERSION}".
+  Downstream (figma-ui) asserts schemaVersion before consuming.
+  On get_design_context tool_not_found → degrades to {mode:"read-only-fallback",
+  screenshot, metadata}; figma-ui Phase B Gate will not satisfy (user action needed).
+
+schema cache: ${CACHE_DIR} (TTL 24h)
+baseline: ${BASELINE_PATH}
+
+exit codes (shared with bk/alidocs per ADR-0001):
+  0  success
+  1  generic error (network / JSON / argv / drift detected without --promote)
+  2  credential / auth issue
+  3  dangerous tool called without --yes
+  4  server returned isError or tool body.error
+  5  tool_not_found
+  6  enum_invalid
 
 env:
   FIGMA_MCP_URL  Override endpoint (default: ${DEFAULT_ENDPOINT})
@@ -485,7 +795,7 @@ env:
   );
 }
 
-// ── main ─────────────────────────────────────────────────────────────────────
+// ── main ─────────────────────────────────────────────────────────────────
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
@@ -507,7 +817,13 @@ async function main() {
       case "doctor":
         return await cmdDoctor();
       case "list-tools":
-        return await cmdListTools();
+        return await cmdListTools(rest);
+      case "schema":
+        return await cmdSchema(rest);
+      case "diff-tools":
+        return await cmdDiffTools(rest);
+      case "raw":
+        return await cmdRaw(rest);
       default:
         return await cmdCall(cmd, rest);
     }

@@ -1,6 +1,6 @@
 ---
 name: diagnose
-description: "Use when user says 'diagnose this' / 'debug this' / '怎么定位' / 'reproduce 不出来', or reports a bug that throws/fails, or describes a perf regression. 产出根因 + 推荐修复方案,不直接写修复代码 — 修复交给 /fix-bug 或 /workflow-execute 消费。"
+description: "Use when user says 'diagnose this' / 'debug this' / '怎么定位' / 'reproduce 不出来', or reports a bug that throws/fails, or describes a perf regression. 产出根因 + 推荐修复方案,不直接写修复代码 — 修复交给 /fix-bug 消费。"
 ---
 
 <CONTEXT>

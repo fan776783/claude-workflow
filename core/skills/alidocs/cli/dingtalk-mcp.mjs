@@ -1,32 +1,42 @@
 #!/usr/bin/env node
 // dingtalk-mcp — thin CLI over the DingTalk Doc/Sheet MCP Streamable HTTP endpoints.
 //
-// Two MCP servers are addressed explicitly via subcommand kind (doc|sheet).
+// Three MCP servers are addressed explicitly via subcommand kind (doc|aitable|sheet).
 // Credentials are the full URL (including ?key=...) stored in
 // ~/.config/dingtalk-mcp/servers.json (chmod 600).
 //
 // No session handshake: the DingTalk MCP gateway accepts tools/call directly.
-// See plan .claude/plans/dingtalk-skill.plan.md for design rationale.
+//
+// 共享基础设施（RPC / cache / fingerprint / arg parsing / 危险前缀兜底 / 错误归一化）
+// 来自 ../../_shared/mcp-baseline.mjs，见 ADR-0001。
+
+import { existsSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
-  readFileSync,
-  existsSync,
-  mkdirSync,
-  writeFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+  atomicWriteJson,
+  readJsonIfExists,
+  parseToolArgs,
+  callTool,
+  listToolsRemote,
+  serverFingerprint,
+  McpToolsCache,
+  dangerClass,
+  normalizeMcpError,
+  buildBaseline,
+  diffTools,
+  diffHasChanges,
+  redact,
+  fingerprint,
+} from "../../_shared/mcp-baseline.mjs";
 
 // ── constants ─────────────────────────────────────────────────────────────
 
 const CONFIG_DIR = join(homedir(), ".config", "dingtalk-mcp");
 const CONFIG_PATH = join(CONFIG_DIR, "servers.json");
 const CACHE_DIR = join(homedir(), ".cache", "dingtalk-mcp");
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 const DEFAULT_HOST_ALLOWLIST = ["mcp-gw.dingtalk.com"];
 
@@ -37,10 +47,13 @@ const DEFAULT_HOST_ALLOWLIST = ["mcp-gw.dingtalk.com"];
 const KINDS = ["doc", "aitable", "sheet"];
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const INVOCATION = `node ${SCRIPT_PATH}`;
+const BASELINE_PATH = resolve(SCRIPT_DIR, "..", "baseline-schema.json");
 
 // Tools that are unconditionally dangerous (CLI hard gate; requires --yes).
-// Categorized for clearer error messages.
+// Categorized for clearer error messages. Prefix fallback in shared module
+// catches future tools matching delete_/remove_/clear_/drop_/truncate_.
 const DANGEROUS_TOOLS = {
   // ── doc ────────────────────────────────────────────────────────────────
   "doc:delete_document_block": { type: "destroy", note: "deletes a document block (unrecoverable)" },
@@ -76,43 +89,7 @@ const DANGEROUS_TOOLS = {
   "sheet:write_image": { type: "overwrite", note: "writes an image into a cell; overwrites anything already there" },
 };
 
-// Pattern fallback: any future tool whose name starts with these prefixes
-// is treated as dangerous, even if not in the explicit list above.
-const DANGEROUS_PREFIXES = ["delete_", "remove_", "clear_", "drop_", "truncate_"];
-
-// ── redaction ─────────────────────────────────────────────────────────────
-
-// Params that carry credentials (primary or secondary) — must be redacted in
-// diagnostic/error output: errors, stderr logs, doctor, smoke failures.
-// (Successful tool payloads stream raw stdout; callers that pipe tool output
-// into user-facing channels should redact downstream.)
-const SENSITIVE_PARAMS = ["key", "signature", "Signature", "Expires", "accessKeyId", "AccessKeyId", "policy", "Policy"];
-// JSON-style field names that MCP payloads use for upload/download credentials.
-const SENSITIVE_JSON_FIELDS = ["uploadToken", "downloadToken", "token", "uploadUrl", "downloadUrl"];
-
-// Redact URL-like and JSON-like strings. Handles both `param=value` (query
-// string / form-urlencoded) and `"field":"value"` (JSON error echoes).
-function redact(input) {
-  if (input == null) return input;
-  let s = String(input);
-  for (const p of SENSITIVE_PARAMS) {
-    const re = new RegExp(`(${p})=([^&\\s"']+)`, "g");
-    s = s.replace(re, (_, k, v) => `${k}=${fingerprint(v)}`);
-  }
-  for (const f of SENSITIVE_JSON_FIELDS) {
-    const re = new RegExp(`("${f}"\\s*:\\s*")([^"]+)(")`, "g");
-    s = s.replace(re, (_, a, v, b) => `${a}${fingerprint(v)}${b}`);
-  }
-  return s;
-}
-
-function fingerprint(v) {
-  if (!v) return "***";
-  if (v.length < 12) return "***";
-  return `${v.slice(0, 4)}...${v.slice(-4)}`;
-}
-
-// ── misc helpers ──────────────────────────────────────────────────────────
+// ── local helpers (process side effects kept out of shared module) ────────
 
 function die(msg, code = 1) {
   const out = redact(typeof msg === "string" ? msg : String(msg));
@@ -124,34 +101,17 @@ function warn(msg) {
   process.stderr.write(redact(msg).replace(/\n?$/, "\n"));
 }
 
-function ensureDir(path, mode) {
-  mkdirSync(path, { recursive: true, mode });
+const toolsCache = new McpToolsCache({ cacheDir: CACHE_DIR });
+
+async function ensureToolsCache(kind, { refresh = false } = {}) {
+  const { value: url, source } = readServerUrl(kind);
+  if (!url) die(needAuth(kind), 2);
+  const result = await toolsCache.ensure({ key: kind, url, refresh });
+  return { ...result, source, url };
 }
 
-function atomicWriteJson(path, obj, mode = 0o600) {
-  // Config dir hardened to 0700 since servers.json contains full MCP URLs
-  // (key included). Cache dir callers override via their own mkdirSync.
-  ensureDir(dirname(path), 0o700);
-  const tmp = `${path}.${process.pid}.tmp`;
-  try {
-    // Create with final mode atomically; avoids a window where umask leaves
-    // the file 0644 with full URL inside before chmod narrows it.
-    writeFileSync(tmp, JSON.stringify(obj, null, 2) + "\n", { mode });
-    renameSync(tmp, path);
-  } catch (e) {
-    try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
-    throw e;
-  }
-}
-
-function readJsonIfExists(path) {
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    warn(`warning: failed to parse ${path}: ${e.message}`);
-    return null;
-  }
+function dangerFor(kind, toolName) {
+  return dangerClass(toolName, { registry: DANGEROUS_TOOLS, registryKey: kind });
 }
 
 function needAuth(kind) {
@@ -169,7 +129,7 @@ function needAuth(kind) {
   );
 }
 
-// ── credential resolution ────────────────────────────────────────────────
+// ── credential resolution (alidocs-specific: multi-kind file + env) ──────
 
 function readServerUrl(kind, { allowInvalid = false } = {}) {
   const envKey = `DINGTALK_${kind.toUpperCase()}_URL`;
@@ -187,8 +147,7 @@ function readServerUrl(kind, { allowInvalid = false } = {}) {
   }
   if (!value) return { value: null, source: null };
   // Re-validate at read time: env var or file could have been tampered with
-  // or predate a host allowlist change. Saves the user from sending requests
-  // (and Bearer-equivalent key) to a wrong host.
+  // or predate a host allowlist change.
   if (!allowInvalid) {
     const err = validateUrl(value);
     if (err) die(`refusing to use ${kind} URL from ${source}: ${err}`, 2);
@@ -228,170 +187,16 @@ function saveServerUrl(kind, url) {
   atomicWriteJson(CONFIG_PATH, existing, 0o600);
 }
 
-// ── MCP RPC (no session) ─────────────────────────────────────────────────
+// ── stdin helper ─────────────────────────────────────────────────────────
 
-async function parseMcpResponse(res) {
-  const ct = res.headers.get("content-type") || "";
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
-  if (ct.includes("application/json")) return JSON.parse(text);
-  // SSE fallback (MCP spec allows event: message\ndata: {...})
-  const events = text.split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
-  let data = null;
-  for (const ev of events) {
-    const lines = ev.split(/\n/);
-    const payload = lines
-      .filter((l) => l.startsWith("data:"))
-      .map((l) => l.slice(5).trimStart())
-      .join("\n");
-    if (payload) data = JSON.parse(payload);
-  }
-  if (!data) throw new Error(`empty MCP response (ct=${ct}): ${text.slice(0, 300)}`);
-  return data;
-}
-
-async function rpc(url, body) {
-  const headers = {
-    "content-type": "application/json",
-    accept: "application/json, text/event-stream",
-  };
-  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-  return parseMcpResponse(res);
-}
-
-let rpcIdSeq = 1;
-function nextId() {
-  return rpcIdSeq++;
-}
-
-async function callTool(url, name, args) {
-  const body = {
-    jsonrpc: "2.0",
-    id: nextId(),
-    method: "tools/call",
-    params: { name, arguments: args || {} },
-  };
-  return rpc(url, body);
-}
-
-async function listToolsRemote(url) {
-  const body = { jsonrpc: "2.0", id: nextId(), method: "tools/list", params: {} };
-  return rpc(url, body);
-}
-
-// ── arg parsing ──────────────────────────────────────────────────────────
-
-function parseToolArgs(argv) {
-  const out = {};
-  let yes = false;
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--yes" || a === "-y") {
-      yes = true;
-      continue;
-    }
-    if (a === "--json" || a === "-j") {
-      const raw = argv[++i];
-      if (!raw) die("--json requires a value");
-      Object.assign(out, JSON.parse(raw));
-      continue;
-    }
-    if (!a.startsWith("--")) {
-      rest.push(a);
-      continue;
-    }
-    let key, raw;
-    if (a.includes("=")) {
-      [key, raw] = [a.slice(2, a.indexOf("=")), a.slice(a.indexOf("=") + 1)];
-    } else {
-      key = a.slice(2);
-      raw = argv[++i];
-      if (raw === undefined) die(`--${key} requires a value`);
-    }
-    out[key] = coerce(raw);
-  }
-  return { args: out, yes, rest };
-}
-
-function coerce(v) {
-  if (v === "true") return true;
-  if (v === "false") return false;
-  if (v === "null") return null;
-  if (/^-?\d+$/.test(v)) return parseInt(v, 10);
-  if (/^-?\d+\.\d+$/.test(v)) return parseFloat(v);
-  if ((v.startsWith("{") && v.endsWith("}")) || (v.startsWith("[") && v.endsWith("]"))) {
-    try {
-      return JSON.parse(v);
-    } catch {
-      /* fall through */
-    }
-  }
-  return v;
-}
-
-// ── danger check ─────────────────────────────────────────────────────────
-
-function dangerClass(kind, toolName) {
-  const explicit = DANGEROUS_TOOLS[`${kind}:${toolName}`];
-  if (explicit) return explicit;
-  for (const p of DANGEROUS_PREFIXES) {
-    if (toolName.startsWith(p)) return { type: "pattern-match", note: `tool name starts with "${p}" (matched by fallback pattern)` };
-  }
-  return null;
-}
-
-// ── schema cache ─────────────────────────────────────────────────────────
-
-function serverFingerprint(url) {
-  try {
-    const u = new URL(url);
-    const hash = (u.pathname.split("/").pop() || "").slice(-8);
-    return `${u.hostname}+${hash}`;
-  } catch {
-    return "invalid-url";
-  }
-}
-
-function cachePath(kind) {
-  return join(CACHE_DIR, `tools-${kind}.json`);
-}
-
-function readCache(kind, expectedFingerprint) {
-  const p = cachePath(kind);
-  const cached = readJsonIfExists(p);
-  if (!cached) return null;
-  if (cached.serverFingerprint !== expectedFingerprint) return null;
-  const age = Date.now() - new Date(cached.fetchedAt).getTime();
-  if (!(age >= 0) || age > CACHE_TTL_MS) return null;
-  if (!Array.isArray(cached.tools)) return null;
-  return cached;
-}
-
-function writeCache(kind, url, tools) {
-  const payload = {
-    fetchedAt: new Date().toISOString(),
-    serverFingerprint: serverFingerprint(url),
-    toolCount: tools.length,
-    tools,
-  };
-  atomicWriteJson(cachePath(kind), payload, 0o600);
-  return payload;
-}
-
-async function ensureToolsCache(kind, { refresh = false } = {}) {
-  const { value: url, source } = readServerUrl(kind);
-  if (!url) die(needAuth(kind), 2);
-  const fp = serverFingerprint(url);
-  if (!refresh) {
-    const hit = readCache(kind, fp);
-    if (hit) return { payload: hit, source, url, cached: true };
-  }
-  const res = await listToolsRemote(url);
-  if (res.error) die(`tools/list (${kind}): ${JSON.stringify(res.error)}`, 4);
-  const tools = res.result?.tools || [];
-  const payload = writeCache(kind, url, tools);
-  return { payload, source, url, cached: false };
+function readStdin() {
+  return new Promise((resolveP, rejectP) => {
+    let buf = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (c) => (buf += c));
+    process.stdin.on("end", () => resolveP(buf.trim()));
+    process.stdin.on("error", rejectP);
+  });
 }
 
 // ── commands ─────────────────────────────────────────────────────────────
@@ -400,7 +205,7 @@ async function cmdAuth(rest) {
   const kind = rest.shift();
   if (!KINDS.includes(kind)) {
     die(
-      `usage: ${INVOCATION} auth <doc|sheet> [<url> | --stdin] [--verify]\n` +
+      `usage: ${INVOCATION} auth <doc|aitable|sheet> [<url> | --stdin] [--verify]\n` +
         `  --stdin (recommended)  read URL from stdin; keeps it out of argv/shell history\n` +
         `  --verify               run a tools/list against the URL before persisting\n`,
       1,
@@ -465,22 +270,19 @@ async function cmdAuth(rest) {
   );
 }
 
-function readStdin() {
-  return new Promise((resolveP, rejectP) => {
-    let buf = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (c) => (buf += c));
-    process.stdin.on("end", () => resolveP(buf.trim()));
-    process.stdin.on("error", rejectP);
-  });
-}
-
 async function cmdCall(kind, toolName, restArgv) {
   if (!KINDS.includes(kind)) die(`unknown server kind: ${kind}. expected one of: ${KINDS.join(", ")}`);
   if (!toolName) die(`${kind} requires a tool name. run: ${INVOCATION} list-tools ${kind}`);
 
-  const { args, yes } = parseToolArgs(restArgv);
-  const danger = dangerClass(kind, toolName);
+  let parsed;
+  try {
+    parsed = parseToolArgs(restArgv);
+  } catch (e) {
+    die(e.message || String(e));
+  }
+  const { args, yes } = parsed;
+
+  const danger = dangerFor(kind, toolName);
   if (danger && !yes) {
     process.stderr.write(
       JSON.stringify(
@@ -503,10 +305,36 @@ async function cmdCall(kind, toolName, restArgv) {
   if (!url) die(needAuth(kind), 2);
 
   const res = await callTool(url, toolName, args);
-  if (res.error) die(`tool error: ${JSON.stringify(res.error)}`, 4);
+  if (res.error) {
+    const norm = normalizeMcpError(res.error);
+    if (norm) {
+      process.stderr.write(
+        JSON.stringify(
+          { kind: norm.kind, hint: norm.hint, originalMessage: norm.originalMessage },
+          null,
+          2,
+        ) + "\n",
+      );
+      process.exit(norm.exitCode);
+    }
+    die(`tool error: ${JSON.stringify(res.error)}`, 4);
+  }
 
   const r = res.result;
   if (r?.isError) {
+    const norm = normalizeMcpError(r);
+    if (norm) {
+      process.stderr.write(
+        redact(
+          JSON.stringify(
+            { kind: norm.kind, hint: norm.hint, originalMessage: norm.originalMessage, raw: r },
+            null,
+            2,
+          ),
+        ) + "\n",
+      );
+      process.exit(norm.exitCode);
+    }
     process.stderr.write(redact(JSON.stringify(r, null, 2)) + "\n");
     process.exit(4);
   }
@@ -568,7 +396,7 @@ async function cmdSchema(rest) {
   }
   if (!tool) die(`tool not found: ${kind}.${toolName}`, 1);
 
-  const danger = dangerClass(kind, toolName);
+  const danger = dangerFor(kind, toolName);
   process.stdout.write(
     JSON.stringify(
       {
@@ -583,6 +411,102 @@ async function cmdSchema(rest) {
       2,
     ) + "\n",
   );
+}
+
+async function cmdDiffTools(rest) {
+  let promoteInitial = false;
+  let promote = false;
+  for (const a of rest) {
+    if (a === "--promote-initial") promoteInitial = true;
+    else if (a === "--promote") promote = true;
+    else die(`unexpected argument: ${a}`);
+  }
+
+  // Fetch current schemas for all 3 kinds.
+  const current = {};
+  for (const k of KINDS) {
+    const { value: url } = readServerUrl(k);
+    if (!url) die(needAuth(k), 2);
+    let res;
+    try {
+      res = await listToolsRemote(url);
+    } catch (e) {
+      die(`tools/list (${k}): ${e.message || e}`, 4);
+    }
+    if (res.error) die(`tools/list (${k}): ${JSON.stringify(res.error)}`, 4);
+    current[k] = res.result?.tools || [];
+  }
+
+  const baselineExists = existsSync(BASELINE_PATH);
+
+  if (promoteInitial) {
+    if (baselineExists && !promote) {
+      die(`baseline already exists at ${BASELINE_PATH} — use --promote to overwrite`, 1);
+    }
+    const baseline = {
+      schemaVersion: "1",
+      promotedAt: new Date().toISOString(),
+      kinds: {},
+    };
+    for (const k of KINDS) baseline.kinds[k] = buildBaseline(current[k]);
+    writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + "\n");
+    process.stdout.write(
+      JSON.stringify(
+        {
+          ok: true,
+          action: "promote-initial",
+          path: BASELINE_PATH,
+          toolCounts: Object.fromEntries(KINDS.map((k) => [k, current[k].length])),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return;
+  }
+
+  if (!baselineExists) {
+    die(`no baseline at ${BASELINE_PATH}\nrun: ${INVOCATION} diff-tools --promote-initial`, 1);
+  }
+  const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+
+  const drift = {};
+  let hasAnyDrift = false;
+  for (const k of KINDS) {
+    const kindBase = baseline.kinds?.[k];
+    if (!kindBase) {
+      drift[k] = { error: "no baseline for this kind" };
+      hasAnyDrift = true;
+      continue;
+    }
+    const d = diffTools(kindBase, current[k]);
+    drift[k] = { ...d, hasDrift: diffHasChanges(d) };
+    if (drift[k].hasDrift) hasAnyDrift = true;
+  }
+
+  process.stdout.write(
+    JSON.stringify(
+      {
+        baseline_path: BASELINE_PATH,
+        baseline_promoted_at: baseline.promotedAt,
+        drift,
+        has_drift: hasAnyDrift,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  if (promote && hasAnyDrift) {
+    for (const k of KINDS) {
+      if (drift[k]?.hasDrift) baseline.kinds[k] = buildBaseline(current[k]);
+    }
+    baseline.promotedAt = new Date().toISOString();
+    writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + "\n");
+    process.stderr.write(`promoted new baseline\n`);
+  }
+
+  process.exit(hasAnyDrift && !promote ? 1 : 0);
 }
 
 async function cmdPing() {
@@ -713,6 +637,8 @@ async function main() {
         return await cmdPing();
       case "doctor":
         return await cmdDoctor(rest);
+      case "diff-tools":
+        return await cmdDiffTools(rest);
       case "doc":
       case "aitable":
       case "sheet": {

@@ -6,7 +6,7 @@
 
 ## 目录结构
 
-- `{package}/{layer}/index.md` — 某 package 某 layer（frontend / backend）的入口，含 4 段：Overview / Guidelines Index / Pre-Development Checklist / Quality Check
+- `{package}/{layer}/index.md` — 某 package 某 layer（frontend / backend）的入口，含 Overview / Guidelines Index / Pre-Development Checklist；通用 Quality Check 不再内联，指向本文件的 Quality Check 段
 - `{package}/{layer}/*.md` — 具体 code-spec，采用 7 段合约：Scope / Signatures / Contracts / Validation & Error Matrix / Good-Base-Bad Cases / Tests Required / Wrong vs Correct
 - `guides/index.md` — 共享思考清单入口（跨 package / 跨 layer 通用）
 - `guides/*.md` — 具体 thinking guide
@@ -24,7 +24,11 @@
 - `/workflow-execute` 在任务执行时以 advisory 形式注入项目知识
 - `/workflow-review` Stage 1 以人工对照方式检查实现与 code-spec 的一致性
 
-## 更新记录
+## Quality Check
 
-| 日期 | delta | 触发原因 |
-|------|------|---------|
+完成任务后的通用自检清单（全项目单一来源，各 `{package}/{layer}/index.md` 指向此处）：
+
+- [ ] 运行 `git diff --name-only` 确认改动范围
+- [ ] 对照相关 guideline 文件逐条核对
+- [ ] 运行 lint / type-check / test：`(填入项目实际命令)`
+- [ ] 补齐测试：新 pure function → unit test；bug fix → regression test；init/update → integration test

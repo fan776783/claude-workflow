@@ -23,7 +23,6 @@ const dependencyChecker = require(path.join(workflowDir, 'dependency_checker.js'
 const lifecycleCmds = require(path.join(workflowDir, 'lifecycle_cmds.js'))
 const taskParser = require(path.join(workflowDir, 'task_parser.js'))
 const taskRuntime = require(path.join(workflowDir, 'task_runtime.js'))
-const batchOrchestrator = require(path.join(workflowDir, 'batch_orchestrator.js'))
 const docContracts = require(path.join(workflowDir, 'doc_contracts.js'))
 const installer = require(path.join(repoRoot, 'lib', 'installer.js'))
 const interactiveInstaller = require(path.join(repoRoot, 'lib', 'interactive-installer.js'))
@@ -51,7 +50,7 @@ const PLAN_FIXTURE = `## T1: 第一个任务
 `
 
 function minimumState(status = 'running', currentTasks = ['T1']) {
-  const approved = ['planning', 'planned', 'running', 'paused', 'blocked', 'failed', 'completed'].includes(status)
+  const approved = ['planned', 'running', 'halted', 'completed'].includes(status)
   return {
     project_id: 'proj-test',
     status,
@@ -223,9 +222,25 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(tasks[0].quality_gate, true)
     assert.deepEqual(tasks[0].requirement_ids, ['R-001'])
 
+    // Pre-execution decide no longer carries the quality-gate-boundary halt reason.
+    // Quality gate semantics moved to decidePostExecutionAction in Step 7.
     const decision = executionSequencer.decideGovernanceAction(minimumState(), tasks[0], 'continuous', false, false)
-    assert.equal(decision.action, 'pause-quality-gate')
-    assert.equal(decision.reason, 'quality-gate-boundary')
+    assert.notEqual(decision.reason, 'quality-gate-boundary')
+
+    // Post-execution: reviewer PASS at safe budget → continue-direct.
+    const postPass = executionSequencer.decidePostExecutionAction(minimumState(), tasks[0], { passed: true })
+    assert.equal(postPass.action, 'continue-direct')
+
+    // Post-execution: quality_gate task + budget warning + PASS → pause-quality-gate.
+    const warnState = { ...minimumState(), contextMetrics: { projectedUsagePercent: 65, warningThreshold: 60, dangerThreshold: 80, hardHandoffThreshold: 90 } }
+    const postWarn = executionSequencer.decidePostExecutionAction(warnState, tasks[0], { passed: true })
+    assert.equal(postWarn.action, 'pause-quality-gate')
+    assert.equal(postWarn.reason, 'quality-gate-budget-pressure')
+
+    // Post-execution: reviewer FAIL → pause-quality-gate (warning).
+    const postFail = executionSequencer.decidePostExecutionAction(minimumState(), tasks[0], { passed: false, decision: 'rejected' })
+    assert.equal(postFail.action, 'pause-quality-gate')
+    assert.equal(postFail.reason, 'review-failed')
   })
 
 
@@ -295,23 +310,14 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(review.gate_task_id, 'T8')
     })
 
-    const fallbackReview = workflowTypes.getReviewResult(
-      {
-        execution_reviews: {
-          T4: {
-            review_mode: 'machine_loop',
-            last_decision: 'pass',
-            spec_compliance: { passed: true, attempts: 1 },
-            code_quality: { passed: true, assessment: 'approved' },
-            overall_passed: true,
-            reviewed_at: '2026-03-31T00:00:00',
-          },
-        },
-      },
-      'T4'
+    // getReviewResult reads from state.quality_gates only.
+    assert.equal(workflowTypes.getReviewResult({ execution_reviews: { T4: {} } }, 'T4'), null)
+    const direct = workflowTypes.getReviewResult(
+      { quality_gates: { T9: { gate_task_id: 'T9', overall_passed: true, stage1: { passed: true } } } },
+      'T9'
     )
-    assert.equal(fallbackReview.overall_passed, true)
-    assert.equal(fallbackReview.gate_task_id, 'T4')
+    assert.equal(direct.overall_passed, true)
+    assert.equal(direct.gate_task_id, 'T9')
 
     const failedGate = qualityReview.buildFailedGateResult(
       'T9',
@@ -539,11 +545,87 @@ test('workflow helper migration coverage', async (t) => {
       const planResult = lifecycleCmds.cmdPlan('实现一个新的前端组件', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
       assert.equal(planResult.started, true)
 
-      const specPath = path.join(projectRoot, planResult.spec_file)
+      assert.equal(path.isAbsolute(planResult.spec_file), true)
+      const specPath = planResult.spec_file
       const specContent = fs.readFileSync(specPath, 'utf8')
       assert.doesNotMatch(specContent, /\{\{code_specs_constraints\}\}/)
       assert.match(specContent, /Project Code Specs Constraints/)
       assert.match(specContent, /Use functional components with explicit Props interface\./)
+    })
+  })
+
+  await t.test('cmdPlan with workflow.legacySpecLocation=true keeps spec.md under user-level workflows dir', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-legacy-'))
+    const home = path.join(root, 'home')
+    const projectRoot = path.join(root, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(projectRoot, { recursive: true })
+    const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      project: { id: 'proj-legacy', name: 'test', type: 'single' },
+      workflow: { legacySpecLocation: true },
+    }, null, 2)}\n`)
+
+    withHome(home, () => {
+      const planResult = lifecycleCmds.cmdPlan('实现登录鉴权', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
+      assert.equal(planResult.started, true)
+      const specPath = planResult.spec_file
+      const userLevelPrefix = path.join(home, '.claude', 'workflows', 'proj-legacy', 'specs')
+      assert.ok(specPath.startsWith(userLevelPrefix), `expected ${specPath} under ${userLevelPrefix}`)
+      assert.equal(fs.existsSync(specPath), true)
+      const projectInternal = path.join(projectRoot, 'docs', 'workflows', 'specs')
+      assert.equal(fs.existsSync(projectInternal), false, 'project-internal dir should not be created in legacy mode')
+    })
+  })
+
+  await t.test('cmdPlan honors custom workflow.specDocsRoot for spec.md placement', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-custom-'))
+    const home = path.join(root, 'home')
+    const projectRoot = path.join(root, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(projectRoot, { recursive: true })
+    const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    fs.writeFileSync(configPath, `${JSON.stringify({
+      project: { id: 'proj-custom', name: 'test', type: 'single' },
+      workflow: { specDocsRoot: 'custom/wf-specs' },
+    }, null, 2)}\n`)
+
+    withHome(home, () => {
+      const planResult = lifecycleCmds.cmdPlan('实现搜索功能', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
+      assert.equal(planResult.started, true)
+      const specPath = planResult.spec_file
+      const expectedPrefix = path.join(projectRoot, 'custom', 'wf-specs')
+      assert.ok(specPath.startsWith(expectedPrefix), `expected ${specPath} under ${expectedPrefix}`)
+      assert.equal(fs.existsSync(specPath), true)
+    })
+  })
+
+  await t.test('inferSpecRelativeFromPlan prefers project-internal spec candidate over user-level fallback', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-infer-spec-'))
+    const home = path.join(root, 'home')
+    const projectRoot = path.join(root, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(projectRoot, { recursive: true })
+    writeProjectConfig(projectRoot, 'proj-infer')
+
+    // 同时摆好两个候选：项目内 docs/workflows/specs/foo-0521.md 与 user 级 ~/.claude/workflows/proj-infer/specs/foo-0521.md
+    const baseName = 'foo-0521.md'
+    const projectSpec = path.join(projectRoot, 'docs', 'workflows', 'specs', baseName)
+    const userSpec = path.join(home, '.claude', 'workflows', 'proj-infer', 'specs', baseName)
+    const userPlan = path.join(home, '.claude', 'workflows', 'proj-infer', 'plans', baseName)
+    fs.mkdirSync(path.dirname(projectSpec), { recursive: true })
+    fs.writeFileSync(projectSpec, '# project-internal spec\n')
+    fs.mkdirSync(path.dirname(userSpec), { recursive: true })
+    fs.writeFileSync(userSpec, '# user-level legacy spec\n')
+    fs.mkdirSync(path.dirname(userPlan), { recursive: true })
+    fs.writeFileSync(userPlan, '# user-level plan\n')
+
+    withHome(home, () => {
+      const result = workflowCli.inferSpecRelativeFromPlan(userPlan, projectRoot)
+      // 期望项目内候选(相对路径 docs/workflows/specs/foo-0521.md)在 user 级绝对路径之前命中
+      assert.equal(result, path.posix.join('docs', 'workflows', 'specs', baseName), `inferred: ${result}`)
     })
   })
 
@@ -582,8 +664,11 @@ test('workflow helper migration coverage', async (t) => {
       false,
       true
     )
-    assert.equal(parallelDecision.action, 'continue-parallel-boundaries')
-    assert.equal(parallelDecision.suggestedExecutionPath, 'parallel-boundaries')
+    // writable 并行已下线,原 continue-parallel-boundaries 决策改为 continue-direct + advisory
+    assert.equal(parallelDecision.action, 'continue-direct')
+    assert.equal(parallelDecision.suggestedExecutionPath, 'direct')
+    assert.equal(parallelDecision.advisory, executionSequencer.ADVISORY_CONSIDER_HANDOFF_OR_SPLIT)
+    assert.equal(parallelDecision.reason, 'independent-high-pollution')
 
     state.contextMetrics.projectedUsagePercent = 85
     const pauseDecision = executionSequencer.decideGovernanceAction(
@@ -644,7 +729,8 @@ test('workflow helper migration coverage', async (t) => {
       assert.deepEqual(skippedState.current_tasks, ['T2'])
       assert.match(skippedPlan, /⏭️/)
 
-      skippedState.status = 'failed'
+      skippedState.status = 'halted'
+      skippedState.halt_reason = 'failure'
       skippedState.failure_reason = 'boom'
       fs.writeFileSync(statePath, JSON.stringify(skippedState, null, 2))
 
@@ -652,139 +738,18 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(first.retryable, true)
 
       let failedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      failedState.status = 'failed'
+      failedState.status = 'halted'
+      failedState.halt_reason = 'failure'
       fs.writeFileSync(statePath, JSON.stringify(failedState, null, 2))
       executionSequencer.prepareRetry(statePath, 'T1', 'boom')
 
       failedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      failedState.status = 'failed'
+      failedState.status = 'halted'
+      failedState.halt_reason = 'failure'
       fs.writeFileSync(statePath, JSON.stringify(failedState, null, 2))
       const third = executionSequencer.prepareRetry(statePath, 'T1', 'boom')
       assert.equal(third.retryable, false)
       assert.equal(third.reason, 'hard-stop')
-    })
-  })
-
-  await t.test('parallel fallback rewinds completed tasks for sequential rerun', () => {
-    const state = minimumState('paused', ['T9'])
-    state.progress.completed = ['T2', 'T3', 'T4']
-    state.parallel_groups = [
-      {
-        id: 'G1',
-        task_ids: ['T3', 'T4'],
-        status: 'completed',
-        started_at: '2026-03-31T00:00:00',
-        conflict_detected: false,
-      },
-    ]
-
-    const result = executionSequencer.prepareParallelSequentialFallback(state, 'G1', ['T3', 'T4'])
-    assert.deepEqual(result.rerun_task_ids, ['T3', 'T4'])
-    assert.deepEqual(result.state.progress.completed, ['T2'])
-    assert.deepEqual(result.state.current_tasks, ['T3', 'T4'])
-    assert.equal(result.state.parallel_groups[0].conflict_detected, true)
-    assert.equal(result.state.parallel_groups[0].status, 'failed')
-    assert.equal(result.state.continuation.last_decision.reason, 'parallel-conflict-sequential-fallback')
-  })
-
-  await t.test('writable batch advance requires merge evidence and persists batch gate result before completion', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-batch-advance-'))
-    const home = path.join(root, 'home')
-    const projectRoot = path.join(root, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(projectRoot, { recursive: true })
-    writeProjectConfig(projectRoot, 'proj-test')
-
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1', 'T2'])
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.plan_file = '.claude/plans/tasks.md'
-      state.initial_head_commit = 'abc123'
-      state.parallel_groups = [{
-        id: 'B-0001',
-        kind: 'writable',
-        task_ids: ['T1', 'T2'],
-        status: 'running',
-        started_at: '2026-03-31T00:00:00Z',
-        finished_at: null,
-        conflict_detected: false,
-        diff_window: null,
-        review_group: null,
-      }]
-      state.parallel_execution = { enabled: true, max_concurrency: 2, current_batch: 'B-0001' }
-      state.quality_gates = {
-        T1: { stage1: { passed: true, attempts: 1, issues_found: 0 } },
-        T2: { stage1: { passed: true, attempts: 2, issues_found: 1 } },
-      }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      const planPath = path.join(projectRoot, '.claude', 'plans', 'tasks.md')
-      fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, [
-        '## T1: Batch Task One',
-        '- **阶段**: implement',
-        '- **Spec 参考**: §1',
-        '- **Plan 参考**: P1',
-        '- **需求 ID**: R-001',
-        '- **关键约束**: keep API stable',
-        '- **状态**: pending',
-        '- **actions**: edit_file',
-        '- **步骤**:',
-        '  - A1: update src/a.js -> done',
-        '',
-        '## T2: Batch Task Two',
-        '- **阶段**: implement',
-        '- **Spec 参考**: §2',
-        '- **Plan 参考**: P2',
-        '- **需求 ID**: R-002',
-        '- **关键约束**: preserve metrics',
-        '- **状态**: pending',
-        '- **actions**: edit_file',
-        '- **步骤**:',
-        '  - A1: update src/b.js -> done',
-        '',
-      ].join('\n'))
-
-      const blocked = workflowCli.cmdAdvanceBatch(['T1', 'T2'], null, null, 'proj-test', projectRoot, 'B-0001')
-      assert.match(blocked.error, /stage2 审查/)
-
-      const advanced = workflowCli.cmdAdvanceBatch(
-        ['T1', 'T2'],
-        null,
-        null,
-        'proj-test',
-        projectRoot,
-        'B-0001',
-        {
-          stage2_passed: true,
-          merged_commit: 'def456',
-          files_changed: 3,
-          reviewer: 'subagent',
-        }
-      )
-
-      assert.equal(advanced.advanced, true)
-      assert.deepEqual(advanced.completed_tasks, ['T1', 'T2'])
-
-      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.parallel_groups[0].status, 'completed')
-      assert.deepEqual(persisted.parallel_groups[0].diff_window, {
-        from_commit: 'abc123',
-        to_commit: 'def456',
-        files_changed: 3,
-      })
-      assert.deepEqual(persisted.parallel_groups[0].review_group, {
-        quality_gate_id: 'B-0001',
-        stage2_passed: true,
-      })
-      assert.equal(persisted.quality_gates['B-0001'].scope, 'batch')
-      assert.equal(persisted.quality_gates['B-0001'].stage1.passed, true)
-      assert.equal(persisted.quality_gates['B-0001'].stage1.attempts, 3)
-      assert.equal(persisted.quality_gates['B-0001'].commit_hash, 'def456')
-
-      const planContent = fs.readFileSync(planPath, 'utf8')
-      assert.match(planContent, /T1: Batch Task One .*✅/)
-      assert.match(planContent, /T2: Batch Task Two .*✅/)
     })
   })
 
@@ -806,7 +771,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(startPayload.discussion_required, false)
     assert.equal(startPayload.awaiting_user_spec_review, true)
 
-    const specPath = path.join(root, startPayload.spec_file)
+    const specPath = startPayload.spec_file
     assert.equal(fs.existsSync(specPath), true)
     assert.equal(startPayload.plan_file, null)
 
@@ -837,7 +802,7 @@ test('workflow helper migration coverage', async (t) => {
     )
     assert.equal(approvedReviewResult.status, 0, approvedReviewResult.stderr)
     const approvedReviewPayload = JSON.parse(approvedReviewResult.stdout)
-    const planPath = path.join(root, approvedReviewPayload.plan_file)
+    const planPath = approvedReviewPayload.plan_file
     assert.equal(fs.existsSync(planPath), true)
     const generatedPlan = fs.readFileSync(planPath, 'utf8')
     assert.match(generatedPlan, /仅实现 CSV 导出/)
@@ -847,7 +812,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(approvedState.review_status.user_spec_review.status, 'approved')
     assert.deepEqual(approvedState.current_tasks, ['T1'])
 
-    const deltaResult = runNode(cliScript, ['delta', '新增导出字段'], { cwd: root, env: extraEnv })
+    const deltaResult = runNode(cliScript, ['delta', 'init', '--type', 'requirement', '--source', '新增导出字段', '--description', '新增导出字段'], { cwd: root, env: extraEnv })
     assert.equal(deltaResult.status, 0, deltaResult.stderr)
     const deltaPayload = JSON.parse(deltaResult.stdout)
     assert.equal(deltaPayload.delta_created, true)
@@ -949,34 +914,6 @@ test('workflow helper migration coverage', async (t) => {
 
     state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     assert.deepEqual(state.delta_tracking.applied_changes, ['CHG-001'])
-  })
-
-  await t.test('legacy delta command keeps confirmation gate and does not edit plan before apply', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-delta-legacy-'))
-    const [extraEnv, home] = makeCliEnv(root)
-    writeProjectConfig(root, 'proj-test')
-    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
-    const planPath = path.join(root, '.claude', 'plans', 'test.md')
-    fs.mkdirSync(path.dirname(planPath), { recursive: true })
-    fs.writeFileSync(planPath, PLAN_FIXTURE)
-
-    const deltaResult = runNode(cliScript, ['delta', '新增导出字段'], { cwd: root, env: extraEnv })
-    assert.equal(deltaResult.status, 0, deltaResult.stderr)
-    const deltaPayload = JSON.parse(deltaResult.stdout)
-    assert.equal(deltaPayload.delta_created, true)
-    assert.equal(deltaPayload.trigger_type, 'requirement')
-
-    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-    assert.equal(state.delta_tracking.current_change, 'CHG-001')
-    assert.deepEqual(state.delta_tracking.applied_changes, [])
-
-    const changeDir = path.join(path.dirname(statePath), 'changes', 'CHG-001')
-    const reviewStatus = JSON.parse(fs.readFileSync(path.join(changeDir, 'review-status.json'), 'utf8'))
-    assert.equal(reviewStatus.status, 'draft')
-
-    const planContent = fs.readFileSync(planPath, 'utf8')
-    assert.equal((planContent.match(/## T3:/g) || []).length, 0)
-    assert.doesNotMatch(planContent, /响应增量变更 CHG-001/)
   })
 
   await t.test('delta apply is idempotent and does not duplicate task blocks', () => {
@@ -1148,11 +1085,14 @@ test('workflow helper migration coverage', async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-project-sync-'))
     const projectRoot = path.join(root, 'project')
     fs.mkdirSync(projectRoot, { recursive: true })
-    const [extraEnv] = makeCliEnv(root)
+    const [extraEnv, home] = makeCliEnv(root)
+    // sync 不再支持 -a；通过 fake-detect claude-code 触发 Plugin 分支（claude CLI 缺失会返回 cli-not-found，仍以 exit 0 完成）
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{}\n')
 
     const result = runNode(
       path.join(repoRoot, 'bin', 'agent-workflow.js'),
-      ['sync', '--project', '-a', 'claude-code'],
+      ['sync', '--project', '-y'],
       { cwd: projectRoot, env: extraEnv }
     )
 
@@ -1169,15 +1109,17 @@ test('workflow helper migration coverage', async (t) => {
   })
 
   await t.test('link keeps fixed workflow CLI paths available in repo-link mode', () => {
-    // Claude Code now uses the Plugin cache, so `link -a claude-code` is a no-op.
-    // Cursor still uses the symlink-based link flow; use it to verify the repo-link
-    // contract that rewritten skill contents point at the canonical workflow_cli.js.
+    // Claude Code uses the Plugin cache; link only targets the other detected tools.
+    // Fake-detect cursor to verify the repo-link contract that rewritten skill contents
+    // point at the canonical workflow_cli.js.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-link-canonical-'))
     const [extraEnv, home] = makeCliEnv(root)
+    fs.mkdirSync(path.join(home, '.cursor'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.cursor', 'argv.json'), '{}\n')
 
     const result = runNode(
       path.join(repoRoot, 'bin', 'agent-workflow.js'),
-      ['link', '-a', 'cursor'],
+      ['link'],
       { cwd: repoRoot, env: extraEnv }
     )
 
@@ -1259,7 +1201,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(restartPayload.started, true)
   })
 
-  await t.test('workflow init self-heal preserves blocked task status', () => {
+  await t.test('workflow init self-heal projects blocked task into halted+dependency', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-init-'))
     const [extraEnv, home] = makeCliEnv(root)
     writeProjectConfig(root, 'proj-test')
@@ -1281,11 +1223,13 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(initResult.status, 0, initResult.stderr)
     const initPayload = JSON.parse(initResult.stdout)
     assert.equal(initPayload.initialized, true)
-    assert.equal(initPayload.workflow_status, 'blocked')
+    assert.equal(initPayload.workflow_status, 'halted')
+    assert.equal(initPayload.halt_reason, 'dependency')
     assert.deepEqual(initPayload.progress.blocked, ['T1'])
 
     const state = JSON.parse(fs.readFileSync(workflowStatePath(home, 'proj-test'), 'utf8'))
-    assert.equal(state.status, 'blocked')
+    assert.equal(state.status, 'halted')
+    assert.equal(state.halt_reason, 'dependency')
     assert.deepEqual(state.current_tasks, ['T1'])
     assert.deepEqual(state.progress.blocked, ['T1'])
   })
@@ -1482,6 +1426,36 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
+  await t.test('buildExecuteEntry keeps TDD disabled by default and enables only with flag', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-tdd-flag-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+
+      const defaultResult = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(defaultResult.entry_action, 'execute')
+      assert.equal(defaultResult.tdd_enabled, false)
+
+      const tddResult = executionSequencer.buildExecuteEntry('execute', null, null, root, { tdd: true })
+      assert.equal(tddResult.entry_action, 'execute')
+      assert.equal(tddResult.tdd_enabled, true)
+
+      const statePath = workflowStatePath(home, 'proj-test')
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.status = 'running'
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      const continueResult = executionSequencer.buildExecuteEntry('continue', null, null, root, { tdd: true })
+      assert.equal(continueResult.entry_action, 'execute')
+      assert.equal(continueResult.tdd_enabled, true)
+    })
+  })
+
   await t.test('buildExecuteEntry rejects execute while workflow is still in spec_review', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-review-'))
     const home = path.join(tmpRoot, 'home')
@@ -1500,16 +1474,17 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('buildExecuteEntry resumes paused workflow from project config', () => {
+  await t.test('buildExecuteEntry resumes halted workflow from project config', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-entry-'))
     const home = path.join(root, 'home')
     fs.mkdirSync(home, { recursive: true })
     writeProjectConfig(root, 'proj-test')
 
     withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'paused')
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'halted')
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
       state.execution_mode = 'phase'
+      state.halt_reason = 'governance'
       state.continuation = {
         last_decision: {
           action: 'pause-governance',
@@ -1523,196 +1498,6 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.resolved_mode, 'phase')
       assert.equal(result.can_resume, true)
       assert.equal(result.continuation_action, 'pause-governance')
-    })
-  })
-
-  await t.test('cmdBatchFail discards worktree and cleans state', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-batchfail-'))
-    const home = path.join(root, 'home')
-    const projectRoot = path.join(root, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(projectRoot, { recursive: true })
-    writeProjectConfig(projectRoot, 'proj-test')
-
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1', 'T2'])
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.plan_file = '.claude/plans/tasks.md'
-      state.parallel_groups = [{
-        id: 'B-0001',
-        kind: 'writable',
-        task_ids: ['T1', 'T2'],
-        status: 'running',
-        started_at: '2026-03-31T00:00:00Z',
-        finished_at: null,
-        conflict_detected: false,
-        diff_window: null,
-        review_group: null,
-      }]
-      state.parallel_execution = { enabled: true, max_concurrency: 2, current_batch: 'B-0001' }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      const planPath = path.join(projectRoot, '.claude', 'plans', 'tasks.md')
-      fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, PLAN_FIXTURE)
-
-      const result = workflowCli.cmdBatchFail('B-0001', {
-        nextAction: 'discard_integration_worktree',
-        failedTaskId: 'T1',
-        reason: 'merge conflict',
-        projectId: 'proj-test',
-        projectRoot,
-      })
-      assert.equal(result.batch_failed, true)
-      assert.equal(result.status, 'discarded')
-      assert.deepEqual(result.cleared_tasks, ['T1', 'T2'])
-
-      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.parallel_groups[0].status, 'discarded')
-      assert.equal(persisted.parallel_groups[0].conflict_detected, true)
-      assert.equal(persisted.parallel_groups[0].failed_task_id, 'T1')
-      assert.equal(persisted.parallel_execution.current_batch, null)
-    })
-  })
-
-  await t.test('buildExecuteEntry returns batch view when current_batch active', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-batchview-'))
-    const home = path.join(root, 'home')
-    fs.mkdirSync(home, { recursive: true })
-    writeProjectConfig(root, 'proj-test')
-
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1', 'T2'])
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.plan_file = '.claude/plans/tasks.md'
-      state.parallel_groups = [{
-        id: 'B-0001',
-        kind: 'writable',
-        task_ids: ['T1', 'T2'],
-        status: 'running',
-        started_at: '2026-03-31T00:00:00Z',
-        finished_at: null,
-        conflict_detected: false,
-        diff_window: null,
-        review_group: null,
-      }]
-      state.parallel_execution = { enabled: true, max_concurrency: 2, current_batch: 'B-0001' }
-      state.task_runtime = {
-        T1: { dispatch_mode: 'worktree', branch: 'wt-T1' },
-        T2: { dispatch_mode: 'worktree', branch: 'wt-T2' },
-      }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      const planPath = path.join(root, '.claude', 'plans', 'tasks.md')
-      fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, PLAN_FIXTURE)
-
-      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
-      assert.equal(result.entry_action, 'execute')
-      assert.ok(result.batch)
-      assert.equal(result.batch.batch_id, 'B-0001')
-      assert.equal(result.batch.kind, 'writable')
-      assert.deepEqual(result.batch.task_ids, ['T1', 'T2'])
-      assert.equal(result.batch.dispatch_skill, 'dispatching-parallel-agents')
-      assert.equal(result.batch.task_runtimes[0].dispatch_mode, 'worktree')
-    })
-  })
-
-  await t.test('handleTaskError in batch context marks parallel_groups and clears current_tasks', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-batcherror-'))
-    const home = path.join(root, 'home')
-    fs.mkdirSync(home, { recursive: true })
-
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1', 'T2'])
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.parallel_groups = [{
-        id: 'B-0001',
-        kind: 'writable',
-        task_ids: ['T1', 'T2'],
-        status: 'running',
-        started_at: '2026-03-31T00:00:00Z',
-        finished_at: null,
-        conflict_detected: false,
-        diff_window: null,
-        review_group: null,
-      }]
-      state.parallel_execution = { enabled: true, max_concurrency: 2, current_batch: 'B-0001' }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      stateManager.handleTaskError(state, statePath, 'T1', 'Task One', 'merge conflict')
-      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.status, 'halted')
-      assert.equal(persisted.halt_reason, 'failure')
-      assert.equal(persisted.parallel_groups[0].status, 'failed')
-      assert.equal(persisted.parallel_groups[0].failed_task_id, 'T1')
-      assert.equal(persisted.parallel_groups[0].conflict_detected, true)
-      assert.equal(persisted.parallel_execution.current_batch, null)
-      assert.ok(persisted.progress.failed.includes('T1'))
-    })
-  })
-
-  await t.test('merge-integration CLI subcommand is registered', () => {
-    const mergeScript = path.join(workflowDir, 'merge_strategist.js')
-    const result = runNode(mergeScript, ['merge-integration'], {})
-    assert.equal(result.status, 1)
-    const output = JSON.parse(result.stdout)
-    assert.match(output.error, /--batch-id/)
-  })
-
-  await t.test('writable batch advance rejects missing or failed stage1 gate records', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-batch-stage1-'))
-    const home = path.join(root, 'home')
-    const projectRoot = path.join(root, 'project')
-    fs.mkdirSync(home, { recursive: true })
-    fs.mkdirSync(projectRoot, { recursive: true })
-    writeProjectConfig(projectRoot, 'proj-test')
-
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1', 'T2'])
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      state.plan_file = '.claude/plans/tasks.md'
-      state.initial_head_commit = 'abc123'
-      state.parallel_groups = [{
-        id: 'B-0001',
-        kind: 'writable',
-        task_ids: ['T1', 'T2'],
-        status: 'running',
-        started_at: '2026-03-31T00:00:00Z',
-        finished_at: null,
-        conflict_detected: false,
-        diff_window: null,
-        review_group: null,
-      }]
-      state.parallel_execution = { enabled: true, max_concurrency: 2, current_batch: 'B-0001' }
-      // T2 完全没有 stage1 记录
-      state.quality_gates = { T1: { stage1: { passed: true, attempts: 1, issues_found: 0 } } }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      const planPath = path.join(projectRoot, '.claude', 'plans', 'tasks.md')
-      fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, PLAN_FIXTURE)
-
-      const missing = workflowCli.cmdAdvanceBatch(
-        ['T1', 'T2'], null, null, 'proj-test', projectRoot, 'B-0001',
-        { stage2_passed: true, merged_commit: 'def456' }
-      )
-      assert.match(missing.error, /缺失 stage1/)
-
-      // 现在给 T2 一个 stage1 但 passed=false
-      state.quality_gates.T2 = { stage1: { passed: false, attempts: 3, issues_found: 2 } }
-      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-      const failed = workflowCli.cmdAdvanceBatch(
-        ['T1', 'T2'], null, null, 'proj-test', projectRoot, 'B-0001',
-        { stage2_passed: true, merged_commit: 'def456' }
-      )
-      assert.match(failed.error, /stage1 未通过/)
-
-      // 确认 gate 未被写入
-      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.quality_gates['B-0001'], undefined)
-      assert.equal(persisted.parallel_groups[0].status, 'running')
     })
   })
 
@@ -1815,14 +1600,6 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(ctx, null)
   })
 
-  await t.test('integration branch names are namespaced by projectId', () => {
-    const merger = require(path.join(workflowDir, 'merge_strategist.js'))
-    assert.equal(merger.integrationBranchName('B-0001', null), 'workflow/integrate-B-0001')
-    assert.equal(merger.integrationBranchName('B-0001', 'proj-test'), 'workflow/integrate-proj-test-B-0001')
-    assert.throws(() => merger.integrationBranchName('evil; rm -rf /', 'proj-test'), /Invalid batchId/)
-    assert.throws(() => merger.integrationBranchName('B-0001', '../escape'), /Invalid projectId/)
-  })
-
   await t.test('advance auto-lifts planned to running and returns status_transition', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-auto-lift-'))
     const [extraEnv, home] = makeCliEnv(root)
@@ -1896,7 +1673,6 @@ test('workflow helper migration coverage', async (t) => {
   await t.test('help subcommand prints signature lines for advance and journal', () => {
     const advanceHelp = runNode(cliScript, ['help', 'advance'])
     assert.equal(advanceHelp.status, 0, advanceHelp.stderr)
-    assert.match(advanceHelp.stdout, /--batch-fail/)
     assert.match(advanceHelp.stdout, /--review-passed/)
     assert.match(advanceHelp.stdout, /--review-failed/)
 

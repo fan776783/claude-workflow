@@ -1,0 +1,10 @@
+{
+  "version": "6.4.0",
+  "previous": "6.3.4",
+  "recommendMigrate": false,
+  "notes": "Release 6.4.0 based on v6.3.4",
+  "breaking": [],
+  "migrations": [],
+  "protected_paths": [],
+  "changelog": "Generated from v6.3.4..HEAD"
+}

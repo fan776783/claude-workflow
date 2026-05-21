@@ -23,6 +23,7 @@ context_profile: "{{context_profile}}"
 
 ---
 
+<!-- WF:ANCHOR:file_structure:begin -->
 ## File Structure
 
 ### Files to Create
@@ -40,6 +41,7 @@ context_profile: "{{context_profile}}"
 ### Injected Context
 
 {{injected_context_summary}}
+<!-- WF:ANCHOR:file_structure:end -->
 
 ---
 
@@ -64,27 +66,23 @@ context_profile: "{{context_profile}}"
 >   - `HITL`：任务需要人工决策点（如设计选择、API 密钥 / 凭证输入、手动浏览器验证、外部操作确认）；`workflow-execute` Step 4 命中 HITL 任务时**必须**调用 `AskUserQuestion` 才能继续
 >   - 省略 = `AFK`（向后兼容：老 plan 行为不变）
 
+<!-- WF:ANCHOR:tasks:begin -->
 {{tasks}}
+<!-- WF:ANCHOR:tasks:end -->
 
 ---
 
-## Self-Review Checklist
+## Self-Review
 
-> Plan 生成后必须逐条检查。
-> 下列 checkbox 仅用于自审展示，不是任务解析格式；plan parser 仍以 `## Tn:` 的 WorkflowTaskV2 任务块为准。
-
-- [ ] **Requirement coverage** — 逐条 spec 需求，确认每条都有对应 task
-- [ ] **PRD 覆盖率** — 即时计算 PRD 段落覆盖率，检查 partial/uncovered 段落是否有对应 task
-- [ ] **Placeholder scan** — 搜索 TBD/TODO/模糊描述，全部替换为实际内容
-- [ ] **Type consistency** — 跨 task 的类型名、函数名、属性名是否一致
-- [ ] **Command accuracy** — 验证命令语法和文件路径是否正确（语义正确性在执行阶段验证）
-- [ ] **Gaps** — 如发现 spec 需求无 task 对应，立即补充 task
-- [ ] **Interaction 标注** — 每个 task 显式标注 `- **Interaction**: AFK` 或 `HITL`（默认 AFK）。HITL 场景示例：需要用户粘贴 API 密钥 / 设计选择需要人拍板 / 需要手动浏览器或外部系统验证。workflow-execute Step 4.1 会对 HITL 任务调 `AskUserQuestion`。
-- [ ] **Depth 段触发判定** — 若本 plan 对应的 spec § 5.1 Module Responsibilities 的 module 数 ≥ 3，确认 spec § 5.5 已填 Depth and Seams；否则 spec § 5.5 整段删除（避免套话）。
+> 由 `workflow_cli.js plan-review` 自动执行（lintPlaceholder / coverage / anchor_integrity / scoreConfidence 等）。
+> 详见 [`../../skills/workflow-plan/references/plan-self-review.md`](../../skills/workflow-plan/references/plan-self-review.md)。
+> HITL 标注与 Depth 段触发等语义判定仍由 plan 作者人工保证。
 
 ---
 
+<!-- WF:ANCHOR:verification_summary:begin -->
 ## Verification Summary
 
 | Task | Requirement IDs | Spec Ref | Files | Verification Command | Expected |
 |------|-----------------|----------|-------|---------------------|----------|
+<!-- WF:ANCHOR:verification_summary:end -->

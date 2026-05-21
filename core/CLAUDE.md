@@ -19,8 +19,9 @@
 
 ## 并行与 Team
 
-- 执行阶段遇到**同阶段 2+ 独立任务 / 独立问题域**，走 `/dispatching-parallel-agents` skill；单任务 subagent 或单 reviewer 不属于该 skill。
-- `/team` 的准入条件、preflight、权限继承和 cleanup 协议由 `core/commands/team.md` 定义。不要因为检测到"多任务 / broad request / `/workflow-execute` / `/quick-plan`"就自动切 team——并行分派继续走 `dispatching-parallel-agents`，独立分析继续走 subagent。
+- 写代码动作（task 实现）一律顺序执行；`workflow-execute` 默认每 task 起 fresh implementer subagent + 串行两段 review（spec → code-quality）。详见 `core/skills/workflow-execute/references/subagent-driven.md`。
+- 只读 fan-out（独立 bug 调研 / 多失败测试 / multi-package 分析）走 `/dispatching-parallel-agents`，禁止用于并行写代码。
+- `/team` 的准入条件、preflight、权限继承和 cleanup 协议由 `core/commands/team.md` 定义。不要因为检测到"多任务 / broad request / `/workflow-execute` / `/quick-plan`"就自动切 team。
 
 ## Code Specs 切换 package/layer
 

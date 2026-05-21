@@ -12,6 +12,7 @@
 - `/workflow-execute --phase`：显式进入执行器，使用 `phase` 模式。
 - `/workflow-execute --retry`：进入 retry workflow。
 - `/workflow-execute --skip`：进入 skip workflow。
+- `/workflow-execute --tdd`：显式开启 TDD 路径；未传时默认不启用 TDD。
 
 ### 2. 命令内自然语言意图
 
@@ -46,9 +47,10 @@
 
 1. 读取并校验 `workflow-state.json`
 2. 解析 execution mode / retry / skip
+   - 同步解析 `--tdd`，返回 `tdd_enabled` 给 controller；该开关不改变 execution mode
 3. 读取 `continuation.last_decision`
 4. 调用 `ContextGovernor`
-5. 决定 `continue-direct` / `continue-parallel-boundaries` / `pause-*` / `handoff-required`
+5. 决定 `continue-direct` / `pause-*` / `handoff-required`
 
 **模式优先级**：`explicit_mode` > `intent` > `execution_mode` > `continuous`
 
@@ -57,5 +59,6 @@
 - “继续”不是无条件继续跑下一个 task，而是“尝试恢复执行器”。
 - 真正是否继续，始终以 `ContextGovernor`、验证证据、质量关卡和阻塞状态为准。
 - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证治理。
-- `continue-parallel-boundaries` 只表示 workflow 内部的并行执行建议；即使识别到 2+ 独立任务，也不得自动切入 `/team`。
+- TDD 只由显式 `--tdd` 开启；默认执行路径不得因 task phase/actions 自动引用 `/tdd`。
+- 即使识别到 2+ 独立任务也不得自动切入 `/team`；workflow-execute 默认每 task 起 fresh implementer subagent + 串行两段 review（spec → quality）。
 - `SessionStart` / `PreToolUse(Task)` hooks 只能注入上下文或阻断非法继续，不能替代 shared execute resolver 决定恢复路径。

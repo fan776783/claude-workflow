@@ -1,0 +1,1022 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+
+const repoRoot = path.resolve(__dirname, '..')
+const workflowDir = path.join(repoRoot, 'core', 'utils', 'workflow')
+const {
+  lintPlaceholder,
+  checkRequirementCoverage,
+  derivePlanSummary,
+  scoreConfidence,
+  cmdPlanReview,
+  cmdPlanEdit,
+  lintAnchorIntegrity,
+  detectPlanVersion,
+  buildPlanTasks,
+  renderTemplate,
+  lintMandatoryReading,
+  lintCommandSyntax,
+  lintPatternFidelity,
+  lintTypeConsistency,
+} = require(path.join(workflowDir, 'plan_composer.js'))
+const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.js'))
+const { getWorkflowStatePath } = require(path.join(workflowDir, 'path_utils.js'))
+
+// ---------- lintPlaceholder ----------
+
+test('lintPlaceholder happy path returns empty hits for clean plan', () => {
+  const result = lintPlaceholder('## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n')
+  assert.deepEqual(result, { hits: [] })
+})
+
+test('lintPlaceholder catches English + Chinese + Similar to Task N + template residue', () => {
+  const sample = [
+    '# Plan',
+    '## T1: TODO finish later',
+    '- 待补充 内容',
+    '- 引用 Similar to Task 3 的实现',
+    '- 模板字段 {{unrendered}} 未替换',
+  ].join('\n')
+  const result = lintPlaceholder(sample)
+  const tokens = result.hits.map((h) => h.token).sort()
+  assert.ok(tokens.includes('TODO'), 'should catch TODO')
+  assert.ok(tokens.includes('待补充'), 'should catch 待补充')
+  assert.ok(tokens.includes('unrendered_template'), 'should catch {{unrendered}}')
+  assert.ok(tokens.some((t) => /Similar to Task/i.test(t)), 'should catch Similar to Task N')
+})
+
+test('lintPlaceholder handles empty / non-string input safely', () => {
+  assert.deepEqual(lintPlaceholder(''), { hits: [] })
+  assert.deepEqual(lintPlaceholder(null), { hits: [] })
+  assert.deepEqual(lintPlaceholder(undefined), { hits: [] })
+})
+
+// F-01 regression: instructional lines must not be flagged as placeholder hits.
+test('lintPlaceholder skips instructional lines containing TBD/TODO keywords (F-01 regression)', () => {
+  const instructional = [
+    '- [ ] **Placeholder scan** — 搜索 TBD/TODO/模糊描述，全部替换为实际内容',
+    '禁止 TBD/TODO 出现在 plan',
+    '> No placeholders allowed: TBD, TODO',
+  ].join('\n')
+  const result = lintPlaceholder(instructional)
+  // All three lines are instructional; none should produce hits despite containing TBD/TODO.
+  assert.deepEqual(result.hits, [], `expected zero hits on instructional text, got ${JSON.stringify(result.hits)}`)
+})
+
+// F-15 regression: case-insensitive matching for English placeholder tokens.
+test('lintPlaceholder catches lowercase tbd / todo (F-15 regression)', () => {
+  const lower = lintPlaceholder('- todo: finish this\n- tbd: pick algorithm\n')
+  const tokens = lower.hits.map((h) => h.token)
+  assert.ok(tokens.includes('TODO'), `lowercase todo should be caught, got ${JSON.stringify(lower.hits)}`)
+  assert.ok(tokens.includes('TBD'), `lowercase tbd should be caught, got ${JSON.stringify(lower.hits)}`)
+})
+
+test('lintPlaceholder still catches real TBD/TODO in non-instructional context', () => {
+  const real = '## T1: implement\n- TODO finish this\n- TBD: pick algorithm\n'
+  const result = lintPlaceholder(real)
+  const tokens = result.hits.map((h) => h.token).sort()
+  assert.ok(tokens.includes('TODO'), 'should catch real TODO')
+  assert.ok(tokens.includes('TBD'), 'should catch real TBD')
+})
+
+// F-06 regression: hint must not be a broad single word that swallows real placeholder lines.
+test('lintPlaceholder catches real TODO even when line contains "placeholder" word (F-06 regression)', () => {
+  const result = lintPlaceholder('- TODO placeholder implementation')
+  const tokens = result.hits.map((h) => h.token)
+  assert.ok(tokens.includes('TODO'), `real TODO should be caught even when line mentions "placeholder", got ${JSON.stringify(result.hits)}`)
+})
+
+test('lintPlaceholder catches real 待补充 even when line contains "占位符" word (F-06 regression)', () => {
+  const result = lintPlaceholder('- 占位符 待补充')
+  const tokens = result.hits.map((h) => h.token)
+  assert.ok(tokens.includes('待补充'), `real 待补充 should be caught even when line mentions 占位符, got ${JSON.stringify(result.hits)}`)
+})
+
+test('lintPlaceholder on real plan-template.md produces no TBD/TODO hits (F-01 regression)', () => {
+  const tmplPath = path.join(repoRoot, 'core', 'specs', 'workflow-templates', 'plan-template.md')
+  const tmpl = fs.readFileSync(tmplPath, 'utf8')
+  const result = lintPlaceholder(tmpl)
+  const blockingHits = result.hits.filter((h) => h.token === 'TBD' || h.token === 'TODO')
+  assert.deepEqual(blockingHits, [], `template's Self-Review Checklist must not trigger placeholder hits, got ${JSON.stringify(blockingHits)}`)
+})
+
+// ---------- checkRequirementCoverage ----------
+
+test('checkRequirementCoverage covered/uncovered split', () => {
+  const spec = '- R-001 first\n- R-002 second\n- R-003 third (not in plan)\n'
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n## T2: bar\n- **需求 ID**: R-002\n'
+  const result = checkRequirementCoverage(plan, spec)
+  assert.deepEqual(result.uncovered_ids, ['R-003'])
+  assert.deepEqual(result.covered_ids.sort(), ['R-001', 'R-002'])
+  assert.deepEqual(result.partial_ids, [])
+})
+
+test('checkRequirementCoverage detects partial coverage (spec >=2 mentions, plan 1 task)', () => {
+  const spec = '## §2: R-001 first\n## §5: R-001 again referenced\n'
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
+  const result = checkRequirementCoverage(plan, spec)
+  assert.deepEqual(result.partial_ids, ['R-001'])
+  assert.deepEqual(result.covered_ids, ['R-001'])
+  assert.deepEqual(result.uncovered_ids, [])
+})
+
+test('checkRequirementCoverage returns spec_missing note when spec empty', () => {
+  const result = checkRequirementCoverage('## T1: foo\n- **需求 ID**: R-001\n', '')
+  assert.equal(result.note, 'spec_missing')
+  assert.deepEqual(result.uncovered_ids, [])
+})
+
+// F-07 regression: only §2.1 In Scope R-IDs count; Out of Scope / Blocked / Constraints don't.
+test('checkRequirementCoverage ignores R-IDs outside §2.1 In Scope section (F-07 regression)', () => {
+  const spec = [
+    '## 2. Scope',
+    '',
+    '### 2.1 In Scope',
+    '- R-001: must do this',
+    '',
+    '### 2.2 Out of Scope',
+    '- R-099: explicitly deferred',
+    '',
+    '### 2.3 Blocked',
+    '- R-077: waiting on upstream',
+    '',
+    '## 3. Constraints',
+    '- R-001 should respect transactions (referenced for context, not new req)',
+  ].join('\n')
+  const plan = '## T1: covers in-scope\n- **需求 ID**: R-001\n'
+  const result = checkRequirementCoverage(plan, spec)
+  assert.deepEqual(result.uncovered_ids, [], 'out-of-scope / blocked / constraints R-IDs must not be uncovered')
+  assert.deepEqual(result.covered_ids, ['R-001'])
+})
+
+test('checkRequirementCoverage falls back to whole-doc scan when no §2.1 In Scope heading (back-compat)', () => {
+  const spec = '## Some legacy spec\n- R-001 first\n- R-002 second'
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
+  const result = checkRequirementCoverage(plan, spec)
+  assert.deepEqual(result.uncovered_ids, ['R-002'], 'legacy specs without §2.1 should still trigger coverage')
+})
+
+// F-08 regression: backtick-wrapped requirement IDs in plan must be normalized.
+test('extractTaskRequirementRefs strips backticks (F-08 regression)', () => {
+  const spec = '### 2.1 In Scope\n- R-001 alpha\n- R-002 beta\n'
+  const plan = '## T1: foo\n- **需求 ID**: `R-001`, `R-002`\n'
+  const result = checkRequirementCoverage(plan, spec)
+  assert.deepEqual(result.uncovered_ids, [], 'backtick-wrapped IDs should be recognized')
+  assert.deepEqual(result.covered_ids.sort(), ['R-001', 'R-002'])
+})
+
+// ---------- derivePlanSummary ----------
+
+test('derivePlanSummary extracts paths + task table + interaction legend', () => {
+  const plan = [
+    '## T1: foo',
+    '- **阶段**: implement',
+    '- **需求 ID**: R-001',
+    '- **创建文件**: src/foo.ts',
+    '- **依赖**: 无',
+    '- **Interaction**: HITL',
+    '## T2: bar',
+    '- **阶段**: test',
+    '- **需求 ID**: R-002',
+  ].join('\n')
+  const summary = derivePlanSummary(plan, { spec_file: '/x/spec.md', plan_file: '/x/plan.md' })
+  assert.equal(summary.paths.spec, '/x/spec.md')
+  assert.equal(summary.paths.plan, '/x/plan.md')
+  assert.equal(summary.task_count, 2)
+  assert.equal(summary.task_table[0].id, 'T1')
+  assert.equal(summary.task_table[0].phase, 'implement')
+  assert.equal(summary.task_table[0].interaction, 'HITL')
+  assert.equal(summary.task_table[1].interaction, 'AFK')
+  assert.ok(summary.interaction_legend.includes('AFK'))
+})
+
+// ---------- scoreConfidence ----------
+
+test('scoreConfidence full marks rubric', () => {
+  const plan = [
+    '## T1: implement',
+    '- **阶段**: implement',
+    '- **需求 ID**: R-001',
+    '- **验证命令**: npm test -- a',
+    '- **验证期望**: PASS',
+    '## T2: test',
+    '- **阶段**: test',
+    '- **需求 ID**: R-002',
+    '- **验证命令**: npm test -- b',
+    '- **验证期望**: PASS',
+    '### Pattern A',
+    '// SOURCE: src/x.ts:1-10',
+    '### Pattern B',
+    '// SOURCE: src/y.ts:1-10',
+    '### Pattern C',
+    '// SOURCE: src/z.ts:1-10',
+  ].join('\n')
+  const result = scoreConfidence(plan, {
+    coverage: { covered_ids: ['R-001', 'R-002'], uncovered_ids: [], partial_ids: [] },
+  })
+  assert.equal(result.breakdown.prd_coverage, 3)
+  assert.equal(result.breakdown.patterns, 2)
+  assert.equal(result.breakdown.verification, 3)
+  assert.equal(result.breakdown.test_task, 2)
+  assert.equal(result.score, 10)
+  assert.equal(result.level, 'high')
+})
+
+test('scoreConfidence partial coverage drops PRD by 1', () => {
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
+  const result = scoreConfidence(plan, {
+    coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: ['R-001'] },
+  })
+  assert.equal(result.breakdown.prd_coverage, 2, 'partial → +2 not +3')
+})
+
+test('scoreConfidence verification needs both 命令 and 期望', () => {
+  const plan = [
+    '## T1: foo',
+    '- **需求 ID**: R-001',
+    '- **验证命令**: npm test',
+    // no 验证期望
+  ].join('\n')
+  const result = scoreConfidence(plan, {
+    coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
+  })
+  assert.equal(result.breakdown.verification, 0, '只有命令没有期望 → 不给分')
+})
+
+test('scoreConfidence level boundaries', () => {
+  const empty = scoreConfidence('', {})
+  assert.equal(empty.score, 0)
+  assert.equal(empty.level, 'low')
+})
+
+// F-10 regression: confidence dimensions capped by command_syntax / pattern_fidelity lint failures.
+test('scoreConfidence verification capped at 0 when commandSyntax has issues (F-10 regression)', () => {
+  const plan = [
+    '## T1: implement',
+    '- **阶段**: implement',
+    '- **需求 ID**: R-001',
+    '- **验证命令**: npm test ((unmatched',
+    '- **验证期望**: PASS',
+  ].join('\n')
+  const result = scoreConfidence(plan, {
+    coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
+    commandSyntax: { issues: [{ task: 'T1', kinds: ['bracket_mismatch'] }] },
+  })
+  assert.equal(result.breakdown.verification, 0, 'broken command should cap verification dim')
+})
+
+test('scoreConfidence patterns capped at 0 when patternFidelity has unresolved (F-10 regression)', () => {
+  const plan = [
+    '## T1: foo',
+    '- **需求 ID**: R-001',
+    '### Pattern A',
+    '// SOURCE: src/x.ts:1-10',
+    '### Pattern B',
+    '// SOURCE: src/y.ts:1-10',
+    '### Pattern C',
+    '// SOURCE: src/z.ts:1-10',
+  ].join('\n')
+  const result = scoreConfidence(plan, {
+    coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
+    patternFidelity: { unresolved: [{ file: 'src/x.ts', reason: 'file_not_found' }] },
+  })
+  assert.equal(result.breakdown.patterns, 0, 'unresolved patterns should cap patterns dim')
+})
+
+// ---------- cmdPlanReview integration ----------
+
+function setupSandboxState({ planContent, specContent, currentTasks }) {
+  const projectId = `cli${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36)}`
+  const statePath = getWorkflowStatePath(projectId)
+  fs.mkdirSync(path.dirname(statePath), { recursive: true })
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-review-'))
+  const planPath = path.join(tmpDir, 'plan.md')
+  const specPath = path.join(tmpDir, 'spec.md')
+  fs.writeFileSync(planPath, planContent)
+  fs.writeFileSync(specPath, specContent)
+  const state = ensureStateDefaults({
+    project_id: projectId,
+    status: 'planned',
+    plan_file: planPath,
+    spec_file: specPath,
+    ...(currentTasks ? { current_tasks: currentTasks } : {}),
+  })
+  fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+  return { projectId, statePath, tmpDir, planPath, specPath }
+}
+
+test('cmdPlanReview ready=true for clean plan covering all requirements', () => {
+  const plan = [
+    '## T1: foo',
+    '- **阶段**: implement',
+    '- **需求 ID**: R-001',
+    '- **验证命令**: npm test',
+    '- **验证期望**: PASS',
+  ].join('\n')
+  const spec = 'R-001 the only requirement'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, true, `expected ready=true, got ${JSON.stringify(result)}`)
+    assert.deepEqual(result.coverage.uncovered_ids, [])
+    assert.equal(result.lints.placeholder.hits.length, 0)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview ready=false when placeholder hit', () => {
+  const plan = '## T1: TODO finish\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
+  const spec = 'R-001'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, false)
+    assert.ok(result.lints.placeholder.hits.length > 0)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview ready=false when requirement uncovered', () => {
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
+  const spec = 'R-001 R-999 second untouched requirement'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, false)
+    assert.deepEqual(result.coverage.uncovered_ids, ['R-999'])
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview returns error when no active workflow', () => {
+  const result = cmdPlanReview('nonexistent-project-id-xyz', repoRoot)
+  assert.ok(result.error, 'should return error for missing workflow')
+})
+
+// F-13 regression: missing/unreadable spec must block ready (cannot verify traceability).
+test('cmdPlanReview blocks ready when spec_file is missing on disk (F-13 regression)', () => {
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
+  const { projectId, statePath, tmpDir, specPath } = setupSandboxState({ planContent: plan, specContent: 'R-001' })
+  fs.rmSync(specPath, { force: true })  // simulate deleted spec
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, false, `missing spec must block ready, got ${JSON.stringify({ ready: result.ready, spec_status: result.spec_status })}`)
+    assert.equal(result.spec_status, 'spec_file_missing')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// ---------- Phase B: lintAnchorIntegrity ----------
+
+const V2_PLAN_FIXTURE = `---
+version: 2
+---
+<!-- WF:ANCHOR:file_structure:begin -->
+files
+<!-- WF:ANCHOR:file_structure:end -->
+<!-- WF:ANCHOR:tasks:begin -->
+<!-- WF:ANCHOR:task:T1:begin -->
+## T1: foo
+- **需求 ID**: R-001
+- **验证命令**: npm test
+- **验证期望**: PASS
+<!-- WF:ANCHOR:task:T1:end -->
+<!-- WF:ANCHOR:tasks:end -->
+<!-- WF:ANCHOR:verification_summary:begin -->
+table
+<!-- WF:ANCHOR:verification_summary:end -->
+`
+
+test('lintAnchorIntegrity intact v2 plan returns no orphans/missing', () => {
+  const result = lintAnchorIntegrity(V2_PLAN_FIXTURE)
+  assert.deepEqual(result.orphans, [])
+  assert.deepEqual(result.missing, [])
+  assert.ok(result.observed_ids.includes('task:T1'))
+})
+
+test('lintAnchorIntegrity catches orphan when end anchor missing', () => {
+  const broken = V2_PLAN_FIXTURE.replace('<!-- WF:ANCHOR:tasks:end -->', '')
+  const result = lintAnchorIntegrity(broken)
+  assert.equal(result.orphans.length, 1)
+  assert.equal(result.orphans[0].id, 'tasks')
+})
+
+test('lintAnchorIntegrity reports missing top-level anchors on v1 plan', () => {
+  const v1 = '## T1: legacy\n- **需求 ID**: R-001\n'
+  const result = lintAnchorIntegrity(v1)
+  // top-level + task:T1 all missing (caller decides whether to enforce based on plan_version)
+  assert.ok(result.missing.includes('file_structure'))
+  assert.ok(result.missing.includes('tasks'))
+  assert.ok(result.missing.includes('verification_summary'))
+})
+
+// F-12 regression: observed task:* anchor without matching `## Tn:` heading = stale.
+test('lintAnchorIntegrity flags stale task anchors without matching heading (F-12 regression)', () => {
+  const planWithStaleAnchor = [
+    '---',
+    'version: 2',
+    '---',
+    '<!-- WF:ANCHOR:file_structure:begin -->',
+    '<!-- WF:ANCHOR:file_structure:end -->',
+    '<!-- WF:ANCHOR:tasks:begin -->',
+    '<!-- WF:ANCHOR:task:T1:begin -->',
+    '## T2: renamed but anchor left as T1',  // mismatch on purpose
+    '<!-- WF:ANCHOR:task:T1:end -->',
+    '<!-- WF:ANCHOR:tasks:end -->',
+    '<!-- WF:ANCHOR:verification_summary:begin -->',
+    '<!-- WF:ANCHOR:verification_summary:end -->',
+  ].join('\n')
+  const result = lintAnchorIntegrity(planWithStaleAnchor)
+  assert.ok(result.stale.includes('task:T1'), `stale task:T1 should be flagged, got ${JSON.stringify(result)}`)
+  assert.ok(result.missing.includes('task:T2'), `missing task:T2 should be flagged, got ${JSON.stringify(result)}`)
+})
+
+// `### Tn:` headings count as tasks (consistent with other lints that accept both ## and ###).
+test('lintAnchorIntegrity treats ### Tn: heading as a task (heading-style consistency)', () => {
+  const planWithSubHeading = [
+    '---',
+    'version: 2',
+    '---',
+    '<!-- WF:ANCHOR:file_structure:begin -->',
+    '<!-- WF:ANCHOR:file_structure:end -->',
+    '<!-- WF:ANCHOR:tasks:begin -->',
+    '<!-- WF:ANCHOR:task:T1:begin -->',
+    '### T1: triple-hash heading',
+    '<!-- WF:ANCHOR:task:T1:end -->',
+    '<!-- WF:ANCHOR:tasks:end -->',
+    '<!-- WF:ANCHOR:verification_summary:begin -->',
+    '<!-- WF:ANCHOR:verification_summary:end -->',
+  ].join('\n')
+  const result = lintAnchorIntegrity(planWithSubHeading)
+  assert.deepEqual(result.missing, [], `### T1: should be recognized, got missing=${JSON.stringify(result.missing)}`)
+  assert.deepEqual(result.stale, [], `task:T1 should not be stale, got stale=${JSON.stringify(result.stale)}`)
+})
+
+// F-11 regression: every `## Tn:` heading must have a task:Tn anchor pair in v2 plans.
+test('lintAnchorIntegrity flags missing task:Tn anchors (F-11 regression)', () => {
+  const v2NoTaskAnchors = [
+    '---',
+    'version: 2',
+    '---',
+    '<!-- WF:ANCHOR:file_structure:begin -->',
+    '<!-- WF:ANCHOR:file_structure:end -->',
+    '<!-- WF:ANCHOR:tasks:begin -->',
+    '## T1: foo',
+    '## T2: bar',
+    '<!-- WF:ANCHOR:tasks:end -->',
+    '<!-- WF:ANCHOR:verification_summary:begin -->',
+    '<!-- WF:ANCHOR:verification_summary:end -->',
+  ].join('\n')
+  const result = lintAnchorIntegrity(v2NoTaskAnchors)
+  assert.ok(result.missing.includes('task:T1'), `expected task:T1 in missing, got ${JSON.stringify(result.missing)}`)
+  assert.ok(result.missing.includes('task:T2'), `expected task:T2 in missing, got ${JSON.stringify(result.missing)}`)
+})
+
+// ---------- Phase B: detectPlanVersion ----------
+
+test('detectPlanVersion returns 2 from v2 front matter', () => {
+  assert.equal(detectPlanVersion(V2_PLAN_FIXTURE), 2)
+})
+
+test('detectPlanVersion returns null when no front matter', () => {
+  assert.equal(detectPlanVersion('## T1: legacy\n'), null)
+})
+
+// ---------- Phase B: cmdPlanEdit ----------
+
+test('cmdPlanEdit v2 plan replace_between succeeds + anchors intact', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'new-tasks.md')
+  fs.writeFileSync(contentFile, '<!-- WF:ANCHOR:task:T1:begin -->\n## T1: replaced\n- **需求 ID**: R-001\n<!-- WF:ANCHOR:task:T1:end -->')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_between',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true, `expected written, got ${JSON.stringify(result)}`)
+    assert.equal(result.anchors_intact, true)
+    const updated = fs.readFileSync(planPath, 'utf8')
+    assert.ok(updated.includes('## T1: replaced'))
+    assert.ok(updated.includes('WF:ANCHOR:tasks:begin'), 'top anchor still present')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit v1 plan default rejects with legacy_plan_no_anchors', () => {
+  const v1Plan = '## T1: legacy\n- **需求 ID**: R-001\n'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: v1Plan, specContent: 'R-001' })
+  const contentFile = path.join(tmpDir, 'x.md')
+  fs.writeFileSync(contentFile, 'new content')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.error, 'legacy_plan_no_anchors', `expected legacy error, got ${JSON.stringify(result)}`)
+    assert.ok(result.suggestion)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit v1 plan with --allow-legacy overwrites whole file', () => {
+  const v1Plan = '## T1: legacy\n- **需求 ID**: R-001\n'
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({ planContent: v1Plan, specContent: 'R-001' })
+  const contentFile = path.join(tmpDir, 'x.md')
+  fs.writeFileSync(contentFile, '# Brand New Plan')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      contentFile,
+      allowLegacy: true,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true)
+    assert.equal(result.legacy_overwrite, true)
+    assert.equal(fs.readFileSync(planPath, 'utf8'), '# Brand New Plan')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// F-02 regression: replace_full + --allow-anchor-change must reject content
+// that drops required top-level anchors (missing != orphans).
+// F-05 regression: replacement content with `$&` / `$1` / `$$` metachars must be inserted verbatim.
+test('cmdPlanEdit preserves $-sequence metachars verbatim in replace_between (F-05 regression)', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'dollar-content.md')
+  // newContent contains shell/regex metachars common in plan code blocks: $1 $& $$ $'foo'
+  const literalContent = "regex sub: s/(\\d+)/$1/g  shell: echo $$ pid; awk '{print $&}'"
+  fs.writeFileSync(contentFile, literalContent)
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_between',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true, `expected write, got ${JSON.stringify(result)}`)
+    const updated = fs.readFileSync(planPath, 'utf8')
+    assert.ok(updated.includes(literalContent), `dollar sequences must be preserved verbatim. got: ${updated}`)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit preserves $-sequence metachars verbatim in replace_full (F-05 regression)', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'dollar-full.md')
+  const literalContent = [
+    '<!-- WF:ANCHOR:tasks:begin -->',
+    '<!-- WF:ANCHOR:task:T1:begin -->',
+    '## T1: shell snippet',
+    '- **需求 ID**: R-001',
+    "- code: echo $$ pid; sed 's/foo/$&/' | awk '{print $1}'",
+    '<!-- WF:ANCHOR:task:T1:end -->',
+    '<!-- WF:ANCHOR:tasks:end -->',
+  ].join('\n')
+  fs.writeFileSync(contentFile, literalContent)
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_full',
+      contentFile,
+      allowAnchorChange: true,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true, `expected write, got ${JSON.stringify(result)}`)
+    const updated = fs.readFileSync(planPath, 'utf8')
+    assert.ok(updated.includes("echo $$ pid"), 'shell $$ must be preserved')
+    assert.ok(updated.includes("sed 's/foo/$&/'"), '$& must be preserved')
+    assert.ok(updated.includes("awk '{print $1}'"), '$1 must be preserved')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit replace_full --allow-anchor-change rejects content omitting required anchor (F-02 regression)', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'no-tasks-anchor.md')
+  // Replacement content has NO anchor at all → after replace_full, top-level `tasks` anchor pair vanishes.
+  fs.writeFileSync(contentFile, '## T1: orphaned content\n- **需求 ID**: R-001\n')
+  const planBefore = fs.readFileSync(planPath, 'utf8')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_full',
+      contentFile,
+      allowAnchorChange: true,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.error, 'anchor_integrity_broken_after_edit', `expected guard to fire, got ${JSON.stringify(result)}`)
+    assert.ok(Array.isArray(result.missing) && result.missing.includes('tasks'), `missing should include tasks anchor, got ${JSON.stringify(result.missing)}`)
+    // Plan must not be mutated when guard fires.
+    assert.equal(fs.readFileSync(planPath, 'utf8'), planBefore, 'plan should be unchanged when integrity guard rejects')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit replace_full --allow-anchor-change accepts content that keeps required anchors', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'keeps-anchor.md')
+  // Provide the full replacement including the begin/end anchor pair around new content.
+  fs.writeFileSync(contentFile, [
+    '<!-- WF:ANCHOR:tasks:begin -->',
+    '<!-- WF:ANCHOR:task:T1:begin -->',
+    '## T1: rebuilt',
+    '- **需求 ID**: R-001',
+    '<!-- WF:ANCHOR:task:T1:end -->',
+    '<!-- WF:ANCHOR:tasks:end -->',
+  ].join('\n'))
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_full',
+      contentFile,
+      allowAnchorChange: true,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true, `expected write, got ${JSON.stringify(result)}`)
+    const updated = fs.readFileSync(planPath, 'utf8')
+    assert.ok(updated.includes('## T1: rebuilt'))
+    assert.ok(updated.includes('WF:ANCHOR:tasks:begin'))
+    assert.ok(updated.includes('WF:ANCHOR:tasks:end'))
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// F-09 regression: CRLF line endings must work; pattern-mismatch must error, not silent no-op.
+test('cmdPlanEdit handles CRLF line endings without silent no-op (F-09 regression)', () => {
+  const crlfPlan = V2_PLAN_FIXTURE.replace(/\n/g, '\r\n')
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: crlfPlan,
+    specContent: '### 2.1 In Scope\n- R-001\n',
+  })
+  const contentFile = path.join(tmpDir, 'new.md')
+  // New content must include task:T1 anchor pair to satisfy F-11 (every ## Tn: needs anchor).
+  fs.writeFileSync(contentFile, [
+    '<!-- WF:ANCHOR:task:T1:begin -->',
+    '## T1: edited via CRLF plan',
+    '- **需求 ID**: R-001',
+    '<!-- WF:ANCHOR:task:T1:end -->',
+  ].join('\n'))
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_between',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.written, true, `CRLF plan should still be editable, got ${JSON.stringify(result)}`)
+    const updated = fs.readFileSync(planPath, 'utf8')
+    assert.ok(updated.includes('edited via CRLF plan'), 'edit must actually apply')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// F-14 regression: plan-edit must reject edits that orphan state.current_tasks.
+test('cmdPlanEdit rejects edit that orphans state.current_tasks (F-14 regression)', () => {
+  const { projectId, statePath, tmpDir, planPath } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: '### 2.1 In Scope\n- R-001\n',
+    currentTasks: ['T1'],
+  })
+  const contentFile = path.join(tmpDir, 'rename.md')
+  // Replacement renames T1 → T99, leaving state.current_tasks=['T1'] orphan.
+  fs.writeFileSync(contentFile, [
+    '<!-- WF:ANCHOR:task:T99:begin -->',
+    '## T99: renamed',
+    '- **需求 ID**: R-001',
+    '<!-- WF:ANCHOR:task:T99:end -->',
+  ].join('\n'))
+  const planBefore = fs.readFileSync(planPath, 'utf8')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'tasks',
+      mode: 'replace_between',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.equal(result.error, 'current_tasks_orphaned_by_edit', `expected guard, got ${JSON.stringify(result)}`)
+    assert.deepEqual(result.orphaned_task_ids, ['T1'])
+    assert.equal(fs.readFileSync(planPath, 'utf8'), planBefore, 'plan must not be mutated')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanEdit rejects when anchor not found in v2 plan', () => {
+  const { projectId, statePath, tmpDir } = setupSandboxState({
+    planContent: V2_PLAN_FIXTURE,
+    specContent: 'R-001',
+  })
+  const contentFile = path.join(tmpDir, 'x.md')
+  fs.writeFileSync(contentFile, 'new')
+  try {
+    const result = cmdPlanEdit({
+      anchor: 'nonexistent_anchor',
+      contentFile,
+      projectId,
+      projectRoot: repoRoot,
+    })
+    assert.match(result.error, /锚点未找到/)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// ---------- Phase B: cmdPlanReview anchor integration ----------
+
+test('cmdPlanReview v2 plan with broken anchor → ready=false', () => {
+  const broken = V2_PLAN_FIXTURE.replace('<!-- WF:ANCHOR:tasks:end -->', '')
+  const { projectId, statePath, tmpDir } = setupSandboxState({
+    planContent: broken,
+    specContent: 'R-001',
+  })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, false)
+    assert.ok(result.lints.anchor_integrity.orphans.length > 0)
+    assert.equal(result.lints.anchor_integrity.plan_version, 2)
+    assert.equal(result.lints.anchor_integrity.enforced, true)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview v1 plan with no anchors → ready=true (anchor not enforced)', () => {
+  const v1 = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
+  const { projectId, statePath, tmpDir } = setupSandboxState({
+    planContent: v1,
+    specContent: 'R-001',
+  })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, true, `expected ready=true for v1, got ${JSON.stringify(result)}`)
+    assert.equal(result.lints.anchor_integrity.enforced, false)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// ---------- Phase B: Anchor rendering pipeline survival ----------
+
+// ---------- Phase C: lintMandatoryReading ----------
+
+test('lintMandatoryReading no section → declared=false, no block', () => {
+  const result = lintMandatoryReading('## T1: foo\n')
+  assert.equal(result.declared, false)
+  assert.deepEqual(result.violations, [])
+})
+
+test('lintMandatoryReading well-formed table → declared=true, no violations', () => {
+  const plan = [
+    '## Mandatory Reading',
+    '',
+    '| Priority | File | Lines | Why |',
+    '|----------|------|-------|-----|',
+    '| P0 | src/a.ts | 1-50 | core logic |',
+    '| P1 | src/b.ts | 100 | helper |',
+    '',
+    '## T1: foo',
+  ].join('\n')
+  const result = lintMandatoryReading(plan)
+  assert.equal(result.declared, true)
+  assert.deepEqual(result.violations, [])
+})
+
+test('lintMandatoryReading malformed lines field → violation', () => {
+  const plan = [
+    '## Mandatory Reading',
+    '',
+    '| Priority | File | Lines | Why |',
+    '|----------|------|-------|-----|',
+    '| P0 | src/a.ts | entire file | core |',
+    '',
+  ].join('\n')
+  const result = lintMandatoryReading(plan)
+  assert.equal(result.declared, true)
+  assert.equal(result.violations.length, 1)
+})
+
+// Multi-digit priority rows (P10+) must be inspected, not silently skipped.
+test('lintMandatoryReading flags malformed P10 row (multi-digit priority)', () => {
+  const plan = [
+    '## Mandatory Reading',
+    '',
+    '| Priority | File | Lines | Why |',
+    '|----------|------|-------|-----|',
+    '| P10 | src/a.ts | entire file | core |',
+    '',
+  ].join('\n')
+  const result = lintMandatoryReading(plan)
+  assert.equal(result.declared, true)
+  assert.equal(result.violations.length, 1, `P10 row must be inspected, got ${JSON.stringify(result)}`)
+})
+
+// ---------- Phase C: lintCommandSyntax ----------
+
+test('lintCommandSyntax happy path → no issues', () => {
+  const plan = '## T1: foo\n- **验证命令**: npm test -- a.test.ts\n- **验证期望**: PASS\n'
+  const result = lintCommandSyntax(plan)
+  assert.deepEqual(result.issues, [])
+})
+
+test('lintCommandSyntax catches unclosed bracket', () => {
+  const plan = '## T1: foo\n- **验证命令**: npm test (foo\n'
+  const result = lintCommandSyntax(plan)
+  assert.equal(result.issues.length, 1)
+  assert.ok(result.issues[0].kinds.includes('bracket_mismatch'))
+})
+
+test('lintCommandSyntax catches trailing pipe and unclosed quote', () => {
+  const plan = '## T1: foo\n- **验证命令**: npm test "abc |\n'
+  const result = lintCommandSyntax(plan)
+  assert.equal(result.issues.length, 1)
+  assert.ok(result.issues[0].kinds.includes('trailing_pipe'))
+  assert.ok(result.issues[0].kinds.includes('double_quote_unclosed'))
+})
+
+// ---------- Phase C: lintPatternFidelity ----------
+
+test('lintPatternFidelity catches missing file', () => {
+  const plan = '### Pattern A\n// SOURCE: nonexistent/file.ts:1-10\n'
+  const result = lintPatternFidelity(plan, repoRoot)
+  assert.equal(result.unresolved.length, 1)
+  assert.equal(result.unresolved[0].reason, 'file_not_found')
+})
+
+test('lintPatternFidelity accepts existing file', () => {
+  const plan = '### Pattern A\n// SOURCE: core/utils/workflow/plan_composer.js:1-10\n'
+  const result = lintPatternFidelity(plan, repoRoot)
+  assert.equal(result.unresolved.length, 0)
+})
+
+test('lintPatternFidelity catches line out of range', () => {
+  const plan = '### Pattern A\n// SOURCE: package.json:9999-10000\n'
+  const result = lintPatternFidelity(plan, repoRoot)
+  assert.equal(result.unresolved.length, 1)
+  assert.equal(result.unresolved[0].reason, 'line_out_of_range')
+})
+
+// ---------- Phase C: lintTypeConsistency ----------
+
+test('lintTypeConsistency catches true positive clearLayers vs clearFullLayers', () => {
+  const plan = [
+    '## T1: a',
+    'function clearLayers() {}',
+    '## T2: b',
+    'function clearLayer() {}',  // distance 1 (drop s)
+  ].join('\n')
+  const result = lintTypeConsistency(plan)
+  assert.ok(result.pairs.length >= 1, `expected at least 1 pair, got ${JSON.stringify(result)}`)
+})
+
+test('lintTypeConsistency skips short symbols', () => {
+  const plan = [
+    '## T1: a',
+    'function foo() {}',
+    '## T2: b',
+    'function fop() {}',
+  ].join('\n')
+  const result = lintTypeConsistency(plan)
+  assert.deepEqual(result.pairs, [], 'short symbols (< 5 chars) should be filtered')
+})
+
+test('lintTypeConsistency skips case-insensitive equal', () => {
+  const plan = [
+    '## T1: a',
+    'class FooBar {}',
+    '## T2: b',
+    'class fooBar {}',
+  ].join('\n')
+  const result = lintTypeConsistency(plan)
+  assert.deepEqual(result.pairs, [], 'case-insensitive equal should be filtered')
+})
+
+test('lintTypeConsistency skips token-reorder camelCase', () => {
+  const plan = [
+    '## T1: a',
+    'function clearLayers() {}',
+    '## T2: b',
+    'function layersClear() {}',
+  ].join('\n')
+  const result = lintTypeConsistency(plan)
+  assert.deepEqual(result.pairs, [], 'token-reorder should be filtered')
+})
+
+test('lintTypeConsistency skips symbols ending with digit', () => {
+  const plan = [
+    '## T1: a',
+    'function tasksv1() {}',
+    '## T2: b',
+    'function tasksv2() {}',
+  ].join('\n')
+  const result = lintTypeConsistency(plan)
+  assert.deepEqual(result.pairs, [], 'digit-suffix should be filtered')
+})
+
+test('plan-template + buildPlanTasks render pipeline preserves anchors', () => {
+  const templatePath = path.join(repoRoot, 'core', 'specs', 'workflow-templates', 'plan-template.md')
+  const template = fs.readFileSync(templatePath, 'utf8')
+  // Verify template itself has anchors around {{tasks}} and other sections
+  assert.ok(template.includes('<!-- WF:ANCHOR:file_structure:begin -->'))
+  assert.ok(template.includes('<!-- WF:ANCHOR:tasks:begin -->'))
+  assert.ok(template.includes('<!-- WF:ANCHOR:verification_summary:begin -->'))
+
+  // Render with minimal stub
+  const tasksBody = buildPlanTasks([
+    { id: 'R-001', summary: 'foo', spec_section: '§2', acceptance_signal: 'works' },
+    { id: 'R-002', summary: 'bar', spec_section: '§3', acceptance_signal: 'ok' },
+  ], 'pkg', 'spec.md')
+  const stubValues = {
+    requirement_source: 'inline',
+    created_at: 'now',
+    spec_file: 'spec.md',
+    task_name: 't',
+    goal: 'g',
+    architecture_summary: 'a',
+    tech_stack: 'ts',
+    role_profile: 'planner',
+    context_profile: '{}',
+    injected_context_summary: '-',
+    files_create: '-',
+    files_modify: '-',
+    files_test: '-',
+    requirement_coverage: '|R-001|...|',
+    tasks: tasksBody,
+  }
+  const rendered = renderTemplate(template, stubValues)
+  // Top-level anchors survive
+  assert.ok(rendered.includes('<!-- WF:ANCHOR:file_structure:begin -->'))
+  assert.ok(rendered.includes('<!-- WF:ANCHOR:tasks:begin -->'))
+  // Task-level anchors injected
+  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T1:begin -->'))
+  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T1:end -->'))
+  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T2:begin -->'))
+  // Task anchors inside the tasks section
+  const tasksBeginIdx = rendered.indexOf('<!-- WF:ANCHOR:tasks:begin -->')
+  const tasksEndIdx = rendered.indexOf('<!-- WF:ANCHOR:tasks:end -->')
+  const t1Idx = rendered.indexOf('<!-- WF:ANCHOR:task:T1:begin -->')
+  assert.ok(t1Idx > tasksBeginIdx && t1Idx < tasksEndIdx, 'task anchor inside tasks section')
+  // No unrendered placeholders
+  assert.ok(!rendered.match(/\{\{tasks\}\}/), 'tasks placeholder rendered')
+  // Integrity check
+  const integrity = lintAnchorIntegrity(rendered)
+  assert.deepEqual(integrity.orphans, [], 'all anchors paired after render')
+  assert.deepEqual(integrity.missing, [], 'all top-level anchors present')
+})

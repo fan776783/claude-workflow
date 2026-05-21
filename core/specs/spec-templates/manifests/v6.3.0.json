@@ -1,0 +1,25 @@
+{
+  "version": "6.3.0",
+  "previous": "6.2.10",
+  "recommendMigrate": true,
+  "notes": "code-specs 冗余治理：root index.md 取消「更新记录」段（与 local.md Changelog 重复）；layer-index 的通用 Quality Check 改为指向 root index.md 的指针。",
+  "breaking": [
+    "root index.md 的 ## 更新记录 段被移除；变更记录单一来源为 local.md 的 Changelog 段（本 manifest 含 delete-section 自动迁移）",
+    "layer-index-template.md 与 5 个 stack-template index.md 的 ## Quality Check 段不再内联通用清单，改为指向 root index.md#quality-check；root index.md 新增 canonical ## Quality Check 段",
+    "存量项目的 {pkg}/{layer}/index.md 是 N 文件、用户可编辑、变量渲染面，delete-section 只接受单 file 不支持 glob，无安全的批量迁移操作 —— 不做 auto-migrate；请运行 /spec-review，新增的 boilerplate-dup 维度会检出 layer-index 样板重复，由用户手工收敛为指针"
+  ],
+  "migrations": [
+    {
+      "type": "delete-section",
+      "file": "index.md",
+      "section": "## 更新记录",
+      "reason": "与 local.md 的 Changelog 段重复意图，且 bootstrap 后一直是空壳；变更记录单一来源留 local.md"
+    }
+  ],
+  "protected_paths": [
+    ".claude/code-specs/{pkg}/{layer}/*.md",
+    ".claude/code-specs/{pkg}/local.md",
+    ".claude/code-specs/guides/**"
+  ],
+  "changelog": "Generated from v6.2.10..HEAD"
+}

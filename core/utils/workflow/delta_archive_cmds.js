@@ -19,7 +19,7 @@ const {
 } = require('./state_manager')
 const { detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
 const { parseTasksV2, taskToDict } = require('./task_parser')
-const { deriveEffectiveStatus, ensureStateDefaults } = require('./workflow_types')
+const { deriveEffectiveStatus, ensureStateDefaults, buildDeviationRecord } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
 const { slugifyFilename, summarizeText } = require('./project_setup')
 const { resolveWorkflowRuntime } = require('./runtime_locator')
@@ -262,13 +262,6 @@ function cmdDeltaSync(dependency, projectId = null, projectRoot = null) {
   }
 }
 
-// Legacy: 保留旧的单参数调用模式用于向后兼容
-function cmdDelta(source = '', projectId = null, projectRoot = null) {
-  const root = detectProjectRoot(projectRoot)
-  const trigger = detectDeltaTrigger(source, root)
-  return cmdDeltaInit(trigger.type, trigger.source, trigger.description, projectId, projectRoot)
-}
-
 const ARCHIVE_MARKER_FILE = 'ARCHIVING.marker'
 const ARCHIVE_MARKER_VERSION = 2
 const ARCHIVE_LEASE_MS = 5 * 60 * 1000
@@ -502,9 +495,49 @@ function cmdUnblock(dependency, projectId = null, projectRoot = null) {
   return { unblocked: true, project_id: resolvedProjectId, dependency: dep, workflow_status: normalizedState.status, known_unblocked: normalizedState.unblocked || [], newly_unblocked_tasks: newlyUnblocked }
 }
 
+// T8 cmdAcceptDeviation：用户在 retry 阶段"接受偏离更新 spec"时调用。
+// 写入 deviation_log 审计记录 + 触发 spec-update 流程标记（实际 spec 文件编辑由 spec-update skill 完成）。
+// 并发安全：state_manager.writeState 已实现 lock（state_manager.js:47-102 wx + PID + 30s TTL + ESRCH 探活），无需自建 lock。
+// 调用前 CLI 层应做 hard stop 二次确认（用户显式 --confirmed）— 本函数不做用户交互。
+function cmdAcceptDeviation(options = {}, projectId = null, projectRoot = null) {
+  const { originalIntent, acceptedImplementation, specSection, requiresSpecReview, confirmed } = options
+  if (!originalIntent || !acceptedImplementation) {
+    return { error: '缺少 --original-intent / --accepted-impl' }
+  }
+  if (!confirmed) {
+    return {
+      error: 'hard stop: 偏离决策需显式确认',
+      hint: '加 --confirmed 标志确认接受偏离，将记录 deviation_log 并标记 spec-update 待执行',
+      preview: { original_intent: String(originalIntent).slice(0, 80), accepted_implementation: String(acceptedImplementation).slice(0, 80), spec_section: specSection || null },
+    }
+  }
+  const [resolvedProjectId, root, , statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
+  if (!resolvedProjectId || !statePath || !state) return { error: '没有活跃的工作流' }
+  const normalizedState = ensureStateDefaults(state)
+
+  const record = buildDeviationRecord({
+    originalIntent,
+    acceptedImplementation,
+    specSection,
+    requiresSpecReview: requiresSpecReview !== false,
+  })
+  if (!Array.isArray(normalizedState.deviation_log)) normalizedState.deviation_log = []
+  normalizedState.deviation_log.push(record)
+
+  writeState(statePath, normalizedState)
+  return {
+    accepted: true,
+    project_id: resolvedProjectId,
+    deviation: record,
+    next_action: record.requires_spec_review
+      ? '运行 /spec-update 把 accepted_implementation 写到 spec 文件对应 section，并触发 spec-review'
+      : '偏离已审计但不需要 spec-review；下次 workflow-review 以更新后 spec 为基准',
+    workflow_status: normalizedState.status,
+  }
+}
+
 module.exports = {
   detectDeltaTrigger,
-  cmdDelta,
   cmdDeltaInit,
   cmdDeltaImpact,
   cmdDeltaApply,
@@ -512,6 +545,7 @@ module.exports = {
   cmdDeltaSync,
   cmdArchive,
   cmdUnblock,
+  cmdAcceptDeviation,
   recoverArchiveTombstone,
   ARCHIVE_MARKER_FILE,
   ARCHIVE_MARKER_VERSION,

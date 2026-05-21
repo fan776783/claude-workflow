@@ -75,10 +75,32 @@ git log -1 --format=%ct -- <file>
 - 同时读 `core/specs/spec-templates/manifests/` 最新 manifest，按 `migrations[]` 分类列出建议（rename / safe-file-delete / delete / protected_paths）
 - **不再读** `local.md` 的 Template Baseline 表（已废弃）
 
+### 7. Snapshot 时间戳过期（ADR-0001 Decision 3，advisory）
+
+扫描所有 `core/skills/**/SKILL.md` 和 `core/skills/**/references/*.md` 中形如 `<!-- snapshot YYYY-MM-DD ... -->` 的注释：
+
+- 当前日期 - snapshot 日期 > 90 天 → `⚠️ snapshot-stale`，按注释中 `refresh via:` 提示提醒用户跑对应命令复核硬编码 enum / 工具清单
+- > 180 天 → `🛑 snapshot-very-stale`
+
+注释格式 convention：`<!-- snapshot YYYY-MM-DD — <说明>. refresh via: <命令>. See ADR-0001 Decision 3. -->`
+
+这是抓 MCP 服务端动态 enum 漂移的唯一被动防线（运行时 fresh introspection 是主动防线）。spec-review 是 review-only，只提示不修复——用户拿命令自查后再决定要不要 `/spec-update` 更新注释 + 内容。
+
+### 8. 冗余检测（v2.3 新增，advisory）
+
+定性判断，不设数字阈值——spec-review 是声明式 LLM review，无机读引擎，措辞一律用"明显 / 疑似重复"。四类：
+
+- **同文件自重复**（R3）：同一段 fenced 代码块、或同一条 `**Why**:` 文本，在单文件内明显重复出现（典型：Rules 段与 Common Mistakes 段各写了一遍完整 Bad/Good + Why）→ `⚠️ intra-file-dup`
+- **包内跨文件重复**（R2/R4）：`index.md` 的 Overview 与某 convention 文件 Overview 在讲同一身份定义；或同一 fenced 目录树在 `component-guidelines.md` 与 `directory-structure.md` 各画一遍 → `⚠️ intra-package-dup`
+- **跨包重复**（R5）：同一规则正文在多个包逐字 / 近逐字出现，且 `guides/` 无对应承载条目 → `⚠️ cross-package-dup`（建议上提 guides/，各包改指针）
+- **样板重复**（R1）：多个 layer-index 文件之间存在大段逐字相同的通用样板（如 Quality Check 清单）→ `⚠️ boilerplate-dup`（建议收敛到根 `index.md`，layer-index 改指针）
+
+全部 advisory，不计入阻塞问题数。修复属用户决策（见"与其他命令的关系"）。
+
 ## workflow
 
 1. 扫描 `.claude/code-specs/**/*.md`，按文件类型分档
-2. 依次跑 6 类检查（contract/convention lint、空 layer advisory、过期、冲突、模板漂移）
+2. 依次跑 8 类检查（contract/convention lint、空 layer advisory、过期、冲突、模板漂移、snapshot 过期、冗余检测）
 3. 生成 Markdown 报告：
 
 ```
@@ -94,6 +116,8 @@ git log -1 --format=%ct -- <file>
 - Stale files: S
 - Broken pointers: P
 - Advisories: empty-layer × E, cross-package-drift × D
+- Snapshot stale: > 90d × Q₁, > 180d × Q₂
+- Redundancy advisories: intra-file × R₁, intra-package × R₂, cross-package × R₃, boilerplate × R₄
 - Template drift pending: U
 
 ## Convention Lint
@@ -109,6 +133,16 @@ git log -1 --format=%ct -- <file>
 ## Advisories（非阻塞）
 - [empty-layer] {pkg}/{layer}/ 下暂无主题文件
 - [cross-package-drift] error-handling.md 在 pkg-a / pkg-b 规则声明不一致
+
+## Redundancy（非阻塞）
+- [intra-file-dup] {pkg}/{layer}/component-guidelines.md Rules 与 Common Mistakes 重复同一 Bad/Good
+- [intra-package-dup] {pkg}/{layer}/index.md 与 component-guidelines.md Overview 重述同一身份
+- [cross-package-dup] "export * 污染" 规则在 pkg-a / pkg-b / pkg-c 逐字重复 → 建议上提 guides/
+- [boilerplate-dup] N 个 layer-index 的 Quality Check 段逐字相同 → 建议收敛到根 index.md
+
+## Snapshot Stale (ADR-0001 Decision 3)
+| File | Snapshot | Age (days) | Status | Refresh command |
+|------|----------|------------|--------|-----------------|
 
 ## Conflicts & Broken Pointers
 - [broken-pointer] guides/api.md → {pkg}/backend/deleted-spec.md
@@ -132,6 +166,7 @@ git log -1 --format=%ct -- <file>
 ## 与其他命令的关系
 
 - review结果中的 missing / draft / no-examples / no-rationale 由用户 `/spec-update` 手动补齐
+- 冗余 advisory（intra-file / intra-package / cross-package / boilerplate-dup）由用户走 `/quick-plan` 或人工清理；spec-review 保持只读，不自动 dedup —— 哪份是 canonical、各包特有差异要不要留都是人类判断
 - 模板漂移由用户手动合并（不自动应用 migrations）
 - `workflow-review` Stage 1 走人工对照
 
@@ -141,3 +176,8 @@ git log -1 --format=%ct -- <file>
 - **不**把覆盖率（filled/total）作为核心指标（贯彻渐进填充理念）
 - 空 layer 改 advisory（不阻塞渐进填充）
 - 新增 no-examples / no-rationale 两个维度，锁定"2-3 real examples + Why"硬标准
+
+## v2.3 对齐说明
+
+- 新增第 7 类检查"冗余检测"（intra-file / intra-package / cross-package / boilerplate-dup），全 advisory、定性判断、不设数字阈值
+- 检测维度落地，修复仍走人工 / `/quick-plan`；spec-update 侧加轻量预防（fuzzy 扩兄弟文件 + 跨包上提提示 + R3/R4 比对）

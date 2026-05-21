@@ -12,7 +12,7 @@
 
 确认 git 仓库已初始化且有初始提交。
 
-**为什么需要 Git**：需要写隔离的subagent（如 Spec 合规review、代码质量review）依赖 git worktree 进行隔离执行。明确只读的分析/review型subagent可以无 worktree 运行，但写隔离场景不允许静默降级。
+**为什么需要 Git**：commit gate + workflow-review 都依赖 git diff/commit 历史，需要一个干净的 git 基线。
 
 **检查项**：
 1. 当前目录是否在 git 仓库中（`git rev-parse --is-inside-work-tree`）
@@ -21,7 +21,7 @@
 **未通过时**：调用 `AskUserQuestion` 收集决策，`question` 写"Git 仓库未就绪，如何继续？"，`options` 给两条：
 
 - `init_git` — 我来初始化 git：暂停workflow，用户执行 `git init && git add . && git commit -m "Initial commit"` 后重试
-- `continue_without_subagent` — 无subagent继续：⚠️ 用户显式选择降级。写隔离review降级为主会话内执行，只读分析不受影响。记录 `git_status.user_acknowledged_degradation = true`
+- `continue_without_git` — 无 git 继续：⚠️ 用户显式选择降级。commit gate 与 diff-based review 失效。记录 `git_status.user_acknowledged_degradation = true`
 
 > 不得静默跳过 Git 检查。用户必须通过 AskUserQuestion 显式确认降级。
 

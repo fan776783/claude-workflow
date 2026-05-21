@@ -13,7 +13,7 @@ Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.
 
 术语用 `core/specs/shared/architecture-language.md`(Module / Interface / Seam / Adapter / Depth / Leverage / Locality)。项目词汇用 glossary。
 
-## 流程
+## workflow
 
 ### 1. 被拒需求扫描
 
@@ -51,15 +51,9 @@ Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.
 用户选了候选后,进入质询对话:约束、依赖、deepened module 形状、seam 后面放什么、哪些测试存活。
 
 副作用 inline 发生:
-- 命名了 glossary 里没有的概念 → inline 更新 glossary(路由同 `/grill`)
-- 用户给出 load-bearing 拒绝理由 → 提议写 ADR(三重门槛同 `/grill`)
+- 命名了 glossary 里没有的概念 → inline 更新 glossary,路由见 `core/specs/shared/glossary.md § 术语更新路由`
+- 用户给出 load-bearing 拒绝理由 → 提议写 ADR,三重门槛见 `core/specs/shared/adr-protocol.md`
 
 ### 5. Interface Design 探索(可选)
 
 用户想看多种接口方案时,走 [INTERFACE-DESIGN.md](references/INTERFACE-DESIGN.md)。
-
-## 与其他 skill 的关系
-
-- `/zoom-out` 先画地图 → 本 skill 找改进点
-- `/diagnose` 发现架构级 gap → 交给本 skill
-- 本 skill 产出 → 可进 `/quick-plan` 规划实施或 `/workflow-spec` 大型重构
