@@ -226,6 +226,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 - 按 `plan.md` 推进执行，经过 ContextGovernor 治理与验证
 - 所有 task 完成后状态设为 `review_pending`，提示用户执行 `/workflow-review`
 - TDD 默认不开启，仅在传入 `--tdd` 且任务形态满足条件（phase 为 `implement`/`ui-*`、存在测试命令、actions 含 `create_file`/`edit_file`、文件类型非豁免）时进入红绿重构循环
+- v6.4.4+ Step 5 review loop 第 2 次仍 REVISE → controller 程序化标 `stuck_or_looping`，调 `collaborating-with-codex` `--oracle-review` 作为**第 3 次重派的 `revise_instructions` 增强输入**，不接管实现、不消耗 loop 预算；codex 不可用 → journal 写 `codex-status: codex_degraded` 跳过回灌
 
 #### `workflow-delta`（增量变更 Skill）
 
@@ -568,10 +569,10 @@ flowchart TD
 | `scan` | 扫描项目技术栈并生成项目配置 |
 | `grill` | 对齐澄清 - 质询模糊需求到共享理解（合并自旧 `/enhance` + `quick-plan` Ambiguity Gate） |
 | `zoom-out` | 抬升抽象层,画相关 module 和 caller 的地图(7 行级轻量 skill) |
-| `diagnose` | 疑难 Bug 反馈循环 + 假设证伪(不改代码,给 fix-bug / workflow-execute 消费) |
+| `diagnose` | 疑难 Bug 反馈循环 + 假设证伪(不改代码,给 fix-bug / workflow-execute 消费)；v6.4.4+ Phase 3 证伪迭代第 2 轮仍不收敛 → 标 `stuck_or_looping` 调 oracle 拿 alternative POV |
 | `fix-bug` | 结构化定位与修复单点问题 |
-| `bug-batch` | 批量缺陷分析、去重与修复编排 |
-| `tdd` | 红绿重构 vertical slice TDD 纪律 |
+| `bug-batch` | 批量缺陷分析、去重与修复编排；v6.4.4+ 每个 issue 输出 `risk_signals`，FixUnit 聚合 signals 后单元级 review 按 risk-signal 路由 |
+| `tdd` | 红绿重构 vertical slice TDD 纪律；v6.4.4+ 同一 RED 经 3 次 GREEN 尝试未通过或回归 2 个绿 test 后 2 次修正未恢复 → 标 `stuck_or_looping`，**implementer 不得自起 codex**，由 controller 统一调 `--oracle-review` 回灌 |
 | `prototype` | 抛弃式原型 — TUI 验证状态/数据 + 多版本 UI 并排对比 |
 | `improve-architecture` | 架构深化机会扫描（删除测试 / 依赖归类 / 并行接口设计探索） |
 | `handoff` | 把当前会话压缩成交接文档，给下一个 agent / session 接力 |
@@ -589,7 +590,7 @@ flowchart TD
 | `spec-update` | 按 7 段 code-spec 合约或 thinking guide 形态写入 |
 | `spec-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账 |
 | `write-a-skill` | Meta-skill - 新建 / 审查 SKILL.md 尺寸与描述 |
-| `collaborating-with-codex` | Codex App Server 运行时委派编码 / 调试 / 审查；v6.3.0 起支持 `--model` / `--effort` Code Tasks 模式、per-job log（`Monitor "tail -F"` push 观察）、`--result <id>` 终态聚合（含 touchedFiles[] / fileChanges[] / commandExecutions[]）；v6.4.3 起新增 `--oracle-review` 高风险只读 oracle 模式，配合 risk-signal 路由（详见 `core/specs/shared/codex-routing.md`） |
+| `collaborating-with-codex` | Codex App Server 运行时委派编码 / 调试 / 审查；v6.3.0 起支持 `--model` / `--effort` Code Tasks 模式、per-job log（`Monitor "tail -F"` push 观察）、`--result <id>` 终态聚合（含 touchedFiles[] / fileChanges[] / commandExecutions[]）；v6.4.3 起新增 `--oracle-review` 高风险只读 oracle 模式，配合 risk-signal 路由（详见 `core/specs/shared/codex-routing.md`）；v6.4.4 起被 `workflow-execute` / `diagnose` / `tdd` / `bug-batch` 在 `stuck_or_looping` 信号触发时 controller 统一调用，read-only POV 回灌实现者 |
 | `bk` | 蓝鲸项目管理 CLI（看待办、查 issue、流转状态、评论） |
 
 ### 5.4 MCP 替代 Skills（CLI / MCP-gw 桥接）

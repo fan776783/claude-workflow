@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.4.4] - 2026-05-22
+
+### Added
+
+- **`workflow-execute` Step 5 review loop stuck → oracle 回灌**（SKILL.md 新增小节）：implementer ↔ reviewer 第 2 次仍 REVISE 时 controller(主会话) 程序化标 `stuck_or_looping`，按 `core/specs/shared/codex-routing.md § Decision Table` 调 `collaborating-with-codex` `--oracle-review` 拿 alternative POV，作为**第 3 次重派的 `revise_instructions` 增强输入**，不接管实现也不消耗 loop 预算；第 3 次按原派发路径走 implementer subagent，仍失败则维持 `halt_reason: 'review-loop'`。codex 不可用时 journal 写 `codex-status: codex_degraded` 直接跳过回灌。仅 controller 触发，不下放 implementer / reviewer。
+- **`diagnose` Phase 3 stuck 触发 oracle 二次意见**：假设证伪迭代到第 2 轮仍不收敛 → 标 `stuck_or_looping`，由主会话调 `--oracle-review` 拿 alternative POV 回 Phase 3 重排假设。Phase 5 输出 schema 扩 `oracle_consulted` / `oracle_status` / `oracle_insight` 三字段记录 oracle 状态；codex 不可用 → 主会话兜底重排并写 `codex_degraded`。
+- **`tdd` 红绿死锁条款**：同一 RED test 经 3 次 GREEN 尝试仍未通过、或一次改动让 ≥ 2 个绿 test 变红后 2 次修正仍未恢复 → 标 `stuck_or_looping`。`/workflow-execute --tdd` 路径下 implementer **不得自起 codex**，由 controller 统一调 `--oracle-review` 拿 interface / test / refactor 建议后回灌实现者；主会话直接驱动时由主会话调。
+- **`bug-batch` `risk_signals` 字段**：每个 issue 输出新增 `risk_signals`，取自 codex-routing 的 6 个枚举；Phase 4 FixUnit 聚合 = 单元内全部 issue signals 并集，Phase 6 单元级 review 按聚合 signals 路由（high-risk → controller 调 `--oracle-review`；仅 `direct_verification` → 主会话直审写 `codex-status: skipped`；codex 不可用 → 标 `codex_degraded`）。
+
+### Changed
+
+- **`diagnose` Anti-pattern 清单新增第 4 条**：「证伪 2 轮全错还在自己原 list 里凑新假设」明确为闭门循环反模式，应调 oracle 拿 alternative POV。
+
 ## [6.4.3] - 2026-05-21
 
 ### Added
