@@ -108,6 +108,22 @@ GREEN: 最小代码让它过 → 通过
 - [ ] 代码是让当前测试过的最小量
 - [ ] 未加猜测性特性
 
+## 红绿死锁
+
+触发条件(满足任一即标 `stuck_or_looping`):
+- 同一 RED test 经 **3 次 GREEN 尝试** 仍未通过(tracer bullet 容忍度高于 review loop,因此阈值取 3 而不是决策表 examples 里的 `loop >= 2`)
+- 一次改动让 **≥ 2 个** 之前绿的 test 变红,且 **2 次** 修正尝试仍未让全部回到绿
+
+**死锁里不要继续盲改实现**(可能是 interface 设计错了 / 测试在测 implementation / module 太浅)。
+
+调度归属(关键):本 skill 被 `/workflow-execute --tdd` 注入到 implementer subagent 时,implementer 检测到死锁 **不得自起 codex**,而是把 `stuck_or_looping` 信号 + RED 源码 + 3 次失败 diff + 失败信号回报 controller / 主会话;**由 controller 唯一调** `collaborating-with-codex` `--oracle-review`;主会话直接驱动 tdd 时由主会话调。
+
+contract:
+- 调用 contract 见 `core/specs/shared/codex-routing.md § Invocation Contract`(TASK / CONTEXT / FILES / RISK_SIGNALS / NON_GOALS 必填),`risk_signals: stuck_or_looping`
+- 输出:oracle read-only 建议(interface 是否要调整 / 测试是否应改写 / 是否要 deep module refactor)
+- 落地:controller 把 oracle insight 回灌实现者(workflow-execute 路径下回灌 implementer subagent;主会话路径下主会话自己消费),再回 tracer bullet
+- 降级:codex 不可用 → controller 向用户报告 `codex_degraded` + 降级原因(tdd 不维护持久 state),主会话自审是否要改 interface / 拆 test
+
 ## 与其他 skill 的关系
 
 - `/workflow-execute` 在执行阶段可调用本 skill 的 vertical slice 纪律
