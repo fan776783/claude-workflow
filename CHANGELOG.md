@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.4.5] - 2026-05-23
+
+### Added
+
+- **多工具 hook 适配模板**（`core/hooks/agent-templates/`）：新增 `codex.hooks.json` / `copilot.hooks.json` / `cursor.hooks.json` 三套子模板，分别按 Codex / GitHub Copilot / Cursor 原生 hook schema 与事件名（`userPromptSubmitted` / `sessionStart` / `preToolUse` / `beforeShellExecution`）落地。`{{HOOKS_DIR}}` 占位由 installer 解析为各工具的 `.agent-workflow/hooks/` 绝对路径，模板侧不再写死 `$HOME`。
+- **轻量化注入入口 `inject-workflow-state.js` / `inject-shell-session-context.js`**：从 `session-start.js` / `pre-execute-inject.js` 拆出，承担 Codex（UserPromptSubmit）与 Cursor（beforeShellExecution）的轻量化工作流状态 / shell session context 注入。原 Claude Code Plugin 走 `core/hooks/hooks.json` 不变，新模板专门覆盖非 Plugin 平台的 hook schema。
+- **Hook 跳过 env 开关**（`core/hooks/_skip.js`）：`WORKFLOW_HOOKS=0` / `AGENT_WORKFLOW_DISABLE_HOOKS=1` / `CLAUDE_NON_INTERACTIVE=1` 任一命中 → 跳过 context 注入；**治理 gate 仍跑**（spec_review_gate、状态阻断等）。
+- **`AGENT_WORKFLOW_FIRST_REPLY_NOTICE=1`**（`core/hooks/session-start.js`）：SessionStart 输出末尾追加 `<first-reply-notice>` 块，要求首轮回复用中文一句话宣告 hook 已注入。默认 OFF：strict-output 交互场景（首轮 JSON / patch / commit message）下避免污染输出。
+- **Windows UTF-8 兼容**（`core/hooks/_utf8.js`）：hook 脚本统一 `require('./_utf8')`，把 stdin / stdout / stderr 流强制切到 UTF-8，消除中文 hook 输出在 Windows cmd / PowerShell 下的乱码与状态阻断。
+- **`core/utils/workflow/workflow_types.js`**：新增 `getStatusMessages()` 统一各 hook 状态消息渲染来源；`task_runtime.js` / `path_utils.js` 同步补 helper，hook 不再各自重写 status text。
+- **Installer schema migration**（`lib/installer.js` + `lib/__tests__/schema-migration.test.mjs` / `legacy-migrator.test.mjs`）：旧版 hook 配置（包含已废弃的 `notify.js` / `notify-backends.js` 引用）在 `sync` 时自动迁移；新增 lib 单测覆盖迁移路径，并在 `prepublishOnly` 接入 `npm run test:lib`。
+- **HTML report reference**（`core/skills/improve-architecture/references/HTML-REPORT.md`）：补 improve-architecture HTML 输出格式约束，要求 candidate 列表给明确推荐而非模糊罗列。
+
+### Changed
+
+- **`session-start.js` 轻量化**（93 → 减半左右）：把 status 渲染、shell session context 注入下沉到 `inject-shell-session-context.js` / `workflow_types.js`，SessionStart 主体仅做项目识别 + 状态注入，降低频繁触发时的开销。
+- **`pre-execute-inject.js` 调用栈精简**：复用 `inject-workflow-state.js` 同一份 task context 构造逻辑，避免 Plugin / 非 Plugin 平台之间漂移。
+- **Skill 文档润色**（commit 78764a4）：
+  - `handoff/SKILL.md`：新增交接文档敏感信息处理 guideline
+  - `improve-architecture/SKILL.md`：candidate 评估准则收紧，必须给明确推荐
+  - `quick-plan/references/plan-template.md` / `spec-lite-template.md`：去掉模糊风险表述，强调具体实现决策
+  - `system-design/SKILL.md`：数据流图必须用项目术语，禁止通用占位
+  - `core/specs/spec-templates/code-spec-template.md` / `guide-template.md`：删冗余 section、强调真实示例 + 清晰 trigger
+
+### Removed
+
+- **`notify.js` / `notify-backends.js` / `notify.config.default.json`** 与 `Stop` / `Notification` hook 注册：会话停止与 Notification 桌面 / IM / 自定义后端推送整套自 v6.4.5 起从 `core/hooks/` 移除，hook 数量从 6 → 5。安装侧 `legacy-migrator` 自动清理旧 settings 中的相关条目。
+- **`scripts/postinstall.js` 22 行废弃逻辑**：随 hook 重构一并删除，sync 走统一路径。
+
 ## [6.4.4] - 2026-05-22
 
 ### Added

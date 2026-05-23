@@ -658,7 +658,7 @@ flowchart TD
 npm run sync -- -y
 ```
 
-Plugin 安装走 `core/hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 由 Claude Code 解析），无需手动改 settings。
+Plugin 安装走 `core/hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 由 Claude Code 解析），无需手动改 settings。非 Plugin 工具（Codex / Copilot / Cursor）由 installer 渲染 `core/hooks/agent-templates/{codex,copilot,cursor}.hooks.json`，把 `{{HOOKS_DIR}}` 替换为各工具 `.agent-workflow/hooks/` 绝对路径，并按工具原生事件名（`userPromptSubmitted` / `sessionStart` / `preToolUse` / `beforeShellExecution`）落地。轻量入口 `inject-workflow-state.js`（Codex / Copilot 的 UserPromptSubmit）与 `inject-shell-session-context.js`（Cursor 的 beforeShellExecution）专为这些平台拆分，复用 Plugin 侧同一份 task context 构造逻辑。
 
 如果是非 Plugin 工具或需要手动配置，参考 `core/hooks/hooks.json` 写入对应工具的 hook 配置文件（路径必须用 `$HOME`，不能用 `~`），核心 5 个条目：
 
