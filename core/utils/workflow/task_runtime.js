@@ -28,6 +28,32 @@ function resolveRuntimeRelativePath(baseDir, relativePath) {
   return path.join(baseDir, normalized)
 }
 
+/**
+ * Lite 版 runtime —— 只读 projectId + workflow-state.json，跳过 plan 文件加载和 task 解析。
+ * 给高频 hook（UserPromptSubmit / beforeShellExecution）用，避免 54KB+ plan 文件每次 fire 都被 regex 解析两遍。
+ * 若调用方需要 currentTask 或 currentTaskBlock，必须走 getWorkflowRuntime。
+ */
+function getWorkflowRuntimeLite(projectRoot = process.cwd()) {
+  const root = path.resolve(projectRoot)
+  const projectId = detectProjectIdFromRoot(root)
+  if (!projectId) {
+    return { projectRoot: root, projectId: null, workflowDir: null, statePath: null, state: null, stateParseError: null }
+  }
+  const workflowDir = getWorkflowsDir(projectId)
+  const statePath = workflowDir ? path.join(workflowDir, 'workflow-state.json') : null
+  const rawState = statePath && fs.existsSync(statePath) ? readJson(statePath) : null
+  const parseError = rawState && rawState.__parse_error
+  const state = parseError ? null : rawState
+  return {
+    projectRoot: root,
+    projectId,
+    workflowDir,
+    statePath,
+    state,
+    stateParseError: parseError ? rawState.message : null,
+  }
+}
+
 function getWorkflowRuntime(projectRoot = process.cwd()) {
   const root = path.resolve(projectRoot)
   const projectId = detectProjectIdFromRoot(root)
@@ -773,6 +799,7 @@ module.exports = {
   readJson,
   resolveRuntimeRelativePath,
   getWorkflowRuntime,
+  getWorkflowRuntimeLite,
   getCurrentTask,
   getCurrentTaskId,
   getTaskBlock,

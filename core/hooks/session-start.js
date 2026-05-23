@@ -5,8 +5,8 @@ require('./_utf8')
 
 const fs = require('fs')
 const path = require('path')
-const { getWorkflowStatePath, normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
-const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { normalizeWindowsShellPath, readProjectConfig } = require('../utils/workflow/path_utils')
+const { getStatusMessages } = require('../utils/workflow/workflow_types')
 const {
   getWorkflowRuntime,
   getThinkingGuides,
@@ -28,21 +28,6 @@ function readFile(targetPath, fallback = '') {
     return fs.readFileSync(targetPath, 'utf8')
   } catch {
     return fallback
-  }
-}
-
-/**
- * 查找并解析项目配置文件（.claude/config/project-config.json）
- * @param {string} projectRoot - 项目根目录
- * @returns {object|null} 配置对象，不存在或解析失败返回 null
- */
-function findProjectConfig(projectRoot) {
-  const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
-  if (!fs.existsSync(configPath)) return null
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  } catch {
-    return null
   }
 }
 
@@ -71,58 +56,6 @@ function collectSpecIndices(projectRoot) {
   return indices.join('\n\n')
 }
 
-/**
- * 根据当前 workflow 状态判断下一步操作提示
- * @param {object|null} state - workflow 状态对象
- * @returns {string} 面向用户的下一步操作建议
- */
-function determineNextAction(state) {
-  if (!state) return '没有活跃的工作流。使用 `/workflow-plan` 开始新任务。'
-  const gateViolation = getSpecReviewGateViolation(state)
-  if (gateViolation) return '检测到 User Spec Review 缺失。请先回到 Phase 1.1 完成显式批准，再继续进入 plan 或 execute。'
-  const { status, halt_reason } = deriveEffectiveStatus(state)
-  const currentTasks = state.current_tasks || []
-  const progress = state.progress || {}
-  const completed = progress.completed || []
-
-  if (status === 'idle') return '使用 `/workflow-plan` 开始新的工作流。'
-  if (status === 'planned') return '规划已完成。使用 `/workflow-execute` 开始执行；不要重新进入规划。'
-  if (status === 'spec_review') return 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。'
-  if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow-execute 继续。`
-  if (status === 'halted') {
-    if (halt_reason === 'dependency') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
-    if (halt_reason === 'failure') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
-    return '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。'
-  }
-  if (status === 'review_pending') return '所有任务已完成，待 /workflow-review 审查通过后方可归档。'
-  if (status === 'completed') return `工作流已完成 (${completed.length} 任务)。使用 /workflow-archive 归档，不要继续执行。`
-  if (status === 'archived') return '工作流已归档。使用 `/workflow-plan` 开始新任务。'
-  return `当前状态: ${status}。使用 /workflow-status 查看详情。`
-}
-
-/**
- * 根据当前 workflow 状态生成护栏提示，防止越界操作
- * @param {object|null} state - workflow 状态对象
- * @returns {string} 护栏规则描述
- */
-function determineGuardrail(state) {
-  if (!state) return '无活动 workflow：仅允许新建流程，不应猜测恢复执行。'
-  const gateViolation = getSpecReviewGateViolation(state)
-  if (gateViolation) return 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。'
-  const { status, halt_reason } = deriveEffectiveStatus(state)
-  if (status === 'planned') return 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。'
-  if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。'
-  if (status === 'running') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。如果你以 implement / check sub-agent 身份阅读到此条，自我豁免：直接执行任务，不要再派 `/workflow-execute` 或同类型 sub-agent。'
-  if (status === 'halted') {
-    if (halt_reason === 'failure') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
-    if (halt_reason === 'dependency') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
-    return 'Guardrail：governance pause，恢复执行必须经过 `/workflow-execute` 的 shared resolver。'
-  }
-  if (status === 'review_pending') return 'Guardrail：待 `/workflow-review` 审查通过，不得跳过直接归档。'
-  if (status === 'completed') return 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。'
-  if (status === 'archived') return 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`。'
-  return 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。'
-}
 
 /**
  * SessionStart hook 主流程：读取项目配置和 workflow 状态，输出上下文与护栏信息
@@ -130,7 +63,7 @@ function determineGuardrail(state) {
 function main() {
   if (shouldSkipInjection()) return
   const projectRoot = path.resolve(normalizeWindowsShellPath(process.cwd()))
-  const config = findProjectConfig(projectRoot)
+  const config = readProjectConfig(projectRoot)
   if (!config) return
 
   const project = config.project || {}
@@ -173,12 +106,13 @@ function main() {
     parts.push('</active-workflow>')
   }
 
+  const { nextAction, guardrail } = getStatusMessages(state, { verbose: true })
   parts.push('<next-action>')
-  parts.push(determineNextAction(state))
+  parts.push(nextAction)
   parts.push('</next-action>')
 
   parts.push('<workflow-guardrail>')
-  parts.push(determineGuardrail(state))
+  parts.push(guardrail)
   parts.push('</workflow-guardrail>')
 
   if (specs) {
@@ -253,11 +187,16 @@ function main() {
 
   parts.push('</workflow-context>')
 
-  parts.push('<first-reply-notice>')
-  parts.push('On the first visible assistant reply in this session, begin with exactly one short Chinese sentence:')
-  parts.push('SessionStart 已注入：workflow / 当前任务 / git / specs。')
-  parts.push('Then continue. One-shot: do not repeat after the first reply in the same session.')
-  parts.push('</first-reply-notice>')
+  // first-reply-notice 默认 OFF：在 strict-output 交互场景（用户要求首轮 JSON / patch / commit message）
+  // 注入"必须以中文 sentence 开头"会污染输出。用户想可视确认 SessionStart 已跑时，
+  // 显式 export AGENT_WORKFLOW_FIRST_REPLY_NOTICE=1 启用。
+  if (process.env.AGENT_WORKFLOW_FIRST_REPLY_NOTICE === '1') {
+    parts.push('<first-reply-notice>')
+    parts.push('On the first visible assistant reply in this session, begin with exactly one short Chinese sentence:')
+    parts.push('SessionStart 已注入：workflow / 当前任务 / git / specs。')
+    parts.push('Then continue. One-shot: do not repeat after the first reply in the same session.')
+    parts.push('</first-reply-notice>')
+  }
 
   process.stdout.write(parts.join('\n'))
 }

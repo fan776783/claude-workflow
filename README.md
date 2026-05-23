@@ -644,6 +644,13 @@ flowchart TD
 - **`TeammateIdle`**：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 留住队友；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行 idle（Lead 侧收到后自行执行 `clean up team`）
 - **`TaskCreated` / `TaskCompleted`**：任务粒度守门，缺 `task_subject` / 交付物或遗留 TODO / 待验证 类字眼时退码 2 拒绝
 
+#### Hook env 开关
+
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `WORKFLOW_HOOKS=0` / `AGENT_WORKFLOW_DISABLE_HOOKS=1` / `CLAUDE_NON_INTERACTIVE=1` | 未设 | 跳过所有 hook 的 context 注入（治理 gate 仍运行） |
+| `AGENT_WORKFLOW_FIRST_REPLY_NOTICE=1` | 未设 | SessionStart 输出末尾追加 `<first-reply-notice>` 块，要求首轮回复用中文一句话宣告 hook 已注入。默认 OFF：strict-output 场景（首轮 JSON / patch / commit message）下避免污染输出 |
+
 ### 6.2 启用方式
 
 ```bash

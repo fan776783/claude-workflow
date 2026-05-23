@@ -58,18 +58,22 @@ function assertCanonicalWorkflowStatePath(statePath, projectId) {
   return path.resolve(statePath)
 }
 
-function detectProjectIdFromRoot(projectRoot) {
+function readProjectConfig(projectRoot) {
   const root = projectRoot ? path.resolve(projectRoot) : path.resolve(normalizeWindowsShellPath(process.cwd()))
   const configPath = path.join(root, '.claude', 'config', 'project-config.json')
-  if (!fs.existsSync(configPath)) return null
   try {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-    const project = config.project || {}
-    const projectId = project.id || config.projectId
-    return validateProjectId(projectId) ? String(projectId) : null
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'))
   } catch {
     return null
   }
+}
+
+function detectProjectIdFromRoot(projectRoot) {
+  const config = readProjectConfig(projectRoot)
+  if (!config) return null
+  const project = config.project || {}
+  const projectId = project.id || config.projectId
+  return validateProjectId(projectId) ? String(projectId) : null
 }
 
 /**
@@ -190,6 +194,7 @@ module.exports = {
   isCanonicalWorkflowStatePath,
   assertCanonicalWorkflowStatePath,
   detectProjectIdFromRoot,
+  readProjectConfig,
   getThinkingGuidesDir,
   THINKING_GUIDES_DISPLAY_PATH,
   getCodeSpecsDir,

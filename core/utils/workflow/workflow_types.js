@@ -357,6 +357,86 @@ module.exports = {
   isUserSpecReviewApproved,
   acknowledgeSkippedSpecReview,
   getSpecReviewGateViolation,
+  getStatusMessages,
+}
+
+/**
+ * 共享 status → 消息表。verbose=true 给 SessionStart 长文本，verbose=false 给 UserPromptSubmit 重注入用的短文本。
+ * 单点维护避免 session-start 与 inject-workflow-state 漂移。
+ */
+function getStatusMessages(state, { verbose = true } = {}) {
+  if (!state) {
+    return verbose
+      ? { nextAction: '没有活跃的工作流。使用 `/workflow-plan` 开始新任务。', guardrail: '无活动 workflow：仅允许新建流程，不应猜测恢复执行。' }
+      : { nextAction: null, guardrail: null }
+  }
+  if (getSpecReviewGateViolation(state)) {
+    return verbose
+      ? {
+          nextAction: '检测到 User Spec Review 缺失。请先回到 Phase 1.1 完成显式批准，再继续进入 plan 或 execute。',
+          guardrail: 'Guardrail：检测到状态机越界，Phase 1.1 User Spec Review 未 approved 却已进入后续状态；禁止继续推进，需先修复回 spec_review。',
+        }
+      : { nextAction: 'Spec Review 未 approved，回 Phase 1.1 完成显式批准。', guardrail: 'Spec Review 越界，禁止推进，需回 spec_review。' }
+  }
+  const { status, halt_reason: haltReason } = deriveEffectiveStatus(state)
+  const table = verbose ? VERBOSE_STATUS_TABLE : SHORT_STATUS_TABLE
+  const entry = table[status]
+  if (!entry) {
+    return verbose
+      ? { nextAction: `当前状态: ${status}。使用 /workflow-status 查看详情。`, guardrail: 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。' }
+      : { nextAction: null, guardrail: null }
+  }
+  if (typeof entry === 'function') return entry(state, haltReason)
+  return entry
+}
+
+const VERBOSE_STATUS_TABLE = {
+  idle: { nextAction: '使用 `/workflow-plan` 开始新的工作流。', guardrail: 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。' },
+  planned: { nextAction: '规划已完成。使用 `/workflow-execute` 开始执行；不要重新进入规划。', guardrail: 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。' },
+  spec_review: { nextAction: 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。', guardrail: 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。' },
+  running: (state) => ({
+    nextAction: `工作流执行中，当前任务: ${(state.current_tasks || [])[0] || '?'}。使用 /workflow-execute 继续。`,
+    guardrail: 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。如果你以 implement / check sub-agent 身份阅读到此条，自我豁免：直接执行任务，不要再派 `/workflow-execute` 或同类型 sub-agent。',
+  }),
+  halted: (state, haltReason) => ({
+    nextAction: haltReason === 'dependency'
+      ? '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
+      : haltReason === 'failure'
+        ? `任务 ${(state.current_tasks || [])[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
+        : '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。',
+    guardrail: haltReason === 'failure'
+      ? 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
+      : haltReason === 'dependency'
+        ? 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
+        : 'Guardrail：governance pause，恢复执行必须经过 `/workflow-execute` 的 shared resolver。',
+  }),
+  review_pending: { nextAction: '所有任务已完成，待 /workflow-review 审查通过后方可归档。', guardrail: 'Guardrail：待 `/workflow-review` 审查通过，不得跳过直接归档。' },
+  completed: (state) => ({
+    nextAction: `工作流已完成 (${((state.progress || {}).completed || []).length} 任务)。使用 /workflow-archive 归档，不要继续执行。`,
+    guardrail: 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。',
+  }),
+  archived: { nextAction: '工作流已归档。使用 `/workflow-plan` 开始新任务。', guardrail: 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`。' },
+}
+
+const SHORT_STATUS_TABLE = {
+  idle: { nextAction: null, guardrail: null },
+  planned: { nextAction: '使用 `/workflow-execute` 开始执行；不要重新规划。', guardrail: '只允许显式 `/workflow-execute` 进入执行器。' },
+  spec_review: { nextAction: 'Spec 等待人工确认。', guardrail: '人工审查关口，禁止直接实现。' },
+  running: (state) => ({
+    nextAction: `执行中: ${(state.current_tasks || [])[0] || '?'}。/workflow-execute 继续。`,
+    guardrail: '恢复执行必须经 `/workflow-execute` shared resolver。',
+  }),
+  halted: (state, haltReason) => ({
+    nextAction: haltReason === 'failure'
+      ? `任务 ${(state.current_tasks || [])[0] || '?'} 失败。/workflow-execute --retry 或 skip。`
+      : haltReason === 'dependency'
+        ? '依赖阻塞。/workflow unblock <dep> 后恢复。'
+        : '已暂停，处理原因后 /workflow-execute 恢复。',
+    guardrail: '阻塞/失败态需走 retry/skip/unblock 治理。',
+  }),
+  review_pending: { nextAction: '待 /workflow-review 通过后归档。', guardrail: '待审查通过，不得跳过归档。' },
+  completed: { nextAction: '已完成，/workflow-archive 归档。', guardrail: '已完成只允许归档或查看状态。' },
+  archived: { nextAction: null, guardrail: null },
 }
 
 if (require.main === module) main()
