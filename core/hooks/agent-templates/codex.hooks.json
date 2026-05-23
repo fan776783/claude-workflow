@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/inject-workflow-state.js",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

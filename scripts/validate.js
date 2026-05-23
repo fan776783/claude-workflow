@@ -640,7 +640,6 @@ function runContractTests(repoRoot, errors) {
  *   - core/.claude-plugin/plugin.json 存在且 version 与 package.json 一致
  *   - .claude-plugin/marketplace.json 存在且含 agent-workflow 条目
  *   - core/hooks/hooks.json 存在，引用的脚本全部在 core/hooks/ 下
- *   - core/hooks/notify.config.default.json 存在
  *   - lib/installer.js 不再 export 已迁移到 Plugin 的函数（防止误 import）
  * @param {string} repoRoot
  * @param {string} packageRoot
@@ -722,13 +721,7 @@ async function validatePluginManifests(repoRoot, packageRoot, errors) {
     }
   }
 
-  // 4. notify.config.default.json 存在
-  const notifyDefaultPath = path.join(packageRoot, 'hooks', 'notify.config.default.json');
-  if (!(await fs.pathExists(notifyDefaultPath))) {
-    errors.push('core/hooks/notify.config.default.json 不存在');
-  }
-
-  // 5. installer.js 不再 export 已迁移函数
+  // 4. installer.js 不再 export 已迁移函数
   const installerPath = path.join(repoRoot, 'lib', 'installer.js');
   if (await fs.pathExists(installerPath)) {
     const installerContent = await fs.readFile(installerPath, 'utf8');

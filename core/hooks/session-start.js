@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** @file SessionStart Hook — 会话启动时注入项目配置、工作流状态和护栏提示 */
 
+require('./_utf8')
+
 const fs = require('fs')
 const path = require('path')
 const { getWorkflowStatePath, normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
@@ -250,6 +252,13 @@ function main() {
   }
 
   parts.push('</workflow-context>')
+
+  parts.push('<first-reply-notice>')
+  parts.push('On the first visible assistant reply in this session, begin with exactly one short Chinese sentence:')
+  parts.push('SessionStart 已注入：workflow / 当前任务 / git / specs。')
+  parts.push('Then continue. One-shot: do not repeat after the first reply in the same session.')
+  parts.push('</first-reply-notice>')
+
   process.stdout.write(parts.join('\n'))
 }
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** @file Skill Routing Hook — UserPromptSubmit 注入 routing hint + PreToolUse(ToolSearch) deny skill 名误用 */
 
+require('./_utf8')
+
 const fs = require('fs')
 const path = require('path')
 const { shouldSkipInjection } = require('./_skip')

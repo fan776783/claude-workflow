@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** @file PreToolUse(Task) Hook — 在 Task 工具调用前注入 workflow 上下文并执行治理检查 */
 
+require('./_utf8')
+
 const fs = require('fs')
 const path = require('path')
 const {

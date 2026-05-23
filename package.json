@@ -8,8 +8,10 @@
   "main": "lib/index.js",
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
-    "prepublishOnly": "node scripts/validate.js",
+    "prepublishOnly": "node scripts/validate.js && npm run test:codex-bridge && npm run test:lib",
     "test:codex-bridge": "node --test core/skills/collaborating-with-codex/scripts/lib/__tests__/*.test.mjs",
+    "test:lib": "node --test lib/__tests__/*.test.mjs",
+    "test": "npm run test:codex-bridge && npm run test:lib",
     "sync": "node bin/agent-workflow.js sync",
     "link": "node bin/agent-workflow.js link",
     "release:patch": "./scripts/release.sh patch",

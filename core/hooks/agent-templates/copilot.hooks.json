@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node {{HOOKS_DIR}}/session-start.js",
+        "timeout": 30
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "node {{HOOKS_DIR}}/inject-workflow-state.js",
+        "powershell": "node {{HOOKS_DIR}}/inject-workflow-state.js",
+        "timeoutSec": 15
+      }
+    ]
+  }
+}

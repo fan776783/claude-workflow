@@ -25,6 +25,8 @@
 
 'use strict';
 
+require('./_utf8');
+
 const fs = require('fs');
 
 const ACTION = (process.argv[2] || '').toLowerCase();

@@ -626,7 +626,7 @@ flowchart TD
 
 工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails**。hooks 不替代 command + skill 驱动的状态机，而是在其外围提供自动化的上下文注入和执行门控。
 
-当前共 **6 个 hook 脚本**，按职责分为三类：
+当前共 **5 个 hook 脚本**，按职责分为三类：
 
 | 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
 |------|-----------|------|----------|------|
@@ -635,7 +635,6 @@ flowchart TD
 | **Routing Hooks** | `UserPromptSubmit` + `PreToolUse` (matcher: `ToolSearch`) | `skill-routing.js` | ✅ 随 `sync` 自动注入 | 用户输入命中 Figma / 钉钉 URL 时注入 skill routing hint；阻止 ToolSearch 误把 skill 名当工具名搜 |
 | **Team Hooks** | `TeammateIdle` | `team-idle.js` | ✅ 随 `sync` 自动注入 | 任务板仍有未完成任务时阻止队友 idle；任务板清空时提示队友给 Lead 发 message 后退出 |
 | | `TaskCreated` / `TaskCompleted` | `team-task-guard.js` | ✅ 随 `sync` 自动注入 | 任务粒度守门：缺 owner / deliverable 或遗留 TODO / FIXME 时退码 2 拒绝 |
-| **Notify Hooks** | `Stop` / `Notification` | `notify.js` | ✅ 随 `sync` 自动注入 | 会话停止 / 弹出 Notification 时按 `notify.config.json` 推送桌面 / IM / 自定义后端通知 |
 
 ### 6.1 各 Hook 运行时行为
 
@@ -644,7 +643,6 @@ flowchart TD
 - **`UserPromptSubmit` / `PreToolUse(ToolSearch)`**：扫描用户文本与 ToolSearch 查询，命中 `core/hooks/skill-routing-table.json` 中的 URL 规则（Figma / 钉钉 / mcp-gw）或 skill 名误用模式时注入路由 hint
 - **`TeammateIdle`**：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 留住队友；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行 idle（Lead 侧收到后自行执行 `clean up team`）
 - **`TaskCreated` / `TaskCompleted`**：任务粒度守门，缺 `task_subject` / 交付物或遗留 TODO / 待验证 类字眼时退码 2 拒绝
-- **`Stop` / `Notification`**：会话停止或弹出 Notification 时由 `notify.js` 派发到 `notify-backends.js` 注册的后端（macOS terminal-notifier / Slack / 自定义 webhook 等），配置走 `~/.claude/.agent-workflow/hooks/notify.config.json`，可关闭
 
 ### 6.2 启用方式
 
@@ -655,7 +653,7 @@ npm run sync -- -y
 
 Plugin 安装走 `core/hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 由 Claude Code 解析），无需手动改 settings。
 
-如果是非 Plugin 工具或需要手动配置，参考 `core/hooks/hooks.json` 写入对应工具的 hook 配置文件（路径必须用 `$HOME`，不能用 `~`），核心 6 个条目：
+如果是非 Plugin 工具或需要手动配置，参考 `core/hooks/hooks.json` 写入对应工具的 hook 配置文件（路径必须用 `$HOME`，不能用 `~`），核心 5 个条目：
 
 ```json
 {
@@ -678,12 +676,6 @@ Plugin 安装走 `core/hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 由 Claude Co
     ],
     "TaskCompleted": [
       { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-task-guard.js\" completed" }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/notify.js\" Stop" }] }
-    ],
-    "Notification": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/notify.js\" Notification" }] }
     ]
   }
 }
