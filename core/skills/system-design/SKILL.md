@@ -60,11 +60,7 @@ Edit 写入 spec.md § 5.6.1。
 
 ## Step 3: § 5.6.2 Data Flow
 
-Mermaid 数据流图，覆盖完整调用链路：
-
-```
-Client → API Gateway → Service → Repository → Storage
-```
+Mermaid 数据流图，节点用本项目真实名称(来自 §5.1 module / glossary domain 概念),不要 `Client / API / Service / Repository / Storage` 这种通用占位。流程一目了然 → 整段删,不强写。
 
 关注点：
 - 异步操作标注（消息队列、事件）

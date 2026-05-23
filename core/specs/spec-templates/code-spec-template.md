@@ -55,13 +55,11 @@
 
 | Key | 必需 | 说明 |
 |-----|------|------|
-| `{{ENV_VAR_NAME}}` | yes/no | {{description}} |
 
 ## 4. Validation & Error Matrix
 
 | 输入条件 | 错误码 / 行为 | 错误消息 |
 |---------|-------------|---------|
-| `{{condition}}` | `{{error_code_or_action}}` | `{{message}}` |
 
 ## 5. Good / Base / Bad Cases
 

@@ -15,38 +15,27 @@
 
 ## User Stories
 
-1. As a <actor>, I want <feature>, so that <benefit>
-2. ...
+每条:`As a <actor>, I want <feature>, so that <benefit>`。覆盖所有 user-facing 行为(正常 + 异常 + 边界),不限数量,无则不写。
 
-覆盖所有 user-facing 行为。宁多不少。
 
 ## Implementation Decisions
 
-- [模块划分 / 接口形状 / schema 变更 / 技术选型]
-- [质询中确认的约束]
-- [架构决策 + 原因]
-
-不含具体文件路径(易过期)。例外:prototype 产出的 code snippet 如果编码了一个决策(state machine / type shape),inline 并标注来源。
+来自 grill 质询结论:模块划分 / 接口形状 / schema 变更 / 技术选型 / 架构决策 + 原因。不含文件路径(易过期)。例外:prototype 产出的 code snippet 编码了决策(state machine / type shape)时 inline 并标注来源。
 
 ## Testing Decisions
 
-- 哪些 module 需要测试
-- 测试层级(unit / integration / e2e)
-- 代码库中类似测试的参考位置
+列实际会写的测试。不写的层级不列(unit/integration/e2e 不必凑齐),只测行为不测实现。
 
 ## Out of Scope
 
-- [明确不做的事]
+明确不做的事。
 
 ## Open Questions
 
-- [仍未解决的问题,附 self-recommended 答案]
+仍未解决且影响实施的问题,附 self-recommended 答案。
 ```
 
-## 填充规则
+## 额外规则
 
-- **User Stories**:必须广,覆盖正常 + 异常 + 边界。不是 3 条走形式,是真正的行为清单。
-- **Implementation Decisions**:来自 `/grill` 质询的结论直接搬入。主动寻找 deep module 机会(小 interface + 大 behaviour)。
-- **Testing Decisions**:和用户确认哪些 module 需要测试;只测行为不测实现。
-- **Out of Scope**:grill 中明确排除的 + 方向性不做的(如有 `.out-of-scope/` 命中项,引用之)。
-- **Open Questions**:grill 中未完全确认的点,附推荐答案。
+- **Implementation Decisions**:主动寻找 deep module 机会(小 interface + 大 behaviour)
+- **Out of Scope**:`.out-of-scope/` 有命中项 → 引用

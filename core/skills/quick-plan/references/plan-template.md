@@ -62,9 +62,10 @@ quick-plan Step 3 产出的 `.claude/plans/{name}.plan.md` 模板。
 
 ## Risks
 
+不要写「代码可能有 bug」式套话。
+
 | Risk | Likelihood | Mitigation |
 | ---- | ---------- | ---------- |
-| ...  | ...        | ...        |
 ```
 
 ## 填充规则

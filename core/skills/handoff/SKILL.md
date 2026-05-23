@@ -43,6 +43,7 @@ Read `core/specs/shared/glossary.md`（确保交接文档术语一致）。
 - **不创造新信息**。只压缩和组织已有上下文
 - **如果用户传了参数**,作为下一个 session 的工作重点,tailored 文档内容
 - **推荐 skill 时给理由**。不是列清单,是说"因为 X 未完成,建议用 /Y 因为 Z"
+- **敏感信息脱敏**。API key / token / 密码 / PII / 内网完整 URL → `***REDACTED***`
 - **最终输出粘贴提示词**。文档落盘后,在对话里追加一段可直接复制到新窗口的 prompt,形如:
   ```
   接手上个 session,请先读 `~/.claude/tmp/handoff-XXX.md` 了解上下文,然后{一句话工作重点}。

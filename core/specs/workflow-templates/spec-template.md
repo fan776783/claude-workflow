@@ -16,14 +16,9 @@ role: spec
 
 ### 1.1 Problem Statement
 
-- 当前问题：
-- 业务目标：
-- 成功结果：
-
 ### 1.2 Assumptions
 
-- 技术假设：
-- 业务假设：
+
 
 ---
 
@@ -66,14 +61,9 @@ role: spec
 
 ### 4.2 Error and Edge Flows
 
-- 异常输入：
-- 空状态 / 无权限 / 外部依赖失败：
-- 降级与提示：
-
 ### 4.3 Observable Outcomes
 
-- 页面 / 接口 / 日志 / 状态变化：
-- 用户可感知反馈：
+
 
 ### 4.4 UX & UI Design（前端任务适用）
 
@@ -123,14 +113,11 @@ flowchart TD
 
 ### 5.1 Module Responsibilities
 
-- module A：
-- module B：
-- module C：
+<!-- 名字来自 glossary。 -->
 
 ### 5.2 Data Models
 
-- 核心数据对象：
-- 输入输出contract：
+
 
 ### 5.3 Technology Choices
 
@@ -138,9 +125,8 @@ flowchart TD
 
 ### 5.4 Risks and Trade-offs
 
-- 风险：
-- 权衡：
-- 不采用方案：
+<!-- 「无」/「直接做」不算,凑数 → 整段删。 -->
+
 
 ### 5.5 Depth and Seams（条件段）
 
@@ -152,22 +138,21 @@ flowchart TD
 
 #### 5.5.1 Module Depth Justification
 
-每个 module 按 `core/skills/workflow-review/references/depth-heuristics.md` H1 的 deletion test 判断，每 module 1 行：
+每个 module 按 `core/skills/workflow-review/references/depth-heuristics.md` H1 的 deletion test 判断,每 module 1 行。真实 module 才填,凑数 → 删行。
 
 | Module | 接口方法数 | Deletion test 结论 |
 |--------|-----------|--------------------|
-| <名> | <数字> | 删了 → 复杂度 `分散到 N 个 caller` / `蒸发` / `搬到另一处` |
 
-`蒸发`是危险信号——说明该 module 是 pass-through，复杂度其实应该留在 caller 处；写了`蒸发`就要回答为什么还要保留它。
+允许的 Deletion test 结论值:`分散到 N 个 caller` / `蒸发` / `搬到另一处`。`蒸发`是危险信号——module 是 pass-through,写了就要解释为什么保留。
 
 #### 5.5.2 Seam Strategy（仅当本 spec 引入新抽象接口 / port 时填；否则删除本小节）
 
+每个真实 seam 一行。只有 1 个 adapter 且无计划加第二个 → 不要写本表,改在 § 5.1 内联实现(避免 single-adapter abstraction)。
+
 | Seam（接口名） | Adapter 数量 | 理由 |
 |---------------|--------------|------|
-| <名> | 2（prod + test fake） | 真实 seam |
-| <名> | 1 | 暂为 indirection——spec 承诺的第二个 adapter 见 § X |
 
-只有 1 个 adapter 且无计划加第二个 → 该行删除、并在 § 5.1 把抽象接口改为直接内联实现（避免 single-adapter abstraction）。
+<!-- 示例(填写时删除): `OrderRepo | 2 (prod + test fake) | 真实 seam` / `PricingPort | 1 | 暂为 indirection——spec 承诺的第二个 adapter 见 § X` -->
 
 ### 5.6 System Design（后端任务适用）
 
@@ -181,12 +166,8 @@ flowchart TD
 
 #### 5.6.2 Data Flow
 
-```mermaid
-flowchart LR
-  Client --> API[API Gateway]
-  API --> Service[Business Service]
-  Service --> DB[(Database)]
-```
+<!-- 节点用真实名称,不要 Client/API/Service/DB 占位。 -->
+
 
 #### 5.6.3 Service Boundaries
 
@@ -212,9 +193,8 @@ flowchart LR
 
 ### 7.1 Test Strategy
 
-- 单元测试：
-- 集成测试：
-- E2E 测试：
+<!-- 三层金字塔不必凑齐,不写的层级不列。 -->
+
 
 ---
 
@@ -256,5 +236,5 @@ flowchart LR
 
 ### 9.4 Open Questions
 
-- 问题 1：
-- 问题 2：
+<!-- 不要把已解决的写回来凑数。 -->
+

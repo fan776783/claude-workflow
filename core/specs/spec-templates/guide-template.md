@@ -7,16 +7,14 @@
 
 ## Pre-Development Checklist
 
-修改 {{scope}} 相关代码前：
+修改 {{scope}} 相关代码前。每条 question 对应一个真实思考点,1-N 条,不要为凑数硬写:
 
 - [ ] {{question_1}} → 参考 `{{package}}/{{layer}}/{{spec_file}}.md`
-- [ ] {{question_2}} → 参考 `{{package}}/{{layer}}/{{spec_file}}.md`
-- [ ] {{question_3}}
 
 ## When to Trigger
 
-- 场景 A：{{scenario_description}}
-- 场景 B：{{scenario_description}}
+列实际触发场景,1-N 条。无明确触发场景 → 整段删,本 guide 不存在。
+
 
 ## Related Code-Specs
 

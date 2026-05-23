@@ -35,6 +35,7 @@ Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.
 ### 3. 展示候选
 
 编号列表。每个候选:
+- **Strength** — `Strong` / `Worth exploring` / `Speculative` 三选一,强迫表态不模糊
 - **Files** — 涉及文件/module
 - **Problem** — 当前架构造成什么摩擦
 - **Solution** — 改什么(plain English)
@@ -43,6 +44,10 @@ Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.
 **用 glossary 命名 domain 概念,用 architecture-language.md 命名架构概念。**
 
 如候选和现有 ADR 冲突 → 只在摩擦真实到值得重新讨论时提出,标记 _"contradicts ADR-XXXX"_。
+
+**收尾给 Top recommendation**——一段话明确「先做哪个、为什么」(locality / leverage / 摩擦真实度三选一作为理由)。不给推荐 = 没干完活。
+
+**可选可视化**:用户要 HTML / 图表 → [references/HTML-REPORT.md](references/HTML-REPORT.md)。
 
 **不提接口设计**。问用户:"要探索哪个?"
 
