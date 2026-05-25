@@ -56,6 +56,16 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 | `progress.completed` | 包含所有 plan task | 拒绝执行,提示 `仍有未完成任务:{pending_tasks}` |
 | `quality_gates` | per-task review 已有记录（execute Step 5.2 落盘） | 缺失 → fail，提示 `per-task review trace 缺失，execute Step 5.2 reviewer 未落盘 quality_gate record。请先完成 execute 阶段。` |
 
+### 0.3 读 handoff(execute→review,定向)
+
+状态校验通过后读 execute 阶段决策摘要,定向 Stage 1 重点核对面,不替代独立读源码验证(见 Step 2 独立验证规则)。
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {projectId} read-handoff --from execute
+```
+
+返回 JSON `{fresh, content?, reason?, fallback?}`。`fresh:true` → 用 handoff 里的 Decisions(实现偏离处)/ Risks(待核对跨 task contract)聚焦 Stage 1 维度;`fresh:false`(stale/missing)→ 不阻断,按 Step 2 既有 workflow 读 spec 全文 + plan task 自行对照。
+
 ## Step 1: 确定 review 范围
 
 本 skill 仅执行**全量完成 review** — 验证整个 workflow 的实现是否完整、一致且可合并。

@@ -4,7 +4,7 @@ const { spawnSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { readState, writeState, completeWorkflow } = require('./state_manager')
-const { getWorkflowStatePath, getWorkflowsDir } = require('./path_utils')
+const { getWorkflowStatePath, getWorkflowsDir, getHandoffPath } = require('./path_utils')
 const {
   cmdComplete,
   cmdContextBudget,
@@ -293,6 +293,94 @@ function cmdSetReportPath(reportPath, projectId = null, projectRoot = null, { un
     updated: true,
     review_report_path: state.review_report_path,
     previous_value: previous,
+  }
+}
+
+// set-contract-digest-path：写顶层 state.contract_digest_path，避免 controller 手编 state.json 触发 harness 全文件 system-reminder 重注入。
+function cmdSetContractDigestPath(digestPath, projectId = null, projectRoot = null, { unset = false } = {}) {
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
+  if (!unset && (!digestPath || !String(digestPath).trim())) {
+    return { error: 'contract digest path 不能为空（如需清除请加 --unset）' }
+  }
+  const previous = state.contract_digest_path || null
+  state.contract_digest_path = unset ? null : String(digestPath).trim()
+  writeState(statePath, state)
+  return {
+    updated: true,
+    contract_digest_path: state.contract_digest_path,
+    previous_value: previous,
+  }
+}
+
+// write-handoff：落 handoff/{from-phase}.md（不入 state schema，覆盖式写）。
+// 顶部 5 行 freshness header（from/to/state_updated_at/spec_file/plan_file，值取自当前 state）+ ≤20 行正文。
+function cmdWriteHandoff({ fromPhase, toPhase, contentFile, projectId = null, projectRoot = null } = {}) {
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
+  const handoffPath = getHandoffPath(state.project_id || projectId, fromPhase)
+  if (!handoffPath) return { error: `非法 from phase: ${fromPhase}（仅支持 spec|plan|execute）` }
+  if (!toPhase || !String(toPhase).trim()) return { error: 'to phase 不能为空' }
+  if (!contentFile || !String(contentFile).trim()) return { error: 'content-file 不能为空' }
+  if (!fs.existsSync(contentFile)) return { error: `content-file 不存在: ${contentFile}` }
+
+  const body = fs.readFileSync(contentFile, 'utf8').replace(/\n+$/, '')
+  const bodyLines = body.length ? body.split('\n') : []
+  if (bodyLines.length > 20) {
+    return { error: `handoff 正文 ${bodyLines.length} 行，超过 20 行上限` }
+  }
+
+  const header = [
+    `from: ${fromPhase}`,
+    `to: ${toPhase}`,
+    `state_updated_at: ${state.updated_at || ''}`,
+    `spec_file: ${state.spec_file || ''}`,
+    `plan_file: ${state.plan_file || ''}`,
+  ].join('\n')
+
+  fs.mkdirSync(path.dirname(handoffPath), { recursive: true })
+  fs.writeFileSync(handoffPath, `${header}\n\n${body}\n`)
+  return { written: true, path: handoffPath, lines: bodyLines.length }
+}
+
+// read-handoff：cmdWriteHandoff 的反向。读 handoff/{from}.md，比对 header 的
+// state_updated_at/spec_file/plan_file 与当前 state，全等 → {fresh:true, content:<正文>}，
+// 任一不符 → {fresh:false, reason:'stale', fallback:'read-full', mismatch}，文件缺失 →
+// {fresh:false, reason:'missing', fallback:'read-full'}。C-4：任何分支不抛异常、不置 exitCode（回退非错误）。
+function cmdReadHandoff({ from, projectId = null, projectRoot = null } = {}) {
+  try {
+    const [state] = resolveStateAndTasks(projectId, projectRoot)
+    const handoffPath = getHandoffPath(state ? state.project_id || projectId : projectId, from)
+    if (!handoffPath || !state || !fs.existsSync(handoffPath)) {
+      return { fresh: false, reason: 'missing', fallback: 'read-full' }
+    }
+
+    const raw = fs.readFileSync(handoffPath, 'utf8')
+    // header 与正文以首个空行分隔（cmdWriteHandoff 写出 `${header}\n\n${body}\n`）。
+    const separatorIndex = raw.indexOf('\n\n')
+    const headerBlock = separatorIndex >= 0 ? raw.slice(0, separatorIndex) : raw
+    const body = separatorIndex >= 0 ? raw.slice(separatorIndex + 2).replace(/\n+$/, '') : ''
+
+    const header = {}
+    for (const line of headerBlock.split('\n')) {
+      const colon = line.indexOf(': ')
+      if (colon < 0) continue
+      header[line.slice(0, colon)] = line.slice(colon + 2)
+    }
+
+    const expected = {
+      state_updated_at: state.updated_at || '',
+      spec_file: state.spec_file || '',
+      plan_file: state.plan_file || '',
+    }
+    const mismatch = Object.keys(expected).filter((key) => (header[key] || '') !== expected[key])
+    if (mismatch.length) {
+      return { fresh: false, reason: 'stale', fallback: 'read-full', mismatch }
+    }
+    return { fresh: true, content: body }
+  } catch {
+    // C-4：读侧任何异常一律回退读全文，绝不抛。
+    return { fresh: false, reason: 'missing', fallback: 'read-full' }
   }
 }
 
@@ -612,6 +700,27 @@ function main() {
       const reportPath = optionOrArg(args, '--path')
       result = cmdSetReportPath(reportPath, pid, projectRoot, { unset })
       if (result && result.error) process.exitCode = 1
+    } else if (command === 'set-contract-digest-path') {
+      const unset = args.includes('--unset')
+      const digestPath = optionOrArg(args, '--path')
+      result = cmdSetContractDigestPath(digestPath, pid, projectRoot, { unset })
+      if (result && result.error) process.exitCode = 1
+    } else if (command === 'write-handoff') {
+      result = cmdWriteHandoff({
+        fromPhase: option(args, '--from'),
+        toPhase: option(args, '--to'),
+        contentFile: option(args, '--content-file'),
+        projectId: pid,
+        projectRoot,
+      })
+      if (result && result.error) process.exitCode = 1
+    } else if (command === 'read-handoff') {
+      // C-4：fresh:false（stale/missing）属正常回退，绝不置 exitCode。
+      result = cmdReadHandoff({
+        from: option(args, '--from'),
+        projectId: pid,
+        projectRoot,
+      })
     } else if (command === 'context') {
       result = cmdContext(pid, projectRoot)
     } else if (command === 'task-bundle') {
@@ -689,7 +798,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...\n  plan (alias: start) - 启动规划流程\n  plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON\n  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json\n  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入\n  triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1\n  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）\n  verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）\n')
+      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...\n  plan (alias: start) - 启动规划流程\n  plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON\n  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json\n  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入\n  set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入\n  write-handoff --from <phase> --to <phase> --content-file <path> - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，不入 state schema，覆盖式写）\n  read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）\n  triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1\n  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）\n  verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）\n')
       process.exitCode = 1
       return
     }
@@ -708,6 +817,9 @@ module.exports = {
   cmdInit,
   cmdResumeFromGovernanceHalt,
   cmdSetReportPath,
+  cmdSetContractDigestPath,
+  cmdWriteHandoff,
+  cmdReadHandoff,
   cmdReviewAdvance,
   inferSpecRelativeFromPlan,
 }

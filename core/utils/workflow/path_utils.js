@@ -37,6 +37,21 @@ function getWorkflowStatePath(projectId) {
   return workflowsDir ? path.join(workflowsDir, WORKFLOW_STATE_FILENAME) : null
 }
 
+const HANDOFF_PHASES = ['spec', 'plan', 'execute']
+
+function getHandoffDir(projectId) {
+  const workflowsDir = getWorkflowsDir(projectId)
+  return workflowsDir ? path.join(workflowsDir, 'handoff') : null
+}
+
+// handoff 落 handoff/{from-phase}.md（不入 state schema，覆盖式写）。
+// fromPhase 仅允许 spec|plan|execute，非白名单或非法 projectId → null（不抛）。
+function getHandoffPath(projectId, fromPhase) {
+  if (!HANDOFF_PHASES.includes(fromPhase)) return null
+  const handoffDir = getHandoffDir(projectId)
+  return handoffDir ? path.join(handoffDir, `${fromPhase}.md`) : null
+}
+
 function isCanonicalWorkflowStatePath(statePath, projectId) {
   if (!statePath) return false
   const candidate = path.resolve(statePath)
@@ -191,6 +206,8 @@ module.exports = {
   validateProjectId,
   getWorkflowsDir,
   getWorkflowStatePath,
+  getHandoffDir,
+  getHandoffPath,
   isCanonicalWorkflowStatePath,
   assertCanonicalWorkflowStatePath,
   detectProjectIdFromRoot,

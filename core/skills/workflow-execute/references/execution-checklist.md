@@ -24,6 +24,13 @@
 
 > Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成workflow后用 `/spec-update` 捕获，由 `workflow-review` Stage 1 兜底。
 
+### 2.5 落 per-task quality_gate（reviewer PASS 后，必做）
+
+- [ ] Step 5.2 reviewer 终判 `PASS` 后，调 `node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass {taskId} --project-id {projectId} --from-task {taskId} --to-task {taskId} --requirement-ids {需求 ID} --stage1-attempts {loop 次数} --minor-count {Phase 2 minor 数} --review-mode single_reviewer --reviewer {subagent|self}`
+- [ ] **CLI 写盘，不回灌 `gate_result` 全文到 controller**——只确认返回的 `overall_passed: true`
+- [ ] 这条 record 写 `state.quality_gates[taskId]`，是 `workflow-review` 的 per-task review 审计锚点；与 `task.quality_gate` bool（commit marker）不是一回事
+- [ ] reviewer 终态 FAIL → 由 Step 5.2 loop 上限 halt 处理，本步不执行
+
 ### 3. Plan 更新（Plan Checkpoint）
 
 - [ ] 在 `plan.md` 中找到当前 task 对应块（canonical 格式为 `## Tn:` 的 WorkflowTaskV2 任务块）
@@ -43,7 +50,7 @@
 
 ### 3→4. Checkpoint 输出（强制）
 
-- [ ] 步骤 3 和 4 完成后，必须输出 checkpoint 行（格式见 SKILL.md Step 6 ③→④）
+- [ ] 步骤 3 和 4 完成后，必须输出 checkpoint 行（格式见 SKILL.md Step 6 ③ Checkpoint）
 - [ ] 步骤 3 成功但步骤 4 失败时：回滚 plan.md 中该 task 的状态标记
 
 ### 5. Journal 记录（跨 Session 记忆 — 条件执行）
@@ -79,7 +86,7 @@
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②自审查（输出证据） → ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
+Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 落 quality_gate（reviewer PASS 后）→ ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
 所有 Task 完成 → 生成实施报告 → 设 review_pending → 提示 /workflow-review
 ```
 

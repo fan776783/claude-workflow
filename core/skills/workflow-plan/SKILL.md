@@ -37,6 +37,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-root
 - `idle` → 先执行 `/workflow-spec` 启动规划(无 spec 可 approve)
 - `running` / `halted` → 用 `/workflow-execute` 恢复
 
+**读 handoff(spec→plan,上下文加载前定向)**:先读 spec 阶段决策摘要,定向后续扩写,不必整篇重读 spec。
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff --from spec
+```
+
+返回 JSON `{fresh, content?, reason?, fallback?}`。`fresh:true` → 用 handoff 里的 Decisions/Rejected/Risks + contract-digest 指针定向;`fresh:false`(stale/missing)→ 不阻断,直接按下方上下文加载读全文 spec.md。
+
 **上下文加载**:`spec.md`(唯一规范输入,文件规划与复用线索来自 §6 File Structure + §5.1 Architecture)+ spec.md § 9(若存在;讨论阶段跳过时 § 9 可能为空——此时跳过 Discussion Drift Check)。
 
 ## Step 2: Plan 扩写 + Self-Review
@@ -105,6 +113,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 ## Step 3: 🛑 规划完成
 
 状态结果:`status=planned`、`plan_file` / `current_tasks` 就绪,后续由 `workflow-execute` 接管。
+
+### 写 handoff(plan→execute)
+
+把规划阶段决策蒸馏成 handoff 交给 execute:正文 ≤20 行(CLI 自动拼 5 行 freshness header),建议 `## Decisions`(task 拆分理由/排序约束)/ `## Rejected`(被否的拆分方案)/ `## Risks`(low-confidence task / 待验证依赖)+ contract-digest 指针。不复写 plan.md 正文。
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js write-handoff --from plan --to execute --content-file <handoff 正文 .md 绝对路径>
+```
 
 **输出摘要**:直接 paste `plan-review` 返回 JSON 的 `summary` + `confidence` + `coverage` 字段,顺序:
 1. `summary.paths`(Spec/Plan 路径)

@@ -110,6 +110,14 @@ CLI 此刻会落盘:
 
 主会话只在内存中持有分析结果到 Step 4 扩写完成,不做 Write,不做 Read 回读校验。
 
+**contract-digest 落盘(强制)**:代码分析的 contract——受影响文件 + 关键签名 + 共享 store/type shape——distill 到 ~3000 字符,写 `~/.claude/workflows/{pid}/contract-digest.md`(章节:受影响文件清单 / 关键签名 / 共享 store·type shape)。落盘后调:
+
+```
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js set-contract-digest-path --path <contract-digest.md 绝对路径>
+```
+
+Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 + 一行短摘要(指向 contract-digest.md),全文留在 disk 经 hook→execute subagent 注入。语义上 contract = 既有代码复用面,区别于 spec(需求),不重复灌主会话。digest 硬截断由读时保证,写侧只给 ~3000 字符目标值。
+
 ### Code Specs Freshness Check(条件)
 
 `.claude/code-specs/` 存在时,在代码分析结尾对涉及层(frontend / backend / guides)的 Filled 文件执行过期检测:
@@ -320,6 +328,16 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 ```
 
 approve 分支 CLI 重新读取 spec.md 并生成 plan.md 骨架(含任务拆分),状态推进到 `planned`。
+
+### 写 handoff(spec→plan,approve 分支末尾)
+
+plan.md 骨架生成后,把本阶段决策蒸馏成 handoff 交给 plan 阶段:正文 ≤20 行(CLI 自动拼 5 行 freshness header),建议 `## Decisions`(关键技术选型/范围裁决)/ `## Rejected`(被拒方案+原因)/ `## Risks`(未解决依赖)+ 一行 contract-digest 指针(指向 Step 2 落盘的 contract-digest.md)。
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js write-handoff --from spec --to plan --content-file <handoff 正文 .md 绝对路径>
+```
+
+> **语义边界(三者不重复)**:contract = 既有代码复用面(受影响文件/签名/store·type shape,落 contract-digest.md,Step 2 已写);spec = 需求(behavior/scope/AC,落 spec.md);code-specs = 项目规范(convention/contract 约束,`.claude/code-specs/`)。handoff 只装本阶段决策/取舍指针,不复写 spec 正文,不复写 contract-digest——读侧按指针回溯。
 
 **输出摘要**:Spec 路径、Plan 路径、需求统计、任务数量。
 

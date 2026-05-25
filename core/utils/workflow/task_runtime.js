@@ -135,6 +135,21 @@ function getSpecContent(projectRoot, state, maxChars = 2000) {
   return specContent.length > maxChars ? specContent.slice(0, maxChars) : specContent
 }
 
+// digest 落 ~/.claude/workflows/{pid}/ = workflowDir；相对路径用 resolveRuntimeRelativePath 守卫，绝对路径直接用。
+// 读时按 maxChars 强制截断（不依赖写入方）+ sanitize（转义 </task-contract> 及 system/workflow-context 标记）。
+function getContractDigest(runtime, maxChars = 3000) {
+  const digestPathRef = runtime?.state?.contract_digest_path || ''
+  if (!digestPathRef) return ''
+  const resolved = path.isAbsolute(digestPathRef)
+    ? digestPathRef
+    : resolveRuntimeRelativePath(runtime?.workflowDir, digestPathRef)
+  if (!resolved) return ''
+  const content = readFile(resolved)
+  if (!content) return ''
+  const truncated = content.length > maxChars ? content.slice(0, maxChars) : content
+  return sanitizeContractBody(truncated)
+}
+
 function getThinkingGuides(projectRoot = process.cwd()) {
   const dirInfo = getThinkingGuidesDir(projectRoot)
   if (!dirInfo) return null
@@ -188,6 +203,13 @@ function sanitizeCodeSpecsBody(content) {
     .replace(/<\/project-code-specs>/gi, '&lt;/project-code-specs&gt;')
     .replace(/<(\/?system[^>]*)>/gi, '&lt;$1&gt;')
     .replace(/<(\/?workflow-context[^>]*)>/gi, '&lt;$1&gt;')
+}
+
+// <task-contract> 注入正文 sanitize：先转义闭合标记，再委托 sanitizeCodeSpecsBody 覆盖 system/workflow-context。
+// 不改 sanitizeCodeSpecsBody 本体（与 <project-code-specs> 注入对等）。
+function sanitizeContractBody(content) {
+  const escaped = String(content || '').replace(/<\/task-contract>/gi, '&lt;/task-contract&gt;')
+  return sanitizeCodeSpecsBody(escaped)
 }
 
 function formatCodeSpecsBlock(label, content) {
@@ -807,6 +829,8 @@ module.exports = {
   getTaskVerification,
   getTaskVerificationCommands,
   getSpecContent,
+  getContractDigest,
+  sanitizeContractBody,
   getThinkingGuides,
   getCodeSpecsContext,
   getCodeSpecsContextScoped,

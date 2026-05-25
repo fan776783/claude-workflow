@@ -193,6 +193,8 @@ function ensureStateDefaults(state) {
   if (!('halt_reason' in normalized)) normalized.halt_reason = null
   // workflow-review 落地报告的路径（顶层字符串）。set-report-path CLI 动词写入，避免 controller 手编 state.json。
   if (!('review_report_path' in normalized)) normalized.review_report_path = null
+  // contract digest 落盘路径（顶层字符串）。set-contract-digest-path CLI 动词写入，避免 controller 手编 state.json。
+  if (!('contract_digest_path' in normalized)) normalized.contract_digest_path = null
   // T8 deviation_log: 用户"接受偏离"决策的审计日志,每条带 decided_at / spec_section / requires_spec_review。
   if (!Array.isArray(normalized.deviation_log)) normalized.deviation_log = []
   if (!normalized.created_at) normalized.created_at = normalized.updated_at || isoNow()

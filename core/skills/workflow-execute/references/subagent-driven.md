@@ -82,3 +82,5 @@ controller (主会话)
 ## quality_gate 字段语义
 
 详见 ADR `.claude/code-specs/adr/0002-drop-writable-parallel.md`。摘要：字段作为 `git_commit` action 边界 marker（commit gate），仅用于 Step 7 post-execution governance 路由（quality_gate task + budget warning+ → pause-quality-gate 让用户决策）。代码质量 review 由 Step 5.2 reviewer Phase 2 默认覆盖，与本字段解耦。
+
+> ⚠️ 别混淆两个同名概念：① `task.quality_gate`（plan 里的 bool，commit 边界 marker，本节所述）；② `state.quality_gates[taskId]`（per-task review record，由 Step 6 ② reviewer PASS 后经 `quality_review.js pass` 落盘）。后者是 `workflow-review` 的 per-task 审计锚点，落盘是 CLI 写文件、不回灌 controller 上下文，与 ADR 0002 "reviewer 输出不污染 controller" 不冲突。

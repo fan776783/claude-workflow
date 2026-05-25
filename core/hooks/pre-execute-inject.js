@@ -12,6 +12,7 @@ const {
   getCurrentTask,
   getTaskVerificationCommands,
   getSpecContent,
+  getContractDigest,
   getThinkingGuides,
   getCodeSpecsContextScoped,
   resolveActiveCodeSpecsScope,
@@ -167,6 +168,13 @@ function buildTaskContext(runtime, kind, role) {
     }
   }
 
+  // <task-contract>：只发给 implement / check（不发 research / main session）；digest 由 getContractDigest 读时截断 + sanitize。
+  // 排在 <spec-context> 之后、<project-code-specs> 之前；与既有块并存（augment）。
+  if (kind === 'implement' || kind === 'check') {
+    const contractDigest = getContractDigest(runtime)
+    if (contractDigest) parts.push(`<task-contract>\n${contractDigest}\n</task-contract>`)
+  }
+
   const scope = resolveActiveCodeSpecsScope(runtime)
   const codeSpecsBlock = renderCodeSpecsBlock({ projectRoot, scope, kind, role })
   if (codeSpecsBlock) parts.push(codeSpecsBlock)
@@ -319,9 +327,14 @@ function main() {
   process.stdout.write(JSON.stringify(result))
 }
 
-try {
-  main()
-} catch (error) {
-  process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] Hook 内部异常，治理阻断: ${error instanceof Error ? error.message : String(error)}`)))
-  process.exitCode = 0
+// 仅作为 hook 直跑入口时执行 main（读 stdin）；被 require 时只导出纯函数供测试，避免阻塞在 fd 0。
+if (require.main === module) {
+  try {
+    main()
+  } catch (error) {
+    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] Hook 内部异常，治理阻断: ${error instanceof Error ? error.message : String(error)}`)))
+    process.exitCode = 0
+  }
 }
+
+module.exports = { buildTaskContext, classifyTaskOrigin, classifySubagentRole }
