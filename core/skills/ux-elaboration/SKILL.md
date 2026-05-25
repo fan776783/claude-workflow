@@ -298,4 +298,3 @@ type DesignSource =
 |-------|------|
 | `workflow-spec` | 上游调用方；Step 5 确认需要前端深化后委托本 skill |
 | `figma-ui` | 下游消费方；执行阶段按 § 4.4.3 布局锚点做像素级还原 |
-| `system-design` | 平行 skill；后端设计深化独立执行 |

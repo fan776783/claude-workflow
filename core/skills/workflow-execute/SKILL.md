@@ -373,8 +373,10 @@ CLI 自动标记 `skipped` + 更新 plan.md + state.json + 找下一任务。
 3. 输出:
 ```
 🛑 执行完成。状态已设为 review_pending。
-请执行 /workflow-review 进行全量完成审查。
-审查通过后工作流将自动标记为 completed。
+
+下一步(回复编号继续,或 /clear 后敲对应命令):
+1. /workflow-review — 全量完成审查(通过后自动 completed)[上下文大时先 /clear:state + report 已落盘,恢复无损失]
+2. /collaborating-with-codex --review <report> — 先要 Codex 二次意见(仅 spec.metadata.risk_signals 非空时建议)
 ```
 
 **实施报告 checkpoint**(必须输出):

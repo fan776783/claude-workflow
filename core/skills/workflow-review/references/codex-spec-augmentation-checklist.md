@@ -9,8 +9,8 @@
 | risk_signal | 触发原因 | Codex 关注 |
 |-------------|----------|-----------|
 | `security` | 涉及认证 / 授权 / 加密 / 敏感数据 | spec §1 安全成功标准是否兑现；跨 task 安全contract是否一致（token shape / scope 命名 / 加密算法） |
-| `backend_heavy` | DB schema / API contract / 服务边界 | API contract前后一致；DB schema 与 spec §5.6 一致；服务边界未越权 |
-| `data` | 数据迁移 / 持久化 schema delta / 关键查询 | 数据流符合 spec §5.6；迁移可回滚；关键查询性能特性符合 spec |
+| `backend_heavy` | DB schema / API contract / 服务边界 | API contract前后一致；DB schema 与 spec §5 Architecture 一致；服务边界未越权 |
+| `data` | 数据迁移 / 持久化 schema delta / 关键查询 | 数据流符合 spec §5 Architecture；迁移可回滚；关键查询性能特性符合 spec |
 
 未命中 → workflow-review 不启动 Codex，仅做 Step 3.1 终态卫生。
 

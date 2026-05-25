@@ -261,12 +261,18 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-id {
 
 CLI 不可用时手动写入须同时设置 `status` + `completed_at`，标注 `(manual advance, CLI unavailable)`。
 
-**输出模板**:
-- 通过 → `✅ 审查通过，workflow 已 completed。可 /workflow-archive 归档。`
-- 失败 → `❌ 状态回退为 running。失败任务：{failed_tasks}。请 /workflow-execute --retry。`
-- 预算耗尽(4/4) → `🛑 审查预算耗尽。阻塞：{列表}。建议手动修复后重新 /workflow-review。`
+**输出模板**(末尾下一步统一编号,可回复数字继续):
 
-通过路径且发现可沉淀模式时附 `💡 建议 /spec-update 沉淀到 .claude/code-specs/`。
+通过 →
+```
+✅ 审查通过,workflow 已 completed。
+下一步(回复编号继续,或直接敲命令):
+1. /workflow-archive — 归档
+2. /spec-update — 沉淀 code-spec 到 .claude/code-specs/(仅发现可沉淀模式时)
+```
+
+- 失败 → `❌ 状态回退为 running。失败任务：{failed_tasks}。下一步 → 1. /workflow-execute --retry 重试失败任务`
+- 预算耗尽(4/4) → `🛑 审查预算耗尽。阻塞：{列表}。下一步 → 1. 手动修复后重新 /workflow-review`
 
 ## Red Flags
 

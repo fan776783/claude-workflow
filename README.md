@@ -26,7 +26,7 @@
 - **Workflow 主线**（7 个专项 skills）：从需求推进到可执行任务，支持中断恢复、增量变更与显式完成审查；其中 `/workflow-spec` 是新需求入口，`/workflow-plan` 仅在已审批 Spec 上扩写 Plan
 - **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
 
-此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/system-design`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs`、`/design-plan`、`/plan-archive` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
+此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs`、`/design-plan`、`/plan-archive` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
 
 **项目级三阶段研发流程**(独立于 workflow 状态机的两个手动 skill):
 
@@ -53,7 +53,6 @@
 - 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
 - 当前会话审查：`/diff-review --session`（只审本模型在本会话里改过的文件，avoid 扫入上游或他人改动；合并自旧 `/session-review`）
 - 前端 UX 设计深化（§4.4）：`/ux-elaboration`
-- 后端系统设计深化（§5.6）：`/system-design`
 - Figma 设计稿读取 / 提取：`/figma-data`
 - Figma 设计稿到代码：`/figma-ui`
 - 钉钉文档 / AI 表格读写：`/alidocs`
@@ -188,7 +187,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 
 | 命令 | 说明 |
 |------|------|
-| `/workflow-spec` | 新需求入口：代码分析、需求讨论、UX/系统设计深化路由、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan 骨架进入 `planned` |
+| `/workflow-spec` | 新需求入口：代码分析、需求讨论、UX 设计深化路由、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan 骨架进入 `planned` |
 | `/workflow-plan` | 在已审批 Spec 基础上对 Plan 骨架做扩写（只在 `planned` 状态下，不改变状态机） |
 | `/workflow-execute` | 治理决策、任务执行、验证与状态推进；所有 task 完成后状态设为 `review_pending` |
 | `/workflow-review` | 全量完成审查（execute 完成后独立执行），审查通过后标记 `completed` |
@@ -210,7 +209,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 - 启动规划流程，生成 `spec.md` 并停在 `spec_review`
 - `spec-review`：记录用户审查结论，通过后由 CLI 生成 `plan.md` 骨架，状态转 `planned`
 - Step 1 读取 `.claude/code-specs/` 作为 advisory constraints；Spec 模板新增 `3.x Project Code Specs Constraints` 小节承载
-- Step 5 评估是否需要委托 `/ux-elaboration`（§4.4 Layout Anchors）或 `/system-design`（§5.6 API Contract / Data Flow）做设计深化
+- Step 5 评估是否需要委托 `/ux-elaboration`（§4.4 Layout Anchors）做前端设计深化
 - Codex Spec Review（条件，advisory）在 Spec 生成后可选触发
 
 #### `workflow-plan`（Plan 扩写 Skill）
@@ -587,7 +586,6 @@ flowchart TD
 | `handoff` | 把当前会话压缩成交接文档，给下一个 agent / session 接力 |
 | `diff-review` | Impact-aware Quick / Deep 模式代码审查;支持 `--session` 覆盖当前会话改动（合并自旧 `session-review`） |
 | `ux-elaboration` | 前端 UX 设计深化 — User Flow + Page Hierarchy + Layout Anchors → spec §4.4 |
-| `system-design` | 后端系统设计深化 — API Contract + Data Flow + Service Boundaries → spec §5.6 |
 | `figma-data` | Figma MCP 数据获取 + 资源分诊 → Design Package（不写代码） |
 | `figma-ui` | 消费 Design Package → Web 代码还原与验证 |
 | `research` | 统一研究入口 - 代码库 / 生态 / 外部引文（合并自 `search-first` + `deep-research`） |

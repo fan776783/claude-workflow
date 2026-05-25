@@ -183,16 +183,18 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **扩写硬约束**:
 - 不得改动模板章节标题或锚点;只在正文内 Edit 扩展
-- **§ 4.4 UX & UI Design 和 § 5.6 System Design 不在本 Step 填写**,留给 Step 5 设计深化
+- **§ 4.4 UX & UI Design 不在本 Step 填写**,留给 Step 5 前端设计深化
 
 **输入**:需求(PRD 或内联)+ Step 2 代码分析结论(主会话内存)+ `.claude/code-specs/` 相关规范文件。
 **输出**:在 `<project-root>/docs/workflows/specs/{task-name}-{MMDD}.md`(默认)骨架上 Edit 扩写。legacy 模式落点 `~/.claude/workflows/{pid}/specs/`。
 
-**覆盖范围**:§1 Context / §2 Scope / §3 Constraints / §4.1-4.3 User-facing Behavior / §5.1-5.5 Architecture / §6 File Structure / §7 Acceptance Criteria / §8 Implementation Slices / §9 Open Questions。§4.4 与 §5.6 由 Step 5 路由。
+**覆盖范围**:§1 Context / §2 Scope / §3 Constraints / §4.1-4.3 User-facing Behavior / §5.1-5.5 Architecture / §6 File Structure / §7 Acceptance Criteria / §8 Implementation Slices / §9 Open Questions。§4.4 由 Step 5 路由。
 
 ### Self-Review(生成后立即执行)
 
 发现问题直接修复,无需重审。必须输出执行摘要:覆盖率 + placeholder 扫描 + 一致性结果。
+
+> **上下文纪律**:spec 正文在 Step 4 Edit 时已进主上下文,self-review 与 Step 6 对照**不再 Read spec.md 全文**;需复查具体章节按 anchor / offset 局部读,省主上下文。
 
 **1. PRD 原文回溯扫描** — 将 PRD 原文按标题层级 + 列表项拆为语义段落,逐段检查 Spec 是否覆盖。重点关注:
 - 包含**精确值**的段落(数字、公式、枚举、"最多N个")— 数字必须原样保留
@@ -210,7 +212,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 **5. 首次使用体验** — 涉及工作区/初始化/应用安装等概念时,是否有首次使用引导描述。
 
-> § 4.4 / § 5.6 的一致性检查由 `/ux-elaboration` 和 `/system-design` 各自内部的 Self-Review 覆盖（仅当用户在 Step 6 选择执行设计深化时触发）,本 Step 不涉及。
+> § 4.4 的一致性检查由 `/ux-elaboration` 内部的 Self-Review 覆盖（仅当用户在 Step 6 选择执行前端设计深化时触发）,本 Step 不涉及。
 > 覆盖率即时计算(将 PRD 原文按语义段落逐段比对 Spec 内容),结果直接展示给用户,不持久化为独立文件。
 
 ## Step 5: 设计深化路由判断(不执行)
@@ -220,19 +222,17 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 本 Step 仅做路由判断并输出推荐，**不执行深化 skill**。实际执行推迟到 Step 6 由用户决策。
 
 **跳过条件**(直接进入 Step 6，不输出推荐):
-- 纯 CLI / 工具类项目（`ux_gate_required=false` 且 § 5.1 无后端服务 module）
-- spec 定义 ≤2 个 module 且 ≤3 个 page/endpoint（在 § 5.1 inline 架构决策即可）
+- `ux_gate_required=false`(纯 CLI / 工具类 / 无前端交付)
+- spec 定义 ≤3 个 page（在 § 4.1-4.3 inline 描述即可）
 
 **路由规则**:
 
 | 信号 | 推荐 |
 |------|------|
-| `ux_gate_required=true` 且 § 5.1 含 API/Service/DB 层 | 推荐前端 + 后端设计深化 |
-| `ux_gate_required=true` 且 § 5.1 无后端服务 module | 推荐前端设计深化 |
-| `ux_gate_required=false` 且 § 5.1 含 API/Service/DB 层 | 推荐后端设计深化 |
-| 以上均不满足 | skip → 直接进入 Step 6 |
+| `ux_gate_required=true` | 推荐前端设计深化(`/ux-elaboration` → §4.4) |
+| `ux_gate_required=false` | skip → 直接进入 Step 6 |
 
-**输出**: 一行路由声明（如 `→ 推荐执行: 前端 + 后端设计深化`），随 Step 6 审批一并展示。
+**输出**: 一行路由声明（如 `→ 推荐执行: 前端设计深化`），随 Step 6 审批一并展示。
 
 > 用户需要 Codex review spec → 直接调 `/collaborating-with-codex --review`。
 
@@ -241,7 +241,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 **Phase 编号**:2 — Human Gate
 **治理模式**:`human_gate` — 用户主权确认。
 
-**不调 AskUserQuestion**(同 `/quick-plan`、`/diagnose`、`/collaborating-with-codex`)，让用户自由回复后归一化(审批轴 approve/revise/split × 路由轴 plan-only/前端/后端/both,modal 装不下)。
+**不调 AskUserQuestion**(同 `/quick-plan`、`/diagnose`、`/collaborating-with-codex`)，让用户自由回复后归一化(审批轴 approve/revise/split × 路由轴 plan-only/前端,modal 装不下)。
 
 **展示内容**(输出后等用户回复,**不弹 modal**):
 
@@ -250,11 +250,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 ```
 📘 Spec 已生成 → <spec.md 绝对路径>
 PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
-设计深化推荐: <前端 | 后端 | both | 无需> (尚未执行)
+设计深化推荐: <前端 | 无需> (尚未执行)
 
 请打开 spec.md 与需求原文逐段对照后回复:
 - 通过 → 「生成 Plan」/「OK」
-- 通过 + 先做设计深化 → 「先做前端深化」/「先做后端深化」/「都做」
+- 通过 + 先做设计深化 → 「先做前端深化」
 - 改 Spec → 直接说改哪里(如「§5.2 拆细」)
 - 拆范围 → 「拆」
 
@@ -280,7 +280,7 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 | "OK" / "通过" / "生成 Plan" | approve 分支,canonical `Spec 正确，生成 Plan` |
 | "改 §X" / "再扩一下" / "Spec 要改" | revise 分支,canonical `需要修改 Spec`(细节缺失走 `缺少需求细节`) |
 | "拆" / "范围太大" / "拆开" | split 分支,canonical `需要拆分范围` |
-| "先做前端深化" / "先做后端深化" / "都做" | elaborate-then-approve,委托对应 skill 后回到 Step 6 |
+| "先做前端深化" | elaborate-then-approve,委托 `/ux-elaboration` 后回到 Step 6 |
 | 直接调用 `/workflow-plan`(无文字回复) | **隐式 approve**:先输出一行 "未见显式回复,按 `/workflow-plan` 调用视为通过 spec 审批",再走 approve 分支 |
 
 **模糊回复**(如"看着办" / "你决定")→ 不归一化,反问用户具体走哪条。
@@ -289,32 +289,28 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 
 ### 设计深化分支(仅 elaborate-then-approve)
 
-| 用户选择 | 委托 |
-|---------|------|
-| 前端深化 | 调用 `/ux-elaboration` skill |
-| 后端深化 | 调用 `/system-design` skill |
-| 都做 | 先 `/ux-elaboration`,再 `/system-design` |
+用户选「先做前端深化」→ 调用 `/ux-elaboration` skill。
 
-> 委托时**不向 ux-elaboration / system-design 传设计源参数**——PRD 中的图片/URL 不一定是布局参考,需要人在深化 skill 内部显式策展。
+> 委托时**不向 ux-elaboration 传设计源参数**——PRD 中的图片/URL 不一定是布局参考,需要人在深化 skill 内部显式策展。
 
 委托完成后,深化 Self-Review 由各独立 skill 内部执行。执行完毕**重新输出 Step 6 指针**,等用户再次回复 → 进入 approve / revise / split 分支。
 
 二次输出模板(沿用首轮简化形式,标题与提示行替换):
 
 ```
-📘 Spec 第二轮审批 — 深化已并入 §X.X → <spec.md 绝对路径>
+📘 Spec 第二轮审批 — 深化已并入 §4.4 → <spec.md 绝对路径>
 PRD 覆盖率: <…>
 (首轮章节未变更,完整版直接读 spec.md;若不便切文件回复「展开摘要」获取本轮新增/修改章节摘要)
 
-请打开 spec.md §X.X 与首轮版本对照后回复:
+请打开 spec.md §4.4 与首轮版本对照后回复:
 - 通过 → 「生成 Plan」/「OK」
-- 改 §X.X → 直接说改哪里
+- 改 §4.4 → 直接说改哪里
 - 拆范围 → 「拆」
 
-> 此轮已 priming;若需再做另一类深化(前端/后端)→ 直接说;若需像素级 UI 还原 → 走 /figma-ui(执行期)
+> 此轮已 priming;若需像素级 UI 还原 → 走 /figma-ui(执行期)
 ```
 
-X.X 视深化类型(前端=4.4,后端=5.6,both=4.4+5.6)。「展开摘要」兜底**只展示本轮新增/修改章节**,首轮已展示的折叠为一行 "未变更"。
+深化章节为 §4.4。「展开摘要」兜底**只展示本轮新增/修改章节**,首轮已展示的折叠为一行 "未变更"。
 
 ### CLI 调用(approve / revise / split 时)
 
@@ -327,6 +323,6 @@ approve 分支 CLI 重新读取 spec.md 并生成 plan.md 骨架(含任务拆分
 
 **输出摘要**:Spec 路径、Plan 路径、需求统计、任务数量。
 
-**下一步提示**:执行 `/workflow-plan` 扩写详细实施计划。
-
-**phase 边界**:approve 生成 plan 骨架后,若当前上下文已较大,建议先 `/clear` 再 `/workflow-plan`。plan 扩写从 disk 重读 spec.md,讨论结论已落 §9,清理上下文无损失。
+**下一步**(回复编号继续,或 `/clear` 后敲对应命令):
+1. `/workflow-plan` — 扩写详细实施计划［上下文大时先 `/clear`:plan 从 disk 重读 spec.md、讨论结论已落 §9,清理无损失］
+2. `/collaborating-with-codex --review specs/<filename>.md` — 让 Codex 先审一遍 Spec

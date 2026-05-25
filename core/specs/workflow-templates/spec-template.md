@@ -154,31 +154,6 @@ flowchart TD
 
 <!-- 示例(填写时删除): `OrderRepo | 2 (prod + test fake) | 真实 seam` / `PricingPort | 1 | 暂为 indirection——spec 承诺的第二个 adapter 见 § X` -->
 
-### 5.6 System Design（后端任务适用）
-
-<!-- 前端/CLI 项目删除本节。由 Step 4.D 设计深化阶段填写 -->
-
-#### 5.6.1 API Contract Summary
-
-| 端点 | 方法 | 请求体要点 | 响应体要点 | 鉴权 |
-|------|------|-----------|-----------|------|
-| | | | | |
-
-#### 5.6.2 Data Flow
-
-<!-- 节点用真实名称,不要 Client/API/Service/DB 占位。 -->
-
-
-#### 5.6.3 Service Boundaries
-
-| 服务/module | 职责 | 通信方式 | 关键约束 |
-|----------|------|---------|----------|
-| | | | |
-
-#### 5.6.4 Data Migration（条件）
-
-<!-- 仅当涉及 schema migration 时填写。无 schema migration 时删除本节 -->
-
 ---
 
 ## 6. File Structure

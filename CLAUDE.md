@@ -64,7 +64,6 @@ Notes:
     │   ├── dispatching-parallel-agents/ # Parallel dispatch for independent domains
     │   ├── spec-*/          # Code-specs compliance engine (bootstrap/review/update)
     │   ├── ux-elaboration/  # Frontend UX design elaboration (§4.4)
-    │   ├── system-design/   # Backend system design elaboration (§5.6)
     │   ├── figma-data/      # Figma MCP data acquisition + asset triage
     │   ├── figma-ui/        # Figma to web code (consumes figma-data)
     │   ├── bk/              # MCP wrapper: 蓝鲸 CTeam / vTeam CLI
@@ -117,7 +116,7 @@ Skills are the portable unit shipped to each AI tool. The authoritative list liv
 - **Workflow state machine** (`workflow-spec`, `workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. `workflow-spec` handles requirement analysis through spec approval; `workflow-plan` handles plan generation from approved specs. State lives under `~/.claude/workflows/{project-hash}/`.
 - **Code Specs** (`spec-bootstrap`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
 - **Lightweight planning & review** — `quick-plan` (migrated to skill from command), `diff-review` (supports `--session` mode; replaces old `session-review`), `fix-bug`, `bug-batch`, `diagnose`.
-- **Design elaboration** — `ux-elaboration` (前端设计深化: User Flow + Page Hierarchy + Layout Anchors → §4.4), `system-design` (后端系统设计: API Contract + Data Flow + Service Boundaries → §5.6). 从 `workflow-spec` Step 5 剥离为独立原子 skill，可被 workflow-spec 委托调用或用户独立触发。
+- **Design elaboration** — `ux-elaboration` (前端设计深化: User Flow + Page Hierarchy + Layout Anchors → §4.4). 从 `workflow-spec` Step 5 剥离为独立原子 skill，可被 workflow-spec 委托调用或用户独立触发。
 - **Alignment & architecture** — `grill` (interview-until-alignment, replaces `enhance`), `zoom-out` (7-line abstraction escape hatch), `tdd` (red-green-refactor discipline), `write-a-skill` (meta-skill for creating new skills).
 - **Dispatch & research** — `dispatching-parallel-agents`, `research` (merged `search-first` + `deep-research`), `collaborating-with-codex`.
 - **Figma pipeline** — `figma-data` (MCP 数据获取 + 资源分诊 → Design Package), `figma-ui` (消费 Design Package → Web 代码还原 + 验证)。`ux-elaboration` 的布局提取也调用 `figma-data`。

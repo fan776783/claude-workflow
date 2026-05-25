@@ -114,6 +114,6 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 5. `summary.interaction_legend`
 6. `lints` 摘要(warnings 非空时列出)
 
-**下一步**(给用户两选一,不只列一条):
-- 直接实施 → `/workflow-execute`(默认每 task 起 fresh implementer subagent + spec/quality 两段 review,task 之间顺序执行)
-- Plan 想让 Codex 审一遍 → `/collaborating-with-codex --review plans/<filename>.md`
+**下一步**(回复编号继续,或 `/clear` 后敲对应命令):
+1. `/workflow-execute` — 实施(默认每 task 起 fresh implementer subagent + spec/quality 两段 review,task 间顺序执行)［上下文大时先 `/clear`:execute 从 state + plan.md 恢复,清理无损失］
+2. `/collaborating-with-codex --review plans/<filename>.md` — 让 Codex 先审一遍 Plan
