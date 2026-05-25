@@ -190,11 +190,23 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
   const linkRegex = /\[[^\]]+\]\(([^)]+\.md)\)/g;
   for (const file of markdownFiles) {
     const content = await fs.readFile(file, 'utf8');
-    for (const match of content.matchAll(linkRegex)) {
+    // 跳过 fenced code block 内的链接 — 模板示例里常含 `{slug}` 等占位符，不是真实路径。
+    const lines = content.split('\n');
+    let inFence = false;
+    const scannableLines = lines.map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return '';
+      }
+      return inFence ? '' : line;
+    });
+    const scannable = scannableLines.join('\n');
+    for (const match of scannable.matchAll(linkRegex)) {
       const target = match[1];
       if (!target || target.startsWith('http://') || target.startsWith('https://') || target.startsWith('#')) {
         continue;
       }
+      if (target.includes('{') || target.includes('<')) continue;
       const resolved = path.resolve(path.dirname(file), target);
       if (!(await fs.pathExists(resolved))) {
         errors.push(`markdown 相对链接失效: ${path.relative(repoRoot, file)} -> ${target}`);
