@@ -26,7 +26,14 @@
 - **Workflow 主线**（7 个专项 skills）：从需求推进到可执行任务，支持中断恢复、增量变更与显式完成审查；其中 `/workflow-spec` 是新需求入口，`/workflow-plan` 仅在已审批 Spec 上扩写 Plan
 - **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
 
-此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/system-design`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
+此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/system-design`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs`、`/design-plan`、`/plan-archive` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
+
+**项目级三阶段研发流程**(独立于 workflow 状态机的两个手动 skill):
+
+- `/design-plan <需求>` — 阶段一,跨服务复杂需求的技术方案设计;skill 读项目级 docs/(架构 / 术语 / 接口契约 / 硬约束),起草 8 章节方案(接口 / 数据库 / 时序图 / 微服务变更清单 / 风险 / ADR 草稿),Hard Stop 等评审,落盘到 `docs/designs/{slug}-{YYYYMMDD}.md`
+- `/plan-archive --design <path> --since <commit>` — 阶段三,实施完成后回写;skill 跨服务跑 git log/diff,对照 `AGENTS.md § Project Doc Update Triggers` 表生成回写计划,Hard Stop 后写入 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / 项目总架构文档,必要时新建 ADR
+
+适用场景:跨 ≥ 2 服务 / 含 DDL / 涉及对外接口或 Agent / 写权威翻转的需求。简单需求继续走 `/workflow-spec`。
 
 优先使用 `workflow` 的场景：
 
@@ -60,6 +67,8 @@
 - 轻量规划：`/quick-plan`（从 command 迁 skill；复杂场景仍用 `/workflow-spec`）
 - 沉淀规范：`/spec-update` / `/spec-review`
 - 新建 / 审查 skill：`/write-a-skill`
+- 项目级技术方案设计(三阶段流程·阶段一)：`/design-plan`
+- 项目级架构文档回写(三阶段流程·阶段三)：`/plan-archive`
 
 优先使用 `/team` 的场景（Claude Code 原生 Agent Teams）：
 
@@ -592,6 +601,8 @@ flowchart TD
 | `write-a-skill` | Meta-skill - 新建 / 审查 SKILL.md 尺寸与描述 |
 | `collaborating-with-codex` | Codex App Server 运行时委派编码 / 调试 / 审查；v6.3.0 起支持 `--model` / `--effort` Code Tasks 模式、per-job log（`Monitor "tail -F"` push 观察）、`--result <id>` 终态聚合（含 touchedFiles[] / fileChanges[] / commandExecutions[]）；v6.4.3 起新增 `--oracle-review` 高风险只读 oracle 模式，配合 risk-signal 路由（详见 `core/specs/shared/codex-routing.md`）；v6.4.4 起被 `workflow-execute` / `diagnose` / `tdd` / `bug-batch` 在 `stuck_or_looping` 信号触发时 controller 统一调用，read-only POV 回灌实现者 |
 | `bk` | 蓝鲸项目管理 CLI（看待办、查 issue、流转状态、评论） |
+| `design-plan` | 项目级三阶段研发流程·阶段一:跨服务复杂需求 → 8 章节技术方案文档(接口 / 数据库 / 时序图 / 微服务变更清单 / Hard Coding Rules 自检 / ADR 草稿),Hard Stop 评审后落盘到 `docs/designs/{slug}-{YYYYMMDD}.md`。手动触发,典型用户技术主管 / 资深研发,**不进入** workflow 状态机 |
+| `plan-archive` | 项目级三阶段研发流程·阶段三:实施完成后跨服务跑 git log/diff,对照触发表把改动事实回写到 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / 项目总架构文档,必要时新建 ADR;Hard Stop 预览每文件 diff + budget 自检后逐一落盘。手动触发,**不进入** workflow 状态机 |
 
 ### 5.4 MCP 替代 Skills（CLI / MCP-gw 桥接）
 
@@ -747,6 +758,8 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
 - `core/skills/_shared/mcp-baseline.mjs`（MCP wrapper skill 跨 skill 共享模块：tool snapshot / shape 解析 / 错误归一化）
 - `.claude/code-specs/adr/0001-mcp-wrapper-skill-drift-resilience.md`（MCP wrapper drift-resilience ADR）
+- `core/skills/design-plan/SKILL.md` + `references/design-plan-template.md` + `references/hard-coding-rules-checklist.md`(三阶段研发流程·阶段一)
+- `core/skills/plan-archive/SKILL.md` + `references/archive-checklist.md`(三阶段研发流程·阶段三)
 
 ### 8.2 开发与发布
 
