@@ -33,29 +33,53 @@ Read `core/specs/shared/glossary.md`（让产出使用 canonical 术语）。pro
 
 ### project-config.json 结构
 
+只写 workflow 实际消费的字段。下列结构经部署源 v6.4.2 审计（代码按字段读 `.js` + session-start hook 注入上下文，二者都只取特定字段——hook 不 dump 整个 config），**未被任何 skill/hook/util 引用的块一律不生成**，否则 delta 后回潮成噪音。
+
+**实测有消费方（生成）**：`project`(id/name/type)、`project.bkProjectId`(bk skill)、`tech`(frameworks/packageManager/buildTool/versions…，project_setup 整体展开 + session-start 读 frameworks)、`structure`、`apps`、`codeSpecs`、`decisions`、`workflow.enableBKMCP`。
+
+**0 消费方（不要生成）**：`conventions`(commitFormat/codeStyle/pathAlias/preferredLibraries/coverageTarget…)、`customPaths`、`microFrontend`、`observability`、`workflowDefaults`、`backend`、`domain`、`project.ownerTeam/rootDir/description`、`tech.stateManagement/styling`、`metadata.autoDetected`。这些信息按需写进 `CLAUDE.md`（人读规范）或 `ui-config.json`（figma 用 tailwind 版本/token），不进 project-config。
+
+其余生成约束：
+- ❌ 不写 `$comment` / `note` 散文——状态用结构化字段（`status:"archived"` 而非 `note:"已归档"`）
+- ❌ `apps` 只列**活跃**应用明细；归档/辅助应用仅在 `structure.archivedApps` / `auxiliaryApps` 列名，不复制 port/router/entry
+- ❌ 不写空值占位（`""` / null 一律省略）；空数组仅 `decisions` 这类已知追加目标保留
+- ❌ `structure.testDir` 仅在真实存在测试目录时写，不写通用默认 `src/__tests__`
+
 ```json
 {
-  "project": { "id": "a1b2c3d4e5f6", "name": "...", "type": "monorepo|single", "bkProjectId": "v10125" },
-  "tech": { "packageManager": "pnpm", "buildTool": "vite", "frameworks": ["vue"] },
-  "workflow": { "enableBKMCP": true }
+  "project": { "id": "{name}-{12hash}", "name": "...", "type": "monorepo|single", "bkProjectId": "v10125" },
+  "structure": { "apps": ["..."], "archivedApps": [], "auxiliaryApps": [], "packages": "packages/*", "sharedLibs": ["..."] },
+  "tech": { "packageManager": "...", "buildTool": "...", "frameworks": ["..."], "versions": {}, "i18n": {}, "router": {}, "testing": {} },
+  "apps": { "<activeApp>": { "path": "...", "framework": "...", "port": 0, "entry": "...", "status": "active", "isMainApp": true } },
+  "decisions": [],
+  "workflow": { "enableBKMCP": true },
+  "metadata": { "version": "...", "generatedAt": "<ISO>", "lastUpdated": "<ISO>" },
+  "codeSpecs": { "bootstrapStatus": "...", "packages": {} }
 }
 ```
+
+> 审计基准 v6.4.2。**若后续 workflow 版本新增消费方**（真读 conventions/customPaths 等），在此把对应块补回。
+> Tailwind 版本不进 project-config（无消费方），写入 `ui-config.json` 的 `tailwindVersion`（figma-ui 读取），见下。
+> 空项目 / `--init` 快速路径只写 `project` / `tech` / `workflow` 三块（见 Part 0），不展开上述完整结构。
 
 ### ui-config.json 结构
 
 ```json
 {
-  "assetsDir": "public/images",
   "cssFramework": "tailwind",
-  "designTokensFile": "tailwind.config.ts",
-  "designTokens": { "colors": {...}, "spacing": {...}, "typography": {...} },
-  "componentsDir": "src/components",
-  "existingComponents": ["Button", "Modal", "Table", "Form"],
+  "tailwindVersion": "<TAILWIND_VERSION>",
+  "configFile": "<TAILWIND_CONFIG>",
+  "designTokensFile": "<@theme 所在 CSS 或 var 文件>",
+  "designTokens": { "colors": {}, "spacing": {}, "typography": {} },
+  "componentsDir": {},
+  "existingComponents": {},
   "generatedAt": "<ISO>"
 }
 ```
 
-UI 配置delta频率高于项目元数据，独立文件供 figma-ui 等 UI skill 专用。
+⚠️ **Tailwind v4 无 `tailwind.config.*`**：`configFile` 指 detect 脚本的 `TAILWIND_CONFIG`（含 `@import "tailwindcss"` 的 CSS 入口，如 `assets/css/main.css`），**不要**写已删除的 `tailwind.config.cjs`；`tailwindVersion` 用 `TAILWIND_VERSION`。`stylePatterns.preprocessor` 按实际默认写（v4 SFC 默认 plain CSS 时写 `"css"` 而非 `"scss"`）。
+
+UI 配置 delta 频率高于项目元数据，独立文件供 figma-ui 等 UI skill 专用。
 
 ## 执行workflow
 

@@ -2,6 +2,8 @@
 
 将语义分析结果按此模板写入 `.claude/repo-context.md`。
 
+> **去重原则**：repo-context.md 只写**结构性事实**（目录树、入口流程、路由/store/API/组件清单、模块边界）。凡已写在项目 `CLAUDE.md` 的**操作类内容**（开发命令、Git 提交规范、i18n 用法示例、全局模态框 API 用法等）一律不复制，改写为「见 CLAUDE.md X 章节」指针——两份各自维护会漂移。生成前先扫一遍项目根 `CLAUDE.md` 已覆盖什么。
+
 ---
 
 ```markdown
@@ -144,22 +146,11 @@
 
 ## 9. 开发工作流
 
-### 9.1 常用命令
+> 完整命令清单、Git 提交规范见项目 `CLAUDE.md`，此处不复制（见顶部去重原则）。只补 CLAUDE.md 未覆盖的结构性事实：
 
-```bash
-# 开发模式
-{{DEV_COMMAND}}
+### 9.1 环境变量文件
 
-# 构建
-{{BUILD_COMMAND}}
-
-# 测试
-{{TEST_COMMAND}}
-```
-
-### 9.2 环境变量
-
-**配置文件**：`.env.local`（参考 `.env.example`）
+{{.env 文件清单，如 .env.testing-cn / .env.production-ai；无则写「参考 .env.example」}}
 
 ---
 

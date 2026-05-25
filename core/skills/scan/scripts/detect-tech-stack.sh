@@ -147,9 +147,31 @@ else
   echo "OBSERVABILITY=none"
 fi
 
-# === CSS 框架 ===
+# === CSS 框架 + Tailwind 版本/配置入口 ===
+# ⚠️ Tailwind v4 不再有 tailwind.config.*（配置移到 CSS 入口的 @import "tailwindcss" + @theme），
+#    只看 config 文件会漏判 v4，必须从依赖检测。
 CSS_FRAMEWORK="css"
-if [ -f "tailwind.config.js" ] || [ -f "tailwind.config.ts" ]; then
+TAILWIND_VERSION=""
+TAILWIND_CONFIG=""
+TW_PKG=$(grep -rl '"tailwindcss"' package.json apps/*/package.json 2>/dev/null | head -1)
+if [ -n "$TW_PKG" ]; then
+  CSS_FRAMEWORK="tailwind"
+  # 配置入口：v3 → tailwind.config.*；v4 → 含 @import "tailwindcss" 的 CSS 入口
+  if [ -f "tailwind.config.ts" ]; then TAILWIND_CONFIG="tailwind.config.ts"
+  elif [ -f "tailwind.config.js" ]; then TAILWIND_CONFIG="tailwind.config.js"
+  elif [ -f "tailwind.config.cjs" ]; then TAILWIND_CONFIG="tailwind.config.cjs"
+  else
+    TAILWIND_CONFIG=$(grep -rln "@import ['\"]tailwindcss" apps src assets packages 2>/dev/null | head -1)
+  fi
+  # 版本：锚定到「拥有 v4 CSS 入口的那个 app」的 package.json
+  #   monorepo 多 app + root 可能残留旧版本，head -1 会取错，必须按入口归属确定主 app
+  TW_VER_PKG="$TW_PKG"
+  case "$TAILWIND_CONFIG" in
+    apps/*/*) TW_VER_PKG="apps/$(echo "$TAILWIND_CONFIG" | cut -d/ -f2)/package.json" ;;
+  esac
+  [ -f "$TW_VER_PKG" ] || TW_VER_PKG="$TW_PKG"
+  TAILWIND_VERSION=$(grep -o '"tailwindcss":[[:space:]]*"[^"]*"' "$TW_VER_PKG" 2>/dev/null | grep -o '[0-9][^"]*' | head -1)
+elif [ -f "tailwind.config.js" ] || [ -f "tailwind.config.ts" ] || [ -f "tailwind.config.cjs" ]; then
   CSS_FRAMEWORK="tailwind"
 elif [ -f "postcss.config.js" ] && grep -q 'tailwindcss' postcss.config.js 2>/dev/null; then
   CSS_FRAMEWORK="tailwind"
@@ -161,6 +183,8 @@ elif [ -f "package.json" ]; then
   fi
 fi
 echo "CSS_FRAMEWORK=$CSS_FRAMEWORK"
+echo "TAILWIND_VERSION=$TAILWIND_VERSION"
+echo "TAILWIND_CONFIG=$TAILWIND_CONFIG"
 
 # === 静态资源目录 ===
 ASSETS_DIR=""
@@ -193,11 +217,10 @@ fi
 echo "COMPONENTS_DIR=$COMPONENTS_DIR"
 
 # === 设计 Token 文件 ===
+# Tailwind v4：设计 token 在 CSS 入口的 @theme（即 TAILWIND_CONFIG）；v3：tailwind.config.*
 DESIGN_TOKENS_FILE=""
-if [ -f "tailwind.config.ts" ]; then
-  DESIGN_TOKENS_FILE="tailwind.config.ts"
-elif [ -f "tailwind.config.js" ]; then
-  DESIGN_TOKENS_FILE="tailwind.config.js"
+if [ -n "$TAILWIND_CONFIG" ]; then
+  DESIGN_TOKENS_FILE="$TAILWIND_CONFIG"
 elif [ -f "src/styles/variables.scss" ]; then
   DESIGN_TOKENS_FILE="src/styles/variables.scss"
 elif [ -f "src/styles/tokens.css" ]; then
