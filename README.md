@@ -211,6 +211,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 - Step 1 读取 `.claude/code-specs/` 作为 advisory constraints；Spec 模板新增 `3.x Project Code Specs Constraints` 小节承载
 - Step 5 评估是否需要委托 `/ux-elaboration`（§4.4 Layout Anchors）做前端设计深化
 - Codex Spec Review（条件，advisory）在 Spec 生成后可选触发
+- v6.4.9+ approve 分支末尾写 **阶段交接 handoff**：`write-handoff --from spec --to plan` 把本阶段 `Decisions` / `Rejected` / `Risks` + contract-digest 指针蒸馏成 `handoff/spec.md`（详见 §3.7.1）
 
 #### `workflow-plan`（Plan 扩写 Skill）
 
@@ -219,8 +220,10 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 ```
 
 - 仅在 `status=planned` 时生效，**不创建骨架**、**不改变状态机**
+- v6.4.9+ 上下文加载前先 `read-handoff --from spec` 读 spec 阶段决策摘要定向扩写：`fresh:true` 用 handoff 里的 Decisions/Rejected/Risks + contract-digest 指针，`fresh:false`（stale/missing）不阻断、回退读全文 spec.md
 - 用 Edit 增量扩写 CLI 已生成的 plan 骨架，HARD-GATE 禁止 Write 全量覆盖、禁止改首个 task ID
 - Codex Plan Review（条件，bounded-autofix）在 Plan 扩写完成后可选触发
+- 扩写完成后写 `write-handoff --from plan --to execute`，把 task 拆分理由 / 排序约束 / low-confidence task 蒸馏给 execute 阶段
 
 #### `workflow-execute`（执行 Skill）
 
@@ -452,9 +455,31 @@ flowchart TD
 +-- reports/                             |   +-- delta.json
     +-- {name}-report.md   <- 实施报告   |   +-- intent.md
                                          |   +-- review-status.json
+                                         +-- handoff/          <- v6.4.9 阶段交接
+                                         |   +-- spec.md
+                                         |   +-- plan.md
+                                         |   +-- execute.md
                                          +-- archive/
                                          +-- journal/
 ```
+
+#### 3.7.1 阶段交接（phase handoff，v6.4.9+）
+
+`spec→plan→execute` 相邻阶段之间通过 `handoff/{from-phase}.md` 传递**本阶段决策蒸馏**，避免下一阶段整篇重读上一阶段产物。文件不入 state schema、覆盖式写，结构为 **5 行 freshness header + ≤20 行正文**。
+
+```bash
+# 写侧：把本阶段决策蒸馏成 handoff（CLI 自动拼 freshness header）
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
+  write-handoff --from spec --to plan --content-file <handoff 正文 .md 绝对路径>
+
+# 读侧：读 handoff 并比对 header 与当前 state
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff --from spec
+```
+
+- **正文结构**（建议）：`## Decisions`（关键技术选型 / task 拆分理由 / 范围裁决）、`## Rejected`（被拒方案 + 原因）、`## Risks`（未解决依赖 / low-confidence task）+ 一行 contract-digest 指针。
+- **读侧返回** JSON `{fresh, content?, reason?, fallback?}`：`fresh:true` → 用 handoff 定向；`fresh:false`（`reason:stale|missing`）→ **不阻断、不置 exitCode**，回退读全文（`fallback:read-full`）。
+- **语义边界**（三者不重复）：`contract`（既有代码复用面，落 `contract-digest.md`）/ `spec`（需求 behavior/scope/AC，落 `spec.md`）/ `code-specs`（项目规范，`.claude/code-specs/`）；handoff 只装本阶段决策与取舍**指针**，不复写上述任一正文。
+- 与 `/handoff` skill 区分：`/handoff`（§5.3）把**整段会话**压缩成交接文档给下一个 session，本机制是**工作流相邻阶段**之间的决策蒸馏，用途不同。
 
 ### 3.8 执行隔离与只读 fan-out
 

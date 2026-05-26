@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.4.9] - 2026-05-25
+
+### Added
+
+- **工作流阶段交接（phase handoff）**：新增 `write-handoff` / `read-handoff` 两个 CLI 子命令（`core/utils/workflow/workflow_cli.js` + `path_utils.js` `getHandoffPath` + `task_runtime.js`），把 `spec→plan→execute` 相邻阶段的关键决策蒸馏成 `handoff/{from-phase}.md`（5 行 freshness header + ≤20 行正文，覆盖式写，**不入 state schema**）。写侧（`workflow-spec` approve 分支末尾、`workflow-plan` plan→execute）落 `## Decisions` / `## Rejected` / `## Risks` + 一行 contract-digest 指针；读侧（`workflow-plan` 上下文加载前）比对 header 与当前 state → 返回 `{fresh,content}` 或 `{fresh:false,reason:stale|missing,fallback:read-full}`，stale/missing **不阻断**、回退读全文 spec.md。语义边界：handoff 只装本阶段决策 / 取舍指针，不复写 spec.md 或 contract-digest.md 正文，读侧按指针回溯。
+- **`buildTaskContext` 条件注入 `<task-contract>`**（`core/hooks/pre-execute-inject.js` + `task_runtime.js`）：按 task 类型与 contract-digest 可用性决定是否注入 `<task-contract>` 块，无契约任务不再被塞空块。
+- **内部参考文档**（`docs/internal/`）：新增 `aipe-cargo-cult-coding.md` / `aipe-comparison-tables.md`，扩写 `aipe-vs-coding-harness-frameworks.md`，并补一份工作流重设计笔记。
+- **测试**：`tests/test_workflow_cli.js` 扩 handoff 读写用例；新增 `tests/test_task_aware_injection.js` 覆盖 task-aware 上下文注入。
+
+### Removed
+
+- **`system-design` skill**（commit a625132）：删除 `core/skills/system-design/SKILL.md` 与 `core/specs/workflow-templates/spec-template.md` 的系统设计段落，并清理 `skill-routing-table.json` / `ux-elaboration` / `workflow-spec` / `workflow-plan` / `workflow-review` / `CLAUDE.md` / README / 中文指南中的引用。前端设计深化统一路由到 `ux-elaboration`（§4.4 Layout Anchors），后端 / 全栈不再走独立 system-design 阶段。
+
+## [6.4.8] - 2026-05-25
+
+### Changed
+
+- 维护性版本号 bump（`core/.claude-plugin/plugin.json` + spec-template manifest 同步），无功能或行为变更。
+
+## [6.4.7] - 2026-05-25
+
+### Added
+
+- **项目级三阶段研发流程·阶段一 & 阶段三**：新增 `design-plan` 与 `plan-archive` 两个 skill，独立于 workflow 状态机、手动触发，典型用户为技术主管 / 资深研发；阶段二各模块编码仍走 `/workflow-spec` `/workflow-execute`。
+  - **`design-plan`**（`/design-plan <需求>`）：跨服务复杂需求 → 读项目级 docs（架构 / 术语 / 接口契约 / 硬约束）→ 起草 8 章节技术方案（接口 / 数据库 / 时序图 / 微服务变更清单 / 风险 / Hard Coding Rules 自检 / ADR 草稿）→ Hard Stop 评审 → 落盘 `docs/designs/{slug}-{YYYYMMDD}.md`。附 `references/design-plan-template.md` + `references/hard-coding-rules-checklist.md`。
+  - **`plan-archive`**（`/plan-archive --design <path> --since <commit>`）：实施完成后跨服务跑 git log/diff → 对照 `AGENTS.md § Project Doc Update Triggers` 生成回写计划 → Hard Stop 预览每文件 diff + budget 自检 → 逐一写入 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / 项目总架构文档，必要时新建 ADR。附 `references/archive-checklist.md`。
+  - `core/hooks/skill-routing-table.json` 注册两条 skill 入口。
+
+### Changed
+
+- **`scripts/validate.js` markdown 相对链接校验**：跳过 fenced code block 内的链接，并忽略含 `{` / `<` 占位符的目标路径，避免模板示例里的 `{slug}` / `{YYYYMMDD}` 等占位被误判为失效相对链接。
+
+## [6.4.6] - 2026-05-25
+
+### Changed
+
+- **`scan` 技术栈探测**（`core/skills/scan/SKILL.md` + `scripts/detect-tech-stack.sh`）：`project-config.json` 结构按实际消费精简——删除未使用字段、明确生成约束；`ui-config.json` 适配 Tailwind v4 的版本与配置入口；`detect-tech-stack.sh` 准确识别 Tailwind 版本与配置（含 v4 结构变化）。
+- **`scan/references/context-template.md` 结构化内容写作准则**：强调高密度 reference card，区分结构性事实与操作性内容，推动精简文档、避免冗余。
+
 ## [6.4.5] - 2026-05-23
 
 ### Added

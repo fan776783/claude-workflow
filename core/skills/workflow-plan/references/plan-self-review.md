@@ -11,6 +11,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 
 返回 JSON:`{ ready, lints, coverage, confidence, summary, plan_file, spec_file }`。
 
+`confidence` = `{ score, level, breakdown{prd_coverage,patterns,verification,test_task}, hints[] }`。**confidence 偏低时直接读 `hints`**——每个未达标/被封顶维度给一行可执行提升项(如 `patterns=0` → "需 ≥3 个 `### 标题` 各紧跟一行 `// SOURCE: <file>`")。不要 grep `plan_composer.js` 的 `scoreConfidence` 逆向打分公式;rubric 是实现细节,以 `hints` 为准。`test_task=0` 的 hint 为中性提示,纯手动验证 plan 可忽略,**不要为凑分造测试任务**。
+
 ## ready 判定矩阵
 
 | Lint | 硬 block ready? | 计入 confidence? |

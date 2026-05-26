@@ -12,6 +12,7 @@ const {
   cmdSetContractDigestPath,
   cmdWriteHandoff,
   cmdReadHandoff,
+  resolveHelpRequest,
 } = require(path.join(workflowDir, 'workflow_cli.js'))
 const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.js'))
 const { getWorkflowStatePath, getHandoffPath } = require(path.join(workflowDir, 'path_utils.js'))
@@ -269,5 +270,39 @@ test('cmdSetContractDigestPath', async (t) => {
     } finally {
       cleanup(projectId)
     }
+  })
+})
+
+test('resolveHelpRequest', async (t) => {
+  const help = (argv) => resolveHelpRequest(argv)
+
+  await t.test('command-pos --help/-h → top-level help', () => {
+    assert.deepEqual(help(['--help']), { command: null })
+    assert.deepEqual(help(['-h']), { command: null })
+    assert.deepEqual(help(['--project-id', 'X', '--help']), { command: null })
+  })
+
+  await t.test('--help immediately after command → that subcommand help', () => {
+    assert.deepEqual(help(['plan-edit', '--help']), { command: 'plan-edit' })
+    assert.deepEqual(help(['advance', '-h']), { command: 'advance' })
+    assert.deepEqual(help(['--project-id', 'X', 'journal', '--help']), { command: 'journal' })
+  })
+
+  await t.test('trailing --help after a positional → NOT help (runs command)', () => {
+    // 回归：`advance T1 --help` 不得被劫持成 help → 否则 T1 静默不推进
+    assert.equal(help(['advance', 'T1', '--help']), null)
+    assert.equal(help(['journal', 'search', '--help']), null)
+    assert.equal(help(['journal', 'search', '-h']), null)
+    assert.equal(help(['set-report-path', '/tmp/x.md', '--help']), null)
+  })
+
+  await t.test('--help as a flag value → NOT help (documented suppression)', () => {
+    assert.equal(help(['set-report-path', '--path', '--help']), null)
+    assert.equal(help(['--project-id', '--help']), null)
+  })
+
+  await t.test('no --help anywhere → null', () => {
+    assert.equal(help([]), null)
+    assert.equal(help(['plan-edit', '--anchor', 'tasks']), null)
   })
 })

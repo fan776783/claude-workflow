@@ -425,9 +425,11 @@ const PLACEHOLDER_TOKENS_ZH = [
   'TODO 后续完善',
   '[填这里]',
   '[待定]',
-  '占位',
   '【占位】',
 ]
+// F-16: 裸 `占位` 故意不进 token 列表。前端 plan 里 `占位图` / `占位符` / `占位 icon` / `展示占位` / `英文占位`
+// 是高频业务名词,30 个历史 plan 实测 43/43 命中全为误报、0 真·未填残留。真填空标记由
+// `【占位】`(显式括号) + TBD/TODO/待补充/待确认/[待定]/{{name}} 兜住,裸 `占位` 纯噪声。
 
 // 元描述 / 指令性短语：含任一 hint 的行 = 在"描述占位符 / 解释扫描规则"而非"使用占位符",
 // 跳过整行 placeholder 扫描。修复 plan-template.md 自带 Self-Review Checklist 行被误判的 F-01。
@@ -661,18 +663,29 @@ function derivePlanSummary(planMarkdown, state = {}) {
 function scoreConfidence(planMarkdown, { coverage, atomicity, commandSyntax, patternFidelity } = {}) {
   const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
   const breakdown = { prd_coverage: 0, patterns: 0, verification: 0, test_task: 0 }
+  // hints：每个未达标/被封顶维度给一行可执行提升项，让调用方拿到 why 而不必读本文件源码逆向 rubric。
+  const hints = []
 
   // PRD 覆盖率
+  const partialIds = (coverage && coverage.partial_ids) || []
+  const uncoveredIds = (coverage && coverage.uncovered_ids) || []
   if (coverage && (coverage.covered_ids || coverage.uncovered_ids)) {
     const covered = (coverage.covered_ids || []).length
-    const uncovered = (coverage.uncovered_ids || []).length
+    const uncovered = uncoveredIds.length
     const total = covered + uncovered
     if (total > 0) {
       const rate = covered / total
       if (rate >= 0.9) {
-        breakdown.prd_coverage = (coverage.partial_ids || []).length > 0 ? 2 : 3
+        breakdown.prd_coverage = partialIds.length > 0 ? 2 : 3
       }
     }
+  }
+  if (breakdown.prd_coverage === 0 && uncoveredIds.length) {
+    hints.push(`prd_coverage=0：spec 需求未被任何 task 覆盖 → ${uncoveredIds.join(', ')}`)
+  } else if (breakdown.prd_coverage === 0) {
+    hints.push('prd_coverage=0：无 spec 需求覆盖数据（coverage 为空或 spec 未提取出需求）')
+  } else if (breakdown.prd_coverage === 2 && partialIds.length) {
+    hints.push(`prd_coverage=2（封顶 3）：${partialIds.join(', ')} spec 多处提及仅单 task 覆盖；拆分或确认单 task 已覆盖全部提及点`)
   }
 
   // Patterns to Mirror（要求至少 3 个 ### 头紧跟 `// SOURCE:`）
@@ -680,27 +693,45 @@ function scoreConfidence(planMarkdown, { coverage, atomicity, commandSyntax, pat
   const patternMatches = planMd.match(/^### .+\n+\/\/ SOURCE:/gm) || []
   const patternUnresolvedCount = (patternFidelity && patternFidelity.unresolved) ? patternFidelity.unresolved.length : 0
   if (patternMatches.length >= 3 && patternUnresolvedCount === 0) breakdown.patterns = 2
+  else if (patternUnresolvedCount > 0) {
+    hints.push(`patterns=0：Patterns to Mirror 有 ${patternUnresolvedCount} 处 // SOURCE 引用文件不存在，修正引用后给分`)
+  } else {
+    hints.push(`patterns=0：需 ≥3 个 \`### 标题\` 各紧跟一行 \`// SOURCE: <file>\`（当前 ${patternMatches.length} 个达标块）`)
+  }
 
   // Verification 维度：每 task 必须 验证命令 + 验证期望 同时非空
   // F-10: command_syntax 有 issues → 不给分(命令本身语法坏,验证不可信)
   const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
   const commandIssuesCount = (commandSyntax && commandSyntax.issues) ? commandSyntax.issues.length : 0
-  if (taskBlocks.length > 0 && commandIssuesCount === 0) {
-    const allQualified = taskBlocks.every((b) => {
+  const unqualifiedTasks = taskBlocks
+    .filter((b) => {
       const cmd = b.match(/-\s*\*\*验证命令\*\*\s*[:：]\s*([^\n]+)/)
       const exp = b.match(/-\s*\*\*验证期望\*\*\s*[:：]\s*([^\n]+)/)
-      return !!(cmd && cmd[1].trim() && exp && exp[1].trim())
+      return !(cmd && cmd[1].trim() && exp && exp[1].trim())
     })
-    if (allQualified) breakdown.verification = 3
+    // 锚定 heading 取 task id（与 split/filter 同形态），避免抓到块内首个 T\d+（如正文里引用的别的 task）
+    .map((b) => {
+      const h = b.match(/^(?:## |### )?(T\d+):/m)
+      return h ? h[1] : (b.match(/T\d+/) || ['?'])[0]
+    })
+  if (taskBlocks.length > 0 && commandIssuesCount === 0 && unqualifiedTasks.length === 0) {
+    breakdown.verification = 3
+  } else if (commandIssuesCount > 0) {
+    hints.push(`verification=0：${commandIssuesCount} 处验证命令语法有问题（见 lints.command_syntax）`)
+  } else if (unqualifiedTasks.length > 0) {
+    hints.push(`verification=0：${unqualifiedTasks.join(', ')} 缺 \`验证命令\` 或 \`验证期望\`（每 task 两者须非空）`)
+  } else if (taskBlocks.length === 0) {
+    hints.push('verification=0：plan 中无可识别的 `## T<n>:` / `### T<n>:` task 块，无法评估验证维度')
   }
 
   // Test task 存在
   if (/-\s*\*\*阶段\*\*\s*[:：]\s*test\b/m.test(planMd)) breakdown.test_task = 2
+  else hints.push('test_task=0：无 `阶段: test` 任务；纯手动验证 plan 可忽略此项，不必为凑分造测试任务')
 
   const score = breakdown.prd_coverage + breakdown.patterns + breakdown.verification + breakdown.test_task
   const level = score >= 8 ? 'high' : score >= 6 ? 'medium' : 'low'
   // atomicity 仅记录，不进 rubric（与 ready 矩阵一致）
-  return { score, level, breakdown, atomicity_warnings_count: (atomicity && atomicity.warnings) ? atomicity.warnings.length : 0 }
+  return { score, level, breakdown, hints, atomicity_warnings_count: (atomicity && atomicity.warnings) ? atomicity.warnings.length : 0 }
 }
 
 function buildPlanTasks(requirementCoverage = [], pkg = '', specRef = '') {

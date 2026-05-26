@@ -571,7 +571,57 @@ const SUBCOMMAND_HELP = {
   journal search <query>
   journal get <id>
 `,
+  'plan-edit': `plan-edit - v2 plan 锚点 section 级替换（唯一写入口，保护 <!-- WF:ANCHOR --> 配对）。
+
+用法：
+  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change]
+    --anchor <id>         必填。锚点 ID：tasks / file_structure / verification_summary / task:T<n>
+    --content-file <path> 必填。替换内容文件（避免 shell 参数注入与 $& 展开；先写临时文件再传路径）
+    --mode replace_between 默认。仅替换 begin/end 之间内容，保留锚点行
+    --mode replace_full    连锚点行整段替换；须配 --allow-anchor-change
+    --allow-legacy         v1 plan（无 version:2）整文件覆盖，失锚点保护；默认拒绝
+`,
+  'plan-review': `plan-review - 跑所有 lint + 算 confidence + 输出 ready 矩阵 JSON（无参数）。
+
+返回 {ready, lints, coverage, confidence{score,level,breakdown,hints}, summary}。
+  confidence.hints 列出每个未达标维度的可执行提升项 → 不必读 plan_composer.js 源码。
+`,
+  'write-handoff': `write-handoff - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，覆盖式写）。
+
+用法：
+  write-handoff --from <phase> --to <phase> --content-file <path>
+    --content-file 内容先写临时文件再传路径（同 plan-edit，避免 shell 注入）。
+`,
+  'read-handoff': `read-handoff - 读 handoff/{from-phase}.md，header 比对当前 state。
+
+用法：
+  read-handoff --from <phase>
+    返回 {fresh, content} 或 {fresh:false, reason:stale|missing, fallback:read-full}（回退非错误）。
+`,
+  'spec-review': `spec-review - 归一化 spec 审批选择并推进状态。
+
+用法：
+  spec-review --choice "<归一化选择>"
+    choice 必须先归一化为契约字符串之一（见 workflow-cli.md），禁止塞用户原话。
+`,
 }
+
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+  任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
+  plan (alias: start) - 启动规划流程
+  plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
+  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
+  init - 状态文件自愈（执行阶段缺失时自动创建）
+  help <advance|delta|journal|plan-edit|...> - 查看子命令参数签名
+  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json
+  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入
+  set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入
+  write-handoff --from <phase> --to <phase> --content-file <path> - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，不入 state schema，覆盖式写）
+  read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）
+  triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1
+  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）
+  verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）
+`
 
 function renderSubcommandHelp(subcommand) {
   if (!subcommand) {
@@ -586,8 +636,39 @@ Available subcommands: ${Object.keys(SUBCOMMAND_HELP).join(', ')}
 `
 }
 
+// 在 parseArgs 之前解析 --help/-h：parseArgs 会对 leading `--help` 抛 Unknown flag,顶层 help 必须前置。
+// 严格按位置识别,只认两个槽位,避免劫持位置参数的值或尾随 flag:
+//   1) command 位本身是 --help/-h（含无 command 直接 `--help`）→ 顶层 help
+//   2) command 紧跟的 token 是 --help/-h（如 `plan-edit --help`）→ 该子命令 help
+// 反例(全部按正常命令执行,不劫持)：
+//   `advance T1 --help`（T1 是位置参数,--help 尾随）、`journal search --help`（search 后 --help 是查询词）、
+//   `set-report-path /p --help`、`set-report-path --path --help`（--help 是 --path 的值）。
+// 返回 null = 非 help 请求,交给 parseArgs 正常解析。
+function resolveHelpRequest(argv) {
+  // 跳过 leading --project-id/--project-root 及其值,定位 command 槽位
+  let i = 0
+  while (i < argv.length && (argv[i] === '--project-id' || argv[i] === '--project-root')) i += 2
+  const cmdTok = argv[i]
+  // 槽位 1：command 位即 --help/-h → 顶层 help
+  if (cmdTok === '--help' || cmdTok === '-h') return { command: null }
+  // 无 command,或 command 位是其它 flag → 非 help 请求
+  if (!cmdTok || cmdTok.startsWith('-')) return null
+  // 槽位 2：command 紧跟 --help/-h → 子命令 help
+  const next = argv[i + 1]
+  if (next === '--help' || next === '-h') return { command: cmdTok }
+  return null
+}
+
 function main() {
   try {
+    // Global --help / -h: print the command's usage (or top-level) and exit before any state I/O.
+    // 子命令缺参不再让调用方 grep 源码反推接口；plan-edit --help 等直接给签名。
+    const helpRequest = resolveHelpRequest(process.argv.slice(2))
+    if (helpRequest) {
+      process.stdout.write((helpRequest.command && SUBCOMMAND_HELP[helpRequest.command]) || TOP_LEVEL_USAGE)
+      return
+    }
+
     const { options, command, args } = parseArgs(process.argv.slice(2))
     const pid = options.projectId
     const projectRoot = options.projectRoot
@@ -798,7 +879,7 @@ function main() {
         return
       }
     } else {
-      process.stderr.write('Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...\n  plan (alias: start) - 启动规划流程\n  plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON\n  plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换\n  init - 状态文件自愈（执行阶段缺失时自动创建）\n  help <advance|delta|journal> - 查看复合子命令参数签名\n  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json\n  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入\n  set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入\n  write-handoff --from <phase> --to <phase> --content-file <path> - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，不入 state schema，覆盖式写）\n  read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）\n  triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1\n  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）\n  verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）\n')
+      process.stderr.write(TOP_LEVEL_USAGE)
       process.exitCode = 1
       return
     }
@@ -822,6 +903,7 @@ module.exports = {
   cmdReadHandoff,
   cmdReviewAdvance,
   inferSpecRelativeFromPlan,
+  resolveHelpRequest,
 }
 
 if (require.main === module) main()
