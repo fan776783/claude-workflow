@@ -620,31 +620,33 @@ function validatePlatformParityContract(errors) {
 }
 
 /**
- * 在 prepublish 时跑契约测试。限定在专门标注为 *_contracts.js 的测试文件，
- * 避免拖慢发布流程，并保证 code-spec 段标题契约在未跑全量测试时也能兜底拦截。
+ * 在 prepublish 时跑 tests/ 下全部测试。不再维护硬编码白名单——
+ * 新增 tests/test_*.js 自动纳入发布门，避免 lint/契约回归绕过 gate（见 plan_composer 行号放宽事故）。
  * @param {string} repoRoot
  * @param {string[]} errors
  */
 function runContractTests(repoRoot, errors) {
-  const testFiles = [
-    path.join(repoRoot, 'tests', 'test_spec_contracts.js'),
-    path.join(repoRoot, 'tests', 'test_quality_review_stage1.js'),
-    path.join(repoRoot, 'tests', 'test_task_aware_injection.js'),
-    path.join(repoRoot, 'tests', 'test_execution_sequencer.js'),
-    path.join(repoRoot, 'tests', 'test_workflow_cli.js'),
-  ];
-  const existing = testFiles.filter((file) => fs.existsSync(file));
+  const testsDir = path.join(repoRoot, 'tests');
+  if (!fs.existsSync(testsDir)) {
+    errors.push('tests/ 目录不存在');
+    return;
+  }
+  // 全量发现 tests/ 下测试文件（test_*.js / *.test.js）。
+  const existing = fs.readdirSync(testsDir)
+    .filter((name) => /^test_.*\.js$/.test(name) || /\.test\.js$/.test(name))
+    .map((name) => path.join(testsDir, name))
+    .sort();
   if (!existing.length) {
-    errors.push('契约测试缺失（tests/test_*_contracts.js / test_quality_review_stage1.js / test_task_aware_injection.js）');
+    errors.push('tests/ 下无测试文件（应有 test_*.js）');
     return;
   }
   const result = spawnSync(process.execPath, ['--test', ...existing], { encoding: 'utf8' });
   if (result.status === 0) {
-    console.log(`  ✅ contract tests: ${existing.length} 个 suite 通过`);
+    console.log(`  ✅ tests: ${existing.length} 个 suite 全量通过`);
     return;
   }
   const tail = [result.stdout, result.stderr].filter(Boolean).join('\n').trim().split(/\r?\n/).slice(-40).join('\n');
-  errors.push(`契约测试失败 (exit ${result.status}):\n${tail}`);
+  errors.push(`测试失败 (exit ${result.status}):\n${tail}`);
 }
 
 /**

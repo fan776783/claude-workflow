@@ -49,7 +49,7 @@ ${bundle.verification}
 </protocols>
 
 <your-mandate>
-1. 读 mandatory-reading 中的文件,确认你理解上下文
+1. 读 mandatory-reading + patterns-to-mirror 中的文件,自行定位相关代码段,确认你理解上下文(行号若给了是辅助锚点,没给就自己读定位,不要因缺行号去搜整库)
 2. 只在 allowed-write-scope 内实现代码;不要超额(不要做 task 没要求的事)
 3. 遵守 forbidden-actions;如果必须扩 scope,先返回 DONE_WITH_CONCERNS 且 concern.type="scope"
 4. 按 acceptance-criteria 实现代码,按 critical-constraints 守住边界
@@ -97,7 +97,7 @@ ${bundle.verification}
 - **TDD 手动开启命中**：仅当入口 `tdd_enabled: true` 且任务满足 workflow-execute 的 TDD 条件时,在 `<protocols>` 中引用 `../tdd/SKILL.md` 而非粘贴 TDD 全文;默认写 "本任务不强制 TDD"
 - **HITL task**：在 `<protocols>` 中加入强制反问条款，不依赖 implementer 自觉
 - **不让 implementer 读 plan.md**：把 task block 完整粘进 `<task-text>`，省一次文件读
-- **Patterns to Mirror**：必须给 `file_path:line_number`，让 implementer 直接 jump，不让它去搜
+- **Patterns to Mirror / Mandatory Reading**：只给路径 + 一句意图（plan/bundle 里有行号就顺带渲染，没有就只给路径）。**controller 自己不 Read 源码去补行号**——重读取留给 implementer 在它的抛弃式上下文里做，不污染 controller。这是 fresh-subagent-per-task 的核心：粘指令、不粘代码
 
 ## bundle 字段 → prompt 占位映射
 
@@ -106,7 +106,7 @@ ${bundle.verification}
 | `${bundle.task_text}` | task_text | 原文粘贴 |
 | `${bundle.acceptance_criteria}` | acceptance_criteria[] | 每条一行 `- ` bullet |
 | `${bundle.critical_constraints}` | critical_constraints[] | 每条一行 `- ` bullet |
-| `${bundle.patterns_to_mirror}` | patterns_to_mirror[] | 每条：`line` 在 → `- file:line — note`；`line` 缺失 → `- file — note`；空数组 → "无 — 参考 mandatory-reading 推断" |
+| `${bundle.patterns_to_mirror}` | patterns_to_mirror[] | 每条：`line` 在 → `- file:line — note`；`line` 缺失 → `- file — note`（**不为补 `line` 去 Read 源码**，让 implementer 自读定位）；空数组 → "无 — 参考 mandatory-reading 推断" |
 | `${bundle.mandatory_reading}` | mandatory_reading[] | 每条：`- path — reason`；`symbols` / `line_hint` 存在则附加；旧 string[] bundle 可按路径降级渲染 |
 | `${bundle.allowed_write_paths}` | allowed_write_paths[] | 每条一行 `- ` bullet；空数组 → "未声明 — 按 task block 的创建/修改/测试文件推断,不得自行扩大" |
 | `${bundle.forbidden_actions}` | forbidden_actions[] | 每条一行 `- ` bullet |
@@ -123,4 +123,4 @@ ${bundle.verification}
 | `NEEDS_CONTEXT` | 调 `AskUserQuestion` 收集用户回答 → 把答案塞回 prompt `<your-mandate>` 末尾 → 重派 |
 | `BLOCKED` | 评估根因:context 缺失 → 补 context 重派;reasoning 不足 → 升级 model;task 过大 → 拆 task;plan 错 → escalate user |
 
-**Never** 让 implementer 自己读 plan.md / spec.md(他们不该需要)，**Never** 把整个 codebase 塞给 implementer(只塞 mandatory-reading)。
+**Never** 让 implementer 自己读 plan.md / spec.md(他们不该需要)，**Never** 把整个 codebase 塞给 implementer(只塞 mandatory-reading)，**Never** controller 为补 patterns/mandatory 行号去 Read 源码文件(行号可选,让 implementer 自读定位)。

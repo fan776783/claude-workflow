@@ -82,7 +82,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 ### Pattern Discovery
 
-从代码分析结果提取可复用模式,生成 `Patterns to Mirror` 和 `Mandatory Reading` 区块。引用必须指向真实存在的代码文件和符号。
+从代码分析结果提取可复用模式,生成 `Patterns to Mirror` 和 `Mandatory Reading` 区块。引用必须指向真实存在的代码文件和符号；**行号可选**(implementer 在执行期自读定位,planner/controller 都不必为补行号去通读源码)。
 
 ### Confidence Score
 

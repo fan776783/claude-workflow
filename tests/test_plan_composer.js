@@ -853,6 +853,22 @@ test('lintMandatoryReading malformed lines field → violation', () => {
   assert.equal(result.violations.length, 1)
 })
 
+// 行号可选(superpowers 式)：lines 列留空 = 合规,implementer 自读定位。
+test('lintMandatoryReading empty lines column → no violation (line numbers optional)', () => {
+  const plan = [
+    '## Mandatory Reading',
+    '',
+    '| Priority | File | Lines | Why |',
+    '|----------|------|-------|-----|',
+    '| P0 | src/a.ts |  | core logic |',
+    '| P1 | src/b.ts | 100 | helper |',
+    '',
+  ].join('\n')
+  const result = lintMandatoryReading(plan)
+  assert.equal(result.declared, true)
+  assert.deepEqual(result.violations, [], `empty lines col must be compliant, got ${JSON.stringify(result)}`)
+})
+
 // Multi-digit priority rows (P10+) must be inspected, not silently skipped.
 test('lintMandatoryReading flags malformed P10 row (multi-digit priority)', () => {
   const plan = [

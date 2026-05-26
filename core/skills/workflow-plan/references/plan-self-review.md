@@ -34,7 +34,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 - **placeholder** — 见 [`no-placeholders.md`](no-placeholders.md)
 - **coverage** — spec 内 `R-\d{3,}` ID 集合 vs plan 内 task `需求 ID:` 字段引用集合
 - **anchor_integrity** — `<!-- WF:ANCHOR:<id>:(begin|end) -->` 配对完整性
-- **mandatory_reading** — 声明的 Mandatory Reading 表行必须含 `file:lineStart-lineEnd` 行号范围
+- **mandatory_reading** — 仅校验 Mandatory Reading 表行的 `Lines` 列格式（不查文件存在性，那是 `pattern_fidelity` 的事）。`file:lineStart-lineEnd` 行号**可选**（implementer 自读定位，planner 不必为补行号去读源码）：留空 = 合规，仅当 Lines 列填了非空值且格式不是 `N` / `N-M` 才算违规。缺行号不挡 ready
 - **command_syntax** — `验证命令` 字段语法校验(括号/管道闭合);路径在 Files to Change 表里
 - **pattern_fidelity** — `Patterns to Mirror` 区块的 `// SOURCE: file:lines` 引用存在性
 - **type_consistency** — 跨 task 类似命名符号(`clearLayers` vs `clearFullLayers`)。预过滤短符号 / 大小写等价 / 词序重排 / 数字结尾。

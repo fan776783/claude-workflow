@@ -70,6 +70,7 @@ controller (主会话)
 - ❌ Phase 1 REVISE 仍跑 Phase 2（gate-rule 违反）
 - ❌ 让 implementer 自己读 plan.md / spec.md（controller 必须把 task block 完整粘进 prompt）
 - ❌ 让 controller 把整文件正文粘进 reviewer prompt（reviewer 自跑 `git diff <base>..HEAD`）
+- ❌ controller 为补 patterns-to-mirror / mandatory-reading 的行号去 Read 源码（行号可选；缺失时给路径 + 意图，让 implementer 自读定位 —— 否则读取成本回灌 controller，是 333k 上下文膨胀的主因）
 - ❌ reviewer / implementer 返回散文报告（strict JSON-only，schema 违规重派 1 次后 halt）
 - ❌ 同时派发多个 implementer subagent（写动作禁止并行；只读 fan-out 走 `dispatching-parallel-agents`）
 

@@ -1221,8 +1221,9 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
   }
 }
 
-// T16 lintMandatoryReading：抽 Mandatory Reading 表行,正则强制 file:lineStart-lineEnd 格式。
-// 区分 declared=false(无该区块,不挡)/declared=true 且有违规(hard block)。
+// T16 lintMandatoryReading：抽 Mandatory Reading 表行,校验 lines 字段格式。
+// 行号可选(superpowers 式：controller/planner 不读源码补行号,implementer 自读定位);
+// 仅当 lines 列填了非空值且格式错时才算违规。区分 declared=false(无该区块,不挡)/declared=true 且有违规(hard block)。
 function lintMandatoryReading(planMarkdown) {
   const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
   // 截取 Mandatory Reading section：从 heading 起,直到下一个 ## heading / --- 分隔 / 文件末尾。
@@ -1238,10 +1239,10 @@ function lintMandatoryReading(planMarkdown) {
   while ((row = ROW_RE.exec(section)) !== null) {
     const file = row[1].trim()
     const lines = row[2].trim()
-    // 允许的格式: `123` 或 `123-456` 或反引号包裹版本
+    // 行号可选：留空 = 合规(implementer 自读定位)。填了才校验格式: `123` 或 `123-456` 或反引号包裹版本
     const cleanedLines = lines.replace(/^`|`$/g, '').trim()
-    if (!/^\d+(-\d+)?$/.test(cleanedLines)) {
-      violations.push({ file, lines, reason: 'lines 字段须形如 N 或 N-M' })
+    if (cleanedLines && !/^\d+(-\d+)?$/.test(cleanedLines)) {
+      violations.push({ file, lines, reason: 'lines 若填须形如 N 或 N-M(可留空,implementer 自读定位)' })
     }
   }
   return { violations, declared: true }
