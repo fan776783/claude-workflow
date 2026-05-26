@@ -37,7 +37,8 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 
 ### workflow
 **Definition**: One full plan → execute → review → archive lifecycle; state persisted under `~/.claude/workflows/{projectId}/`.
-**Forbidden synonyms**: `工作流`, `流程`
+**Forbidden synonyms**: `工作流`
+**Note**: `流程` (generic "process/flow") is **not** flagged — it is everyday Chinese for any procedure (e.g. 三阶段研发流程, Triage 流程, 用户流程) and is not a synonym for the workflow state machine.
 **See**: `core/specs/workflow-runtime/state-machine.md`
 
 ### skill
@@ -64,12 +65,12 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 
 ### module
 **Definition**: A unit of code with an interface and implementation — function, class, package slice. Not the same as `pkg` (which is a code-specs organizational concept).
-**Forbidden synonyms**: `模块` (in normative sections only)
+**Forbidden synonyms**: (none — `模块` is the standard Chinese word for module; forcing English in narrative prose produces Chinglish like "module边界". Prefer English `module` inside code-spec architecture sections by convention, not lint.)
 **See**: `core/specs/guides/code-reuse-checklist.md`
 
 ### convention
 **Definition**: A `convention.md` file under code-specs describing *how to write* something in this project (style, pattern).
-**Forbidden synonyms**: `约定`
+**Forbidden synonyms**: (none — `约定` is generic Chinese for "agreed rule" (e.g. 路径命名约定); canonical `convention` refers specifically to the code-specs convention.md file, a different referent.)
 **See**: `core/specs/spec-templates/convention-template.md`
 
 ### contract
@@ -104,12 +105,13 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 
 ### delta
 **Definition**: An incremental change to an existing workflow's spec/plan, handled by `/workflow-delta`.
-**Forbidden synonyms**: `增量`, `变更`
+**Forbidden synonyms**: `增量`
+**Note**: `变更` (generic "change/modification") is **not** flagged — it is everyday Chinese for any change (e.g. 微服务变更清单, 协议变更, UI 文案 "未变更") and rarely means the `/workflow-delta` concept.
 **See**: `core/skills/workflow-delta/SKILL.md`
 
 ### archive
 **Definition**: The terminal state of a workflow after `/workflow-archive`; workflow state moved to `~/.claude/workflows/{projectId}/archive/`.
-**Forbidden synonyms**: `归档` (in normative sections only)
+**Forbidden synonyms**: (none — `归档` is generic Chinese for "file/persist" (e.g. 落盘归档, 归档回写清单, plan-archive 这 skill 自身); canonical `archive` refers to the workflow terminal state, a homonym.)
 **See**: `core/skills/workflow-archive/SKILL.md`
 
 ### review
