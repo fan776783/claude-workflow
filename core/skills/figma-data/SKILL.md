@@ -150,7 +150,14 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 
 返回 JSON 含 `taskDir`、`newlyDownloadedFiles`、`designContext`、`screenshot`。
 
-**返回为空或被截断**时：
+**始终单条标准调用**保持上面的形式（单条、不拆分、不重定向）。`design` 依赖本地 Figma MCP（`127.0.0.1:3845`），响应慢时 harness 会把这条命令自动转后台，返回 `Command running in background with ID: … Output is being written to: …/<id>.output`。这**不是空结果**：被转后台的 `design` 要等 MCP 返回 + 3s 资产写入才把 JSON 落到 `.output`。正确做法 —— **等完成通知后再 `Read` 那个 `.output`**，或一开始就显式 `run_in_background: true` 再等通知。**后台命令在完成前 `.output` 必为空 / 非 JSON，这是 pending，不算"确实为空"，不得据此进下面的 fallback。**
+
+禁止（以下全是失败会话里的缠斗副产物，是症状不是解法）：
+- ❌ `sleep N; wc -c …` 轮询 `.output` —— 会被 harness Blocked，用 `Read` / 等完成通知代替
+- ❌ 重定向到自建文件（`> /tmp/x.json`）或 `cd /tmp` 并行拆分多个 `design` 调用
+- ❌ 改动 / 截断 URL（如把文件名段替成 `x`）—— URL 原样传
+
+**确实返回为空或被截断**（已排除上面的后台消息）时：
 1. `node cli/figma.mjs get_metadata --nodeId <nodeId>` 获取节点结构概览
 2. 从 metadata 识别关键子节点
 3. 按子节点分别 `node cli/figma.mjs design --nodeId <childNodeId> --taskId <taskId>`
@@ -220,6 +227,7 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 - **先分诊再交付** — `get_design_context` 返回后先做 Asset Triage 再宣告 Design Package 就绪
 - **refetch-parent 阻断** — AssetPlan 中存在 `refetch-parent` 时 Design Package 未就绪
 - **通过 CLI `design` 命令调用** — CLI 自动管理 `dirForAssetWrites`；直接 raw call 时必须手动传
+- **慢命令转后台 → Read `.output`，不轮询** — `design` 被 harness 自动转后台时返回的 background 提示不是空结果；`Read` 那个 `.output` 路径取 JSON。禁止 `sleep; wc -c` 轮询、禁止重定向到 /tmp 或拆分并行、禁止改/截断 URL（详见 Step 3）
 - **当前模型执行** — 不调用外部模型处理数据获取和分诊
 - **AskUserQuestion enum 来自 cache 时强制 refresh**（ADR-0001 Decision 8）— 让用户从 enum 候选（如节点类型选项）选择前，若候选取自 schema cache，先跑 `list-tools --refresh` 或 `get_metadata` 内省避免 server 漂移导致选中已废值
 
@@ -245,6 +253,9 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 | "先把 Design Package 交出去，AssetPlan 后面补" | 回 Step 6 |
 | "复合图形先标 promote，让下游自己处理" | 回 Step 7，执行 `refetch-parent` |
 | "先用 hash 文件名，最后统一改" | 回 Step 8 资源命名 |
+| "design 返回 286b/空，赶紧拆 node 重试" | 先看是不是 `Command running in background` 提示，是就 `Read` 那个 `.output` |
+| "sleep 20; wc -c 看 `.output` 写完没" | 会被 Blocked，改用 `Read` / 等完成通知 |
+| "URL 太长先截一段 / 重定向到 /tmp 再读" | URL 原样传，结果走 `.output`，不重定向 |
 
 ## 参考文档
 
