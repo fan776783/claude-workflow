@@ -135,13 +135,14 @@ function buildRuntimeSummary(state) {
  * @returns {Object} 状态概览，包含进度、任务数、运行时摘要等
  */
 function cmdStatus(projectId = null, projectRoot = null) {
-  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
+  const [state, , tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
   if (!state) return { error: '没有活跃的工作流', code }
   const progress = state.progress || {}
   const total = tasksContent ? countTasks(tasksContent) : 0
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
   return {
     workflow_status: state.status,
+    plan_file: tasksPath || state.plan_file || state.tasks_file || '',
     current_tasks: state.current_tasks || [],
     total_tasks: total,
     completed: (progress.completed || []).length,

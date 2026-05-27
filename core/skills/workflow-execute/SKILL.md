@@ -67,6 +67,14 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js next
 ```
 
+**首次打印 plan 路径(必须)**:确认 state 后,从 `status` 返回的 `plan_file`(绝对路径)向用户打印一行,方便执行期 review plan:
+
+```
+📋 Plan: <plan_file 绝对路径>
+```
+
+`plan_file` 缺失(自愈失败 / 路径未解析)→ 不打印,按下方"状态文件自愈"处理。
+
 **读 handoff(plan→execute,定向)**:确认 state 后读 plan 阶段决策摘要,定向 task 派发,不必整篇重读 plan/spec。
 
 ```bash

@@ -72,13 +72,13 @@ controller (主会话)
 - ❌ 让 controller 把整文件正文粘进 reviewer prompt（reviewer 自跑 `git diff <base>..HEAD`）
 - ❌ controller 为补 patterns-to-mirror / mandatory-reading 的行号去 Read 源码（行号可选；缺失时给路径 + 意图，让 implementer 自读定位 —— 否则读取成本回灌 controller，是 333k 上下文膨胀的主因）
 - ❌ reviewer / implementer 返回散文报告（strict JSON-only，schema 违规重派 1 次后 halt）
-- ❌ 同时派发多个 implementer subagent（写动作禁止并行；只读 fan-out 走 `dispatching-parallel-agents`）
+- ❌ 在 plan 执行路径里同时派发多个 implementer subagent（plan task 有依赖 / 共享文件，写动作顺序执行）。文件不重叠的独立写任务走 `dispatching-parallel-agents` 的 writable fan-out，不在本主路径并行
 
 ## 与其它 skill 的边界
 
 - **TDD**：默认关闭。仅当 `/workflow-execute --tdd` 使入口返回 `tdd_enabled: true` 且任务满足 TDD 条件时,implementer prompt 才在 `<protocols>` 中引用 `../tdd/SKILL.md`（不内联 TDD 全文）。
 - **Codex spec-级第二意见**：`workflow-review` 的 codex_enhanced 模式仅用于 spec §1 成功标准 / 跨 task contract 一致性。不驻留 per-task review。
-- **dispatching-parallel-agents**：只用于**只读 fan-out**（debug / research / multi-bug 调查），不参与 task implementation
+- **dispatching-parallel-agents**：只读 fan-out（debug / research / multi-bug 调查）+ writable fan-out（文件不重叠的独立写任务）。**不参与有依赖的 plan task 执行** —— plan task 走本主路径顺序
 
 ## quality_gate 字段语义
 
