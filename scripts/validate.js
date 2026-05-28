@@ -116,12 +116,6 @@ async function validatePathReferences(repoRoot, packageRoot, errors) {
       message: 'hooks/runtime 文档仍引用旧的 .claude/specs/guides/ 路径',
     },
     {
-      root: path.join(packageRoot, 'skills', 'workflow-review'),
-      predicate: (_, name) => name.endsWith('.md'),
-      forbidden: '.claude/specs/guides/',
-      message: 'workflow-review 文档仍引用旧的 .claude/specs/guides/ 路径',
-    },
-    {
       root: repoRoot,
       predicate: (_, name) => name.endsWith('.md'),
       forbidden: 'scripts/workflow_cli.py',
@@ -245,7 +239,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
     ? (await fs.readdir(workflowHooksDir)).filter(file => file.endsWith('.js'))
     : [];
   const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'task_runtime.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
-  const workflowDocSkills = ['workflow-plan', 'workflow-execute', 'workflow-review', 'workflow-delta'];
+  const workflowDocSkills = ['workflow-plan', 'workflow-execute', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {
     if (!scriptFiles.includes(file)) {

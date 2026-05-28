@@ -1,6 +1,6 @@
 # Impact Analysis Template
 
-跨 skill 的影响面分析通用骨架。fix-bug Phase 2.1、bug-batch Phase 3、workflow-review 共用这份最小公约数；diff-review 的 `specs/impact-analysis.md` 保留评审专用的深度维度（不重复）。
+跨 skill 的影响面分析通用骨架。fix-bug Phase 2.1、bug-batch Phase 3、execute 末尾终审（workflow-execute Step 7）共用这份最小公约数；diff-review 的 `specs/impact-analysis.md` 保留评审专用的深度维度（不重复）。
 
 ## 何时做影响分析
 
@@ -73,7 +73,7 @@
 | 声称跨module的 P2 finding | 1, 2, 3 |
 | 局部 P2 / P3 finding | 1, 2（可轻量化，一句话说明） |
 | fix-bug / bug-batch 修复前 | 1, 2, 3, 6 |
-| workflow-review Stage 1 | 1, 2, 3 |
+| execute 末尾终审（workflow-execute Step 7） | 1, 2, 3 |
 
 ## 使用方式
 

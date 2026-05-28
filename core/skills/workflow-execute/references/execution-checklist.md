@@ -22,13 +22,11 @@
 - [ ] 以上检查内容均为建议性，不阻塞后续步骤
 - [ ] **必须输出执行证据**（复制模板填充）：`自审查：X/Y 项通过` 或 `自审查：已跳过（{原因}）`。静默省略即为管线违规
 
-> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成workflow后用 `/spec-update` 捕获，由 `workflow-review` Stage 1 兜底。
+> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成workflow后用 `/spec-update` 捕获，由 execute 末尾终审（Step 7）兜底。
 
-### 2.5 落 per-task quality_gate（reviewer PASS 后，必做）
+### 2.5 per-task reviewer 终判（reviewer PASS 后）
 
-- [ ] Step 5.2 reviewer 终判 `PASS` 后，调 `node ~/.agents/agent-workflow/core/utils/workflow/quality_review.js pass {taskId} --project-id {projectId} --from-task {taskId} --to-task {taskId} --requirement-ids {需求 ID} --stage1-attempts {loop 次数} --minor-count {Phase 2 minor 数} --review-mode single_reviewer --reviewer {subagent|self}`
-- [ ] **CLI 写盘，不回灌 `gate_result` 全文到 controller**——只确认返回的 `overall_passed: true`
-- [ ] 这条 record 写 `state.quality_gates[taskId]`，是 `workflow-review` 的 per-task review 审计锚点；与 `task.quality_gate` bool（commit marker）不是一回事
+- [ ] Step 5.2 reviewer 终判 `PASS` → controller **内存确认放行**进入下一步（per-task gate 落盘已退役，不调 CLI 持久化、不回灌全文到 controller，只认 `decision: PASS`）
 - [ ] reviewer 终态 FAIL → 由 Step 5.2 loop 上限 halt 处理，本步不执行
 
 ### 3. Plan 更新（Plan Checkpoint）
@@ -60,7 +58,7 @@
 | 条件 | 记录内容 |
 |------|----------|
 | ContextGovernor 决定暂停时 | 已完成任务 + 暂停原因 + 下一步计划 |
-| 所有 task 完成（进入 review_pending）时 | 全部任务摘要 + 最终产物 |
+| 所有 task 完成（末尾终审前）时 | 全部任务摘要 + 最终产物 |
 
 - [ ] 调用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --title "..." --tasks-completed "..." --summary "..." --decisions "..." --next-steps "..."`
 - [ ] 确认 journal 记录包含：已完成任务 ID、关键决策、遇到的问题、Next Steps
@@ -79,14 +77,14 @@
 - ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + plan/state 更新管线
 - ❌ **覆盖其他workflow的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
 - ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 plan.md / state.json。每个 task 完成后必须立即输出 checkpoint 行
-- ❌ **绕过 review_pending** — 所有 task 完成后不得直接标记 completed，必须先设为 `review_pending` 并提示用户执行 `/workflow-review`
+- ❌ **跳过末尾终审标记 completed** — 所有 task 完成后必须先跑 inline final reviewer 终审（Step 7），PASS 后才 `advance` 到 `completed`（HARD-GATE #4，无独立 review 中间态）
 
 ---
 
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 落 quality_gate（reviewer PASS 后）→ ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
-所有 Task 完成 → 生成实施报告 → 设 review_pending → 提示 /workflow-review
+Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 reviewer PASS 内存确认 → ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
+所有 Task 完成 → inline final reviewer 末尾终审（Step 7）→ PASS → advance 到 completed
 ```
 

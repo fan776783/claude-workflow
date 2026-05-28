@@ -217,30 +217,14 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(highRiskCoverage[0].must_preserve, true)
     assert.deepEqual(highRiskCoverage[0].protected_details, ['管理员只能导出自己有权限的数据'])
 
+    // quality_gate semantics survive at plan-task level: must_preserve requirement → quality_gate task
+    // carrying its requirement_ids. The per-task governor decision machine (decideGovernanceAction /
+    // decidePostExecutionAction) was retired in the lean-execute refactor; quality gating now runs as a
+    // per-task reviewer (execute Step 6) + inline final review (Step 7), with no persisted decision.
     const tasks = taskParser.parseTasksV2(lifecycleCmds.buildPlanTasks(highRiskCoverage))
     assert.equal(tasks.length, 1)
     assert.equal(tasks[0].quality_gate, true)
     assert.deepEqual(tasks[0].requirement_ids, ['R-001'])
-
-    // Pre-execution decide no longer carries the quality-gate-boundary halt reason.
-    // Quality gate semantics moved to decidePostExecutionAction in Step 7.
-    const decision = executionSequencer.decideGovernanceAction(minimumState(), tasks[0], 'continuous', false, false)
-    assert.notEqual(decision.reason, 'quality-gate-boundary')
-
-    // Post-execution: reviewer PASS at safe budget → continue-direct.
-    const postPass = executionSequencer.decidePostExecutionAction(minimumState(), tasks[0], { passed: true })
-    assert.equal(postPass.action, 'continue-direct')
-
-    // Post-execution: quality_gate task + budget warning + PASS → pause-quality-gate.
-    const warnState = { ...minimumState(), contextMetrics: { projectedUsagePercent: 65, warningThreshold: 60, dangerThreshold: 80, hardHandoffThreshold: 90 } }
-    const postWarn = executionSequencer.decidePostExecutionAction(warnState, tasks[0], { passed: true })
-    assert.equal(postWarn.action, 'pause-quality-gate')
-    assert.equal(postWarn.reason, 'quality-gate-budget-pressure')
-
-    // Post-execution: reviewer FAIL → pause-quality-gate (warning).
-    const postFail = executionSequencer.decidePostExecutionAction(minimumState(), tasks[0], { passed: false, decision: 'rejected' })
-    assert.equal(postFail.action, 'pause-quality-gate')
-    assert.equal(postFail.reason, 'review-failed')
   })
 
 
@@ -273,44 +257,35 @@ test('workflow helper migration coverage', async (t) => {
     assert.doesNotMatch(updated, /## T2: 第二个任务/)
   })
 
-  await t.test('quality review helpers persist and read canonical gate results', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-quality-'))
-    const home = path.join(tmpRoot, 'home')
-    fs.mkdirSync(home, { recursive: true })
+  await t.test('quality review gate builders and evidence survive as final-review library helpers', () => {
+    // Per-task gate persistence (writeQualityGateResult / readQualityGateResult) was retired; these
+    // builders now feed the inline final reviewer (execute Step 7). The gate-result shape, the
+    // approved/rejected decisions, and the evidence label remain the contract that final review reuses.
+    const gate = qualityReview.buildPassGateResult(
+      'T8',
+      'abc123',
+      'def456',
+      'T5',
+      'T8',
+      3,
+      ['R-001'],
+      ['不能破坏现有行为'],
+      1,
+      2,
+      0,
+      0,
+      1,
+      2
+    )
+    const evidence = qualityReview.createQualityReviewEvidence('T8', gate)
 
-    withHome(home, () => {
-      const statePath = createCanonicalStateFile(home)
-      const gate = qualityReview.buildPassGateResult(
-        'T8',
-        'abc123',
-        'def456',
-        'T5',
-        'T8',
-        3,
-        ['R-001'],
-        ['不能破坏现有行为'],
-        1,
-        2,
-        0,
-        0,
-        1,
-        2
-      )
-      const evidence = qualityReview.createQualityReviewEvidence('T8', gate)
+    assert.equal(gate.overall_passed, true)
+    assert.equal(gate.attempt, 3)
+    assert.equal(gate.stage2.assessment, 'approved')
+    assert.equal(evidence.artifact_ref, 'quality_gates.T8')
+    assert.equal(evidence.passed, true)
 
-      assert.equal(gate.overall_passed, true)
-      assert.equal(gate.attempt, 3)
-      assert.equal(gate.stage2.assessment, 'approved')
-      assert.equal(evidence.artifact_ref, 'quality_gates.T8')
-      assert.equal(evidence.passed, true)
-
-      qualityReview.writeQualityGateResult(statePath, 'T8', gate, 'proj-test')
-      const review = qualityReview.readQualityGateResult(statePath, 'T8', 'proj-test')
-      assert.equal(review.overall_passed, true)
-      assert.equal(review.gate_task_id, 'T8')
-    })
-
-    // getReviewResult reads from state.quality_gates only.
+    // getReviewResult reads from state.quality_gates only (legacy-state compatible read accessor).
     assert.equal(workflowTypes.getReviewResult({ execution_reviews: { T4: {} } }, 'T4'), null)
     const direct = workflowTypes.getReviewResult(
       { quality_gates: { T9: { gate_task_id: 'T9', overall_passed: true, stage1: { passed: true } } } },
@@ -383,69 +358,9 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(exhaustedStage1Gate.last_decision, 'rejected')
   })
 
-  await t.test('quality review budget resolves baseline from state and latest passed gate', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-review-budget-'))
-    const [extraEnv, home] = makeCliEnv(root)
-    writeProjectConfig(root, 'proj-test')
-    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T3'])
-    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-    state.project_root = root
-    state.initial_head_commit = 'base-000'
-    state.quality_gates = {
-      T1: {
-        overall_passed: true,
-        commit_hash: 'pass-111',
-        reviewed_at: '2026-03-31T00:00:00.000Z',
-      },
-      T2: {
-        overall_passed: true,
-        commit_hash: 'pass-222',
-        reviewed_at: '2026-03-31T01:00:00.000Z',
-      },
-    }
-    fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-    const budgetResult = runNode(path.join(workflowDir, 'quality_review.js'), ['budget'], {
-      cwd: root,
-      env: extraEnv,
-    })
-    assert.equal(budgetResult.status, 0, budgetResult.stderr)
-    const budget = JSON.parse(budgetResult.stdout)
-    assert.equal(budget.base_commit, 'pass-222')
-    assert.equal(budget.baseline_source, 'last_passed_gate')
-    assert.equal(budget.gate_task_id, 'T2')
-    assert.equal(budget.passed_gate_count, 2)
-  })
-
-  await t.test('quality review requires an explicit or persisted baseline for first gate on legacy state', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-review-baseline-'))
-    const [extraEnv, home] = makeCliEnv(root)
-    writeProjectConfig(root, 'proj-test')
-    const statePath = createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
-    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-    state.project_root = root
-    state.initial_head_commit = null
-    state.quality_gates = {}
-    fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
-
-    const budgetResult = runNode(path.join(workflowDir, 'quality_review.js'), ['budget'], {
-      cwd: root,
-      env: extraEnv,
-    })
-    assert.equal(budgetResult.status, 0, budgetResult.stderr)
-    const budget = JSON.parse(budgetResult.stdout)
-    assert.equal(budget.base_commit, null)
-    assert.equal(budget.baseline_source, 'unavailable')
-
-    const failResult = runNode(path.join(workflowDir, 'quality_review.js'), ['fail', 'T1', '--failed-stage', 'stage1'], {
-      cwd: root,
-      env: extraEnv,
-    })
-    assert.equal(failResult.status, 1)
-    const failPayload = JSON.parse(failResult.stdout)
-    assert.match(failPayload.error, /缺少质量关卡基线/)
-    assert.equal(failPayload.baseline_source, 'unavailable')
-  })
+  // Removed: 'quality review budget resolves baseline ...' and 'quality review requires an explicit
+  // or persisted baseline ...' — both exercised the retired `quality_review.js budget` / `fail` CLI
+  // verbs (per-task gate persistence + governor budget). quality_review.js no longer ships CLI verbs.
 
   await t.test('verification and project id checks stay aligned', () => {
     const verificationResult = verification.validateVerificationOrder(null, true, true)
@@ -629,7 +544,10 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('dependency and governance helpers preserve runtime decisions', () => {
+  await t.test('dependency helper still classifies task independence signals', () => {
+    // The per-task governor decision machine (decideGovernanceAction / budget backstop) was retired in
+    // the lean-execute refactor. summarizeTaskIndependence survives as the dependency-signal helper used
+    // for dispatch reasoning.
     const summary = dependencyChecker.summarizeTaskIndependence(
       {
         id: 'T9',
@@ -644,80 +562,17 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(summary.parallelizable, false)
     assert.equal(summary.signals.hasDepends, true)
     assert.equal(summary.signals.touchesSharedState, true)
-
-    const state = minimumState()
-    state.contextMetrics = {
-      projectedUsagePercent: 55,
-      warningThreshold: 60,
-      dangerThreshold: 80,
-      hardHandoffThreshold: 90,
-    }
-    const parallelDecision = executionSequencer.decideGovernanceAction(
-      state,
-      {
-        id: 'T2',
-        actions: ['run_tests'],
-        files: { create: [], modify: ['src/foo.py'], test: ['tests/test_foo.py'] },
-        steps: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }],
-      },
-      'continuous',
-      false,
-      true
-    )
-    // writable 并行已下线,原 continue-parallel-boundaries 决策改为 continue-direct + advisory
-    assert.equal(parallelDecision.action, 'continue-direct')
-    assert.equal(parallelDecision.suggestedExecutionPath, 'direct')
-    assert.equal(parallelDecision.advisory, executionSequencer.ADVISORY_CONSIDER_HANDOFF_OR_SPLIT)
-    assert.equal(parallelDecision.reason, 'independent-high-pollution')
-
-    state.contextMetrics.projectedUsagePercent = 85
-    const pauseDecision = executionSequencer.decideGovernanceAction(
-      state,
-      {
-        id: 'T2',
-        actions: ['edit_file'],
-        files: { create: [], modify: ['src/foo.py'], test: [] },
-        steps: [{ id: 'A1' }],
-      }
-    )
-    assert.equal(pauseDecision.action, 'pause-budget')
-    assert.equal(pauseDecision.budgetBackstopTriggered, true)
   })
 
-  await t.test('applyGovernanceDecision markTaskSkipped and prepareRetry persist expected state', () => {
+  await t.test('markTaskSkipped and prepareRetry persist expected state', () => {
+    // applyGovernanceDecision (halt + continuation persistence) was retired in the lean-execute refactor;
+    // markTaskSkipped / prepareRetry survive as the skip + retry runtime helpers.
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-exec-'))
     const home = path.join(tmpRoot, 'home')
     fs.mkdirSync(home, { recursive: true })
 
     withHome(home, () => {
       const statePath = createCanonicalStateFile(home)
-      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      const updated = executionSequencer.applyGovernanceDecision(
-        state,
-        {
-          action: 'pause-budget',
-          reason: 'context-danger',
-          severity: 'warning',
-          suggestedExecutionPath: 'direct',
-          primarySignals: {
-            taskIndependence: { level: 'low' },
-            contextPollutionRisk: { level: 'high' },
-          },
-          budgetBackstopTriggered: true,
-          budgetLevel: 'danger',
-          decisionNotes: ['预算危险区且建议路径仍会扩张主会话'],
-        },
-        statePath,
-        ['T2']
-      )
-
-      assert.equal(updated.status, 'halted')
-      assert.equal(updated.halt_reason, 'governance')
-      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      assert.equal(persisted.continuation.strategy, 'context-first')
-      assert.equal(persisted.continuation.last_decision.action, 'pause-budget')
-      assert.deepEqual(persisted.continuation.last_decision.nextTaskIds, ['T2'])
-      assert.equal(persisted.continuation.last_decision.budgetBackstopTriggered, true)
 
       const tasksPath = path.join(tmpRoot, 'plan.md')
       fs.writeFileSync(tasksPath, PLAN_FIXTURE)
@@ -850,7 +705,6 @@ test('workflow helper migration coverage', async (t) => {
     summaryState.discussion.completed = true
     summaryState.ux_design.completed = true
     summaryState.review_status.user_spec_review.status = 'approved'
-    summaryState.quality_gates.T1 = { overall_passed: true }
     fs.writeFileSync(statePath, JSON.stringify(summaryState, null, 2))
 
     const statusResult = runNode(cliScript, ['status'], { cwd: root, env: extraEnv })
@@ -861,9 +715,9 @@ test('workflow helper migration coverage', async (t) => {
     const contextPayload = JSON.parse(contextResult.stdout)
     assert.equal(statusPayload.delta_tracking.current_change, 'CHG-002')
     assert.equal(statusPayload.planning_gates.discussion.completed, true)
-    assert.deepEqual(statusPayload.quality_gate_summary.passed, ['T1'])
-    assert.equal(contextPayload.runtime.delta_tracking.current_change, 'CHG-002')
-    assert.equal(contextPayload.runtime.quality_gate_summary.count, 1)
+    // quality_gate_summary projection + cmdContext `runtime` block retired (lean-execute); context now
+    // surfaces workflow state under `workflow`.
+    assert.equal(contextPayload.workflow.delta_tracking.current_change, 'CHG-002')
 
     const archiveState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     archiveState.status = 'completed'
@@ -1016,14 +870,8 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(reviewBlockedPayload.continue, false)
       assert.match(reviewBlockedPayload.reason, /User Spec Review 尚未 approved/)
 
-      runningState.quality_gates = {
-        T1: {
-          overall_passed: false,
-          last_decision: 'revise',
-          stage1: { passed: false, attempts: 1 },
-          stage2: { passed: false, attempts: 0 },
-        },
-      }
+      // per-task quality-gate 注入已随 lean-execute（ADR 0004）退役：reviewer 终判仅内存确认，
+      // hook 不再读 state.quality_gates 也不再注入 <quality-gate-state> 块。
       runningState.review_status = {
         user_spec_review: {
           status: 'approved',
@@ -1043,7 +891,6 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(injectedPayload.continue, true)
       assert.match(injectedPayload.message, /已注入任务上下文/)
       assert.match(injectedPayload.tool_input.description, /verification-commands/)
-      assert.match(injectedPayload.tool_input.description, /quality-gate-state/)
     })
   })
 
@@ -1153,9 +1000,8 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(state.status, 'spec_review')
     assert.equal(state.review_status.user_spec_review.status, 'revise_required')
 
-    const qualityResult = runNode(path.join(workflowDir, 'quality_review.js'), ['read', 'T3'], { env: extraEnv })
-    assert.equal(qualityResult.status, 1)
-    assert.equal(JSON.parse(qualityResult.stdout).error, 'missing state reference')
+    // quality_review.js `read` CLI verb retired (per-task gate persistence removed); structured-error
+    // contract coverage now anchors on execution_sequencer retry + state_manager progress below.
 
     // retry on a non-failed state now returns a structured non-retryable payload with exit 0
     // instead of the old "no active workflow" error (state exists after `start`).
@@ -1267,21 +1113,8 @@ test('workflow helper migration coverage', async (t) => {
     const tasksPath = path.join(root, 'plan.md')
     fs.writeFileSync(tasksPath, PLAN_FIXTURE)
 
-    const passResult = runNode(
-      path.join(workflowDir, 'quality_review.js'),
-      ['pass', 'T3', '--base-commit', 'abc123', '--state-file', statePath],
-      { env: extraEnv }
-    )
-    assert.equal(passResult.status, 0, passResult.stderr)
-
-    const readResult = runNode(
-      path.join(workflowDir, 'quality_review.js'),
-      ['read', statePath, 'T3'],
-      { env: extraEnv }
-    )
-    assert.equal(readResult.status, 0, readResult.stderr)
-    assert.equal(JSON.parse(readResult.stdout).review.overall_passed, true)
-
+    // quality_review.js pass/read CLI verbs retired (per-task gate persistence removed); legacy-path
+    // argument compatibility now exercised through execution_sequencer retry + state_manager progress.
     const failedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     failedState.status = 'failed'
     failedState.failure_reason = 'boom'
@@ -1484,20 +1317,16 @@ test('workflow helper migration coverage', async (t) => {
       const statePath = createCanonicalStateFile(home, 'proj-test', 'halted')
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
       state.execution_mode = 'phase'
-      state.halt_reason = 'governance'
-      state.continuation = {
-        last_decision: {
-          action: 'pause-governance',
-          reason: 'phase-boundary',
-        },
-      }
+      state.halt_reason = 'failure'
       fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
 
+      // Governance continuation (continuation.last_decision / continuation_action) was retired in the
+      // lean-execute refactor — ensureStateDefaults now strips `continuation`. Resuming a halted workflow
+      // back into execute remains the survivor behavior.
       const result = executionSequencer.buildExecuteEntry('continue', null, null, root)
       assert.equal(result.entry_action, 'execute')
       assert.equal(result.resolved_mode, 'phase')
       assert.equal(result.can_resume, true)
-      assert.equal(result.continuation_action, 'pause-governance')
     })
   })
 
@@ -1671,10 +1500,12 @@ test('workflow helper migration coverage', async (t) => {
   })
 
   await t.test('help subcommand prints signature lines for advance and journal', () => {
+    // --review-passed / --review-failed flags retired with the review_pending lifecycle; advance now
+    // marks task complete and (for the final task) lands directly in completed after inline final review.
     const advanceHelp = runNode(cliScript, ['help', 'advance'])
     assert.equal(advanceHelp.status, 0, advanceHelp.stderr)
-    assert.match(advanceHelp.stdout, /--review-passed/)
-    assert.match(advanceHelp.stdout, /--review-failed/)
+    assert.match(advanceHelp.stdout, /advance <task-id>/)
+    assert.match(advanceHelp.stdout, /completed/)
 
     const journalHelp = runNode(cliScript, ['help', 'journal'])
     assert.equal(journalHelp.status, 0, journalHelp.stderr)

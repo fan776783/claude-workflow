@@ -35,3 +35,5 @@ accepted（2026-05-19，via `/grill` 6 个开放点 + `/quick-plan`）
 ---
 
 **Refined by**: ADR-0003（2026-05-26）—— 本 ADR 删的是 worktree-per-task **重型可写并行基建**，结论不变；但其顺手把 `dispatching-parallel-agents` 钉成「只读 fan-out only」这一条 consequence 被 0003 放宽：允许文件不重叠的 writable fan-out（superpowers 式轻量手动判定，零运行时基建）。两者不冲突 —— 重型并行仍不恢复。
+
+**Continued by**: ADR-0004（2026-05-27）—— 同一「删 0 回本的 durable 机器」思路延续。本 ADR 删的是 0 启用的可写并行基建；0004 把同一论证用到 execute 治理/审计层：删 governor 决策 + per-task quality gate 持久化（`state.quality_gates`）、废 `/workflow-review` skill + `review_pending` 状态、把终审折叠进 execute 末尾 inline。读时丢弃老 state 字段、不写 migration、平台降级保留——均沿用本 ADR 同手法。

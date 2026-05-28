@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Code-specs template 契约：锁定 7 段 code-spec / 4 段 layer-index / 6 段 guides-index 的段落标题。
-// canonical 模板发生 drift（段落改名 / 漏写）时，/workflow-review 的 Code Specs Check 与 Probe E
+// canonical 模板发生 drift（段落改名 / 漏写）时，execute 末尾终审（workflow-execute Step 7）的 Code Specs Check 与 Probe E
 // 会因为读不到对应段落而失效。这里做最小集的 exact-heading 校验，scripts/validate.js 在 prepublish 时调用。
 
 const fs = require('fs')

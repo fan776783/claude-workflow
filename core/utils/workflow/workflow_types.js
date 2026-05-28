@@ -67,7 +67,6 @@ const MINIMUM_STATE_STATUSES = new Set([
   'planned',
   'running',
   'halted',
-  'review_pending',
   'completed',
   'archived',
 ])
@@ -75,14 +74,12 @@ const POST_SPEC_REVIEW_STATUSES = new Set([
   'planned',
   'running',
   'halted',
-  'review_pending',
   'completed',
 ])
 
 // Enum 常量化：消除 stringly-typed 散落字面量。新代码应引用这些常量；旧字符串字面量仍兼容。
 const HALT_REASON = Object.freeze({
   FAILURE: 'failure',
-  GOVERNANCE: 'governance',
   DEPENDENCY: 'dependency',
   AWAITING_CODEX_REVIEW: 'awaiting_codex_review',
 })
@@ -141,12 +138,12 @@ function buildAttemptRecord({ attemptId = null, phase, triggerReason = null, out
 }
 
 // Pass-through projector for read-side consumers.
-// Halted state derives halt_reason from explicit field, defaulting to 'governance'.
+// Halted state derives halt_reason from explicit field, defaulting to 'failure'.
 function deriveEffectiveStatus(state) {
   const source = state || {}
   const rawStatus = source.status || 'idle'
   const haltReason = source.halt_reason || null
-  return { status: rawStatus, halt_reason: rawStatus === 'halted' ? (haltReason || 'governance') : null }
+  return { status: rawStatus, halt_reason: rawStatus === 'halted' ? (haltReason || 'failure') : null }
 }
 
 function buildMinimumState(projectId, planFile, specFile, currentTasks = [], status = 'running') {
@@ -166,6 +163,12 @@ function buildMinimumState(projectId, planFile, specFile, currentTasks = [], sta
 
 function ensureStateDefaults(state) {
   const normalized = copyJson(state || {})
+  // Read-side discard of retired execute/review fields (lean-execute 收敛，对齐 ADR 0002 "读时丢弃老字段" 先例)。
+  // 老 state 文件读入后这些字段被丢弃，不写 migration。
+  delete normalized.quality_gates
+  delete normalized.continuation
+  delete normalized.review_report_path
+  delete normalized.contextMetrics
   if (!normalized.project_id && normalized.projectId) normalized.project_id = normalized.projectId
   if (!normalized.status) normalized.status = 'idle'
   if (!normalized.current_tasks) normalized.current_tasks = []
@@ -174,7 +177,6 @@ function ensureStateDefaults(state) {
   for (const [key, value] of Object.entries(MINIMUM_PROGRESS)) {
     if (!Array.isArray(normalized.progress[key])) normalized.progress[key] = [...value]
   }
-  if (!normalized.quality_gates) normalized.quality_gates = {}
   if (!normalized.task_runtime) normalized.task_runtime = {}
   if (!normalized.unblocked) normalized.unblocked = []
   if (!normalized.sessions) normalized.sessions = copyJson(MINIMUM_SESSIONS)
@@ -191,8 +193,6 @@ function ensureStateDefaults(state) {
   if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
   if (!('halt_reason' in normalized)) normalized.halt_reason = null
-  // workflow-review 落地报告的路径（顶层字符串）。set-report-path CLI 动词写入，避免 controller 手编 state.json。
-  if (!('review_report_path' in normalized)) normalized.review_report_path = null
   // contract digest 落盘路径（顶层字符串）。set-contract-digest-path CLI 动词写入，避免 controller 手编 state.json。
   if (!('contract_digest_path' in normalized)) normalized.contract_digest_path = null
   // T8 deviation_log: 用户"接受偏离"决策的审计日志,每条带 decided_at / spec_section / requires_spec_review。
@@ -410,9 +410,8 @@ const VERBOSE_STATUS_TABLE = {
       ? 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
       : haltReason === 'dependency'
         ? 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
-        : 'Guardrail：governance pause，恢复执行必须经过 `/workflow-execute` 的 shared resolver。',
+        : 'Guardrail：暂停态恢复执行必须经过 `/workflow-execute` 的 shared resolver。',
   }),
-  review_pending: { nextAction: '所有任务已完成，待 /workflow-review 审查通过后方可归档。', guardrail: 'Guardrail：待 `/workflow-review` 审查通过，不得跳过直接归档。' },
   completed: (state) => ({
     nextAction: `工作流已完成 (${((state.progress || {}).completed || []).length} 任务)。使用 /workflow-archive 归档，不要继续执行。`,
     guardrail: 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。',
@@ -436,7 +435,6 @@ const SHORT_STATUS_TABLE = {
         : '已暂停，处理原因后 /workflow-execute 恢复。',
     guardrail: '阻塞/失败态需走 retry/skip/unblock 治理。',
   }),
-  review_pending: { nextAction: '待 /workflow-review 通过后归档。', guardrail: '待审查通过，不得跳过归档。' },
   completed: { nextAction: '已完成，/workflow-archive 归档。', guardrail: '已完成只允许归档或查看状态。' },
   archived: { nextAction: null, guardrail: null },
 }

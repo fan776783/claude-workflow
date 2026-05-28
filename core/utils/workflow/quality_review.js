@@ -2,17 +2,16 @@
 
 const { spawnSync } = require('child_process')
 const crypto = require('crypto')
-const { readState, resolveStatePath, writeState } = require('./state_manager')
+const { resolveStatePath } = require('./state_manager')
 const { createEvidence } = require('./verification')
-const { assertCanonicalWorkflowStatePath, detectProjectIdFromRoot } = require('./path_utils')
-const { ensureStateDefaults, getReviewResult, buildAttemptRecord, ATTEMPT_PHASE, ATTEMPT_OUTCOME, FINDING_STATUS } = require('./workflow_types')
+const { assertCanonicalWorkflowStatePath } = require('./path_utils')
+const { ensureStateDefaults, buildAttemptRecord, ATTEMPT_PHASE, ATTEMPT_OUTCOME, FINDING_STATUS } = require('./workflow_types')
 const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile, STAGE2_REVIEW_MODE_SET } = require('./role_injection')
 
-const GATE_BUDGET = {
-  max_total_loops: 4,
-  max_diff_context_chars: 50000,
-  cache_stage1: true,
-}
+// per-task gate 持久化 + governor budget 已退役（R-002）。
+// 末尾终审复用的 buildPass/FailGateResult 仍需 review loop 上限来整形结果，
+// 保留为不导出的内部常量，不再承担 budget 决策。
+const MAX_REVIEW_LOOPS = 4
 
 function normalizeStage2ReviewMode(value, fallback = 'single_reviewer') {
   if (!value) return fallback
@@ -54,50 +53,6 @@ function getGitHead(projectRoot = process.cwd()) {
   if (result.status !== 0) return null
   const commit = String(result.stdout || '').trim()
   return commit || null
-}
-
-function getPassedQualityGates(state = {}) {
-  const reviewedAt = (gate) => {
-    const value = gate?.reviewed_at || gate?.stage2?.completed_at || gate?.stage1?.completed_at
-    const timestamp = value ? Date.parse(value) : Number.NaN
-    return Number.isNaN(timestamp) ? 0 : timestamp
-  }
-  return Object.entries((state || {}).quality_gates || {})
-    .filter(([, gate]) => gate && gate.overall_passed === true)
-    .sort((left, right) => reviewedAt(right[1]) - reviewedAt(left[1]))
-}
-
-function resolveReviewBaseline(state = {}, projectRoot = process.cwd()) {
-  const normalized = ensureStateDefaults(state)
-  const [latestPassedGateId, latestPassedGate] = getPassedQualityGates(normalized)[0] || []
-  if (latestPassedGate?.commit_hash) {
-    return {
-      base_commit: latestPassedGate.commit_hash,
-      baseline_source: 'last_passed_gate',
-      gate_task_id: latestPassedGateId,
-    }
-  }
-  if (normalized.initial_head_commit) {
-    return {
-      base_commit: normalized.initial_head_commit,
-      baseline_source: 'initial_head_commit',
-      gate_task_id: null,
-    }
-  }
-  return {
-    base_commit: null,
-    baseline_source: 'unavailable',
-    gate_task_id: null,
-  }
-}
-
-function buildBudgetSnapshot(state = {}, projectRoot = process.cwd()) {
-  const baseline = resolveReviewBaseline(state, projectRoot)
-  return {
-    ...GATE_BUDGET,
-    ...baseline,
-    passed_gate_count: getPassedQualityGates(state).length,
-  }
 }
 
 function resolveQualityReviewProfile(state = {}, requirementIds = [], criticalConstraints = [], diffWindow = null) {
@@ -246,7 +201,7 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
     review_mode: 'machine_loop',
     gate_task_id: taskId,
     subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
-    max_attempts: GATE_BUDGET.max_total_loops,
+    max_attempts: MAX_REVIEW_LOOPS,
     attempt: attempts,
     last_decision: 'pass',
     next_action: 'continue_execution',
@@ -261,7 +216,7 @@ function buildPassGateResult(taskId, baseCommit, currentCommit = null, fromTask 
 }
 
 function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = null, fromTask = null, toTask = null, filesChanged = 0, requirementIds = [], criticalConstraints = [], stage1Attempts = 1, totalAttempts = 1, lastResult = null, reviewer = 'subagent', state = {}, options = {}) {
-  const budgetExhausted = totalAttempts >= GATE_BUDGET.max_total_loops
+  const budgetExhausted = totalAttempts >= MAX_REVIEW_LOOPS
   const stage1Failed = failedStage === 'stage1' || failedStage === 'stage1_recheck'
   const stage2Failed = failedStage === 'stage2'
   const terminalDecision = budgetExhausted || stage2Failed ? 'rejected' : 'revise'
@@ -282,7 +237,7 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
     review_mode: 'machine_loop',
     gate_task_id: taskId,
     subject: createReviewSubject(baseCommit, requirementIds, criticalConstraints),
-    max_attempts: GATE_BUDGET.max_total_loops,
+    max_attempts: MAX_REVIEW_LOOPS,
     attempt: totalAttempts,
     last_decision: terminalDecision,
     next_action: nextAction,
@@ -331,17 +286,6 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
     }
   }
   return result
-}
-
-function resolveBaseCommitForCommand(state = {}, projectRoot = process.cwd(), explicitBaseCommit = null) {
-  if (explicitBaseCommit) {
-    return {
-      base_commit: explicitBaseCommit,
-      baseline_source: 'explicit',
-      gate_task_id: null,
-    }
-  }
-  return resolveReviewBaseline(state, projectRoot)
 }
 
 // T7 findings 三态：从 blocking_issues 提取 finding，与上轮 diff 标 new/carried/resolved。
@@ -420,33 +364,6 @@ function buildAttemptsFromGateResult(gateResult) {
   return attempts
 }
 
-function writeQualityGateResult(statePath, taskId, gateResult, projectId = null) {
-  const state = ensureStateDefaults(readState(statePath, projectId))
-  const qualityGates = state.quality_gates || (state.quality_gates = {})
-  // 跨轮追加 attempts[]：保留之前的 attempts，本次 stage1/stage2 各拼一条新 record。
-  const prev = qualityGates[taskId] || {}
-  const prevAttempts = Array.isArray(prev.attempts) ? prev.attempts : []
-  const newAttempts = buildAttemptsFromGateResult(gateResult)
-  // T7 findings 三态：与上一轮 last attempt 的 findings diff，挂到本轮最后一条 attempt record。
-  const prevLast = prevAttempts[prevAttempts.length - 1] || null
-  const prevFindings = prevLast && Array.isArray(prevLast.findings) ? prevLast.findings : []
-  const currentFindings = extractFindingsFromGateResult(gateResult)
-  const diffed = diffFindings(prevFindings, currentFindings)
-  if (newAttempts.length > 0) {
-    newAttempts[newAttempts.length - 1].findings = diffed
-  }
-  gateResult.attempts = [...prevAttempts, ...newAttempts]
-  gateResult.findings_summary = summarizeFindings(diffed)
-  qualityGates[taskId] = gateResult
-  writeState(statePath, state, projectId)
-  return gateResult
-}
-
-function readQualityGateResult(statePath, taskId, projectId = null) {
-  const state = ensureStateDefaults(readState(statePath, projectId))
-  return getReviewResult(state, taskId)
-}
-
 function resolveCliStatePath(projectId = null, stateFile = null) {
   if (stateFile) return assertCanonicalWorkflowStatePath(stateFile, projectId)
   if (projectId) return resolveStatePath(projectId)
@@ -470,145 +387,14 @@ function createQualityReviewEvidence(taskId, gateResult) {
   return createEvidence('two-stage code review', passed ? 0 : 1, outputSummary, passed, `quality_gates.${taskId}`)
 }
 
-function resolveCommandState(commandProjectId = null, commandStateFile = null) {
-  const projectId = commandProjectId || (commandStateFile ? null : detectProjectIdFromRoot(process.cwd()))
-  const statePath = resolveExistingCliStatePath(projectId, commandStateFile)
-  if (!statePath) {
-    return {
-      projectId,
-      statePath: null,
-      state: {},
-    }
-  }
-  return {
-    projectId,
-    statePath,
-    state: readState(statePath, projectId),
-  }
-}
-
+// R-002：per-task gate 持久化（pass/fail 落盘、read 读盘）与 governor budget 子命令均已退役。
+// 本模块现在仅作为库导出 reviewer prompt 构造 + review 结果整形辅助，供末尾终审复用；无 CLI 子命令。
 function main() {
-  try {
-    const args = [...process.argv.slice(2)]
-    const command = args.shift()
-    const split = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
-    const option = (flag) => {
-      const index = args.indexOf(flag)
-      return index >= 0 ? args[index + 1] : null
-    }
-    const boolOption = (flag, defaultValue = false) => {
-      const raw = option(flag)
-      if (raw == null) return defaultValue
-      return /^(1|true|yes|on)$/i.test(String(raw).trim())
-    }
-    const buildCodeSpecsCheck = () => ({
-      performed: boolOption('--code-specs-performed', true),
-      findingsCount: Number(option('--code-specs-findings') || 0),
-    })
-    const buildCrossLayerDepthGap = () => {
-      const triggered = boolOption('--cross-layer-depth-gap', false)
-      if (!triggered) return null
-      return {
-        triggered: true,
-        files: split(option('--cross-layer-files')),
-        specs: split(option('--cross-layer-specs')),
-        missingSections: split(option('--cross-layer-missing-sections')),
-        description: option('--cross-layer-description') || '',
-      }
-    }
-
-    if (command === 'pass') {
-      const taskId = args.shift()
-      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
-      if ((option('--project-id') || option('--state-file')) && !commandState.statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const baseline = resolveBaseCommitForCommand(commandState.state, commandState.state.project_root || process.cwd(), option('--base-commit'))
-      const baseCommit = baseline.base_commit
-      if (!baseCommit) {
-        process.stdout.write(`${JSON.stringify({ error: '缺少质量关卡基线，请先补齐 initial_head_commit 或显式传入 --base-commit', baseline_source: baseline.baseline_source })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildPassGateResult(taskId, baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--stage2-attempts') || 1), Number(option('--stage1-issues-found') || 0), Number(option('--critical-count') || 0), Number(option('--important-count') || 0), Number(option('--minor-count') || 0), option('--reviewer') || 'subagent', commandState.state, normalizeStage2ReviewMode(option('--review-mode')), option('--codex-status') || null, option('--review-cycle-id') || null, { codeSpecsCheck: buildCodeSpecsCheck() })
-      if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
-      process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
-      return
-    }
-
-    if (command === 'fail') {
-      const taskId = args.shift()
-      let lastResult = {}
-      try {
-        lastResult = JSON.parse(option('--last-result-json') || '{}')
-      } catch (error) {
-        process.stdout.write(`${JSON.stringify({ error: `invalid last-result-json: ${error}` })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
-      if ((option('--project-id') || option('--state-file')) && !commandState.statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const baseline = resolveBaseCommitForCommand(commandState.state, commandState.state.project_root || process.cwd(), option('--base-commit'))
-      const baseCommit = baseline.base_commit
-      if (!baseCommit) {
-        process.stdout.write(`${JSON.stringify({ error: '缺少质量关卡基线，请先补齐 initial_head_commit 或显式传入 --base-commit', baseline_source: baseline.baseline_source })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const currentCommit = option('--current-commit') || getGitHead(commandState.state.project_root || process.cwd()) || baseCommit
-      const gateResult = buildFailedGateResult(taskId, option('--failed-stage'), baseCommit, currentCommit, option('--from-task'), option('--to-task'), Number(option('--files-changed') || 0), split(option('--requirement-ids')), split(option('--critical-constraints')), Number(option('--stage1-attempts') || 1), Number(option('--total-attempts') || 1), lastResult, option('--reviewer') || 'subagent', commandState.state, { codeSpecsCheck: buildCodeSpecsCheck(), crossLayerDepthGap: buildCrossLayerDepthGap() })
-      if (commandState.statePath) writeQualityGateResult(commandState.statePath, taskId, gateResult, commandState.projectId)
-      process.stdout.write(`${JSON.stringify({ gate_result: gateResult, evidence: createQualityReviewEvidence(taskId, gateResult) })}\n`)
-      return
-    }
-
-    if (command === 'read') {
-      const taskOrState = args.shift()
-      let statePath
-      let taskId
-      if (args[0]) {
-        statePath = resolveExistingCliStatePath(option('--project-id'), taskOrState)
-        taskId = args.shift()
-      } else if (option('--project-id')) {
-        statePath = resolveExistingCliStatePath(option('--project-id'), null)
-        taskId = taskOrState
-      } else {
-        process.stdout.write(`${JSON.stringify({ error: 'missing state reference' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      if (!statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      process.stdout.write(`${JSON.stringify({ review: readQualityGateResult(statePath, taskId, option('--project-id')) })}\n`)
-      return
-    }
-
-    if (command === 'budget') {
-      const commandState = resolveCommandState(option('--project-id'), option('--state-file'))
-      process.stdout.write(`${JSON.stringify(buildBudgetSnapshot(commandState.state, commandState.state.project_root || process.cwd()))}\n`)
-      return
-    }
-
-    process.stderr.write('Usage: node quality_review.js <pass|fail|read|budget> ...\n')
-    process.exitCode = 1
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
-  }
+  process.stderr.write('quality_review.js 无 CLI 子命令（per-task gate 持久化已退役，模块仅供库内引用）\n')
+  process.exitCode = 1
 }
 
 module.exports = {
-  GATE_BUDGET,
   isoNow,
   createReviewSubject,
   createDiffWindow,
@@ -623,16 +409,10 @@ module.exports = {
   normalizeFinding,
   resolveQualityReviewProfile,
   createReviewerPrompt,
-  writeQualityGateResult,
-  readQualityGateResult,
   resolveCliStatePath,
   resolveExistingCliStatePath,
   createQualityReviewEvidence,
   getGitHead,
-  getPassedQualityGates,
-  resolveReviewBaseline,
-  resolveBaseCommitForCommand,
-  buildBudgetSnapshot,
 }
 
 if (require.main === module) main()

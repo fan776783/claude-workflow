@@ -1,6 +1,6 @@
 # Codex Routing
 
-Risk-signal based Codex routing shared by fix-bug, bug-batch, diff-review, and workflow-review. Worker-level roles and invariants follow [`subagent-worker-contract.md`](subagent-worker-contract.md).
+Risk-signal based Codex routing shared by fix-bug, bug-batch, diff-review, and the execute 末尾终审 (workflow-execute Step 7). Worker-level roles and invariants follow [`subagent-worker-contract.md`](subagent-worker-contract.md).
 
 ## Decision Table
 

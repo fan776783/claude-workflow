@@ -1,113 +1,146 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 const repoRoot = path.resolve(__dirname, '..')
 const workflowDir = path.join(repoRoot, 'core', 'utils', 'workflow')
 const {
-  HARD_STOP_ACTIONS,
-  decideGovernanceAction,
-  decidePostExecutionAction,
-  assessContextPollutionRisk,
+  detectNextTask,
+  summarizeExecutionUnit,
+  resetRetryRuntime,
 } = require(path.join(workflowDir, 'execution_sequencer.js'))
+const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.js'))
 
-const buildState = (projectedUsagePercent = 0) => ({
-  status: 'running',
-  contextMetrics: {
-    projectedUsagePercent,
-    warningThreshold: 60,
-    dangerThreshold: 80,
-    hardHandoffThreshold: 90,
-  },
+// resetRetryRuntime requires a canonical workflow state path (~/.claude/workflows/{id}/...). Build one
+// under a sandboxed HOME so the canonical-path assertion in path_utils passes.
+function withHome(home, fn) {
+  const prev = process.env.HOME
+  process.env.HOME = home
+  try {
+    return fn()
+  } finally {
+    if (prev === undefined) delete process.env.HOME
+    else process.env.HOME = prev
+  }
+}
+
+function canonicalStatePath(home, projectId = 'proj-test') {
+  return path.join(home, '.claude', 'workflows', projectId, 'workflow-state.json')
+}
+
+// The per-task governance decision machine (decideGovernanceAction / decidePostExecutionAction /
+// applyGovernanceDecision / assessContextPollutionRisk / HARD_STOP_ACTIONS) was retired in the
+// lean-execute refactor. The survivors below — next-task detection, execution-unit summarization, and
+// retry runtime reset — remain the live execution_sequencer helpers and stay under test here.
+// markTaskSkipped / prepareRetry survivors are exercised in tests/test_workflow_helpers.js.
+
+const PLAN_FIXTURE = `## T1: 第一个任务
+- **阶段**: implement
+- **Spec 参考**: §1
+- **Plan 参考**: P1
+- **状态**: pending
+- **actions**: edit_file
+- **步骤**:
+  - A1: 修改实现 → 完成第一个任务
+
+## T2: 第二个任务
+- **阶段**: test
+- **Spec 参考**: §2
+- **Plan 参考**: P2
+- **状态**: pending
+- **actions**: run_tests
+- **步骤**:
+  - A2: 运行测试 → 完成第二个任务
+`
+
+test('detectNextTask walks the plan based on progress', async (t) => {
+  await t.test('returns first task when nothing is completed', () => {
+    assert.equal(detectNextTask(PLAN_FIXTURE, { status: 'running' }), 'T1')
+  })
+
+  await t.test('advances past completed tasks', () => {
+    const next = detectNextTask(PLAN_FIXTURE, { status: 'running', progress: { completed: ['T1'] } })
+    assert.equal(next, 'T2')
+  })
+
+  await t.test('skips skipped and failed tasks too', () => {
+    const next = detectNextTask(PLAN_FIXTURE, {
+      status: 'running',
+      progress: { completed: [], skipped: ['T1'], failed: [], blocked: [] },
+    })
+    assert.equal(next, 'T2')
+  })
+
+  await t.test('returns null when all tasks are done', () => {
+    const next = detectNextTask(PLAN_FIXTURE, { status: 'running', progress: { completed: ['T1', 'T2'] } })
+    assert.equal(next, null)
+  })
+
+  await t.test('returns null for empty tasks content', () => {
+    assert.equal(detectNextTask('', { status: 'running' }), null)
+    assert.equal(detectNextTask(null, { status: 'running' }), null)
+  })
 })
 
-test('execution_sequencer quality-gate alignment', async (t) => {
-  await t.test('pre-execution decide on quality_gate task at safe budget returns continue-direct', () => {
-    const state = buildState(0)
-    const qgTask = { id: 'T1', quality_gate: true, actions: ['quality_review'], steps: ['s1'] }
-    const decision = decideGovernanceAction(state, qgTask, 'continuous', false, false)
-    assert.equal(decision.action, 'continue-direct', 'quality_gate task at 0% budget must continue, not halt')
-    assert.equal(HARD_STOP_ACTIONS.has(decision.action), false)
+test('summarizeExecutionUnit derives complexity and consecutive-task budget', async (t) => {
+  await t.test('summarizes a simple task', () => {
+    const summary = summarizeExecutionUnit({
+      id: 'T1',
+      phase: 'implement',
+      actions: ['edit_file'],
+      files: { create: [], modify: ['src/a.py'], test: [] },
+      steps: [{ id: 'A1' }],
+      quality_gate: false,
+    })
+    assert.equal(summary.task_id, 'T1')
+    assert.equal(summary.phase, 'implement')
+    assert.equal(typeof summary.complexity, 'string')
+    assert.equal(typeof summary.max_consecutive_tasks, 'number')
+    assert.ok(summary.max_consecutive_tasks >= 1)
   })
 
-  await t.test('pre-execution decide still respects pause-before-commit', () => {
-    const state = buildState(0)
-    const commitTask = { id: 'T1', actions: ['git_commit'], steps: [] }
-    const decision = decideGovernanceAction(state, commitTask, 'continuous', true, false)
-    assert.equal(decision.action, 'pause-before-commit')
-    assert.equal(HARD_STOP_ACTIONS.has(decision.action), true)
-  })
-
-  await t.test('pre-execution decide still hard-stops at hard handoff threshold', () => {
-    const state = buildState(95)
-    const task = { id: 'T1', actions: [], steps: [] }
-    const decision = decideGovernanceAction(state, task, 'continuous', false, false)
-    assert.equal(decision.action, 'handoff-required')
-    assert.equal(decision.severity, 'critical')
-  })
-
-  await t.test('assessContextPollutionRisk does not treat quality_review as auto-high', () => {
-    const budget = { at_warning: false }
-    const task = { actions: ['quality_review'], verification: {}, files: {}, steps: [] }
-    const risk = assessContextPollutionRisk(task, budget)
-    assert.notEqual(risk.level, 'high', 'quality_review alone should not force high pollution')
-  })
-
-  await t.test('assessContextPollutionRisk still flags run_tests as high', () => {
-    const budget = { at_warning: false }
-    const task = { actions: ['run_tests'], verification: {}, files: {}, steps: [] }
-    const risk = assessContextPollutionRisk(task, budget)
-    assert.equal(risk.level, 'high')
-    assert.equal(risk.preferredExecutionPath, 'single-subagent')
+  await t.test('quality_gate task is summarized without throwing', () => {
+    const summary = summarizeExecutionUnit({
+      id: 'T9',
+      phase: 'implement',
+      actions: ['edit_file', 'run_tests', 'quality_review'],
+      files: { create: ['src/new.py'], modify: ['src/a.py', 'src/b.py'], test: ['tests/test_a.py'] },
+      steps: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }],
+      quality_gate: true,
+    })
+    assert.equal(summary.task_id, 'T9')
+    assert.ok(summary.max_consecutive_tasks >= 1)
   })
 })
 
-test('decidePostExecutionAction matrix', async (t) => {
-  const qgTask = { id: 'T1', quality_gate: true, actions: ['quality_review'] }
-  const plainTask = { id: 'T2', actions: ['create_file'] }
+test('resetRetryRuntime clears retry bookkeeping on disk', async (t) => {
+  await t.test('zeroes retry_count and hard_stop_triggered for the task', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-reset-retry-'))
+    const home = path.join(tmpRoot, 'home')
+    fs.mkdirSync(home, { recursive: true })
 
-  await t.test('review PASS + safe budget → continue-direct', () => {
-    const decision = decidePostExecutionAction(buildState(0), qgTask, { passed: true, decision: 'approved' })
-    assert.equal(decision.action, 'continue-direct')
-    assert.equal(decision.reason, 'post-execution-allows')
-  })
+    withHome(home, () => {
+      const statePath = canonicalStatePath(home)
+      fs.mkdirSync(path.dirname(statePath), { recursive: true })
+      const state = ensureStateDefaults({
+        project_id: 'proj-test',
+        status: 'running',
+        task_runtime: {
+          T1: { retry_count: 3, hard_stop_triggered: true, debugging_phases_completed: ['diagnose'] },
+        },
+      })
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
 
-  await t.test('review FAIL → pause-quality-gate (warning)', () => {
-    const decision = decidePostExecutionAction(buildState(0), qgTask, { passed: false, decision: 'rejected' })
-    assert.equal(decision.action, 'pause-quality-gate')
-    assert.equal(decision.severity, 'warning')
-    assert.equal(decision.reason, 'review-failed')
-    assert.equal(HARD_STOP_ACTIONS.has(decision.action), true, 'pause-quality-gate remains a hard stop in post-execution')
-  })
+      const result = resetRetryRuntime(statePath, 'T1')
+      assert.equal(result.reset, true)
+      assert.equal(result.task_id, 'T1')
 
-  await t.test('review PASS but quality_gate + budget warning → pause-quality-gate (info)', () => {
-    const decision = decidePostExecutionAction(buildState(65), qgTask, { passed: true })
-    assert.equal(decision.action, 'pause-quality-gate')
-    assert.equal(decision.severity, 'info')
-    assert.equal(decision.reason, 'quality-gate-budget-pressure')
-  })
-
-  await t.test('review PASS + non-quality-gate task + budget warning → continue-direct', () => {
-    const decision = decidePostExecutionAction(buildState(65), plainTask, { passed: true })
-    assert.equal(decision.action, 'continue-direct')
-  })
-
-  await t.test('hard handoff overrides everything', () => {
-    const decision = decidePostExecutionAction(buildState(95), qgTask, { passed: true })
-    assert.equal(decision.action, 'handoff-required')
-    assert.equal(decision.severity, 'critical')
-  })
-
-  await t.test('completed git_commit task does not trigger pause-before-commit in post-execution', () => {
-    // pause-before-commit is a pre-execution gate (look at next task before it runs).
-    // decidePostExecutionAction does not re-check git_commit on completedTask — commit already happened.
-    const commitTask = { id: 'T3', actions: ['git_commit'] }
-    const decision = decidePostExecutionAction(buildState(0), commitTask, { passed: true })
-    assert.equal(decision.action, 'continue-direct', 'post-execution must not pause for already-completed commit task')
-  })
-
-  await t.test('null reviewResult + safe budget + non-quality-gate → continue-direct (defensive)', () => {
-    const decision = decidePostExecutionAction(buildState(0), plainTask, null)
-    assert.equal(decision.action, 'continue-direct')
+      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      assert.equal(persisted.task_runtime.T1.retry_count, 0)
+      assert.equal(persisted.task_runtime.T1.hard_stop_triggered, false)
+      assert.deepEqual(persisted.task_runtime.T1.debugging_phases_completed, [])
+    })
   })
 })

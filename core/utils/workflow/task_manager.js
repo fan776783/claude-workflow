@@ -102,13 +102,12 @@ function liftPlannedToRunning(state) {
 }
 
 /**
- * 构建工作流运行时摘要，汇总 delta 追踪、规划门控、质量关卡等信息
+ * 构建工作流运行时摘要，汇总 delta 追踪、规划门控、上下文注入等信息
  * @param {Object} state - 工作流状态对象
  * @returns {Object} 运行时摘要对象
  */
 function buildRuntimeSummary(state) {
   const reviewStatus = state.review_status || {}
-  const qualityGates = state.quality_gates || {}
   return {
     delta_tracking: state.delta_tracking || {},
     planning_gates: {
@@ -119,11 +118,6 @@ function buildRuntimeSummary(state) {
       plan_review: reviewStatus.plan_review || {},
     },
     context_injection: state.context_injection || {},
-    quality_gate_summary: {
-      count: Object.keys(qualityGates).length,
-      passed: Object.entries(qualityGates).filter(([, gate]) => gate.overall_passed).map(([taskId]) => taskId).sort(),
-      task_ids: Object.keys(qualityGates).sort(),
-    },
     unblocked: state.unblocked || [],
   }
 }

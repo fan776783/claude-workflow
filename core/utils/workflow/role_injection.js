@@ -61,7 +61,7 @@ function readRoleProfiles(profileDir = PROFILE_DIR) {
     })
 }
 
-// Infra / cross-layer 关键路径清单：只做路径启发，用于 workflow-review Stage 1 Probe E 的阻塞判定。
+// Infra / cross-layer 关键路径清单：只做路径启发，用于 execute 末尾终审（workflow-execute Step 7）Probe E 的阻塞判定。
 // 清单覆盖常见高风险范围；后续有新 pattern 可以直接追加，不需要改调用方。
 const INFRA_PATH_PATTERNS = [
   /(^|\/)src\/api(\/|$)/i,

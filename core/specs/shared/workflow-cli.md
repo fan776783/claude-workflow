@@ -6,7 +6,7 @@
 ~/.agents/agent-workflow/core/utils/workflow/
 ├── workflow_cli.js         # planning + execution 状态机的唯一写入口
 ├── execution_sequencer.js  # 治理决策、retry、skip
-├── quality_review.js       # workflow-review 用的 stage1/stage2 写入
+├── quality_review.js       # per-task reviewer + execute 末尾终审复用的 stage1/stage2 写入
 └── task_parser.js          # 单 task 解析
 ```
 

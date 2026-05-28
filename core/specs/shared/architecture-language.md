@@ -7,7 +7,7 @@
 ## Scope
 
 **必读**：
-- `core/skills/diff-review/**`、`core/skills/workflow-review/**`（跨 skill 通用review语言）
+- `core/skills/diff-review/**`、`core/skills/workflow-execute/prompts/reviewer.md`（跨 skill 通用review语言，含 execute 末尾终审 Step 7）
 - `core/skills/fix-bug/**` 在讨论架构级 gap 时
 - 任何包含"重构 / 深module / 影响边界 / 抽象"讨论的 normative 产出
 

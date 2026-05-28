@@ -197,9 +197,12 @@ function updateUserSpecReview(state, status, nextAction, reviewer = 'user') {
 
 function updateContextInjection(state, contextInjection = {}) {
   const normalized = normalizeStateInPlace(state)
+  // lean-execute 收敛：只写 spec/plan 阶段的 signals/planning（+ schema_version）。
+  // execution-phase 专属子键（context_injection.execution）随 governor/per-task gate 退役，不再写入。
+  const { execution: _droppedExecution, ...injectable } = contextInjection || {}
   normalized.context_injection = {
     ...((normalized.context_injection || {})),
-    ...contextInjection,
+    ...injectable,
   }
   return normalized.context_injection
 }
@@ -290,57 +293,6 @@ function handleTaskError(state, statePath, taskId, taskName, errorMessage) {
   const failedList = progress.failed || (progress.failed = [])
   addUnique(failedList, taskId)
   writeState(statePath, state)
-}
-
-function recordContextUsage(state, taskId, phase, preTaskTokens, postTaskTokens, executionPath = 'direct', triggeredVerification = false, triggeredReview = false) {
-  const metrics = state.contextMetrics || (state.contextMetrics = {
-    maxContextTokens: 0,
-    estimatedTokens: 0,
-    projectedNextTurnTokens: 0,
-    reservedExecutionTokens: 0,
-    reservedVerificationTokens: 0,
-    reservedReviewTokens: 0,
-    reservedSafetyBufferTokens: 0,
-    warningThreshold: 60,
-    dangerThreshold: 80,
-    hardHandoffThreshold: 90,
-    maxConsecutiveTasks: 5,
-    usagePercent: 0,
-    projectedUsagePercent: 0,
-    history: [],
-  })
-  const history = metrics.history || (metrics.history = [])
-  history.push({
-    taskId,
-    phase,
-    preTaskTokens,
-    postTaskTokens,
-    tokenDelta: postTaskTokens - preTaskTokens,
-    executionPath,
-    triggeredVerification,
-    triggeredReview,
-    timestamp: isoNow(),
-  })
-  if (history.length > 20) metrics.history = history.slice(-20)
-}
-
-function updateContinuation(state, action, reason, severity = 'info', nextTaskIds = null, handoffRequired = false, artifactPath = null, suggestedExecutionPath = 'direct', primarySignals = null, budgetBackstopTriggered = false, budgetLevel = 'safe', decisionNotes = null) {
-  state.continuation = {
-    strategy: 'context-first',
-    last_decision: {
-      action,
-      reason,
-      severity,
-      nextTaskIds: nextTaskIds || [],
-      suggestedExecutionPath,
-      primarySignals: primarySignals || {},
-      budgetBackstopTriggered,
-      budgetLevel,
-      decisionNotes: decisionNotes || [],
-    },
-    handoff_required: handoffRequired,
-    artifact_path: artifactPath,
-  }
 }
 
 function incrementConsecutiveCount(state) {
@@ -515,8 +467,6 @@ module.exports = {
   updateCodexPlanReview,
   completeWorkflow,
   handleTaskError,
-  recordContextUsage,
-  updateContinuation,
   incrementConsecutiveCount,
   resetConsecutiveCount,
   calculateProgress,

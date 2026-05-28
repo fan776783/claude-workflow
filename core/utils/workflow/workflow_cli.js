@@ -215,6 +215,7 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
   const nextTask = nextResult.next_task
   const [state, statePath, tasksContent] = resolveStateAndTasks(projectId, projectRoot)
   if (state && statePath) {
+    let persistedByCompleteWorkflow = false
     if (nextTask && typeof nextTask === 'object') state.current_tasks = [nextTask.id]
     else if (typeof nextTask === 'string') state.current_tasks = [nextTask]
     else {
@@ -222,12 +223,14 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
       const progress = state.progress || {}
       const finishedCount = (progress.completed || []).length + (progress.skipped || []).length
       const totalTasks = tasksContent ? countTasks(tasksContent) : 0
+      // 所有 task 完成 → execute Step 7 inline 末尾终审通过后直接 completed，无中间审查态。
+      // completeWorkflow 内部已 writeState，避免外层再写一次造成终态双写。
       if (totalTasks > 0 && finishedCount >= totalTasks) {
-        state.status = 'review_pending'
-        state.completed_at = new Date().toISOString()
+        completeWorkflow(state, statePath, totalTasks)
+        persistedByCompleteWorkflow = true
       }
     }
-    writeState(statePath, state)
+    if (!persistedByCompleteWorkflow) writeState(statePath, state)
   }
 
   let journalResult = null
@@ -254,46 +257,6 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
   }
 
   return { nextTask, workflowStatus: state ? state.status : null, journalResult }
-}
-
-// 治理 halt 恢复：仅当 status=halted && halt_reason=governance 时翻为 running，避免误用清掉真实 failure halt。
-function cmdResumeFromGovernanceHalt(projectId = null, projectRoot = null) {
-  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流', code }
-  if (state.status !== 'halted') {
-    return { error: `当前状态为 ${state.status}，不是 halted。该动词仅用于治理 halt 恢复。`, state_status: state.status }
-  }
-  if (state.halt_reason !== 'governance') {
-    return { error: `halt_reason=${state.halt_reason}，非 governance halt。其他 halt（failure/dependency）必须经各自恢复路径。`, halt_reason: state.halt_reason }
-  }
-  const previousReason = state.halt_reason
-  state.status = 'running'
-  state.halt_reason = null
-  writeState(statePath, state)
-  return {
-    resumed: true,
-    project_id: state.project_id || projectId || null,
-    previous_status: 'halted',
-    previous_halt_reason: previousReason,
-    workflow_status: 'running',
-  }
-}
-
-// set-report-path：写顶层 state.review_report_path，避免 controller 手编 state.json 触发 harness 全文件 system-reminder 重注入。
-function cmdSetReportPath(reportPath, projectId = null, projectRoot = null, { unset = false } = {}) {
-  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流', code }
-  if (!unset && (!reportPath || !String(reportPath).trim())) {
-    return { error: 'report path 不能为空（如需清除请加 --unset）' }
-  }
-  const previous = state.review_report_path || null
-  state.review_report_path = unset ? null : String(reportPath).trim()
-  writeState(statePath, state)
-  return {
-    updated: true,
-    review_report_path: state.review_report_path,
-    previous_value: previous,
-  }
 }
 
 // set-contract-digest-path：写顶层 state.contract_digest_path，避免 controller 手编 state.json 触发 harness 全文件 system-reminder 重注入。
@@ -408,49 +371,6 @@ function cmdAdvance(taskId, journalSummary = null, decisions = null, projectId =
   return result
 }
 
-function cmdReviewAdvance(outcome, failedTaskIds = null, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath) return { error: '没有活跃的工作流', code }
-  if (state.status !== 'review_pending') {
-    return { error: `当前状态为 ${state.status}，不是 review_pending。只有 review_pending 状态才能推进审查结果。`, state_status: state.status }
-  }
-
-  if (outcome === 'passed') {
-    const totalTasks = tasksContent ? countTasks(tasksContent) : 0
-    const summary = completeWorkflow(state, statePath, totalTasks)
-    return {
-      review_advanced: true,
-      outcome: 'passed',
-      workflow_status: 'completed',
-      summary,
-    }
-  }
-
-  if (outcome === 'failed') {
-    const tasks = failedTaskIds || []
-    state.status = 'running'
-    state.completed_at = null
-    const progress = state.progress || (state.progress = {})
-    const failedList = progress.failed || (progress.failed = [])
-    for (const taskId of tasks) {
-      if (!failedList.includes(taskId)) failedList.push(taskId)
-      // 从 completed 列表中移除，还原为可重执行状态
-      progress.completed = (progress.completed || []).filter((id) => id !== taskId)
-    }
-    if (tasks.length) state.current_tasks = [tasks[0]]
-    writeState(statePath, state)
-    return {
-      review_advanced: true,
-      outcome: 'failed',
-      workflow_status: 'running',
-      failed_tasks: tasks,
-      current_task: state.current_tasks[0] || null,
-    }
-  }
-
-  return { error: `未知的审查结果: ${outcome}。支持 passed 或 failed。` }
-}
-
 function cmdContext(projectId = null, projectRoot = null) {
   const pid = projectId || detectProjectId(projectRoot)
   if (!pid) return { error: '无法检测项目 ID' }
@@ -458,12 +378,6 @@ function cmdContext(projectId = null, projectRoot = null) {
   const result = { project_id: pid }
   const status = cmdStatus(pid, projectRoot)
   result.workflow = status
-  result.runtime = {
-    delta_tracking: status.delta_tracking || {},
-    planning_gates: status.planning_gates || {},
-    quality_gate_summary: status.quality_gate_summary || {},
-    unblocked: status.unblocked || [],
-  }
   const nextInfo = cmdNext(pid, projectRoot)
   result.next_task = nextInfo.next_task
   const budget = cmdContextBudget(pid, projectRoot)
@@ -539,17 +453,14 @@ function optionOrArg(args, flag, fallback = null) {
 }
 
 const SUBCOMMAND_HELP = {
-  advance: `advance - 标记任务完成并推进，或推进 review 结果。
+  advance: `advance - 标记任务完成并推进。
 
 用法：
   advance <task-id> [--journal STR] [--decisions a,b,c] [--full]
     标记单任务完成。planned 状态下自动升为 running（返回 status_transition）。
     默认 next_task 仅返回 {id, name}。--full 返回完整 task 对象。
     完整数据走 task-bundle <id>（execute Step 5.1.0 标准流程）。
-  advance --review-passed
-    review_pending → completed（需事先跑完 /workflow-review）。
-  advance --review-failed --failed-tasks "T1,T2"
-    review_pending → running，列出的 task 重新回到失败列表等待修复。
+    末任务完成（无后续 task）→ 直接 completed（execute Step 7 inline 末尾终审通过后调用，无中间审查态）。
 `,
   delta: `delta - 规划时捕获并应用delta。
 
@@ -606,15 +517,13 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|resume-from-governance-halt|set-report-path|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
   plan (alias: start) - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
   init - 状态文件自愈（执行阶段缺失时自动创建）
   help <advance|delta|journal|plan-edit|...> - 查看子命令参数签名
-  resume-from-governance-halt - 清治理 halt（status=halted && halt_reason=governance）→ running，避免 controller 手编 state.json
-  set-report-path <path> [--unset] - 写 state.review_report_path，避免 controller 手编 state.json 触发全文件重注入
   set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入
   write-handoff --from <phase> --to <phase> --content-file <path> - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，不入 state schema，覆盖式写）
   read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）
@@ -642,7 +551,7 @@ Available subcommands: ${Object.keys(SUBCOMMAND_HELP).join(', ')}
 //   2) command 紧跟的 token 是 --help/-h（如 `plan-edit --help`）→ 该子命令 help
 // 反例(全部按正常命令执行,不劫持)：
 //   `advance T1 --help`（T1 是位置参数,--help 尾随）、`journal search --help`（search 后 --help 是查询词）、
-//   `set-report-path /p --help`、`set-report-path --path --help`（--help 是 --path 的值）。
+//   `set-contract-digest-path /p --help`、`set-contract-digest-path --path --help`（--help 是 --path 的值）。
 // 返回 null = 非 help 请求,交给 parseArgs 正常解析。
 function resolveHelpRequest(argv) {
   // 跳过 leading --project-id/--project-root 及其值,定位 command 槽位
@@ -766,21 +675,7 @@ function main() {
         confirmed: args.includes('--confirmed'),
       }, pid, projectRoot)
     } else if (command === 'advance') {
-      if (args.includes('--review-passed')) {
-        result = cmdReviewAdvance('passed', null, pid, projectRoot)
-      } else if (args.includes('--review-failed')) {
-        result = cmdReviewAdvance('failed', splitCsv(option(args, '--failed-tasks', '')), pid, projectRoot)
-      } else {
-        result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot, { full: args.includes('--full') })
-      }
-    } else if (command === 'resume-from-governance-halt') {
-      result = cmdResumeFromGovernanceHalt(pid, projectRoot)
-      if (result && result.error) process.exitCode = 1
-    } else if (command === 'set-report-path') {
-      const unset = args.includes('--unset')
-      const reportPath = optionOrArg(args, '--path')
-      result = cmdSetReportPath(reportPath, pid, projectRoot, { unset })
-      if (result && result.error) process.exitCode = 1
+      result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot, { full: args.includes('--full') })
     } else if (command === 'set-contract-digest-path') {
       const unset = args.includes('--unset')
       const digestPath = optionOrArg(args, '--path')
@@ -896,12 +791,9 @@ module.exports = {
   cmdAdvance,
   cmdContext,
   cmdInit,
-  cmdResumeFromGovernanceHalt,
-  cmdSetReportPath,
   cmdSetContractDigestPath,
   cmdWriteHandoff,
   cmdReadHandoff,
-  cmdReviewAdvance,
   inferSpecRelativeFromPlan,
   resolveHelpRequest,
 }

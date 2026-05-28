@@ -18,7 +18,7 @@ controller (主会话)
    │   PASS / REVISE  →（REVISE: 回 implementer 修，≤3 轮）
    │     ↓
    ├─ Step 6      验证命令 + Checkpoint + Journal
-   └─ Step 7      Post-execution governance + 循环决策
+   └─ Step 7      所有 task 完成 → inline 末尾终审 → completed
 ```
 
 ## 平台 fallback 矩阵（canonical）
@@ -77,11 +77,11 @@ controller (主会话)
 ## 与其它 skill 的边界
 
 - **TDD**：默认关闭。仅当 `/workflow-execute --tdd` 使入口返回 `tdd_enabled: true` 且任务满足 TDD 条件时,implementer prompt 才在 `<protocols>` 中引用 `../tdd/SKILL.md`（不内联 TDD 全文）。
-- **Codex spec-级第二意见**：`workflow-review` 的 codex_enhanced 模式仅用于 spec §1 成功标准 / 跨 task contract 一致性。不驻留 per-task review。
+- **Codex spec-级第二意见**：execute 末尾终审（Step 7）的 codex_enhanced 模式仅用于 spec §1 成功标准 / 跨 task contract 一致性。不驻留 per-task review。
 - **dispatching-parallel-agents**：只读 fan-out（debug / research / multi-bug 调查）+ writable fan-out（文件不重叠的独立写任务）。**不参与有依赖的 plan task 执行** —— plan task 走本主路径顺序
 
 ## quality_gate 字段语义
 
-详见 ADR `.claude/code-specs/adr/0002-drop-writable-parallel.md`。摘要：字段作为 `git_commit` action 边界 marker（commit gate），仅用于 Step 7 post-execution governance 路由（quality_gate task + budget warning+ → pause-quality-gate 让用户决策）。代码质量 review 由 Step 5.2 reviewer Phase 2 默认覆盖，与本字段解耦。
+详见 ADR `.claude/code-specs/adr/0002-drop-writable-parallel.md`。摘要：字段作为 `git_commit` action 边界 marker（commit gate），原 post-execution governance 路由（budget warning+ → pause-quality-gate）已随 lean-execute 重构退役（ADR 0004），字段保留仅用于 plan 层标注 commit 边界。代码质量 review 由 Step 5.2 reviewer Phase 2 默认覆盖，与本字段解耦。
 
-> ⚠️ 别混淆两个同名概念：① `task.quality_gate`（plan 里的 bool，commit 边界 marker，本节所述）；② `state.quality_gates[taskId]`（per-task review record，由 Step 6 ② reviewer PASS 后经 `quality_review.js pass` 落盘）。后者是 `workflow-review` 的 per-task 审计锚点，落盘是 CLI 写文件、不回灌 controller 上下文，与 ADR 0002 "reviewer 输出不污染 controller" 不冲突。
+> ⚠️ 别混淆两个同名概念：① `task.quality_gate`（plan 里的 bool，commit 边界 marker，本节所述）；② per-task reviewer 的终判结论（Step 6 ② reviewer PASS 后 controller 内存确认放行，per-task gate 落盘已退役，不回灌 controller 上下文，与 ADR 0002 "reviewer 输出不污染 controller" 不冲突）。

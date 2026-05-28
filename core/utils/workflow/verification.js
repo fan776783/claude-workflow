@@ -33,7 +33,7 @@ const ACTION_VERIFICATION_MAP = {
   },
   quality_review: {
     description: '读取两阶段审查结果',
-    pass_condition: 'quality_gates[taskId].overall_passed === true',
+    pass_condition: 'reviewer PASS（内存确认，不持久化）',
   },
   git_commit: {
     description: 'git log -1 --format="%H %s"',

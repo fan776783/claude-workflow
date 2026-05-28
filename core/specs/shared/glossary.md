@@ -36,7 +36,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 ## Terms
 
 ### workflow
-**Definition**: One full plan → execute → review → archive lifecycle; state persisted under `~/.claude/workflows/{projectId}/`.
+**Definition**: One full plan → execute → archive lifecycle; runtime state tracked under `~/.claude/workflows/{projectId}/`.
 **Forbidden synonyms**: `工作流`
 **Note**: `流程` (generic "process/flow") is **not** flagged — it is everyday Chinese for any procedure (e.g. 三阶段研发流程, Triage 流程, 用户流程) and is not a synonym for the workflow state machine.
 **See**: `core/specs/workflow-runtime/state-machine.md`
@@ -79,7 +79,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **See**: `core/specs/spec-templates/code-spec-template.md`
 
 ### quality-gate
-**Definition**: Automatic validation gate at the end of each execute task (verification, review, spec compliance).
+**Definition**: The per-task reviewer check (verification + spec/AC compliance) confirmed in-session by the controller, plus the final whole-branch review folded into the end of execute. In-memory confirmation only — not a durable per-task record.
 **Forbidden synonyms**: `门禁`, `质量检查`
 **See**: `core/skills/workflow-execute/SKILL.md`
 
@@ -115,9 +115,9 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **See**: `core/skills/workflow-archive/SKILL.md`
 
 ### review
-**Definition**: The quality audit step — either mid-execute (`workflow-review`) or PR-scoped (`diff-review`, including its `--session` mode).
+**Definition**: The quality audit step — either the per-task / final whole-branch reviewer folded into execute (`workflow-execute` SKILL Step 7 final review) or PR-scoped (`diff-review`, including its `--session` mode).
 **Forbidden synonyms**: `审查` (in normative sections only)
-**See**: `core/skills/workflow-review/SKILL.md`
+**See**: `core/skills/workflow-execute/SKILL.md` (Step 7 final review) / `core/skills/diff-review/SKILL.md`
 
 ### glossary
 **Definition**: This file. Framework-level canonical vocabulary.

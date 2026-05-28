@@ -19,7 +19,7 @@ const {
   collectSpecFiles,
   renderSpecFiles,
 } = require('../utils/workflow/task_runtime')
-const { deriveEffectiveStatus, getReviewResult, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { shouldSkipInjection } = require('./_skip')
 const { normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
 
@@ -162,10 +162,8 @@ function buildTaskContext(runtime, kind, role) {
   if (kind !== 'research') {
     const specContent = getSpecContent(projectRoot, state)
     if (specContent) parts.push(`<spec-context>\n${specContent}\n</spec-context>`)
-    const qualityGate = getReviewResult(state, taskId)
-    if (qualityGate) {
-      parts.push(`<quality-gate-state>\nlast_decision: ${qualityGate.last_decision || 'unknown'}\noverall_passed: ${qualityGate.overall_passed === true}\n</quality-gate-state>`)
-    }
+    // per-task quality-gate 持久化已退役（lean-execute / ADR 0004）：reviewer 终判仅内存确认，
+    // state.quality_gates 不再写入；旧 state 升级时 ensureStateDefaults 读时丢弃。此处不再注入。
   }
 
   // <task-contract>：只发给 implement / check（不发 research / main session）；digest 由 getContractDigest 读时截断 + sanitize。
@@ -254,7 +252,7 @@ function main() {
   }
 
   const effective = deriveEffectiveStatus(state)
-  const canDispatch = effective.status === 'running' || (effective.status === 'halted' && effective.halt_reason === 'governance')
+  const canDispatch = effective.status === 'running'
   if (!canDispatch) {
     process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] 当前 workflow 状态为 ${state.status}${effective.halt_reason ? `/${effective.halt_reason}` : ''}，不允许直接派发执行型 Task。请先走对应的 workflow 命令路径。`)))
     return

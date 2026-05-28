@@ -1,6 +1,6 @@
 # Manual Intervention Reasons
 
-修复 / review / 批处理workflow中 `manual_intervention` 的 reason 枚举。fix-bug、bug-batch、workflow-review 共用此表，不各自维护。
+修复 / review / 批处理workflow中 `manual_intervention` 的 reason 枚举。fix-bug、bug-batch 共用此表，不各自维护。
 
 ## 含义
 

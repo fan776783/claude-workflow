@@ -5,15 +5,13 @@ const path = require('path')
 const {
   calculateMaxTasks,
   detectComplexity,
-  evaluateBudgetThresholds,
 } = require('./context_budget')
-const { summarizeTaskIndependence } = require('./dependency_checker')
 const {
   assertCanonicalWorkflowStatePath,
   getWorkflowStatePath,
   validateProjectId,
 } = require('./path_utils')
-const { readState, updateContinuation, writeState } = require('./state_manager')
+const { readState, writeState } = require('./state_manager')
 const { detectProjectId, resolveStateAndTasks } = require('./task_manager')
 const {
   countTasks,
@@ -60,9 +58,6 @@ function resolveExistingStatePath(stateOrProject) {
 }
 
 const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
-const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
-// 软提示常量：高 pollution + 独立 task 组合命中时携带，主会话据此给用户 banner 软提示，不阻塞执行
-const ADVISORY_CONSIDER_HANDOFF_OR_SPLIT = 'consider-handoff-or-split'
 const EXECUTE_ENTRY_STATUSES = new Set([
   'planned',
   'running',
@@ -258,193 +253,6 @@ function detectNextTask(tasksContent, state) {
   return findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
 }
 
-function assessContextPollutionRisk(task, budget) {
-  if (!task) {
-    return {
-      level: 'medium',
-      reasons: ['缺少下一任务上下文，按中等污染风险处理'],
-      preferredExecutionPath: 'direct',
-    }
-  }
-  const actions = task.actions || []
-  const verification = task.verification || {}
-  const files = task.files || {}
-  const steps = task.steps || []
-  const reasons = []
-  if (actions.some((action) => ['run_tests', 'quality_review'].includes(action))) reasons.push('任务会产出测试或审查输出')
-  if ((verification.commands || []).length) reasons.push('任务包含显式验证命令')
-  if ((files.test || []).length > 0) reasons.push('任务直接涉及测试文件')
-  if (steps.length >= 3) reasons.push('任务步骤较多，可能伴随更多中间过程')
-  if (budget.at_warning) reasons.push('预算进入 warning 区，应避免继续污染主会话')
-  let level = 'low'
-  let preferred = 'direct'
-  // quality_review 在 reviewer subagent 隔离执行，不污染 controller 上下文。
-  // 只在 run_tests 或多 reasons 时升 high；actions.includes('quality_review') 单独不触发。
-  if (actions.includes('run_tests') || reasons.length >= 3) {
-    level = 'high'
-    preferred = 'single-subagent'
-  } else if (reasons.length) {
-    level = 'medium'
-  } else {
-    reasons.push('任务输出预期较聚焦')
-  }
-  return { level, reasons, preferredExecutionPath: preferred }
-}
-
-function buildDecision(action, reason, severity, budget, suggestedExecutionPath = 'direct', primarySignals = null, budgetBackstopTriggered = false, decisionNotes = null, advisory = null) {
-  return {
-    action,
-    reason,
-    severity,
-    budget,
-    suggestedExecutionPath,
-    primarySignals: primarySignals || {},
-    budgetBackstopTriggered,
-    budgetLevel: budget.level || 'safe',
-    decisionNotes: decisionNotes || [],
-    ...(advisory ? { advisory } : {}),
-  }
-}
-
-function decideGovernanceAction(state, nextTask = null, executionMode = 'continuous', pauseBeforeCommit = false, hasParallelBoundary = false) {
-  const normalizedState = ensureStateDefaults(state)
-  const metrics = normalizedState.contextMetrics || {}
-  const projectedUsage = Number(metrics.projectedUsagePercent ?? metrics.usagePercent ?? 0)
-  const warning = Number(metrics.warningThreshold ?? 60)
-  const danger = Number(metrics.dangerThreshold ?? 80)
-  const hardHandoff = Number(metrics.hardHandoffThreshold ?? 90)
-  const budget = evaluateBudgetThresholds(projectedUsage, warning, danger, hardHandoff)
-  const independence = summarizeTaskIndependence(nextTask, hasParallelBoundary)
-  const pollution = assessContextPollutionRisk(nextTask, budget)
-  const primarySignals = { taskIndependence: independence, contextPollutionRisk: pollution }
-
-  const effective = deriveEffectiveStatus(normalizedState)
-  if (effective.status === 'halted' && (effective.halt_reason === 'failure' || effective.halt_reason === 'dependency')) {
-    const label = effective.halt_reason === 'failure' ? 'failure' : 'dependency'
-    return buildDecision('pause-governance', `status-halted-${label}`, 'warning', budget, 'direct', primarySignals, false, [`工作流已 halted（${label}），优先暂停治理`])
-  }
-  if (budget.at_hard_handoff) {
-    return buildDecision('handoff-required', 'hard-handoff-threshold', 'critical', budget, 'direct', primarySignals, true, ['预算达到硬停止阈值，必须交接'])
-  }
-  // 质量门暂停由 Step 7 post-execution（decidePostExecutionAction）处理；执行前 decide 不判 quality_gate。
-  if (nextTask) {
-    const actions = nextTask.actions || []
-    if (pauseBeforeCommit && actions.includes('git_commit')) {
-      return buildDecision('pause-before-commit', 'pause-before-commit', 'info', budget, 'direct', primarySignals, false, ['提交前仍需人工确认'])
-    }
-  }
-  if (executionMode === 'phase' && nextTask) {
-    const currentId = (normalizedState.current_tasks || [null])[0]
-    const tasksContent = normalizedState._tasks_content
-    const parsedTasks = tasksContent ? parseTasksV2(tasksContent) : []
-    const currentTask = parsedTasks.find((task) => task.id === currentId)
-    if (currentTask?.phase && nextTask.phase && currentTask.phase !== nextTask.phase) {
-      return buildDecision('pause-governance', 'phase-boundary', 'info', budget, 'direct', primarySignals, false, ['phase 模式下跨阶段仍暂停'])
-    }
-  }
-  if (independence.parallelizable && pollution.level === 'high') {
-    // 高 pollution + 独立 task 组合：携带 advisory 软提示让用户考虑 handoff / split，不阻塞执行。
-    return buildDecision(
-      'continue-direct',
-      'independent-high-pollution',
-      'info',
-      budget,
-      'direct',
-      primarySignals,
-      false,
-      [...independence.reasons, ...pollution.reasons],
-      ADVISORY_CONSIDER_HANDOFF_OR_SPLIT
-    )
-  }
-  if (pollution.level === 'high' && independence.level === 'low') {
-    const action = budget.at_danger ? 'pause-budget' : 'pause-governance'
-    const reason = budget.at_danger ? 'context-danger' : 'high-pollution-without-independent-boundary'
-    return buildDecision(action, reason, 'warning', budget, pollution.preferredExecutionPath || 'direct', primarySignals, budget.at_danger, ['高污染任务且缺少独立边界，不应继续扩张主会话'])
-  }
-  if (budget.at_danger && pollution.preferredExecutionPath === 'direct') {
-    return buildDecision('pause-budget', 'context-danger', 'warning', budget, 'direct', primarySignals, true, ['预算危险区且建议路径仍会扩张主会话'])
-  }
-  return buildDecision('continue-direct', 'governor-allows', 'info', budget, pollution.preferredExecutionPath || 'direct', primarySignals, false, [...independence.reasons, ...pollution.reasons])
-}
-
-// task 完成 + reviewer 出结果后由 Step 7 调用。基于 {reviewResult, budget, completedTask} 决定是否暂停。
-// 与 decideGovernanceAction 区别：本函数运行在 task 完成**后**，已知 review 结论，可据此精确判断。
-function decidePostExecutionAction(state, completedTask = null, reviewResult = null) {
-  const normalizedState = ensureStateDefaults(state)
-  const metrics = normalizedState.contextMetrics || {}
-  const projectedUsage = Number(metrics.projectedUsagePercent ?? metrics.usagePercent ?? 0)
-  const warning = Number(metrics.warningThreshold ?? 60)
-  const danger = Number(metrics.dangerThreshold ?? 80)
-  const hardHandoff = Number(metrics.hardHandoffThreshold ?? 90)
-  const budget = evaluateBudgetThresholds(projectedUsage, warning, danger, hardHandoff)
-  const primarySignals = {
-    reviewResult: reviewResult ? { passed: Boolean(reviewResult.passed), decision: reviewResult.decision || null } : null,
-    completedTaskId: completedTask ? completedTask.id || null : null,
-    qualityGate: Boolean(completedTask && completedTask.quality_gate),
-  }
-
-  // 预算硬停止优先
-  if (budget.at_hard_handoff) {
-    return buildDecision('handoff-required', 'hard-handoff-threshold', 'critical', budget, 'direct', primarySignals, true, ['预算达到硬停止阈值，必须交接'])
-  }
-
-  // review FAIL → halt 让用户决策（review 修复路径已由 implementer revise 处理；本路径仅在 reviewer 终态 reject 时触发）
-  if (reviewResult && reviewResult.passed === false) {
-    return buildDecision(
-      'pause-quality-gate',
-      'review-failed',
-      'warning',
-      budget,
-      'direct',
-      primarySignals,
-      false,
-      ['Reviewer 终态 FAIL，暂停让用户决策（escalate / accept-deviation / 手动修复）']
-    )
-  }
-
-  // quality_gate task + budget warning+：暂停让用户看 review 结论再继续（保留原"质量关卡"语义）
-  if (completedTask && completedTask.quality_gate && (budget.at_warning || budget.at_danger)) {
-    return buildDecision(
-      'pause-quality-gate',
-      'quality-gate-budget-pressure',
-      'info',
-      budget,
-      'direct',
-      primarySignals,
-      budget.at_danger,
-      ['Quality gate 完成且预算进入 warning/danger 区，暂停让用户决策是否继续']
-    )
-  }
-
-  // 默认放行
-  return buildDecision('continue-direct', 'post-execution-allows', 'info', budget, 'direct', primarySignals, false, ['Review PASS 且预算安全，继续下一 task'])
-}
-
-function applyGovernanceDecision(state, decision, statePath = null, nextTaskIds = null, artifactPath = null) {
-  const normalizedState = ensureStateDefaults(state)
-  const action = decision.action || 'continue-direct'
-  if (HARD_STOP_ACTIONS.has(action)) {
-    normalizedState.status = 'halted'
-    normalizedState.halt_reason = 'governance'
-    updateContinuation(
-      normalizedState,
-      action,
-      decision.reason || 'unknown',
-      decision.severity || 'info',
-      nextTaskIds || [],
-      action === 'handoff-required',
-      artifactPath,
-      decision.suggestedExecutionPath || 'direct',
-      decision.primarySignals || {},
-      Boolean(decision.budgetBackstopTriggered),
-      decision.budgetLevel || 'safe',
-      decision.decisionNotes || []
-    )
-    if (statePath) writeState(statePath, normalizedState)
-  }
-  return normalizedState
-}
-
 function updateAfterTaskCompletion(state, tasksContent) {
   const normalizedState = ensureStateDefaults(state)
   const nextTaskId = detectNextTask(tasksContent, normalizedState)
@@ -452,8 +260,9 @@ function updateAfterTaskCompletion(state, tasksContent) {
     normalizedState.current_tasks = [nextTaskId]
     normalizedState.status = 'running'
   } else {
+    // 所有 task 完成 → execute Step 7 inline 末尾终审通过后 completed，无中间审查态。
     normalizedState.current_tasks = []
-    normalizedState.status = 'review_pending'
+    normalizedState.status = 'completed'
   }
   return normalizedState
 }
@@ -470,8 +279,9 @@ function markTaskSkipped(statePath, tasksPath, tasksContent, taskId) {
     state.current_tasks = [nextTaskId]
     state.status = 'running'
   } else {
+    // 所有 task 完成 → execute Step 7 inline 末尾终审通过后 completed，无中间审查态。
     state.current_tasks = []
-    state.status = 'review_pending'
+    state.status = 'completed'
   }
   writeState(statePath, state)
   return { skipped: true, task_id: taskId, next_task_id: nextTaskId, workflow_status: state.status }
@@ -571,49 +381,7 @@ function main() {
       process.stdout.write(`${JSON.stringify(resetRetryRuntime(statePath, args[1]))}\n`)
       return
     }
-    if (command === 'decide') {
-      const statePath = resolveExistingStatePath(args[0])
-      if (!statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const state = ensureStateDefaults(readState(statePath))
-      const nextTask = option('--next-task-json') ? JSON.parse(option('--next-task-json')) : null
-      process.stdout.write(`${JSON.stringify(decideGovernanceAction(state, nextTask, option('--execution-mode') || 'continuous', args.includes('--pause-before-commit'), args.includes('--has-parallel-boundary')))}\n`)
-      return
-    }
-    // Step 7 post-execution governance CLI 入口。
-    // 用法: decide-post-execution <state-path> --completed-task-json '{...}' --review-result-json '{...}'
-    // pause-before-commit 由 pre-execution `decide` 处理（看 next task），post-execution 不涉及。
-    if (command === 'decide-post-execution') {
-      const statePath = resolveExistingStatePath(args[0])
-      if (!statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const state = ensureStateDefaults(readState(statePath))
-      const completedTask = option('--completed-task-json') ? JSON.parse(option('--completed-task-json')) : null
-      const reviewResult = option('--review-result-json') ? JSON.parse(option('--review-result-json')) : null
-      process.stdout.write(`${JSON.stringify(decidePostExecutionAction(state, completedTask, reviewResult))}\n`)
-      return
-    }
-    if (command === 'apply-decision') {
-      const statePath = resolveExistingStatePath(args[0])
-      if (!statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      const state = ensureStateDefaults(readState(statePath))
-      const decision = JSON.parse(option('--decision-json'))
-      const nextTaskIds = String(option('--next-task-ids') || '').split(',').map((item) => item.trim()).filter(Boolean)
-      const updatedState = applyGovernanceDecision(state, decision, statePath, nextTaskIds, option('--artifact-path'))
-      process.stdout.write(`${JSON.stringify({ status: updatedState.status, continuation: updatedState.continuation })}\n`)
-      return
-    }
-    process.stderr.write('Usage: node execution_sequencer.js <resolve-mode|context|skip|retry|retry-reset|decide|decide-post-execution|apply-decision> ...\n')
+    process.stderr.write('Usage: node execution_sequencer.js <resolve-mode|context|skip|retry|retry-reset> ...\n')
     process.exitCode = 1
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -623,8 +391,6 @@ function main() {
 
 module.exports = {
   VALID_EXECUTION_MODES,
-  HARD_STOP_ACTIONS,
-  ADVISORY_CONSIDER_HANDOFF_OR_SPLIT,
   loadProjectConfig,
   extractProjectId,
   resolveStatePathForProject,
@@ -634,10 +400,6 @@ module.exports = {
   loadExecutionContext,
   resolveExecutionMode,
   detectNextTask,
-  assessContextPollutionRisk,
-  decideGovernanceAction,
-  decidePostExecutionAction,
-  applyGovernanceDecision,
   updateAfterTaskCompletion,
   markTaskSkipped,
   prepareRetry,

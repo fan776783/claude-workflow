@@ -7,10 +7,9 @@
 | `spec_review` | review `spec.md` 后确认 Spec 审批 |
 | `planned` | `/workflow-plan` 扩写详细计划,完成后 `/workflow-execute` |
 | `running` | 继续 `/workflow-execute` |
-| `halted` (governance) | 处理暂停原因后 `/workflow-execute` 恢复 |
 | `halted` (dependency) | `workflow_cli.js unblock <dep>` 解除依赖 |
 | `halted` (failure) | `/workflow-execute --retry` 或 `--skip` |
-| `review_pending` | `/workflow-review` 全量完成 review |
+| `halted` (其他) | 处理暂停原因后 `/workflow-execute` 恢复 |
 | `completed` | 🎉 可 `/workflow-archive` |
 | `archived` | 新需求请 `/workflow-spec` |
 

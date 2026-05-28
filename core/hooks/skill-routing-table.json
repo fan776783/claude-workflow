@@ -48,7 +48,6 @@
     "workflow-delta",
     "workflow-execute",
     "workflow-plan",
-    "workflow-review",
     "workflow-spec",
     "workflow-status",
     "write-a-skill",

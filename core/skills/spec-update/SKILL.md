@@ -1,6 +1,6 @@
 ---
 name: spec-update
-description: "Use when 用户调用 /spec-update, or 工作中沉淀出新 convention / 接口 contract / 模式需要落到 .claude/code-specs/, or workflow-review 末尾建议沉淀 code-spec。"
+description: "Use when 用户调用 /spec-update, or 工作中沉淀出新 convention / 接口 contract / 模式需要落到 .claude/code-specs/, or execute 末尾终审（workflow-execute Step 7）建议沉淀 code-spec。"
 ---
 
 <CONTEXT>

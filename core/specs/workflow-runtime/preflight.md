@@ -12,7 +12,7 @@
 
 确认 git 仓库已初始化且有初始提交。
 
-**为什么需要 Git**：commit gate + workflow-review 都依赖 git diff/commit 历史，需要一个干净的 git 基线。
+**为什么需要 Git**：commit gate + execute 末尾终审（workflow-execute Step 7）都依赖 git diff/commit 历史，需要一个干净的 git 基线。
 
 **检查项**：
 1. 当前目录是否在 git 仓库中（`git rev-parse --is-inside-work-tree`）

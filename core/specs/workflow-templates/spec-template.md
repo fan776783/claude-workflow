@@ -134,11 +134,11 @@ flowchart TD
 >
 > **本段存在 = 承诺认真填**——不要留 `<高/中/低>` 这种套话，否则对 review 无价值。
 >
-> 参考 mattpocock/skills 的 `improve-codebase-architecture/LANGUAGE.md` / `DEEPENING.md`；workflow-review Stage 1 的 Depth Heuristics（H1/H2）会优先信任本段声明。
+> 参考 mattpocock/skills 的 `improve-codebase-architecture/LANGUAGE.md` / `DEEPENING.md`；execute 末尾终审（workflow-execute Step 7）的 Depth Heuristics（H1/H2）会优先信任本段声明。
 
 #### 5.5.1 Module Depth Justification
 
-每个 module 按 `core/skills/workflow-review/references/depth-heuristics.md` H1 的 deletion test 判断,每 module 1 行。真实 module 才填,凑数 → 删行。
+每个 module 按 H1 的 deletion test 判断,每 module 1 行。真实 module 才填,凑数 → 删行。
 
 | Module | 接口方法数 | Deletion test 结论 |
 |--------|-----------|--------------------|

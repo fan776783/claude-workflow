@@ -41,6 +41,5 @@
 |------|------|
 | `failure_reason` 非空 | 状态行下加 `⚠️ 失败原因：{failure_reason}` |
 | 存在 `blocked` 任务 | 任务表加 `⏳ 阻塞 \| {blocked_count}` 行 |
-| `quality_gates[taskId]` 存在 | 显示各关卡通过状态 |
 | `continuation.handoff_required` 为 true（从磁盘 state JSON 读取） | 显示 `🔄 需要 handoff：{reason}` |
 | 存在 journal 记录 | 最近 5 条摘要 + 最新一条的 `next_steps` 与 `decisions` |

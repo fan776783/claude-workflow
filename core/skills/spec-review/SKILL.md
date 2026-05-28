@@ -168,7 +168,7 @@ git log -1 --format=%ct -- <file>
 - review结果中的 missing / draft / no-examples / no-rationale 由用户 `/spec-update` 手动补齐
 - 冗余 advisory（intra-file / intra-package / cross-package / boilerplate-dup）由用户走 `/quick-plan` 或人工清理；spec-review 保持只读，不自动 dedup —— 哪份是 canonical、各包特有差异要不要留都是人类判断
 - 模板漂移由用户手动合并（不自动应用 migrations）
-- `workflow-review` Stage 1 走人工对照
+- execute 末尾终审（`workflow-execute` Step 7）走人工对照
 
 ## v2.2 对齐说明
 

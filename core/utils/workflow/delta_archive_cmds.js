@@ -531,7 +531,7 @@ function cmdAcceptDeviation(options = {}, projectId = null, projectRoot = null) 
     deviation: record,
     next_action: record.requires_spec_review
       ? '运行 /spec-update 把 accepted_implementation 写到 spec 文件对应 section，并触发 spec-review'
-      : '偏离已审计但不需要 spec-review；下次 workflow-review 以更新后 spec 为基准',
+      : '偏离已审计但不需要 spec-review；下次 execute 末尾终审以更新后 spec 为基准',
     workflow_status: normalizedState.status,
   }
 }
