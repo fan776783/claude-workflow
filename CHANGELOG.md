@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.5.0] - 2026-05-28
+
+### Changed
+
+- **`workflow-execute` 折叠为单一 lean 路径**（commit e319e7f / ADR 0004）：删 governor 决策（`decideGovernanceAction` / `decidePostExecutionAction` / `applyGovernanceDecision` / continuation）、删 per-task `quality_gates` 持久化、删 `review_pending` 中间态、删 `context_injection` runtime 重复块。每 task 模型面 CLI 往返 ~7 → ~2；落盘 `workflow-state.json` 从 ~22KB（`quality_gates` 主导）瘦到 ~3KB。reviewer PASS 仅内存确认，不再写 `state.quality_gates`。
+- **末尾终审折叠进 execute Step 7（inline）**：controller 在所有 task `completed`/`skipped` 后**内联派 final reviewer subagent** 跑整 branch diff vs spec；末尾终审通过是进 `completed` 的**唯一门**（HARD-GATE #4）。跨 task 集成问题不自动回退 / 不擅改 state，issues 清单展示给用户后由用户决策 `另起修复回合` 或 `accept`。branch 级独立单审继续走 `/diff-review`。
+- **状态机收缩到 `idle → spec_review → planned → running → completed`**：删 `review_pending`；execute 跑完即 `completed`，`halt_reason` 删 `governance`、保留 `failure` / `dependency` / `review-loop`。CLI（`workflow_cli.js status` / `context` / `advance` / `set-report-path` 退役）、hooks（`pre-execute-inject.js` 的 `halted+governance` 放行分支简化为 `status==='running'`）、`/workflow-status` / `/workflow-archive` 全量适配。
+- **state schema 兼容（读时丢弃，不写 migration）**：老 `workflow-state.json` 含 `quality_gates` / `continuation` / `review_report_path` / `contextMetrics` 字段，`ensureStateDefaults` read-side normalize 时静默 `delete`，第一次读老 state 后写回即字段消失（与 ADR 0002 删 `parallel_groups` / `parallel_execution` 同手法）。
+- **write-scope 软化**：implementer prompt prose 写明该 task 预期改动文件（取自 plan task `files`），越界自报 `DONE_WITH_CONCERNS` + reviewer 复核；删机器 hard-block（`allowed_write_paths` / `forbidden_actions` 强制）。
+- **plan 上下文一次性读**：controller 进入 execute 后**一次性** Read 整篇 plan.md，内存里持有所有 task 切片（task block + acceptance + constraints + patterns + files），后续 per-task implementer / reviewer prompt 从内存切片构造，不再每 task 重读 plan 或调 `task-bundle` / `task_parser`（对齐 superpowers controller-持全-plan 范式）。
+- **`dispatching-parallel-agents` 放宽到 writable fan-out**（commit 0016589 / ADR 0003）：原 ADR 0002 钉为「只读 only」的 dispatching skill 现允许多个 subagent 并行写——**硬前提是写文件集两两不相交 + 无共享状态**，零运行时基建（无 worktree-per-task、无 `merge_strategist`、无自动依赖图）。主会话回收后**必须** ① 用各 agent `files_changed` 做 conflict check（交集 = 误判 → 回退顺序重做）② 跑全量验证 ③ 统一 commit（subagent 不自行 commit，守代码主权）。subagent prompt 契约扩展 `allowed_write_paths` + 「禁止编辑其他 agent 文件」+ `files_changed` / `verification` 输出。**plan 执行仍顺序**（workflow-execute 主路径不接管 writable fan-out）。详见 `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`。
+- **`figma-data` 后台慢命令读取规则**（commit 00a7b2b）：补三条规则到 SKILL.md（Step 3 + Core Rules + Red Flags）——看到 `Command running in background with ID: … .output` 不是空结果，等完成通知后再 Read 那个 `.output`（或一开始就 `run_in_background: true`）；禁止 `sleep; wc -c` 轮询（会被 Blocked）、禁止重定向到 `/tmp` 或拆分并行；不改/不截断 URL。cmdDesign 实测 `await get_design_context → setTimeout(3000) → 才写 stdout`，过早 Read 会读到空。
+
+### Removed
+
+- **`/workflow-review` skill 整目录删除**（commit e319e7f / ADR 0004）：`core/skills/workflow-review/` 全部移除（含 `SKILL.md` + `references/cross-layer-checklist.md` / `depth-heuristics.md` / `review-feedback-protocol.md` / `scope-routing.md` / `stage1-code-specs-check.md` / `codex-spec-augmentation-checklist.md`）。`skill-routing-table.json` 移除该条目，glossary `review` 词条 See 改指 execute SKILL Step 7 末尾终审 / `/diff-review`。**移除 7 → 现 6 个 workflow 主线 skill**（`workflow-spec` / `workflow-plan` / `workflow-execute` / `workflow-delta` / `workflow-status` / `workflow-archive`）。
+- **`execution_sequencer.js` governor 决策导出**：`decideGovernanceAction` / `decidePostExecutionAction` / `applyGovernanceDecision` 及 continuation 字段退役；`task_parser` / skip / retry 路径保留。
+- **`quality_review.js` 持久化路径**：`pass` / `fail` 写 `state.quality_gates` 的逻辑退役（reviewer prompt 构造若被末尾终审复用则保留该部分）。
+- **`workflow_cli.js set-report-path` 命令**：随 `review_report_path` 字段一起退役。
+- **`workflow-execute references/implementation-report.md`** 与多份废 review reference：随 lean-execute 折叠一并删除。
+
+## [6.4.10] - 2026-05-26
+
+### Changed
+
+- **`workflow-execute` implementer prompt patterns/mandatory reading 行号要求改为可选**（commit 79aa085）：`prompts/implementer.md` / `references/subagent-driven.md` / `workflow-plan` `plan-self-review.md` 明确行号为可选，允许 implementer 在缺行号时自主定位代码；`plan_composer.js` 的 `lintMandatoryReading` 改为「只在提供时校验格式」，空行号视为合规。配套 `tests/test_plan_composer.js` 新增空行号合规用例。
+- **`core/specs/shared/glossary.md` Forbidden synonyms 收紧**（commit 4e82100）：`workflow` / `module` / `convention` / `delta` / `archive` 五个词条的 forbidden synonyms 重写并补 explanatory notes，区分专有术语与日常自然语言的同形词，避免误伤普通中英文用语；保留 `drift-check` lint 在 normative 文档上的强制扫描。
+
+### Added
+
+- **阶段交接 handoff 功能扩写**（commit b612371）：`workflow_cli.js` 的 `write-handoff` / `read-handoff` 子命令补齐场景覆盖，`plan_composer.js` 在 plan→execute 出口处自动写 handoff；`workflow-plan/references/no-placeholders.md` / `plan-self-review.md` 同步提示扩写 handoff 的检查点。`tests/test_workflow_cli.js` 扩 handoff 读写用例 35 行。
+
 ## [6.4.9] - 2026-05-25
 
 ### Added

@@ -23,7 +23,7 @@
 
 仓库提供两条主要能力：
 
-- **Workflow 主线**（7 个专项 skills）：从需求推进到可执行任务，支持中断恢复、增量变更与显式完成审查；其中 `/workflow-spec` 是新需求入口，`/workflow-plan` 仅在已审批 Spec 上扩写 Plan
+- **Workflow 主线**（6 个专项 skills，v6.5.0 起折叠：`/workflow-review` 已下线，末尾终审折叠进 execute Step 7 inline）：从需求推进到可执行任务，支持增量变更与归档；其中 `/workflow-spec` 是新需求入口，`/workflow-plan` 仅在已审批 Spec 上扩写 Plan
 - **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
 
 此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs`、`/design-plan`、`/plan-archive` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
@@ -50,7 +50,7 @@
 - 快速理解陌生模块：`/zoom-out`
 - 疑难 Bug 根因证伪：`/diagnose`（先建反馈循环 → 多假设排序 → 产出根因,不改代码）
 - 单 Bug 端到端修复：`/fix-bug`（内部可触发 `/diagnose`）
-- 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis）
+- 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis；workflow 结束后的整 branch 复核也走这里）
 - 当前会话审查：`/diff-review --session`（只审本模型在本会话里改过的文件，avoid 扫入上游或他人改动；合并自旧 `/session-review`）
 - 前端 UX 设计深化（§4.4）：`/ux-elaboration`
 - Figma 设计稿读取 / 提取：`/figma-data`
@@ -163,9 +163,10 @@ npm run link
 /workflow-spec "需求描述"
 /workflow-spec spec-review --choice "Spec 正确，生成 Plan"
 /workflow-plan                 # 可选：在已生成的 plan 骨架上做精细扩写
-/workflow-execute
-/workflow-review
+/workflow-execute              # 末尾自动 inline final reviewer，通过即 completed
 ```
+
+v6.5.0 起末尾终审已折叠进 `/workflow-execute` Step 7 的 inline final reviewer，不再需要单独的 `/workflow-review` 命令；如需独立的整 branch 复核，可走 `/diff-review --branch <base>`。
 
 如果要并行推进多个独立边界，可显式用 `/team`（Claude Code 原生 Agent Teams）：
 
@@ -183,14 +184,13 @@ npm run link
 
 ### 3.1 命令入口
 
-Workflow 主线由 7 个专项 skills 直接驱动：
+Workflow 主线由 6 个专项 skills 直接驱动（v6.5.0 起 `/workflow-review` 折叠进 execute Step 7 inline 终审，已下线）：
 
 | 命令 | 说明 |
 |------|------|
 | `/workflow-spec` | 新需求入口：代码分析、需求讨论、UX 设计深化路由、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan 骨架进入 `planned` |
 | `/workflow-plan` | 在已审批 Spec 基础上对 Plan 骨架做扩写（只在 `planned` 状态下，不改变状态机） |
-| `/workflow-execute` | 治理决策、任务执行、验证与状态推进；所有 task 完成后状态设为 `review_pending` |
-| `/workflow-review` | 全量完成审查（execute 完成后独立执行），审查通过后标记 `completed` |
+| `/workflow-execute` | 任务执行、验证与状态推进；最后一个 task 完成后 controller **inline 派 final reviewer** 跑整 branch diff vs spec，终审通过即推进 `completed`（HARD-GATE：终审未过不得标记 `completed`） |
 | `/workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
 | `/workflow-status` | 查看当前进度、阻塞点与下一步建议 |
 | `/workflow-archive` | 归档已完成工作流 |
@@ -225,7 +225,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 - Codex Plan Review（条件，bounded-autofix）在 Plan 扩写完成后可选触发
 - 扩写完成后写 `write-handoff --from plan --to execute`，把 task 拆分理由 / 排序约束 / low-confidence task 蒸馏给 execute 阶段
 
-#### `workflow-execute`（执行 Skill）
+#### `workflow-execute`（执行 Skill，v6.5.0 lean 折叠）
 
 ```bash
 /workflow-execute
@@ -234,8 +234,11 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 /workflow-execute --tdd        # v6.4.2+ 显式启用 TDD 路径
 ```
 
-- 按 `plan.md` 推进执行，经过 ContextGovernor 治理与验证
-- 所有 task 完成后状态设为 `review_pending`，提示用户执行 `/workflow-review`
+- v6.5.0 起折叠为单一 lean 路径：删 governor 决策、删 per-task `quality_gates` 持久化、删 `review_pending` 中间态。每 task 模型面 CLI 往返 ~7 → ~2；落盘 `workflow-state.json` 从 ~22KB 瘦到 ~3KB
+- controller 进入 execute 后**一次性** Read 整篇 plan.md 持全 task 切片，后续 per-task implementer / reviewer prompt 从内存切片构造，不每 task 重读 plan（对齐 superpowers controller-持全-plan 范式）
+- 每 task 起 fresh implementer subagent + 单 reviewer subagent（合并 AC + 质量两 phase）。reviewer PASS 仅内存确认，不写 state
+- write-scope **软化**：implementer prompt prose 写明该 task 预期改动文件（取自 plan task `files`），越界自报 `DONE_WITH_CONCERNS` + reviewer 复核；不再做机器 hard-block
+- 所有 task `completed`/`skipped` 后 controller **inline 派 final reviewer subagent** 跑整 branch diff vs spec，整体 PASS → `advance` 推进 `completed`（HARD-GATE #4：末尾终审未过不得标记 `completed`）；发现跨 task 集成问题不自动回退 / 不擅改 state，issues 清单展示给用户后由用户决策 `另起修复回合` 或 `accept`
 - TDD 默认不开启，仅在传入 `--tdd` 且任务形态满足条件（phase 为 `implement`/`ui-*`、存在测试命令、actions 含 `create_file`/`edit_file`、文件类型非豁免）时进入红绿重构循环
 - v6.4.4+ Step 5 review loop 第 2 次仍 REVISE → controller 程序化标 `stuck_or_looping`，调 `collaborating-with-codex` `--oracle-review` 作为**第 3 次重派的 `revise_instructions` 增强输入**，不接管实现、不消耗 loop 预算；codex 不可用 → journal 写 `codex-status: codex_degraded` 跳过回灌
 
@@ -267,20 +270,7 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 
 - 归档已完成工作流
 
-#### `workflow-review`（全量完成审查 Skill）
-
-```bash
-/workflow-review
-```
-
-- `workflow-execute` 完成所有 task 后状态设为 `review_pending`，用户通过 `/workflow-review` 手动触发
-- Stage 1 以人工对照 code-spec / guides 的方式检查实现是否符合项目约定（声明式审查，无机读硬卡）
-- Stage 1 附带 Code Specs Check（按 diff 文件反查 `{pkg}/{layer}/` code-spec）和跨层 A/B/C/D advisory，均不消耗 4 次共享预算、不影响 pass/fail
-- Stage 1 Probe E（阻塞）：命中 infra / cross-layer 关键路径，且关联 code-spec 存在但 7 段里 `Validation & Error Matrix` / `Good / Base / Bad Cases` / `Tests Required` 任一缺失时，Stage 1 直接 fail
-- Stage 1 检查 Spec 合规、跨 task contract 一致性、需求覆盖汇总与 spec §1 成功标准；不重审每个 task 的代码质量
-- Stage 2 做终态卫生检查；当 `spec.metadata.risk_signals[]` 命中 `security` / `backend_heavy` / `data` 时，可触发 `codex_enhanced` spec 级第二意见
-- per-task 代码质量已由 `/workflow-execute` Step 5.2 的单 reviewer subagent 覆盖；`/workflow-review` 只补跨 task / 整需求 / 终态维度
-- 审查通过 → 状态推进到 `completed`；审查失败 → 状态回退到 `running`；预算耗尽 → 标记 `failed`
+> **v6.5.0 起 `/workflow-review` 已下线**：原 Stage 1（Spec 合规 + Code Specs Check + 跨层 A/B/C/D advisory + Probe E）+ Stage 2（终态卫生 + `codex_enhanced`）整体折叠成 `/workflow-execute` Step 7 的 **inline final reviewer subagent**（整 branch diff vs spec）。需要独立整 branch 复核请走 `/diff-review --branch <base>`。原 `workflow-review/references/` 下的 `stage1-code-specs-check.md` / `cross-layer-checklist.md` 等参考随 skill 一并删除。
 
 ### 3.2 系统分层架构
 
@@ -290,21 +280,18 @@ Workflow 主线由 7 个专项 skills 直接驱动：
 +-----------------------------------------------------------------+
 |                          用户层                                   |
 |  /workflow-spec | /workflow-plan | /workflow-execute              |
-|  /workflow-review | /workflow-delta | /workflow-status            |
-|  /workflow-archive                                                |
+|  /workflow-delta | /workflow-status | /workflow-archive           |
 +-----------------------------------------------------------------+
 |                  Skill 层 (行动指南)                               |
 |  workflow-spec | workflow-plan | workflow-execute                 |
-|  workflow-review | workflow-delta | workflow-status               |
-|  workflow-archive                                                 |
+|  workflow-delta | workflow-status | workflow-archive              |
 |  自然语言 SKILL.md, 不含可执行代码                                 |
 +-----------------------------------------------------------------+
-|                 Runtime 层 (CLI 工具链)                            |
+|                 Runtime 层 (CLI 工具链, v6.5.0 lean)               |
 |  workflow_cli.js        统一命令入口                              |
-|  execution_sequencer.js 执行治理 (ContextGovernor)                |
-|  state_manager.js       状态读写                                  |
-|  task_parser.js         Plan 解析                                 |
-|  quality_review.js      质量关卡                                  |
+|  execution_sequencer.js Plan 解析 + skip/retry（governor 决策已退役）|
+|  state_manager.js       状态读写（quality_gates 字段读时丢弃）    |
+|  task_parser.js         Plan 解析（execute 主路径不再 per-task 调）|
 |  verification.js        验证证据                                  |
 |  journal.js             会话日志                                  |
 |  plan_composer.js       Plan 骨架生成 / 锚点编辑 / self-review     |
@@ -337,8 +324,7 @@ core/
 +-- skills/
 |   +-- workflow-spec/            # /workflow-spec + spec-review（新需求入口）
 |   +-- workflow-plan/            # /workflow-plan（planned 状态下 Plan 骨架扩写）
-|   +-- workflow-execute/         # /workflow-execute
-|   +-- workflow-review/          # /workflow-review 全量完成审查
+|   +-- workflow-execute/         # /workflow-execute（含 Step 7 inline final reviewer 末尾终审）
 |   +-- workflow-delta/           # /workflow-delta
 |   +-- workflow-status/          # /workflow-status
 |   +-- workflow-archive/         # /workflow-archive
@@ -349,7 +335,7 @@ core/
 |   +-- workflow-templates/       # spec / plan 模板
 +-- hooks/                        # workflow / team 运行时 hook 脚本
 +-- utils/
-    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、quality_review.js、plan_composer.js、spec_* 等
+    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、plan_composer.js、spec_* 等
 ```
 
 ### 3.4 声明式 Skill 架构
@@ -363,20 +349,20 @@ core/
 在此结构下，工作流仍保持三层工件模型：
 - `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
 - `plan.md`：可直接执行的原子步骤、文件清单与验证命令
-- 执行层：按计划产出代码，并经过验证、per-task reviewer 审查与最终完成审查
+- 执行层：按计划产出代码，并经过验证、per-task reviewer 审查与末尾 inline 终审
 
 核心设计原则：
 
 - 单一 `spec.md` 作为规划阶段的权威规范
 - `plan.md` 必须可直接执行，禁止占位式描述
-- `execute` 采用 governance-first continuation，由 `ContextGovernor` 优先基于任务独立性与上下文污染风险决定继续、暂停或 handoff
-- 支持 subagent 的平台默认每 task 起 fresh implementer subagent，再起单 reviewer subagent 合并检查 acceptance criteria 与代码质量
-- `/workflow-review` 只做整需求验收、跨 task contract 一致性和终态卫生，不重复 per-task 代码质量审查
+- `execute` 采用 lean controller 路径（v6.5.0 起，ADR 0004）：controller 一次性读 plan 持全 task 切片，per-task 顺序执行；不再有 ContextGovernor 决策 / per-task gate 持久化 / `review_pending` 中间态
+- 支持 subagent 的平台默认每 task 起 fresh implementer subagent，再起单 reviewer subagent 合并检查 acceptance criteria 与代码质量；reviewer PASS 仅内存确认，不写 state
+- 末尾终审折叠进 execute Step 7：所有 task 完成后 controller **inline 派 final reviewer** 跑整 branch diff vs spec，**终审通过是进 `completed` 的唯一门**
 - 所有状态变更通过 CLI 完成，不直接读写 `workflow-state.json`
 
 ### 3.5 状态机全景
 
-工作流有 **11 个状态**，每个状态都有对应的 Hook 护栏规则：
+工作流有 **10 个状态**（v6.5.0 起 `review_pending` 退役），每个状态都有对应的 Hook 护栏规则：
 
 ```mermaid
 stateDiagram-v2
@@ -388,12 +374,10 @@ stateDiagram-v2
     planning --> planned : Plan 骨架生成完成
     planned --> planned : /workflow-plan 扩写骨架
     planned --> running : /workflow-execute
-    running --> paused : 暂停 / 预算暂停
+    running --> paused : 暂停
     running --> blocked : 遇到阻塞任务
     running --> failed : 任务失败
-    running --> review_pending : 所有任务完成
-    review_pending --> completed : /workflow-review 审查通过
-    review_pending --> running : 审查发现问题，需要修复
+    running --> completed : 所有任务完成且 Step 7 inline 终审通过
     paused --> running : /workflow-execute
     blocked --> running : unblock
     failed --> running : --retry / --skip
@@ -423,19 +407,16 @@ flowchart TD
     L2 -->|否| M["🛑 planned 等待执行"]
     L3 --> M
 
-    M --> N["/workflow-execute"]
-    N --> O["ContextGovernor 治理决策"]
-    O --> P["执行任务动作"]
-    P --> Q["Post-Execution Pipeline（验证 → 自审查 → 更新）"]
-    Q --> R{"继续 / 暂停 / handoff / 完成"}
-    R -->|继续| O
-    R -->|暂停| S["等待下次 execute"]
-    R -->|handoff| T["生成 continuation artifact"]
-    R -->|完成| U["🛑 review_pending"]
-    U --> V["/workflow-review"]
-    V --> W{"Stage 1 + Stage 2 审查"}
-    W -->|通过| X["状态 → completed"]
-    W -->|失败| Y["状态 → running，修复后重审"]
+    M --> N["/workflow-execute (lean controller)"]
+    N --> N1["一次性读 plan 持全 task 切片"]
+    N1 --> P["每 task：fresh implementer + 单 reviewer"]
+    P --> Q["Post-Execution（验证 → checkpoint → journal）"]
+    Q --> R{"还有 task?"}
+    R -->|是| P
+    R -->|否| U["所有 task 完成 → inline final reviewer"]
+    U --> W{"末尾终审"}
+    W -->|整体 PASS| X["advance → completed"]
+    W -->|集成问题| Y["展示 issues → 用户决策（修复 / accept）"]
     X --> Z["/workflow-archive"]
 ```
 
@@ -481,13 +462,16 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 - **语义边界**（三者不重复）：`contract`（既有代码复用面，落 `contract-digest.md`）/ `spec`（需求 behavior/scope/AC，落 `spec.md`）/ `code-specs`（项目规范，`.claude/code-specs/`）；handoff 只装本阶段决策与取舍**指针**，不复写上述任一正文。
 - 与 `/handoff` skill 区分：`/handoff`（§5.3）把**整段会话**压缩成交接文档给下一个 session，本机制是**工作流相邻阶段**之间的决策蒸馏，用途不同。
 
-### 3.8 执行隔离与只读 fan-out
+### 3.8 执行隔离与 fan-out
 
-`workflow-execute` 当前采用 **fresh-subagent-per-task**：每个 task 串行启动一个全新 implementer subagent，完成后紧跟一个单 reviewer subagent，在同一 reviewer 中依次检查 acceptance criteria 与代码质量。
+`workflow-execute` 当前采用 **fresh-subagent-per-task**：每个 task 串行启动一个全新 implementer subagent，完成后紧跟一个单 reviewer subagent，在同一 reviewer 中依次检查 acceptance criteria 与代码质量。**plan task 默认有依赖 / 共享文件，一律顺序执行**。
 
-并行只用于只读 fan-out：当同阶段存在 2+ 可证明独立的问题域（独立 bug 调查、多个失败测试文件、独立子系统 trace / diagnose / research / analysis）时，委托 `dispatching-parallel-agents` 并行调查，产出结论回主会话整合。
+并行交给 `dispatching-parallel-agents`，分两类（v6.5.0 / ADR 0003 对齐 superpowers）：
 
-写代码动作一律顺序执行；不再支持 writable parallel execution、集成 worktree 合流或 `batch_orchestrator.js` / `merge_strategist.js` 批次编排。
+- **只读 fan-out**：同阶段存在 2+ 可证明独立的问题域（独立 bug 调查、多个失败测试文件、独立子系统 trace / diagnose / research / analysis）时，并行调查，结论回主会话整合
+- **writable fan-out**：多个**文件不重叠 + 无共享状态**的独立写任务，每 agent 改自己 scope 内文件；主会话回收后**必须** ① 用各 agent `files_changed` 做 conflict check（交集 = 误判 → 回退顺序重做）② 跑全量验证 ③ 统一 commit（subagent 不自行 commit，守代码主权）。隔离机制是「同工作目录 + 文件不重叠」，**零运行时基建、不开 worktree**
+
+仍**不支持**的是 ADR 0002 删除的重型可写并行基建：worktree-per-task、集成 worktree 合流、`batch_orchestrator.js` / `merge_strategist.js` 批次编排、自动依赖图推断。writable fan-out 是 superpowers 式轻量手动判定。详见 `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`。
 
 ---
 
@@ -527,9 +511,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 - `/scan` Part 5 首次扫描时引导初始化；已有 code-specs 时汇总 filled/draft 状态
 - `/workflow-spec` Step 1 作为 advisory constraints 供 Spec 生成参考
-- `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性
+- `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性。Step 7 inline final reviewer 也读项目 code-specs 做整 branch 终审（v6.5.0 起替代原 `/workflow-review` Stage 1）
 - SessionStart hook 注入 overview digest / paths-only 清单；无活跃 workflow 时 AI 按 `core/CLAUDE.md` 的 "Code Specs 切换 package/layer" 规则在动手前主动读对应 `{pkg}/{layer}/index.md` 及 Pre-Development Checklist
-- `/workflow-review` Stage 1 做 3 层 advisory：人工对照 code-spec + Code Specs Check（按 diff 文件反查 code-spec，记录 advisory findings 到 `stage1.code_specs_check`）+ 跨层 A/B/C/D advisory。Probe E Infra 深度 Gate（阻塞）仅在 infra / cross-layer 关键路径 + 关联 code-spec 存在但 7 段深度不足时触发，写入 `stage1.cross_layer_depth_gap` + `blocking_issues`
 - `/fix-bug` Phase 4.1 强制定档 `code_specs_impact`（四档：`spec_violation` / `spec_gap` / `contract_misread` / `spec_unrelated`），判定 `spec_gap` 时附 Bad/Good 草案 + `/spec-update` 提示；`.claude/code-specs/` 不存在时统一判 `spec_unrelated` 避免虚假 advisory
 - `/bug-batch` 单元级定档 + Phase 8 跨单元归纳：同一文件被 2+ FixUnit 标 `spec_gap` → 输出强信号 advisory 建议 `/spec-update`，同一段落被 2+ FixUnit 标 `spec_violation` → 建议审视执行机制
 
@@ -547,11 +530,10 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 /spec-bootstrap
 # → 生成 .claude/code-specs/{index.md, local.md, {pkg}/{layer}/index.md, guides/index.md}
 
-# 3. 正常跑 workflow，完成实现
+# 3. 正常跑 workflow，完成实现（execute 末尾 inline 终审，无需独立 /workflow-review）
 /workflow-spec "xxx 需求"
 /workflow-spec spec-review --choice "Spec 正确，生成 Plan"
 /workflow-execute
-/workflow-review
 
 # 4. 实现中稳定下来一条新 API，沉淀为 code-spec
 /spec-update
@@ -761,8 +743,7 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/commands/git-rollback.md`
 - `core/skills/workflow-spec/SKILL.md`（新需求入口，含代码分析 / 讨论 / UX 审批 / Spec 生成 / spec-review）
 - `core/skills/workflow-plan/SKILL.md`（planned 状态下 Plan 骨架扩写）
-- `core/skills/workflow-execute/SKILL.md`
-- `core/skills/workflow-review/SKILL.md`
+- `core/skills/workflow-execute/SKILL.md`（含 Step 7 inline final reviewer 末尾终审）
 - `core/skills/workflow-delta/SKILL.md`
 - `core/skills/workflow-status/SKILL.md`
 - `core/skills/workflow-archive/SKILL.md`
@@ -773,14 +754,14 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/specs/shared/codex-routing.md`（v6.4.3 重写为 6 个 risk-signal 决策表，配合 `--oracle-review` Invocation Contract） / `impact-analysis-template.md` / `subagent-worker-contract.md`（跨 skill 共享协议）
 - `core/skills/fix-bug/references/status-readiness.md` / `manual-intervention-reasons.md`（fix-bug/bug-batch 专用）
 - `core/skills/spec-bootstrap/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
-- `core/skills/workflow-review/references/stage1-code-specs-check.md`（Code Specs Check advisory 子步）
-- `core/skills/workflow-review/references/cross-layer-checklist.md`（A/B/C/D advisory + Probe E 阻塞 gate）
 - `core/specs/platform-parity.md`（multi-tool 分发 parity 契约，由 `scripts/validate.js` 在 prepublish 时校验）
-- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义）
+- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义，v6.5.0 lean 折叠后 10 状态 + 末尾终审）
 - `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
 - `core/skills/_shared/mcp-baseline.mjs`（MCP wrapper skill 跨 skill 共享模块：tool snapshot / shape 解析 / 错误归一化）
 - `.claude/code-specs/adr/0001-mcp-wrapper-skill-drift-resilience.md`（MCP wrapper drift-resilience ADR）
+- `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`（dispatching-parallel-agents 放宽 writable fan-out，v6.5.0）
+- `.claude/code-specs/adr/0004-collapse-execute-lean.md`（execute lean 折叠 + 删 governor + 末尾终审 inline + 废 `/workflow-review`，v6.5.0）
 - `core/skills/design-plan/SKILL.md` + `references/design-plan-template.md` + `references/hard-coding-rules-checklist.md`(三阶段研发流程·阶段一)
 - `core/skills/plan-archive/SKILL.md` + `references/archive-checklist.md`(三阶段研发流程·阶段三)
 
