@@ -178,6 +178,16 @@ function buildTaskContext(runtime, kind, role) {
     }
   }
 
+  // subagent 回传文字(含 JSON 字符串字段内的 prose)继承输出文风；主会话已由 ~/.claude/CLAUDE.md 覆盖
+  // parts.length 守卫:退化态(spec/plan 引用存在但磁盘缺失)无任何上下文可抽时不单独注入风格块,保住下游 `if (!context)` 的"空则原样透传"逃生口
+  if (kind && parts.length) {
+    parts.push(
+      '<output-style>\n' +
+      '回传给 controller 的所有文字(含 JSON 字符串字段内的自然语言)遵循输出文风:精简准确,技术内容全保留;丢弃 filler / hedging / pleasantries / 套话;Fragment OK;句式 [对象][动作][原因];代码 / error / CLI / 路径 / file:line 原样,技术术语精确。不改既定输出 schema(JSON 仍是 JSON),只压缩其中的自然语言。\n' +
+      '</output-style>'
+    )
+  }
+
   return parts.join('\n\n')
 }
 

@@ -39,17 +39,7 @@ CLI 自动完成 tombstone 两阶段提交:校验 `status=completed` → 写 `AR
 ## Step 2: 展示结果
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 工作流归档
-
-✅ 归档完成！
-
-- **项目 ID**：{project_id}
-- **状态**：archived
-- **归档变更数**：{archived_changes.length}
-- **归档目录**：{history_dir}
-{如有摘要：- **摘要文件**：{summary_file}}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 归档完成。项目 {project_id} → archived，变更 {archived_changes.length} 个 → {history_dir}{如有摘要：，摘要 {summary_file}}
 ```
 
 ## Step 3: 下一步
