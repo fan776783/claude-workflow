@@ -99,7 +99,7 @@ const minimalConfig = {
 writeFile('.claude/config/project-config.json', JSON.stringify(minimalConfig, null, 2));
 ```
 
-输出摘要后告知用户代码就位后可 `/scan --force` 更新完整配置。
+输出一行摘要后 return;代码就位后可 `/scan --force` 更新完整配置。
 
 **generateStableProjectId 实现**：新格式 `{name-slug}-{12位 hash}`，slug 从 `path.basename(cwd)` 取 ASCII + lowercase；全非 ASCII 目录名 slug 为空时退回纯 hash。必须通过 CLI 计算（路径规范化差异）：
 
@@ -133,9 +133,9 @@ mkdir -p .claude/config
 
 首次扫描 + `project.bkProjectId` 空 + 未走 `--force` 跳过 → 询问：
 
-> 是否需要关联蓝鲸项目？关联后可用 `/bug-batch` 拉取项目缺陷。
-> - 跳过：稍后用 `/bk` skill 手动 `project set <v开头ID>` 配置
-> - 关联：需要你告诉我项目 ID（形如 `v10125`）或任意一条该项目 issue_number（形如 `p328_8729`，用于反查）
+> 蓝鲸关联？关联后 `/bug-batch` 可拉项目缺陷。
+> - 跳过：稍后 `/bk` skill `project set <v开头ID>`。
+> - 关联：给我项目 ID（如 `v10125`）或一条 issue_number（如 `p328_8729`，反查用）。
 
 收到用户输入后调用 `bk` skill 的 `project set` workflow（见 `core/skills/bk/SKILL.md § 场景 B`），不在 scan 里复写交互。
 
@@ -182,23 +182,9 @@ if (missing.length > 0) {
 ## 完成输出
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ 项目扫描完成！
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📦 生成的文件：
-  • 配置文件: .claude/config/project-config.json
-  • UI 配置: .claude/config/ui-config.json
-  • 上下文报告: .claude/repo-context.md
-
+✅ Scan done. 生成: project-config.json / ui-config.json / repo-context.md
 📚 code-specs: <状态摘要 或 未初始化提示>
-
-📚 下一步：
-  1. 查看上下文: cat .claude/repo-context.md
-  2. 启动工作流: /workflow-spec "功能需求描述"
-  3. 需要更轻的规划: /quick-plan
-  4. UI 还原: /figma-ui <figma-url>
-  5. 沉淀规范: /spec-bootstrap（首次）或 /spec-update（增量）
+Next: cat .claude/repo-context.md（看上下文）· /workflow-spec "需求"（起流程）· /quick-plan（轻规划）· /figma-ui <figma-url>（还原 UI）· /spec-bootstrap 首次 | /spec-update 增量（沉淀规范）
 ```
 
 ## 与其他命令的关系
