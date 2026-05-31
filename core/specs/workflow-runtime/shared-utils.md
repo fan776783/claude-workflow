@@ -70,7 +70,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `depends` | list[str] | 任务依赖 |
 | `blocked_by` | list[str] | 阻塞依赖（外部） |
 | `quality_gate` | bool | 是否为质量关卡 |
-| `status` | str | pending / in_progress / completed / failed / skipped / blocked |
+| `status` | str | pending / in_progress / completed / failed / blocked |
 | `actions` | list[str] | create_file / edit_file / run_tests / quality_review / git_commit |
 | `steps` | list[TaskStep] | 步骤列表 |
 | `verification` | TaskVerification | 验证命令和预期输出 |
@@ -82,7 +82,6 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | completed | ✅ | `status_utils.getStatusEmoji("completed")` |
 | in_progress | ⏳ | `status_utils.getStatusEmoji("in_progress")` |
 | failed | ❌ | `status_utils.getStatusEmoji("failed")` |
-| skipped | ⏭️ | `status_utils.getStatusEmoji("skipped")` |
 
 ### 上下文预算阈值
 

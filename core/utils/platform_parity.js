@@ -22,6 +22,7 @@ const REQUIRED_AGENTS = [
   'gemini-cli',
   'github-copilot',
   'opencode',
+  'qoder',
 ]
 
 const REQUIRED_AGENT_FIELDS = ['name', 'displayName', 'skillsDir', 'globalSkillsDir', 'detectInstalled']

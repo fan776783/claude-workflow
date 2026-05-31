@@ -3,23 +3,19 @@
 
 const { addUnique, escapeRegExp } = require('./collection_utils')
 
-const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u
-const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌|⏭\uFE0F?|⏭️)\s*$/u
+const STATUS_EMOJI_REGEX = /(?:✅|⏳|❌)\s*$/u
+const STRIP_STATUS_EMOJI_REGEX = /\s*(?:✅|⏳|❌)\s*$/u
 
 const EMOJI_TO_STATUS = {
   '✅': 'completed',
   '⏳': 'in_progress',
   '❌': 'failed',
-  '⏭️': 'skipped',
-  '⏭\uFE0F': 'skipped',
-  '⏭': 'skipped',
 }
 
 const STATUS_TO_EMOJI = {
   completed: '✅',
   in_progress: '⏳',
   failed: '❌',
-  skipped: '⏭️',
 }
 
 /**

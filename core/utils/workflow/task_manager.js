@@ -139,14 +139,13 @@ function cmdStatus(projectId = null, projectRoot = null) {
   if (!state) return { error: '没有活跃的工作流', code }
   const progress = state.progress || {}
   const total = tasksContent ? countTasks(tasksContent) : 0
-  const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
+  const percent = calculateProgress(total, progress.completed || [], progress.failed || [])
   return {
     workflow_status: state.status,
     current_tasks: state.current_tasks || [],
     total_tasks: total,
     completed: (progress.completed || []).length,
     failed: (progress.failed || []).length,
-    skipped: (progress.skipped || []).length,
     progress_percent: percent,
     progress_bar: generateProgressBar(percent),
     ...buildRuntimeSummary(state),
@@ -188,7 +187,7 @@ function cmdNext(projectId = null, projectRoot = null) {
   const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
   if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
-  const nextId = findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
+  const nextId = findNextTask(tasksContent, progress.completed || [], progress.failed || [], progress.blocked || [])
   if (!nextId) return { next_task: null, message: '所有任务已完成或被阻塞' }
   const task = parseTasksV2(tasksContent).find((item) => item.id === nextId)
   return { next_task: task ? taskToDict(task) : nextId }
@@ -275,14 +274,13 @@ function cmdProgress(projectId = null, projectRoot = null) {
   if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
   const total = countTasks(tasksContent)
-  const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
+  const percent = calculateProgress(total, progress.completed || [], progress.failed || [])
   return {
     total,
     completed: (progress.completed || []).length,
-    skipped: (progress.skipped || []).length,
     failed: (progress.failed || []).length,
     blocked: (progress.blocked || []).length,
-    pending: total - (progress.completed || []).length - (progress.skipped || []).length - (progress.failed || []).length,
+    pending: total - (progress.completed || []).length - (progress.failed || []).length,
     percent,
     bar: generateProgressBar(percent),
     constraints: extractConstraints(tasksContent),

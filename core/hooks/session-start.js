@@ -89,7 +89,7 @@ function determineNextAction(state) {
   if (status === 'running') return `工作流执行中，当前任务: ${currentTasks[0] || '?'}。使用 /workflow-execute 继续。`
   if (status === 'halted') {
     if (halt_reason === 'dependency') return '工作流被阻塞。使用 `/workflow unblock <dep>` 解除依赖后再恢复执行。'
-    if (halt_reason === 'failure') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试，或显式选择 skip。`
+    if (halt_reason === 'failure') return `任务 ${currentTasks[0] || '?'} 失败: ${state.failure_reason || '未知'}。使用 /workflow-execute --retry 重试；任务需永久移除走 /workflow-delta 脱范围。`
     return '工作流已暂停。请处理暂停原因后使用 `/workflow-execute` 恢复执行。'
   }
   if (status === 'review_pending') return '所有任务已完成，待 /workflow-review 审查通过后方可归档。'
@@ -112,7 +112,7 @@ function determineGuardrail(state) {
   if (status === 'spec_review') return 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。'
   if (status === 'running') return 'Guardrail：恢复执行必须经过 `/workflow-execute` 的 shared resolver，不得绕过治理与质量关卡。如果你以 implement / check sub-agent 身份阅读到此条，自我豁免：直接执行任务，不要再派 `/workflow-execute` 或同类型 sub-agent。'
   if (status === 'halted') {
-    if (halt_reason === 'failure') return 'Guardrail：失败态只能走 retry/skip 治理路径，不得静默推进到下一任务。'
+    if (halt_reason === 'failure') return 'Guardrail：失败态只能走 retry 治理路径（永久移除走 /workflow-delta），不得静默推进到下一任务。'
     if (halt_reason === 'dependency') return 'Guardrail：阻塞态需先 unblock，不能把"继续"解释为直接执行。'
     return 'Guardrail：governance pause，恢复执行必须经过 `/workflow-execute` 的 shared resolver。'
   }

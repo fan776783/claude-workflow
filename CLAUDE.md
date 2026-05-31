@@ -19,7 +19,7 @@ npm run prepublishOnly    # Runs scripts/validate.js (the only validation gate)
 # CLI commands (after npm install -g)
 agent-workflow status    # Show installation status
 agent-workflow sync      # Sync templates to every detected AI coding tool
-agent-workflow link      # Symlink core/ into detected non-Claude-Code tools (Claude Code uses Plugin; dev: `claude --plugin-dir <repo>/core`)
+agent-workflow link      # Symlink core/ into detected mount-tools (Claude Code & Qoder use Plugin; dev: `claude --plugin-dir <repo>/core` / `qodercli --plugin-dir <repo>/core`)
 agent-workflow init      # Init project config in current directory
 agent-workflow doctor    # Diagnose configuration issues
 
@@ -106,7 +106,8 @@ Notes:
 
 **Supported Agents:**
 
-- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode
+- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
+- **Plugin-managed**（原生 Plugin 机制，非 installer mount）：Claude Code（`lib/claude-code-plugin.js`）、Qoder（`lib/qoder-plugin.js`，`qodercli plugins install`）。其余 7 个工具走 installer 逐 skill mount。
 
 **Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
 

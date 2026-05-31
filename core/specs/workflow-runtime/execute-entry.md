@@ -11,7 +11,7 @@
 - `/workflow-execute`：显式进入执行器，默认使用 `continuous` 模式。
 - `/workflow-execute --phase`：显式进入执行器，使用 `phase` 模式。
 - `/workflow-execute --retry`：进入 retry workflow。
-- `/workflow-execute --skip`：进入 skip workflow。
+- 任务脱范围走 `/workflow-delta`（`remove` action）；不再有 `--skip` 模式。
 - `/workflow-execute --tdd`：显式开启 TDD 路径；未传时默认不启用 TDD。
 
 ### 2. 命令内自然语言意图
@@ -19,7 +19,6 @@
 - `/workflow-execute 继续` / `/workflow-execute 连续` → `continuous`
 - `/workflow-execute 下一阶段` / `/workflow-execute 单阶段` → `phase`
 - `/workflow-execute 重试` → `retry`
-- `/workflow-execute 跳过` → `skip`
 - 未识别的自然语言意图：不得静默覆盖已知偏好；应返回 warning，并回退到 `execution_mode`（若存在）或 `continuous`
 
 ### 3. 裸自然语言“继续”
@@ -46,7 +45,7 @@
 都必须先进入同一个 execute resolver，再执行以下顺序：
 
 1. 读取并校验 `workflow-state.json`
-2. 解析 execution mode / retry / skip
+2. 解析 execution mode / retry
    - 同步解析 `--tdd`，返回 `tdd_enabled` 给 controller；该开关不改变 execution mode
 3. 读取 `continuation.last_decision`
 4. 调用 `ContextGovernor`

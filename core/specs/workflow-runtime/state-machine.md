@@ -42,7 +42,7 @@ review_pending → completed  /workflow-review 审查通过
 review_pending → running    审查发现问题，需要修复
 paused → running            workflow execute (resume)
 blocked → running           workflow unblock <dependency>
-failed → running            workflow execute --retry / --skip
+failed → running            workflow execute --retry
 completed → archived        workflow archive
 ```
 
@@ -54,7 +54,6 @@ completed → archived        workflow archive
 | `blocked` | 被阻塞 |
 | `in_progress` | 执行中 |
 | `completed` | 已完成 |
-| `skipped` | 已跳过 |
 | `failed` | 失败 |
 
 ## 执行模式
@@ -103,7 +102,6 @@ node utils/workflow/workflow_cli.js spec-review --choice "Spec 正确，生成 P
 node utils/workflow/workflow_cli.js execute
 node utils/workflow/workflow_cli.js execute --mode phase
 node utils/workflow/workflow_cli.js execute retry
-node utils/workflow/workflow_cli.js execute skip
 
 # 完成任务并推进到下一个
 node utils/workflow/workflow_cli.js advance T3 --journal "实现了用户认证"
@@ -154,7 +152,7 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
   "current_tasks": ["T1"],
   "plan_file": "/Users/<you>/.claude/workflows/{pid}/plans/example-0506.md",
   "spec_file": "/Users/<you>/.claude/workflows/{pid}/specs/example-0506.md",
-  "progress": { "completed": [], "failed": [], "skipped": [] },
+  "progress": { "completed": [], "blocked": [], "failed": [] },
   "updated_at": "2026-03-29T10:00:00Z"
 }
 ```

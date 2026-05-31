@@ -9,7 +9,7 @@
 | `running` | 继续 `/workflow-execute` |
 | `halted` (governance) | 处理暂停原因后 `/workflow-execute` 恢复 |
 | `halted` (dependency) | `workflow_cli.js unblock <dep>` 解除依赖 |
-| `halted` (failure) | `/workflow-execute --retry` 或 `--skip` |
+| `halted` (failure) | `/workflow-execute --retry`（永久移除走 `/workflow-delta`） |
 | `review_pending` | `/workflow-review` 全量完成 review |
 | `completed` | 🎉 可 `/workflow-archive` |
 | `archived` | 新需求请 `/workflow-spec` |

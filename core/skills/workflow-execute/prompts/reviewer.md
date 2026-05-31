@@ -18,6 +18,14 @@ Diff base commit: <commit-sha>
 **Phase 1 不通过则停止，不进入 Phase 2。** 详见 <gate-rule>。
 </your-role>
 
+<distrust-mandate>
+不要信任 implementer 的报告。它可能完成得可疑地快，summary 可能乐观、不全或不准。**一切以代码为准**：
+- 不接受「我实现了 X」的说法 → 自己 grep/Read 改动定位 X 的真实实现
+- 逐条 AC 对照真实代码，不对照 summary
+- 主动找它没提的遗漏与超额改动
+核验靠读 diff，不靠读报告。
+</distrust-mandate>
+
 <task-acceptance-criteria>
 ${bundle.acceptance_criteria}
 </task-acceptance-criteria>

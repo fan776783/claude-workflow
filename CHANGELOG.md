@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **重新支持 Qoder（Plugin 模型）**：Qoder CLI（`qodercli` 1.0.10+）是 Claude Code 同款 Plugin 机制的实现——`commands/skills/agents/hooks(hooks.json)` 原生加载，包括 workflow 的 SessionStart / PreToolUse 治理 hook（实测 `${CLAUDE_PLUGIN_ROOT}` 展开、SessionStart 纯文本 stdout 注入均原生支持）。Qoder 因此与 Claude Code 一样走 Plugin 分发，不经过 installer mount。新增 `scripts/qoder-cli.js`（封装 `qodercli plugins install/uninstall/list`）+ `lib/qoder-plugin.js`（`ensureQoderPluginInstalled` / `inspectStatus` / `diagnose`）；`lib/agents.js` 的 qoder 改为 `managedViaPlugin`；`bin/agent-workflow.js` 的 `partitionAgents` / sync / status / doctor / link 增加 qoder 分支；`lib/installer.js` 的 install skip 由硬编码 `claude-code` 泛化为 `managedViaPlugin`。`core/specs/platform-parity.md` 标注 claude-code / qoder 为 plugin-managed（豁免 skillsDir/globalSkillsDir）。注：Qoder 6.3.3 曾因当时只有 IDE、无 skills/commands/hooks 而被移除，Qoder CLI 补齐扩展点后重新接入。
+
 ## [6.4.0] - 2026-05-21
 
 ### Added

@@ -36,8 +36,6 @@ const EXECUTION_MODE_ALIASES = {
   phase: 'phase',
   重试: 'retry',
   retry: 'retry',
-  跳过: 'skip',
-  skip: 'skip',
 }
 
 function detectGitHead(projectRoot) {
@@ -220,7 +218,7 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
     else {
       state.current_tasks = []
       const progress = state.progress || {}
-      const finishedCount = (progress.completed || []).length + (progress.skipped || []).length
+      const finishedCount = (progress.completed || []).length
       const totalTasks = tasksContent ? countTasks(tasksContent) : 0
       if (totalTasks > 0 && finishedCount >= totalTasks) {
         state.status = 'review_pending'

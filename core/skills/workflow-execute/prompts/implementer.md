@@ -40,6 +40,15 @@ ${bundle.verification}
 - 输出协议: 完成后必须返回 4 种状态之一: DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED
 </protocols>
 
+<escalation-permission>
+卡住时停下来上报是被允许的，不扣分。Bad work is worse than no work。出现以下情况 → 返回 `BLOCKED` 或 `NEEDS_CONTEXT`（带具体卡点 + 已尝试 + 需要什么帮助），不要硬猜硬做：
+- 任务需要在多个合理方案间做架构取舍
+- 需要理解超出已给上下文的代码却找不到清晰答案
+- 你对自己的方案是否正确没把握
+- 任务要求 plan 未预期的大范围重构
+- 反复读文件仍理解不了系统、毫无进展
+</escalation-permission>
+
 <your-mandate>
 1. 读 mandatory-reading 中的文件,确认你理解上下文
 2. 按 acceptance-criteria 实现代码;不要超额(不要做 task 没要求的事)

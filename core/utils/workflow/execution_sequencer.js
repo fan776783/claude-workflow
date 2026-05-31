@@ -59,7 +59,7 @@ function resolveExistingStatePath(stateOrProject) {
   return statePath && fs.existsSync(statePath) ? statePath : null
 }
 
-const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry', 'skip'])
+const VALID_EXECUTION_MODES = new Set(['continuous', 'phase', 'retry'])
 const HARD_STOP_ACTIONS = new Set(['handoff-required', 'pause-budget', 'pause-governance', 'pause-quality-gate', 'pause-before-commit'])
 // 软提示常量：高 pollution + 独立 task 组合命中时携带，主会话据此给用户 banner 软提示，不阻塞执行
 const ADVISORY_CONSIDER_HANDOFF_OR_SPLIT = 'consider-handoff-or-split'
@@ -255,7 +255,7 @@ function resolveExecutionMode(override, stateMode) {
 function detectNextTask(tasksContent, state) {
   if (!tasksContent) return null
   const progress = ensureStateDefaults(state).progress || {}
-  return findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
+  return findNextTask(tasksContent, progress.completed || [], progress.failed || [], progress.blocked || [])
 }
 
 function assessContextPollutionRisk(task, budget) {
@@ -458,25 +458,6 @@ function updateAfterTaskCompletion(state, tasksContent) {
   return normalizedState
 }
 
-function markTaskSkipped(statePath, tasksPath, tasksContent, taskId) {
-  const state = ensureStateDefaults(readState(statePath))
-  const progress = state.progress || (state.progress = {})
-  const skipped = progress.skipped || (progress.skipped = [])
-  if (!skipped.includes(taskId)) skipped.push(taskId)
-  const updatedContent = updateTaskStatusInMarkdown(tasksContent, taskId, 'skipped')
-  fs.writeFileSync(tasksPath, updatedContent)
-  const nextTaskId = detectNextTask(updatedContent, state)
-  if (nextTaskId) {
-    state.current_tasks = [nextTaskId]
-    state.status = 'running'
-  } else {
-    state.current_tasks = []
-    state.status = 'review_pending'
-  }
-  writeState(statePath, state)
-  return { skipped: true, task_id: taskId, next_task_id: nextTaskId, workflow_status: state.status }
-}
-
 function prepareRetry(statePath, taskId, failureReason = null, failureStage = 'execution') {
   const state = ensureStateDefaults(readState(statePath))
   const effective = deriveEffectiveStatus(state)
@@ -541,16 +522,6 @@ function main() {
       if (result.error) process.exitCode = 1
       return
     }
-    if (command === 'skip') {
-      const statePath = resolveExistingStatePath(args[0])
-      if (!statePath) {
-        process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
-        process.exitCode = 1
-        return
-      }
-      process.stdout.write(`${JSON.stringify(markTaskSkipped(statePath, args[1], fs.readFileSync(args[1], 'utf8'), args[2]))}\n`)
-      return
-    }
     if (command === 'retry') {
       const statePath = resolveExistingStatePath(args[0])
       if (!statePath) {
@@ -613,7 +584,7 @@ function main() {
       process.stdout.write(`${JSON.stringify({ status: updatedState.status, continuation: updatedState.continuation })}\n`)
       return
     }
-    process.stderr.write('Usage: node execution_sequencer.js <resolve-mode|context|skip|retry|retry-reset|decide|decide-post-execution|apply-decision> ...\n')
+    process.stderr.write('Usage: node execution_sequencer.js <resolve-mode|context|retry|retry-reset|decide|decide-post-execution|apply-decision> ...\n')
     process.exitCode = 1
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -639,7 +610,6 @@ module.exports = {
   decidePostExecutionAction,
   applyGovernanceDecision,
   updateAfterTaskCompletion,
-  markTaskSkipped,
   prepareRetry,
   resetRetryRuntime,
   summarizeExecutionUnit,

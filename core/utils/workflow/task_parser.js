@@ -191,7 +191,6 @@ function parseTasksV2(content) {
 function summarizeTaskProgress(tasks) {
   const progress = {
     completed: [],
-    skipped: [],
     failed: [],
     blocked: [],
   }
@@ -204,10 +203,6 @@ function summarizeTaskProgress(tasks) {
       progress.completed.push(task.id)
       continue
     }
-    if (status.includes('skipped')) {
-      progress.skipped.push(task.id)
-      continue
-    }
     if (status.includes('failed')) progress.failed.push(task.id)
     if (status.includes('blocked')) progress.blocked.push(task.id)
 
@@ -217,7 +212,7 @@ function summarizeTaskProgress(tasks) {
     }
   }
 
-  const doneCount = progress.completed.length + progress.skipped.length
+  const doneCount = progress.completed.length
   const total = (tasks || []).length
   let workflowStatus
   let haltReason = null
@@ -246,8 +241,8 @@ function findTaskById(content, taskId) {
   return parseTasksV2(content).find((task) => task.id === taskId) || null
 }
 
-function findNextTask(content, completed, skipped, failed, blocked = []) {
-  const excluded = new Set([...(completed || []), ...(skipped || []), ...(failed || [])])
+function findNextTask(content, completed, failed, blocked = []) {
+  const excluded = new Set([...(completed || []), ...(failed || [])])
   for (const taskId of extractAllTaskIds(content)) {
     if (!excluded.has(taskId) && !(blocked || []).includes(taskId)) return taskId
   }
@@ -338,7 +333,7 @@ function main() {
       const index = args.indexOf(flag)
       return index >= 0 ? args[index + 1] : ''
     }
-    process.stdout.write(`${JSON.stringify({ next_task: findNextTask(content, split(option('--completed')), split(option('--skipped')), split(option('--failed')), split(option('--blocked'))) })}\n`)
+    process.stdout.write(`${JSON.stringify({ next_task: findNextTask(content, split(option('--completed')), split(option('--failed')), split(option('--blocked'))) })}\n`)
     return
   }
   if (command === 'count') {

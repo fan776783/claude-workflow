@@ -6,14 +6,13 @@
 📊 工作流状态报告
 
 **状态**：{workflow_status}
-**进度**：{progress_percent}%（{completed + skipped} / {total_tasks}）
+**进度**：{progress_percent}%（{completed} / {total_tasks}）
 
 {progress_bar}
 
 | 状态 | 数量 |
 |------|------|
 | ✅ 已完成 | {completed} |
-| ⏭️ 已跳过 | {skipped} |
 | ❌ 失败 | {failed} |
 | ⏸️ 待执行 | {pending} |
 

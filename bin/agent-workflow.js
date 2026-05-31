@@ -27,6 +27,7 @@ const {
   runInteractiveStatus,
 } = require('../lib/interactive-installer');
 const claudeCodePlugin = require('../lib/claude-code-plugin');
+const qoderPlugin = require('../lib/qoder-plugin');
 
 /**
  * 把目标 agent 列表拆成 [claude-code-targets, other-targets]。
@@ -34,12 +35,14 @@ const claudeCodePlugin = require('../lib/claude-code-plugin');
  */
 function partitionAgents(targetAgents) {
   const ccTargets = [];
+  const qoderTargets = [];
   const otherTargets = [];
   for (const name of targetAgents) {
     if (name === 'claude-code') ccTargets.push(name);
+    else if (name === 'qoder') qoderTargets.push(name);
     else otherTargets.push(name);
   }
-  return { ccTargets, otherTargets };
+  return { ccTargets, qoderTargets, otherTargets };
 }
 
 /**
@@ -59,6 +62,23 @@ function printPluginResult(ccResult) {
   };
   const reason = reasonMap[ccResult.reason] || ccResult.reason || '未知原因';
   console.log(`    ✗ Claude Code (via Plugin): ${reason}`);
+}
+
+/**
+ * 打印 Qoder Plugin 安装结果。
+ */
+function printQoderPluginResult(qoderResult) {
+  if (!qoderResult) return;
+  if (qoderResult.success) {
+    console.log(`    ✓ Qoder (via Plugin)`);
+    return;
+  }
+  const reasonMap = {
+    'cli-not-found': '未检测到 qodercli CLI，已打印手动指引',
+    'install-failed': 'plugin install 失败',
+  };
+  const reason = reasonMap[qoderResult.reason] || qoderResult.reason || '未知原因';
+  console.log(`    ✗ Qoder (via Plugin): ${reason}`);
 }
 
 const CLI_NAME = 'agent-workflow';
@@ -164,7 +184,7 @@ if (process.argv.length === 2) {
           return;
         }
 
-        const { ccTargets, otherTargets } = partitionAgents(targetAgents);
+        const { ccTargets, qoderTargets, otherTargets } = partitionAgents(targetAgents);
 
         console.log(`${LOG_PREFIX} 同步到 ${targetAgents.length} 个 Agent...`);
         console.log(`  目标: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
@@ -172,6 +192,7 @@ if (process.argv.length === 2) {
 
         let installResult = null;
         let ccResult = null;
+        let qoderResult = null;
 
         // 其他 8 个工具：走 installer；同时会触发 ensureCanonicalInstalled 把 marketplace.json 复制到 canonical
         if (otherTargets.length > 0) {
@@ -222,12 +243,34 @@ if (process.argv.length === 2) {
           printPluginResult(ccResult);
         }
 
+        // Qoder：Plugin 分支（与 Claude Code 同款机制）
+        if (qoderTargets.length > 0) {
+          const canonicalDir = getCanonicalDir(global, process.cwd());
+          // 若 otherTargets 与 ccTargets 都为空，前面没触发过 ensureCanonicalInstalled，需手动确保
+          if (otherTargets.length === 0 && ccTargets.length === 0) {
+            await installForAgents({
+              templatesDir: repoRoot,
+              agents: [],
+              global,
+              cwd: process.cwd(),
+            });
+          }
+
+          console.log(`\n  Qoder Plugin:`);
+          qoderResult = await qoderPlugin.ensureQoderPluginInstalled({
+            canonicalDir,
+            options: { yes: options.yes, dryRun: options.dryRun },
+          });
+          printQoderPluginResult(qoderResult);
+        }
+
         console.log(`\n${LOG_PREFIX} sync 完成`);
 
         // 退出码：任一分支失败则 exit 1（但 CLI 缺失打印指引不算失败，由用户决定）
         const installFailed = installResult && installResult.errors.length > 0;
         const ccFailed = ccResult && !ccResult.success && ccResult.reason !== 'cli-not-found';
-        if (installFailed || ccFailed) {
+        const qoderFailed = qoderResult && !qoderResult.success && qoderResult.reason !== 'cli-not-found';
+        if (installFailed || ccFailed || qoderFailed) {
           process.exitCode = 1;
         }
       } catch (err) {
@@ -246,14 +289,19 @@ if (process.argv.length === 2) {
         const repoRoot = path.join(__dirname, '..');
         const global = !options.project;
 
-        // link 不支持 Claude Code (Plugin 缓存分发)，检测到时只打开发者提示
+        // link 不支持 Plugin 分发的工具 (Claude Code / Qoder)，检测到时只打开发者提示
         const detected = detectInstalledAgents();
+        if (detected.includes('qoder')) {
+          console.log(`${LOG_PREFIX} Qoder 不支持 link 模式 (Plugin 分发)`);
+          console.log(`  开发者请使用：qodercli --plugin-dir ${path.join(repoRoot, 'core')}`);
+          console.log('');
+        }
         if (detected.includes('claude-code')) {
           console.log(`${LOG_PREFIX} Claude Code 不支持 link 模式 (Plugin 缓存分发)`);
           console.log(`  开发者请使用：claude --plugin-dir ${path.join(repoRoot, 'core')}`);
           console.log('');
         }
-        const targetAgents = detected.filter(a => a !== 'claude-code');
+        const targetAgents = detected.filter(a => a !== 'claude-code' && a !== 'qoder');
 
         if (targetAgents.length === 0) {
           console.log(`${LOG_PREFIX} 未检测到可 link 的 Agent`);
@@ -443,6 +491,8 @@ if (process.argv.length === 2) {
 
           console.log('\n  Agent 状态:');
           for (const [name, agentStatus] of Object.entries(status.agents)) {
+            // Plugin 机制管理的 agent（claude-code / qoder）由专门的 Plugin 状态块展示
+            if (agentStatus.managedViaPlugin) continue;
             const displayName = agents[name]?.displayName || name;
             let statusIcon = '  ';
             let statusText = '';
@@ -493,6 +543,19 @@ if (process.argv.length === 2) {
               `    ⚠️  检测到 v5.x 残留：${r.settingsHooks.length} 个 settings.json hook、${r.legacyDirs.length} 个 legacy 目录`
             );
             console.log(`       运行 ${CLI_NAME} sync -y 自动清理`);
+          }
+
+          // Qoder Plugin 状态单独查询
+          const qoderStatus = await qoderPlugin.inspectStatus({
+            canonicalDir: status.canonicalDir,
+          });
+          console.log('\n  Qoder Plugin:');
+          if (qoderStatus.installed) {
+            console.log(`    ✓ 已安装 (v${qoderStatus.version || '未知'}${qoderStatus.scope ? `, ${qoderStatus.scope}` : ''})`);
+          } else if (qoderStatus.cliAvailable === false) {
+            console.log(`    ○ qodercli CLI 未在 PATH，无法查询 Plugin 状态`);
+          } else {
+            console.log(`    ✗ 未安装 - 运行 ${CLI_NAME} sync 安装`);
           }
         } else {
           console.log('  状态: 未安装');
@@ -596,6 +659,16 @@ if (process.argv.length === 2) {
         for (const line of pluginDiag.issues) issues.push(`Claude Code: ${line}`);
         if (pluginDiag.suggestions.length > 0) {
           for (const line of pluginDiag.suggestions) {
+            issues.push(`  建议: ${line}`);
+          }
+        }
+
+        // Qoder Plugin 诊断
+        const qoderDiag = await qoderPlugin.diagnose({ canonicalDir: status.canonicalDir });
+        for (const line of qoderDiag.ok) ok.push(`Qoder: ${line}`);
+        for (const line of qoderDiag.issues) issues.push(`Qoder: ${line}`);
+        if (qoderDiag.suggestions.length > 0) {
+          for (const line of qoderDiag.suggestions) {
             issues.push(`  建议: ${line}`);
           }
         }

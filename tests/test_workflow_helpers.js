@@ -571,8 +571,10 @@ test('workflow helper migration coverage', async (t) => {
       const planResult = lifecycleCmds.cmdPlan('实现登录鉴权', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
       assert.equal(planResult.started, true)
       const specPath = planResult.spec_file
+      // spec_file 统一存为正斜杠（6.3.2 跨 OS 约定）；比较前把两侧分隔符归一，避免 Windows 下 path.join 反斜杠误判
+      const toPosix = (p) => p.replace(/\\/g, '/')
       const userLevelPrefix = path.join(home, '.claude', 'workflows', 'proj-legacy', 'specs')
-      assert.ok(specPath.startsWith(userLevelPrefix), `expected ${specPath} under ${userLevelPrefix}`)
+      assert.ok(toPosix(specPath).startsWith(toPosix(userLevelPrefix)), `expected ${specPath} under ${userLevelPrefix}`)
       assert.equal(fs.existsSync(specPath), true)
       const projectInternal = path.join(projectRoot, 'docs', 'workflows', 'specs')
       assert.equal(fs.existsSync(projectInternal), false, 'project-internal dir should not be created in legacy mode')
@@ -596,8 +598,10 @@ test('workflow helper migration coverage', async (t) => {
       const planResult = lifecycleCmds.cmdPlan('实现搜索功能', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
       assert.equal(planResult.started, true)
       const specPath = planResult.spec_file
+      // 同上：spec_file 正斜杠，归一后再比较，跨 OS 稳定
+      const toPosix = (p) => p.replace(/\\/g, '/')
       const expectedPrefix = path.join(projectRoot, 'custom', 'wf-specs')
-      assert.ok(specPath.startsWith(expectedPrefix), `expected ${specPath} under ${expectedPrefix}`)
+      assert.ok(toPosix(specPath).startsWith(toPosix(expectedPrefix)), `expected ${specPath} under ${expectedPrefix}`)
       assert.equal(fs.existsSync(specPath), true)
     })
   })
@@ -684,7 +688,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(pauseDecision.budgetBackstopTriggered, true)
   })
 
-  await t.test('applyGovernanceDecision markTaskSkipped and prepareRetry persist expected state', () => {
+  await t.test('applyGovernanceDecision and prepareRetry persist expected state', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-exec-'))
     const home = path.join(tmpRoot, 'home')
     fs.mkdirSync(home, { recursive: true })
@@ -719,20 +723,13 @@ test('workflow helper migration coverage', async (t) => {
       assert.deepEqual(persisted.continuation.last_decision.nextTaskIds, ['T2'])
       assert.equal(persisted.continuation.last_decision.budgetBackstopTriggered, true)
 
-      const tasksPath = path.join(tmpRoot, 'plan.md')
-      fs.writeFileSync(tasksPath, PLAN_FIXTURE)
-      const skipResult = executionSequencer.markTaskSkipped(statePath, tasksPath, PLAN_FIXTURE, 'T1')
-      const skippedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      const skippedPlan = fs.readFileSync(tasksPath, 'utf8')
-      assert.equal(skipResult.skipped, true)
-      assert.equal(skipResult.next_task_id, 'T2')
-      assert.deepEqual(skippedState.current_tasks, ['T2'])
-      assert.match(skippedPlan, /⏭️/)
-
-      skippedState.status = 'halted'
-      skippedState.halt_reason = 'failure'
-      skippedState.failure_reason = 'boom'
-      fs.writeFileSync(statePath, JSON.stringify(skippedState, null, 2))
+      // 注：task-skip（markTaskSkipped / `--skip`）已废弃，任务永久移除改走 /workflow-delta 脱范围。
+      // 这里直接构造 halted/failure 状态，继续验证 prepareRetry 的退避与 hard-stop 行为。
+      const failState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      failState.status = 'halted'
+      failState.halt_reason = 'failure'
+      failState.failure_reason = 'boom'
+      fs.writeFileSync(statePath, JSON.stringify(failState, null, 2))
 
       const first = executionSequencer.prepareRetry(statePath, 'T1', 'boom')
       assert.equal(first.retryable, true)

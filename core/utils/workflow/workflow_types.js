@@ -12,7 +12,6 @@ const MINIMUM_PROGRESS = {
   completed: [],
   blocked: [],
   failed: [],
-  skipped: [],
 }
 
 const MINIMUM_DELTA_TRACKING = {
@@ -230,7 +229,6 @@ function summarizeProgress(state) {
     completed: progress.completed.length,
     blocked: progress.blocked.length,
     failed: progress.failed.length,
-    skipped: progress.skipped.length,
   }
 }
 

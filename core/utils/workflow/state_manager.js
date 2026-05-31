@@ -276,7 +276,6 @@ function completeWorkflow(state, statePath, totalTasks) {
   return {
     total_tasks: totalTasks,
     completed: (progress.completed || []).length,
-    skipped: (progress.skipped || []).length,
     failed: (progress.failed || []).length,
   }
 }
@@ -353,9 +352,9 @@ function resetConsecutiveCount(state) {
   state.consecutive_count = 0
 }
 
-function calculateProgress(totalTasks, completed, skipped, failed) {
+function calculateProgress(totalTasks, completed, failed) {
   if (totalTasks === 0) return 0
-  const finished = (completed || []).length + (skipped || []).length + (failed || []).length
+  const finished = (completed || []).length + (failed || []).length
   return Math.round((finished / totalTasks) * 100)
 }
 
@@ -467,7 +466,7 @@ function main() {
       const state = readState(statePath, projectId)
       const progress = state.progress || {}
       const total = state._total_tasks || 0
-      const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
+      const percent = calculateProgress(total, progress.completed || [], progress.failed || [])
       printJson({ percent, bar: generateProgressBar(percent) })
       return
     }

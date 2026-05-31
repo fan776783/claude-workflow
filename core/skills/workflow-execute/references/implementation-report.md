@@ -4,7 +4,7 @@
 
 ## 何时生成
 
-当所有 task 标记为 `completed`（或 `skipped`），在workflow状态变为 `completed` 之前生成。
+当所有 task 标记为 `completed`，在workflow状态变为 `completed` 之前生成。
 
 ## 输出路径
 
@@ -23,7 +23,7 @@
 
 | Metric        | Plan     | Actual                             |
 | ------------- | -------- | ---------------------------------- |
-| Tasks         | [计划数] | [实际完成/跳过/失败]               |
+| Tasks         | [计划数] | [实际完成/失败]               |
 | Files Changed | [计划数] | [实际数]                           |
 | Duration      | —        | [首个 task 到最后 task 的时间跨度] |
 
@@ -33,7 +33,6 @@
 | --- | ------ | ------------ | ------------ |
 | T1  | [名称] | ✅ completed | —            |
 | T2  | [名称] | ✅ completed | 偏离：[原因] |
-| T3  | [名称] | ⏭️ skipped   | [跳过原因]   |
 
 ## Validation Summary
 
