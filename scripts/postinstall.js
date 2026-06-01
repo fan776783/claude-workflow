@@ -102,10 +102,10 @@ async function main() {
       targetAgents = parseAgentArg(configuredAgents);
       console.log(`${LOG_PREFIX} 使用环境变量指定的 Agent: ${targetAgents.join(', ')}`);
     } else {
-      // Claude Code 从 v6.0.0 起通过 Plugin 分发，不再参与 installer 自动路径。
-      // postinstall 只为其他 7 个工具复制模板；Claude Code 需要用户显式执行
-      // `agent-workflow sync` 触发 Plugin 安装。
-      targetAgents = detectInstalledAgents().filter(a => a !== 'claude-code');
+      // Plugin 机制管理的工具（Claude Code / Qoder）不参与 installer 自动路径。
+      // postinstall 只为走 installer mount 的工具复制模板；Plugin 类工具需要用户
+      // 显式执行 `agent-workflow sync` 触发 Plugin 安装。
+      targetAgents = detectInstalledAgents().filter(a => !agents[a]?.managedViaPlugin);
       if (targetAgents.length === 0) {
         console.log(`${LOG_PREFIX} 未检测到需要自动 sync 的 Agent`);
       } else {
