@@ -2,7 +2,7 @@
 
 以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
 
-它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Cursor、Codex、Gemini CLI、Antigravity、Droid 等多种 AI 编码工具。
+它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Qoder、Cursor、Codex、Gemini CLI、Antigravity、Droid 等多种 AI 编码工具。
 
 ---
 
@@ -82,9 +82,9 @@
 
 ## 2. 安装与同步
 
-### 2.1 Claude Code 用户（v6.0.0+ 走 Plugin 机制）
+### 2.1 Claude Code / Qoder 用户（走原生 Plugin 机制）
 
-Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发，其他 7 个工具（Cursor / Codex / Gemini CLI 等）继续走 installer。
+Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发；**Qoder（v6.5.1+）** 同属 Plugin-managed，走 `qodercli plugins install`。其余 7 个工具（Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid）继续走 installer。
 
 #### 方式 A —— Claude Code Plugin（Claude Code 用户首选）
 
@@ -140,6 +140,20 @@ npm install
 npm run sync
 ```
 
+
+#### Qoder 用户（v6.5.1+，原生 Plugin）
+
+Qoder 与 Claude Code 一样走原生 Plugin，不经 installer 逐 skill mount。`npm install` 时**不会**自动 mount Qoder（避免落入 installer 失败），需显式触发：
+
+```bash
+# 检测到 qodercli 后，sync 会自动走 qodercli plugins install
+npm run sync
+
+# 本地开发调试（对齐 Claude Code 的 --plugin-dir）
+qodercli --plugin-dir <repo>/core
+```
+
+`agent-workflow status` / `doctor` 会一并报告 Qoder Plugin 的安装状态。
 
 ### 2.2 其他 7 个 AI 工具（Cursor / Codex / Gemini CLI 等）
 
@@ -719,9 +733,10 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 
 ## 7. 支持的 AI 编码工具
 
-当前支持 8 个 AI 编码工具，包括：
+当前支持 9 个 AI 编码工具，包括：
 
-- Claude Code
+- Claude Code（Plugin-managed）
+- Qoder（Plugin-managed，`qodercli plugins install`）
 - Cursor
 - Codex
 - Gemini CLI
@@ -729,6 +744,8 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - OpenCode
 - Antigravity
 - Droid
+
+> **分发方式**：Claude Code 与 Qoder 走各自工具的原生 Plugin 机制；其余 7 个工具由 installer 逐 skill mount。
 
 ---
 

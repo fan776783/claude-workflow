@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.5.1] - 2026-06-01
+
+### Added
+
+- **Qoder 工具支持（第 9 个 AI 编码工具，原生 Plugin 机制）**（commit ca5a22d + 73b21d4）：从 main 分支择优移植 Qoder 支持，走 `qodercli plugins install` 原生 Plugin，与 Claude Code 同属 **Plugin-managed**（非 installer 逐 skill mount），其余 7 个工具（Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid）继续走 installer。
+  - 新增 `lib/qoder-plugin.js`（Qoder Plugin 安装/检测逻辑）与 `scripts/qoder-cli.js`（`qodercli` 命令封装）。
+  - `lib/agents.js` 注册 `qoder` agent，标记 `managedViaPlugin`。
+  - `bin/agent-workflow.js`：`sync` / `link` / `status` / `doctor` 四条命令接入 Qoder Plugin 分支。
+  - 开发调试：`qodercli --plugin-dir <repo>/core`（对齐 Claude Code 的 `claude --plugin-dir`）。
+
+### Changed
+
+- **`managedViaPlugin` 通用化**（commit ca5a22d + 73b21d4）：原先散落在 `lib/installer.js` / `scripts/postinstall.js` / `lib/interactive-installer.js` 里对 `claude-code` 的特判改为统一按 `managedViaPlugin` 标记分叉，Claude Code 与 Qoder 共用同一条 Plugin 安装路径。
+  - `lib/installer.js`：`linkToAgents` 跳过条件 `claude-code` → `managedViaPlugin` 通用化。
+  - `scripts/postinstall.js`：`npm install` 时 Qoder 与 Claude Code 一致**不自动 mount**（避免落入 installer `success:false`），需用户显式 `sync` 触发 Plugin 安装。
+  - `lib/interactive-installer.js`：新增 `qoderTargets` 分叉走 `ensureQoderPluginInstalled` + 结果展示块，对齐 `ccTargets`；修复交互式选 Qoder 显示 ✗ 失败、postinstall 永远装不上 Qoder 的问题。
+
 ## [6.5.0] - 2026-05-28
 
 ### Changed
