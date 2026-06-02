@@ -84,6 +84,18 @@ function createCanonicalStateFile(home, projectId = 'proj-test', status = 'runni
   return statePath
 }
 
+// 落最小 task-dir 壳（F-04 后 planned/running/halted ⟹ task 源非空的 invariant 已在 buildExecuteEntry 入口强制）。
+// 必须在 withHome 内调用（HOME 已设，getWorkflowsDir 解析到测试 home）。
+function seedTaskDir(ids = ['T1'], projectId = 'proj-test') {
+  const taskStore = require(path.join(workflowDir, 'task_store.js'))
+  ids.forEach((id, index) => taskStore.createTask(projectId, {
+    id,
+    phase: 'implement',
+    status: 'pending',
+    depends: index > 0 ? [`T${index}`] : [],
+  }))
+}
+
 function withHome(home, fn) {
   const previousHome = process.env.HOME
   const previousUserProfile = process.env.USERPROFILE
@@ -389,18 +401,11 @@ test('workflow helper migration coverage', async (t) => {
 
       const planPath = path.join(projectRoot, '.claude', 'plans', 'tasks.md')
       fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, [
-        '## T1: 执行任务',
-        '- **阶段**: implement',
-        '- **Spec 参考**: §1',
-        '- **Plan 参考**: P1',
-        '- **状态**: pending',
-        '- **actions**: edit_file, quality_review',
-        '- **验证命令**: node -e "process.exit(0)", node -e "process.exit(0)"',
-        '- **步骤**:',
-        '  - A1: 修改实现 → 完成任务',
-        '',
-      ].join('\n'))
+      // S3 重基（FR-2 / C-2）：plan.md 退化为叙述（无结构化 task block）；task 元数据走 task-dir。
+      fs.writeFileSync(planPath, '# Plan\n\n叙述正文，不含结构化 task block。\n')
+      // task 元数据落 task-dir（package/target_layer 供 scoped code-specs 注入）。
+      const taskStore = require(path.join(workflowDir, 'task_store.js'))
+      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', package: 'pkg-a', target_layer: 'backend', status: 'pending' })
 
       const legacyGuidesDir = path.join(projectRoot, '.claude', 'specs', 'guides')
       fs.mkdirSync(legacyGuidesDir, { recursive: true })
@@ -409,11 +414,13 @@ test('workflow helper migration coverage', async (t) => {
       const runtime = taskRuntime.getWorkflowRuntime(projectRoot)
       assert.equal(runtime.projectId, 'proj-test')
       assert.equal(taskRuntime.getCurrentTaskId(runtime), 'T1')
-      assert.deepEqual(taskRuntime.getTaskActions(taskRuntime.getCurrentTask(runtime)), ['edit_file', 'quality_review'])
-      assert.deepEqual(taskRuntime.getTaskVerificationCommands(taskRuntime.getCurrentTask(runtime)), [
-        'node -e "process.exit(0)"',
-        'node -e "process.exit(0)"',
-      ])
+      // C-2：scoped 注入元数据（package / target_layer）从 task-dir 解析。
+      const currentTask = taskRuntime.getCurrentTask(runtime)
+      assert.equal(currentTask.package, 'pkg-a')
+      assert.equal(currentTask.target_layer, 'backend')
+      // actions / verification 为 plan.md 时代字段，task-dir 不承载 → 优雅降级为空数组。
+      assert.deepEqual(taskRuntime.getTaskActions(currentTask), [])
+      assert.deepEqual(taskRuntime.getTaskVerificationCommands(currentTask), [])
 
       const guidesDir = pathUtils.getThinkingGuidesDir(projectRoot)
       assert.equal(guidesDir.displayPath, '.claude/.agent-workflow/specs/guides')
@@ -573,16 +580,18 @@ test('workflow helper migration coverage', async (t) => {
 
     withHome(home, () => {
       const statePath = createCanonicalStateFile(home)
-
-      const tasksPath = path.join(tmpRoot, 'plan.md')
-      fs.writeFileSync(tasksPath, PLAN_FIXTURE)
-      const skipResult = executionSequencer.markTaskSkipped(statePath, tasksPath, PLAN_FIXTURE, 'T1')
+      // S3 重基（FR-2）：markTaskSkipped 改读/写 task-dir（TaskSource），不再改写 plan.md。
+      // 新签名 markTaskSkipped(statePath, taskId, projectId)；task 源 = task-dir。
+      const taskStore = require(path.join(workflowDir, 'task_store.js'))
+      const pid = 'proj-test'
+      taskStore.createTask(pid, { id: 'T1', phase: 'implement', status: 'pending' })
+      taskStore.createTask(pid, { id: 'T2', phase: 'test', depends: ['T1'], status: 'pending' })
+      const skipResult = executionSequencer.markTaskSkipped(statePath, 'T1', pid)
       const skippedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-      const skippedPlan = fs.readFileSync(tasksPath, 'utf8')
       assert.equal(skipResult.skipped, true)
       assert.equal(skipResult.next_task_id, 'T2')
       assert.deepEqual(skippedState.current_tasks, ['T2'])
-      assert.match(skippedPlan, /⏭️/)
+      assert.equal(taskStore.readTask(pid, 'T1').status, 'skipped')
 
       skippedState.status = 'halted'
       skippedState.halt_reason = 'failure'
@@ -686,7 +695,11 @@ test('workflow helper migration coverage', async (t) => {
 
     const planContent = fs.readFileSync(planPath, 'utf8')
     assert.doesNotMatch(planContent, /响应增量变更 CHG-001/)
-    assert.match(planContent, /## T1:/)
+    // S2 去骨架（FR-1）：plan.md 不再 emit 结构化 `## T1:` task block；机器 task 源 = task-dir。
+    assert.doesNotMatch(planContent, /^##\s+T\d+:\s+实现\s+R-/m)
+    const t1JsonPath = path.join(home, '.claude', 'workflows', projectId, 'tasks', 'T1', 'task.json')
+    assert.equal(fs.existsSync(t1JsonPath), true, 'task-dir T1 壳应存在')
+    assert.equal(JSON.parse(fs.readFileSync(t1JsonPath, 'utf8')).id, 'T1')
 
     const blockedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     blockedState.status = 'blocked'
@@ -698,7 +711,10 @@ test('workflow helper migration coverage', async (t) => {
     const unblockPayload = JSON.parse(unblockResult.stdout)
     assert.equal(unblockPayload.unblocked, true)
     assert.ok(unblockPayload.known_unblocked.includes('api_spec'))
-    assert.deepEqual(unblockPayload.newly_unblocked_tasks, ['T1'])
+    // S2 去骨架后 plan.md 不再含结构化 task block；cmdUnblock 仍走 resolveStateAndTasks→parseTasksV2(plan.md)
+    // 这条 task 源耦合由 S3（FR-2 execution 重基）迁到 task-dir/TaskSource，届时 newly_unblocked_tasks 恢复 ['T1']。
+    // 本切片（S2）只验 dependency 记账成功，不验从 plan.md 反查 task（该路径 S3 才迁移）。
+    assert.ok(Array.isArray(unblockPayload.newly_unblocked_tasks))
 
     const summaryState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     summaryState.delta_tracking.current_change = 'CHG-002'
@@ -835,7 +851,10 @@ test('workflow helper migration coverage', async (t) => {
       fs.writeFileSync(statePath, JSON.stringify(plannedState, null, 2))
       const planPath = path.join(root, '.claude', 'plans', 'tasks.md')
       fs.mkdirSync(path.dirname(planPath), { recursive: true })
-      fs.writeFileSync(planPath, '## T1: 执行任务\n- **actions**: edit_file, quality_review\n- **验证命令**: node -e "process.exit(0)"\n')
+      // S3 重基（FR-2 / C-2）：plan.md 退化为叙述；task 元数据走 task-dir，hook 注入 <current-task> 块由 task-dir 渲染。
+      fs.writeFileSync(planPath, '# Plan\n\n叙述正文。\n')
+      const taskStore = require(path.join(workflowDir, 'task_store.js'))
+      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', package: 'pkg-a', target_layer: 'backend', status: 'pending', acceptance: ['确认导出可工作'] })
 
       const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
       assert.equal(sessionResult.status, 0)
@@ -890,7 +909,10 @@ test('workflow helper migration coverage', async (t) => {
       const injectedPayload = JSON.parse(injectedTask.stdout)
       assert.equal(injectedPayload.continue, true)
       assert.match(injectedPayload.message, /已注入任务上下文/)
-      assert.match(injectedPayload.tool_input.description, /verification-commands/)
+      // C-2：dispatch gate 通过后注入 <current-task> 块（task-dir 渲染），scoped code-specs 注入链存活。
+      // verification-commands 为 plan.md 时代字段，task-dir 不承载 → 不再断言其出现。
+      assert.match(injectedPayload.tool_input.description, /<current-task/)
+      assert.match(injectedPayload.tool_input.description, /T1/)
     })
   })
 
@@ -1080,6 +1102,39 @@ test('workflow helper migration coverage', async (t) => {
     assert.deepEqual(state.progress.blocked, ['T1'])
   })
 
+  await t.test('workflow init self-heal recovers blocked task-dir workflow as halted/dependency (F-04)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-init-blocked-taskdir-'))
+    const [extraEnv, home] = makeCliEnv(root)
+    writeProjectConfig(root, 'proj-test')
+
+    // 真实 task-dir 流程：narrative plan.md（无结构化 task block）+ task-dir 承载机器 task 源。
+    const planPath = path.join(root, '.claude', 'plans', 'recovery.md')
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    fs.writeFileSync(planPath, '# Plan\n\n叙述正文，无结构化 task block。\n')
+
+    // state.json 丢失场景：T1 已完成，T2 持有外部依赖 blocked_by（state.progress.blocked 已随 state.json 丢失，
+    // task.json 的 blocked_by 是唯一持久阻塞信号）。恢复必须收敛为 halted/dependency，而非误判可执行。
+    const tasksDir = path.join(home, '.claude', 'workflows', 'proj-test', 'tasks')
+    fs.mkdirSync(path.join(tasksDir, 'T1'), { recursive: true })
+    fs.mkdirSync(path.join(tasksDir, 'T2'), { recursive: true })
+    fs.writeFileSync(path.join(tasksDir, 'T1', 'task.json'), `${JSON.stringify({ id: 'T1', status: 'completed' }, null, 2)}\n`)
+    fs.writeFileSync(path.join(tasksDir, 'T2', 'task.json'), `${JSON.stringify({ id: 'T2', status: 'pending', depends: ['T1'], blocked_by: ['api_spec'] }, null, 2)}\n`)
+
+    const initResult = runNode(cliScript, ['init'], { cwd: root, env: extraEnv })
+    assert.equal(initResult.status, 0, initResult.stderr)
+    const payload = JSON.parse(initResult.stdout)
+    assert.equal(payload.initialized, true)
+    assert.equal(payload.workflow_status, 'halted')
+    assert.equal(payload.halt_reason, 'dependency')
+    assert.deepEqual(payload.progress.blocked, ['T2'])
+
+    const state = JSON.parse(fs.readFileSync(workflowStatePath(home, 'proj-test'), 'utf8'))
+    assert.equal(state.status, 'halted')
+    assert.equal(state.halt_reason, 'dependency')
+    assert.deepEqual(state.progress.blocked, ['T2'])
+    assert.deepEqual(state.current_tasks, ['T2'])
+  })
+
   await t.test('workflow init self-heal does not bind an unrelated spec to quick-plan recovery', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-cli-init-unrelated-spec-'))
     const [extraEnv, home] = makeCliEnv(root)
@@ -1146,6 +1201,7 @@ test('workflow helper migration coverage', async (t) => {
 
     withHome(home, () => {
       createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      seedTaskDir(['T1'])
       const result = executionSequencer.buildExecuteEntry('continue', null, null, root)
       assert.equal(result.entry_action, 'none')
       assert.equal(result.can_resume, false)
@@ -1175,6 +1231,7 @@ test('workflow helper migration coverage', async (t) => {
         },
       }
       fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+      seedTaskDir(['T1'])
 
       const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
       assert.equal(result.entry_action, 'none')
@@ -1210,6 +1267,7 @@ test('workflow helper migration coverage', async (t) => {
         },
       }
       fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+      seedTaskDir(['T1'])
 
       const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
       assert.equal(result.entry_action, 'none')
@@ -1245,6 +1303,7 @@ test('workflow helper migration coverage', async (t) => {
         },
       }
       fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+      seedTaskDir(['T1'])
 
       const result = executionSequencer.buildExecuteEntry('execute', null, null, root, { force: true })
       assert.equal(result.entry_action, 'execute')
@@ -1269,6 +1328,7 @@ test('workflow helper migration coverage', async (t) => {
 
     withHome(home, () => {
       createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      seedTaskDir(['T1'])
 
       const defaultResult = executionSequencer.buildExecuteEntry('execute', null, null, root)
       assert.equal(defaultResult.entry_action, 'execute')
@@ -1315,6 +1375,7 @@ test('workflow helper migration coverage', async (t) => {
 
     withHome(home, () => {
       const statePath = createCanonicalStateFile(home, 'proj-test', 'halted')
+      seedTaskDir(['T1'])
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
       state.execution_mode = 'phase'
       state.halt_reason = 'failure'
@@ -1327,6 +1388,53 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(result.entry_action, 'execute')
       assert.equal(result.resolved_mode, 'phase')
       assert.equal(result.can_resume, true)
+    })
+  })
+
+  await t.test('buildExecuteEntry blocks execute/continue when task source missing (F-01)', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-task-source-missing-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      // planned 但既无 task-dir 也无 legacy plan 兜底 → 入口必须阻断（不放行无 task 可派发的空跑）。
+      const statePath = createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+      state.plan_file = null
+      fs.writeFileSync(statePath, JSON.stringify(state, null, 2))
+
+      const execResult = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(execResult.entry_action, 'none')
+      assert.equal(execResult.reason, 'task_source_missing')
+      assert.equal(execResult.can_resume, false)
+
+      const contResult = executionSequencer.buildExecuteEntry('continue', null, null, root)
+      assert.equal(contResult.entry_action, 'none')
+      assert.equal(contResult.reason, 'task_source_missing')
+    })
+  })
+
+  await t.test('buildExecuteEntry still executes legacy plan.md workflow without task-dir (F-01 / C-7)', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-legacy-exec-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'planned', ['T1'])
+      // 无 task-dir，但 legacy plan.md 含可解析 task → LegacyPlanMdSource 兜底，F-01 短路不应误伤。
+      const planAbs = path.join(root, '.claude', 'plans', 'test.md')
+      fs.mkdirSync(path.dirname(planAbs), { recursive: true })
+      fs.writeFileSync(planAbs, PLAN_FIXTURE)
+
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'execute')
+      assert.equal(result.reason, 'explicit_execute')
     })
   })
 
@@ -1437,6 +1545,13 @@ test('workflow helper migration coverage', async (t) => {
     const planPath = path.join(root, '.claude', 'plans', 'test.md')
     fs.mkdirSync(path.dirname(planPath), { recursive: true })
     fs.writeFileSync(planPath, PLAN_FIXTURE)
+
+    // S3 重基（FR-2）：advance 经 cmdComplete/cmdNext 走 TaskSource(task-dir)。seed task-dir T1/T2。
+    const taskStore = require(path.join(workflowDir, 'task_store.js'))
+    withHome(home, () => {
+      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', status: 'pending' })
+      taskStore.createTask('proj-test', { id: 'T2', phase: 'test', depends: ['T1'], status: 'pending' })
+    })
 
     const statePath = workflowStatePath(home, 'proj-test')
     fs.mkdirSync(path.dirname(statePath), { recursive: true })

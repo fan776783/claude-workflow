@@ -13,14 +13,32 @@ const {
 } = require('./path_utils')
 const { readState, writeState } = require('./state_manager')
 const { detectProjectId, resolveStateAndTasks } = require('./task_manager')
-const {
-  countTasks,
-  findNextTask,
-  parseTasksV2,
-  taskToDict,
-  updateTaskStatusInMarkdown,
-} = require('./task_parser')
-const { acknowledgeSkippedSpecReview, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+const { createTaskSource } = require('./task_source')
+const taskStore = require('./task_store')
+const { acknowledgeSkippedSpecReview, assertTaskSourcePresent, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+
+// S3 重基（FR-2）：sequencer 的 task 序列来源从 parseTasksV2(plan.md) 切到 TaskSource（task-dir）。
+// projectId 优先取自参数/state，再回退 detectProjectId(projectRoot)。
+function resolveSequencerProjectId(state, projectId = null, projectRoot = null) {
+  return projectId || (state && (state.project_id || state.projectId)) || detectProjectId(projectRoot) || null
+}
+
+// detectNextTask 改吃 task 记录数组（{id,status}），不再吃 plan.md 文本。
+// 顺序由 TaskDirSource.listTasks() 的 taskId 数字序保证（C-1）。
+function nextTaskIdFromTasks(tasks, progress = {}) {
+  const excluded = new Set([
+    ...(progress.completed || []),
+    ...(progress.skipped || []),
+    ...(progress.failed || []),
+  ])
+  const blocked = new Set(progress.blocked || [])
+  for (const task of tasks || []) {
+    const id = task && task.id
+    if (!id) continue
+    if (!excluded.has(id) && !blocked.has(id)) return id
+  }
+  return null
+}
 
 function loadProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -84,7 +102,23 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     }
   }
   const context = loadExecutionContext(projectId, String(projectRoot))
-  let state = !context.error ? context.state : null
+  // F-01：task_source_missing 是 B-full invariant 缺源诊断——必须在入口阻断 execute/continue，不能放行。
+  // （旧路径靠 state=null 隐式阻断；现 loadExecutionContext 带 state 回传供门控判定，需在此显式短路，
+  //  否则 planned/running/halted + 空 task-dir 会误判为可执行，进入无 task 可派发的困惑性空跑。）
+  if (context.code === 'task_source_missing') {
+    return {
+      entry_action: 'none',
+      resolved_mode: null,
+      project_id: projectId,
+      state_status: context.state ? context.state.status : null,
+      can_resume: false,
+      reason: 'task_source_missing',
+      message: context.error || 'task 源缺失（task-dir 为空），无法进入执行阶段。请重新运行 /workflow-plan 生成 task 源。',
+    }
+  }
+  // task_source_missing 之外的可诊断态：context.state 仍带回供门控判定。
+  // 真正"无 state"（resolveStateAndTasks 早退）才置 null。
+  let state = context.state || (!context.error ? context.state : null)
   let gateViolation = state ? getSpecReviewGateViolation(state) : null
 
   if (state && gateViolation && gateViolation.code === 'spec_upgrade_required' && force && context.state_path) {
@@ -119,7 +153,7 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
       }
     }
     if (!EXECUTE_ENTRY_STATUSES.has(state.status)) {
-      const message = state.status === 'spec_review' || state.status === 'planning'
+      const message = state.status === 'spec_review'
         ? 'Spec 正在等待用户确认或 Plan 仍在生成，请先完成规划流程后再执行 /workflow-execute。'
         : `当前状态 ${state.status} 不支持进入执行阶段，请使用 /workflow-status 查看详情。`
       return {
@@ -177,7 +211,7 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
     }
     const status = state.status
     if (!RESUME_ENTRY_STATUSES.has(status)) {
-      const message = ['planned', 'planning', 'spec_review'].includes(status)
+      const message = ['planned', 'spec_review'].includes(status)
         ? '规划已完成但尚未开始执行，请显式使用 /workflow-execute 开始执行。'
         : `当前状态 ${status} 不支持直接恢复，请使用 /workflow-status 查看详情。`
       return {
@@ -220,12 +254,31 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
 }
 
 function loadExecutionContext(projectId = null, projectRoot = null) {
+  // plan.md 仍解析以拿 statePath / 叙述正文路径，但 task 序列改读 task-dir（TaskSource）。
+  // plan.md 缺失（plan_file_unset / plan_file_missing）不再致命：task 源是 task-dir。
   const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
   if (!state || !statePath) return { error: '没有活跃的工作流', code }
   const normalizedState = ensureStateDefaults(state)
-  const tasks = tasksContent ? parseTasksV2(tasksContent) : []
+  const pid = resolveSequencerProjectId(normalizedState, projectId, projectRoot)
+  // T9/S2：工厂选 adapter —— task-dir → TaskDirSource，仅 legacy plan.md → LegacyPlanMdSource（C-7 兜底）。
+  // 皆无 → null，由下方 assertTaskSourcePresent 报 task_source_missing（不静默）。
+  const source = createTaskSource(normalizedState, { projectId: pid, projectRoot })
+  const tasks = source ? source.listTasks() : []
+  // B-full invariant（FR-8 / C-3）：planned/running/halted 必须有非空 task 源。
+  // 这里不抛——entry-gating / status 等只读消费者复用 loadExecutionContext，硬抛会误伤。
+  // 缺源诊断走显式 error 字段（status 要求 task 源但为空时），advance/dispatch 路径另由 assertTaskSourcePresent 守门。
+  if (!tasks.length) {
+    try {
+      assertTaskSourcePresent(normalizedState, pid)
+    } catch (err) {
+      if (err && err.code === 'task_source_missing') {
+        return { error: err.message, code: err.code, state: normalizedState, state_path: statePath }
+      }
+      throw err
+    }
+  }
   const currentTaskId = (normalizedState.current_tasks || [null])[0]
-  const currentTask = tasks.find((task) => task.id === currentTaskId) || null
+  const currentTask = (source && currentTaskId) ? source.getTask(currentTaskId) : null
   if (tasksContent) normalizedState._tasks_content = tasksContent
   const currentTaskIds = (normalizedState.current_tasks || []).filter(Boolean)
   return {
@@ -234,10 +287,10 @@ function loadExecutionContext(projectId = null, projectRoot = null) {
     tasks_content: tasksContent,
     tasks_path: tasksPath,
     tasks,
-    current_task: currentTask ? taskToDict(currentTask) : null,
+    current_task: currentTask || null,
     current_task_id: currentTaskId,
     current_task_ids: currentTaskIds,
-    total_tasks: tasksContent ? countTasks(tasksContent) : 0,
+    total_tasks: tasks.length,
   }
 }
 
@@ -247,15 +300,26 @@ function resolveExecutionMode(override, stateMode) {
   return 'continuous'
 }
 
-function detectNextTask(tasksContent, state) {
-  if (!tasksContent) return null
+// detectNextTask(tasks, state)：tasks = TaskSource.listTasks() 的记录数组（{id,status}）。
+// 兼容：仍接受 task 记录数组；不再吃 plan.md 文本（legacy plan.md 读取走 T9 LegacyPlanMdSource）。
+function detectNextTask(tasks, state) {
+  if (!Array.isArray(tasks) || !tasks.length) return null
   const progress = ensureStateDefaults(state).progress || {}
-  return findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
+  return nextTaskIdFromTasks(tasks, progress)
 }
 
-function updateAfterTaskCompletion(state, tasksContent) {
+// updateAfterTaskCompletion(state, tasks?)：tasks 可选；缺省时从 state 的 projectId 经 TaskDirSource 重新拉。
+// 调用方（sequencer skip 路径）传入已更新的 task 列表以反映刚落盘的状态变化。
+function updateAfterTaskCompletion(state, tasks = null) {
   const normalizedState = ensureStateDefaults(state)
-  const nextTaskId = detectNextTask(tasksContent, normalizedState)
+  let taskList = tasks
+  if (!Array.isArray(taskList)) {
+    const pid = resolveSequencerProjectId(normalizedState)
+    // 工厂选 adapter：legacy plan.md workflow 缺 task-dir 时仍能拉出 task 列表（C-1 等价）。
+    const source = createTaskSource(normalizedState, { projectId: pid, quiet: true })
+    taskList = source ? source.listTasks() : []
+  }
+  const nextTaskId = detectNextTask(taskList, normalizedState)
   if (nextTaskId) {
     normalizedState.current_tasks = [nextTaskId]
     normalizedState.status = 'running'
@@ -267,14 +331,23 @@ function updateAfterTaskCompletion(state, tasksContent) {
   return normalizedState
 }
 
-function markTaskSkipped(statePath, tasksPath, tasksContent, taskId) {
+// skip：task 状态落 task-dir（task_store.updateTaskStatus），不再改写 plan.md。
+// projectId 优先取 state.project_id，再回退检测；缺源 → updateTaskStatus 抛错由调用方兜。
+function markTaskSkipped(statePath, taskId, projectId = null, projectRoot = null) {
   const state = ensureStateDefaults(readState(statePath))
+  const pid = resolveSequencerProjectId(state, projectId, projectRoot)
   const progress = state.progress || (state.progress = {})
   const skipped = progress.skipped || (progress.skipped = [])
   if (!skipped.includes(taskId)) skipped.push(taskId)
-  const updatedContent = updateTaskStatusInMarkdown(tasksContent, taskId, 'skipped')
-  fs.writeFileSync(tasksPath, updatedContent)
-  const nextTaskId = detectNextTask(updatedContent, state)
+  // 工厂选 adapter：legacy plan.md 缺 task-dir 时走 LegacyPlanMdSource（C-7 / C-1）。
+  const source = createTaskSource(state, { projectId: pid, projectRoot, quiet: true })
+  if (source) {
+    try {
+      source.updateTaskStatus(taskId, 'skipped')
+    } catch { /* task 源缺该 task：跳过状态仍记在 progress.skipped */ }
+  }
+  const tasks = source ? source.listTasks() : []
+  const nextTaskId = detectNextTask(tasks, state)
   if (nextTaskId) {
     state.current_tasks = [nextTaskId]
     state.status = 'running'
@@ -352,13 +425,25 @@ function main() {
       return
     }
     if (command === 'skip') {
-      const statePath = resolveExistingStatePath(args[0])
+      // CLI 契约保持 `skip <state-path> <plan-path> <task-id>`；plan-path 已退役（task 源 = task-dir），仅占位兼容。
+      // 先剥离 value-taking flag（及其值），按真正的位置参数定位 state / task-id——
+      // 否则 `skip <state> <task> --project-id X` 会把 `--project-id` 误当 task-id（args.length>=3 命中）。
+      const VALUE_FLAGS = new Set(['--project-id', '--project-root'])
+      const positionals = []
+      for (let i = 0; i < args.length; i += 1) {
+        if (VALUE_FLAGS.has(args[i])) { i += 1; continue }
+        if (String(args[i]).startsWith('--')) continue
+        positionals.push(args[i])
+      }
+      const statePath = resolveExistingStatePath(positionals[0])
       if (!statePath) {
         process.stdout.write(`${JSON.stringify({ error: '没有活跃的工作流' })}\n`)
         process.exitCode = 1
         return
       }
-      process.stdout.write(`${JSON.stringify(markTaskSkipped(statePath, args[1], fs.readFileSync(args[1], 'utf8'), args[2]))}\n`)
+      // task-id 取最后一个位置参数：兼容旧三参（state plan task）与新两参（state task）调用。
+      const taskId = positionals.length >= 3 ? positionals[2] : positionals[1]
+      process.stdout.write(`${JSON.stringify(markTaskSkipped(statePath, taskId, option('--project-id'), option('--project-root')))}\n`)
       return
     }
     if (command === 'retry') {

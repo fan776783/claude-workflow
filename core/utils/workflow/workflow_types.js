@@ -188,9 +188,11 @@ function ensureStateDefaults(state) {
   if (!normalized.discussion) normalized.discussion = { completed: false, clarification_count: 0, unresolved_dependencies: [] }
 
   if (!normalized.ux_design) normalized.ux_design = { completed: false, ux_gate_required: false, flowchart_scenarios: 0, page_count: 0, approved_at: null }
+  // C-1：user_spec_review 人工 gate 完整保留，默认实例化。
   if (!normalized.review_status.user_spec_review) normalized.review_status.user_spec_review = { status: 'pending', review_mode: 'human_gate', reviewed_at: null, reviewer: 'user', next_action: null }
-  if (!normalized.review_status.codex_spec_review) normalized.review_status.codex_spec_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 1, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
-  if (!normalized.review_status.codex_plan_review) normalized.review_status.codex_plan_review = { status: 'pending', review_mode: 'machine_loop', reviewed_at: null, reviewer: 'codex', trigger_reason: null, provider_mode: 'task_readonly', attempt: 0, max_attempts: 2, issues: [], issues_found: 0, codex_status: null, session_id: null, timing_ms: null }
+  // FR-6（T7）：codex_spec_review / codex_plan_review / plan_review 不再默认实例化。
+  // 机器 review 自动触发已降级为显式开关——仅在 config/flag 显式开启时由 state_manager
+  // updateCodex*Review / updatePlanReviewRecord 按需实例化。默认 state 不含这些子对象。
   if (!('failure_reason' in normalized)) normalized.failure_reason = null
   if (!('halt_reason' in normalized)) normalized.halt_reason = null
   // contract digest 落盘路径（顶层字符串）。set-contract-digest-path CLI 动词写入，避免 controller 手编 state.json。
@@ -302,6 +304,38 @@ function getSpecReviewGateViolation(state) {
   }
 }
 
+// B-full invariant（FR-8 / C-3）：status ∈ {planned,running,halted} ⟹ task 源存在且非空。
+// 替换原 "plan_file ≠ null" 隐式假设；单点守门，供 sequencer / pre-execute-inject 调用，
+// 避免去骨架/惰性化中间态打穿 dispatch gate / sequencer / handoff freshness / status 四消费者。
+//
+// task 源 = task-dir（TaskDirSource）。projectId 优先取自参数，回退 state.project_id。
+// 缺源 → 抛带 code='task_source_missing' 的 Error。正常态（idle/spec_review/completed/archived 或有 task）不报。
+const TASK_SOURCE_REQUIRED_STATUSES = new Set(['planned', 'running', 'halted'])
+
+function assertTaskSourcePresent(state, projectId = null) {
+  const source = state || {}
+  const status = source.status || 'idle'
+  if (!TASK_SOURCE_REQUIRED_STATUSES.has(status)) return true
+  const pid = projectId || source.project_id || source.projectId || null
+  // lazy require 断循环依赖（task_store → workflow_types.isoNow）。
+  const { listTasks } = require('./task_store')
+  let tasks = []
+  if (pid) {
+    try {
+      tasks = listTasks(pid) || []
+    } catch {
+      tasks = []
+    }
+  }
+  if (!tasks.length) {
+    const err = new Error(`task_source_missing: status='${status}' requires a non-empty task source (task-dir) but none found${pid ? ` for project ${pid}` : ' (no project id)'}`)
+    err.code = 'task_source_missing'
+    err.status = status
+    throw err
+  }
+  return true
+}
+
 function main() {
   const fs = require('fs')
   const args = [...process.argv.slice(2)]
@@ -325,7 +359,19 @@ function main() {
     process.stdout.write(`${JSON.stringify({ review: getReviewResult(state, args[1]) }, null, 2)}\n`)
     return
   }
-  process.stderr.write('Usage: node workflow_types.js <minimum-state|normalize-state|review-result> ...\n')
+  if (command === 'assert-task-source') {
+    const state = JSON.parse(fs.readFileSync(args[0], 'utf8'))
+    const projectId = args[1] || null
+    try {
+      assertTaskSourcePresent(state, projectId)
+      process.stdout.write(`${JSON.stringify({ ok: true })}\n`)
+    } catch (err) {
+      process.stdout.write(`${JSON.stringify({ ok: false, code: err.code || null, message: err.message })}\n`)
+      process.exitCode = 1
+    }
+    return
+  }
+  process.stderr.write('Usage: node workflow_types.js <minimum-state|normalize-state|review-result|assert-task-source> ...\n')
   process.exitCode = 1
 }
 
@@ -359,6 +405,8 @@ module.exports = {
   isUserSpecReviewApproved,
   acknowledgeSkippedSpecReview,
   getSpecReviewGateViolation,
+  assertTaskSourcePresent,
+  TASK_SOURCE_REQUIRED_STATUSES,
   getStatusMessages,
 }
 

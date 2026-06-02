@@ -13,6 +13,7 @@ const {
   getTaskVerificationCommands,
   getSpecContent,
   getContractDigest,
+  expandContextPack,
   getThinkingGuides,
   getCodeSpecsContextScoped,
   resolveActiveCodeSpecsScope,
@@ -176,6 +177,14 @@ function buildTaskContext(runtime, kind, role) {
   const scope = resolveActiveCodeSpecsScope(runtime)
   const codeSpecsBlock = renderCodeSpecsBlock({ projectRoot, scope, kind, role })
   if (codeSpecsBlock) parts.push(codeSpecsBlock)
+
+  // <context-pack>：per-task context.jsonl 展开（S4 / FR-3）。只发 implement / check（不发 research / main session）。
+  // 与 <task-contract> + <project-code-specs> 并列（C-2：不替换/挤掉 scoped code-specs）。
+  // expandContextPack 内部做 code 路径拒绝 + 缺失文件 warn 不阻断（仅 spec/research 路径白名单）。
+  if (kind === 'implement' || kind === 'check') {
+    const contextPack = expandContextPack(runtime)
+    if (contextPack) parts.push(`<context-pack>\n${contextPack}\n</context-pack>`)
+  }
 
   // guides reminder 只发给主会话；subagent 的指引由 task block 自带
   if (!kind) {

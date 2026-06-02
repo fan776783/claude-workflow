@@ -14,7 +14,8 @@ function getDateSuffix() {
 }
 
 const { getWorkflowsDir, validateProjectId } = require('./path_utils')
-const { parseTasksV2 } = require('./task_parser')
+const taskStore = require('./task_store')
+const { TaskDirSource } = require('./task_source')
 const {
   readState,
   updateCodexPlanReview,
@@ -33,6 +34,7 @@ const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
 const {
   buildSpecReviewSummary,
   deriveRoleSignals,
+  isMachineReviewEnabled,
   mapSpecReviewChoice,
   shouldRunCodexPlanReview,
   shouldRunCodexSpecReview,
@@ -331,6 +333,11 @@ function inferTaskPackage(projectRoot, config) {
   return path.basename(path.resolve(projectRoot))
 }
 
+// S2 去骨架（FR-1）后 buildTaskBlock / buildPlanTasks 不再进 plan.md 渲染链——
+// cmdSpecReview/cmdPlan 改落 task-dir 壳（task_store.createTask），plan.md 仅渲染 front matter +
+// 结构锚点 + 人类叙述。两函数降级为 **legacy-only / 纯渲染端**，仅保留供存量测试与历史
+// LegacyPlanMdSource 旁路参考（legacy 读取实际走 task_parser.parseTasksV2，**不**复用此渲染）。
+// 不要在任何 active 渲染路径重新引用它们。
 function buildTaskBlock(entry, index, allEntries = [], pkg = '', specRef = '') {
   const taskId = `T${index + 1}`
   const depends = index > 0 ? [`T${index}`] : []
@@ -764,6 +771,59 @@ ${packageLine}- **Spec 参考**: §2, §5, §7
   return requirementCoverage.map((entry, index, allEntries) => buildTaskBlock(entry, index, allEntries, pkg, specRef)).join('\n')
 }
 
+// S2 去骨架：把 spec 派生的 requirementCoverage 落成 N 个 task-dir 壳（仅元数据 task.json，无占位 body）。
+// task.json 字段对齐 task_store.normalizeTaskRecord（{id,phase,package,target_layer,depends,status,acceptance,interaction}）。
+// 不写 A1-A3 步骤 / src/ui/r-xxx.ts 文件桶 / `npm test -- r-xxx` 伪命令——这些占位由 workflow-plan 现写阶段定。
+// acceptance 取 requirement 的 acceptance_signal（spec 派生的真实验收信号，非机械模板）；
+// target_layer 由 owner 映射（frontend/backend → 同名层；shared → 留空走 package 级注入）。
+// status 一律 pending。返回写入的 task id 列表（数字序，与 TaskDirSource.firstTaskId 一致）。
+function createTaskShellsFromCoverage(projectId, requirementCoverage = [], pkg = '') {
+  const rows = Array.isArray(requirementCoverage) ? requirementCoverage : []
+  // coverage 为空时仍落 ≥1 个壳（对齐旧 buildPlanTasks 默认 T1），避免 status=planned 却无 task 源
+  // 打穿 assertTaskSourcePresent / current_tasks[0] resume 起点（B-full invariant）。
+  const effectiveRows = rows.length ? rows : [{ id: 'R-001', summary: '实现核心需求' }]
+  // F-03：原子整体替换——先在临时目录写齐 N 个壳，再 rename 换入；旧 task-dir 保留至换入成功。
+  // 既保留「重新落壳清理孤儿壳」语义（整目录替换），又避免「先删后逐个写」中途崩溃留空/残缺机器 task 源。
+  const records = effectiveRows.map((entry, index) => {
+    const owner = entry && entry.owner
+    const targetLayer = owner === 'frontend' ? 'frontend' : owner === 'backend' ? 'backend' : ''
+    const acceptanceSignal = (entry && (entry.acceptance_signal || entry.summary)) || ''
+    return {
+      id: `T${index + 1}`,
+      name: (entry && entry.summary) ? String(entry.summary).trim() : '',
+      phase: 'implement',
+      package: pkg || '',
+      target_layer: targetLayer,
+      depends: index > 0 ? [`T${index}`] : [],
+      status: 'pending',
+      acceptance: acceptanceSignal ? [acceptanceSignal] : [],
+      interaction: 'AFK',
+    }
+  })
+  return taskStore.replaceAllTasks(projectId, records)
+}
+
+// plan.md 退化后的 {{tasks}} 渲染体：只留人类可读叙述 + tasks 锚点内提示，不 emit 结构化 task block。
+// 机器 task 源 = task-dir；plan.md 不再被 parseTasksV2 当 task 来源（spec §4.1 / §5）。
+function buildNarrativeTasksBody(requirementCoverage = []) {
+  const rows = Array.isArray(requirementCoverage) ? requirementCoverage : []
+  const lines = [
+    '> 机器 task 源为 task-dir（`~/.claude/workflows/{pid}/tasks/{Tn}/task.json`），由 spec 审批落壳、workflow-plan 现写定粒度。',
+    '> 本节为人类可读叙述，不再承载结构化 task block；执行引擎从 task-dir 读取 task 序列。',
+  ]
+  if (rows.length) {
+    lines.push('')
+    lines.push('审批时落壳的需求覆盖（task 粒度由 workflow-plan 现写阶段细化）：')
+    lines.push('')
+    rows.forEach((entry, index) => {
+      const id = entry && entry.id ? entry.id : `R-${String(index + 1).padStart(3, '0')}`
+      const summary = (entry && entry.summary) || ''
+      lines.push(`- T${index + 1} ← ${id}: ${summary}`)
+    })
+  }
+  return lines.join('\n')
+}
+
 function inferPlanRelativeFromSpec(specRelative, taskName, workflowDir = null) {
   const normalizedSpec = String(specRelative || '').replace(/\\/g, '/')
   // plan.md 始终落到 workflowDir/plans/（user 级），与 spec 落点无关。
@@ -821,15 +881,19 @@ function buildPlanRenderValues({ requirementSource, createdAt, specStored, planS
     files_modify: '- 无',
     files_test: '- 无',
     requirement_coverage: renderRequirementCoverage(requirementCoverage),
-    tasks: buildPlanTasks(requirementCoverage, planPackage, specStored),
+    // S2 去骨架：plan.md 不再 emit 结构化 task block（buildPlanTasks/buildTaskBlock）。
+    // 机器 task 源 = task-dir 壳；{{tasks}} 仅渲染人类可读叙述。
+    tasks: buildNarrativeTasksBody(requirementCoverage),
   }
 }
 
 // planGenerated=false 时只更新 spec 阶段的 codex 钩子（plan.md 未生成阶段）。
-function applyReviewRecords(state, { roleContext, specContent, planContent, planGenerated }) {
+// FR-6（T7）：reviewEnabled=false（默认）时不实例化 codex_*_review / plan_review 子对象，
+// 只写 context_injection 的 advisory triggered 标记（恒为 false）。
+function applyReviewRecords(state, { roleContext, specContent, planContent, planGenerated, reviewEnabled = false }) {
   const { signals, planProfile, planReviewProfile, executionReviewProfile } = roleContext
-  const codexSpec = shouldRunCodexSpecReview(specContent, signals)
-  const codexPlan = shouldRunCodexPlanReview(planContent || '', specContent, signals)
+  const codexSpec = shouldRunCodexSpecReview(specContent, signals, { reviewEnabled })
+  const codexPlan = shouldRunCodexPlanReview(planContent || '', specContent, signals, { reviewEnabled })
   updateContextInjection(state, {
     schema_version: '1',
     signals,
@@ -843,6 +907,8 @@ function applyReviewRecords(state, { roleContext, specContent, planContent, plan
       quality_review_stage2: { role: executionReviewProfile.role, profile: executionReviewProfile.profile },
     },
   })
+  // 机器 review 未显式开启 → 不实例化 review_status 子结构（保 user_spec_review 由 ensureStateDefaults 维护）。
+  if (!reviewEnabled) return
   const existingSpec = (state.review_status || {}).codex_spec_review || {}
   if (!existingSpec.status || existingSpec.status === 'pending' || existingSpec.status === 'skipped') {
     updateCodexSpecReview(state, { status: codexSpec.run ? 'pending' : 'skipped', trigger_reason: codexSpec.reason })
@@ -964,9 +1030,6 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     }))
     : null
 
-  const parsedTasks = planContent ? parseTasksV2(planContent) : []
-  if (planContent && !parsedTasks.length) return { error: '生成的 Plan 未通过任务解析' }
-
   fs.mkdirSync(path.dirname(specPath), { recursive: true })
   fs.mkdirSync(workflowDir, { recursive: true })
   fs.writeFileSync(specPath, specContent)
@@ -976,12 +1039,20 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   }
   const prdCoverageReport = buildPRDCoverageReport(requirementItems, specContent)
 
+  // S2 去骨架（FR-1）：批准时落 N 个 task-dir 壳作机器 task 源，不再依赖 parseTasksV2(plan.md)。
+  // current_tasks[0] 来源改由 task-dir 持久（C-1：TaskDirSource.firstTaskId 数字序确定）。
+  let shellTaskIds = []
+  if (shouldGeneratePlan) {
+    shellTaskIds = createTaskShellsFromCoverage(resolvedProjectId, planRequirementCoverage, planPackage)
+  }
+  const firstTaskId = shouldGeneratePlan ? new TaskDirSource(resolvedProjectId).firstTaskId() : null
+
   const finalWorkflowStatus = shouldGeneratePlan ? 'planned' : specReview.workflow_status
   const state = ensureStateDefaults(buildMinimumState(
     resolvedProjectId,
     shouldGeneratePlan ? planStored : null,
     specStored,
-    shouldGeneratePlan && parsedTasks.length ? [parsedTasks[0].id] : [],
+    shouldGeneratePlan && firstTaskId ? [firstTaskId] : [],
     finalWorkflowStatus
   ))
   state.initial_head_commit = detectGitHead(root)
@@ -992,9 +1063,12 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
   state.requirement_text = requirementText
   updateDiscussionRecord(state, (discussionArtifact.clarifications || []).length, !discussionRequired)
 
+  // FR-6（T7）：机器 review 自动触发默认关闭，仅 project-config.json workflow.review 显式开启时恢复。
+  const reviewEnabled = isMachineReviewEnabled(config)
   applyReviewRecords(state, {
     roleContext, specContent, planContent,
     planGenerated: shouldGeneratePlan,
+    reviewEnabled,
   })
   updateUxDesignRecord(state, 0, 0, false, uxRequired)
   updateUserSpecReview(state, specReview.status, specReview.next_action)
@@ -1003,11 +1077,12 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
 
   // T2 codex_*_review consumer：spec/plan 阶段闸门触发。trigger_reason 非空且 status=pending 时
   // fire-and-forget 调 codex-bridge --background，立即拿 jobId 回写 state。失败不阻塞主线（state 保持 pending 由后续重试）。
+  // FR-6（T7）：reviewEnabled=false 时 triggerCodexReview 短路返回，不派 codex job。
   const codexTriggers = []
-  const specTrigger = triggerCodexReview(state, 'spec', { projectRoot: root })
+  const specTrigger = triggerCodexReview(state, 'spec', { projectRoot: root, enabled: reviewEnabled })
   if (specTrigger.triggered) codexTriggers.push({ phase: 'spec', ...specTrigger })
   if (shouldGeneratePlan) {
-    const planTrigger = triggerCodexReview(state, 'plan', { projectRoot: root })
+    const planTrigger = triggerCodexReview(state, 'plan', { projectRoot: root, enabled: reviewEnabled })
     if (planTrigger.triggered) codexTriggers.push({ phase: 'plan', ...planTrigger })
   }
   if (codexTriggers.length > 0) writeState(statePath, state)
@@ -1022,7 +1097,7 @@ function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null
     workflow_status: state.status,
     spec_file: specStored,
     plan_file: shouldGeneratePlan ? planStored : null,
-    task_count: parsedTasks.length,
+    task_count: shellTaskIds.length,
     current_tasks: state.current_tasks || [],
     discussion_required: discussionRequired,
     ux_gate_required: uxRequired,
@@ -1114,11 +1189,13 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
     requirementCoverage,
     planPackage: resumePlanPackage,
   }))
-  const parsedTasks = parseTasksV2(planContent)
-  if (!parsedTasks.length) return { error: '生成的 Plan 未通过任务解析', project_id: resolvedProjectId }
-
   fs.mkdirSync(path.dirname(planPath), { recursive: true })
   fs.writeFileSync(planPath, planContent)
+
+  // S2 去骨架（FR-1）：approve 落 N 个 task-dir 壳作机器 task 源（无占位 task body），
+  // current_tasks[0] 来源改由 task-dir 持久（C-1）；不再 parseTasksV2(plan.md) 当 task 源。
+  const shellTaskIds = createTaskShellsFromCoverage(resolvedProjectId, requirementCoverage, resumePlanPackage)
+  const firstTaskId = new TaskDirSource(resolvedProjectId).firstTaskId()
 
   normalizedState.status = 'planned'
   normalizedState.plan_file = planStored
@@ -1127,12 +1204,24 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   normalizedState.task_name = taskName
   normalizedState.requirement_source = requirementSource
   normalizedState.requirement_text = requirementText
-  normalizedState.current_tasks = [parsedTasks[0].id]
+  normalizedState.current_tasks = firstTaskId ? [firstTaskId] : []
+  // FR-6（T7）：machine review 自动触发默认关闭。approve 路径与 cmdPlan 对称——
+  // 显式开启（workflow.review）时 review_status 子对象实例化 + 派 codex job（C-5 端到端可恢复）。
+  const reviewEnabled = isMachineReviewEnabled(config)
   applyReviewRecords(normalizedState, {
     roleContext, specContent, planContent,
     planGenerated: true,
+    reviewEnabled,
   })
   writeState(statePath, normalizedState)
+
+  // FR-6（T7）：镜像 cmdPlan dispatch block。reviewEnabled=false 时 triggerCodexReview 短路不派 job。
+  const codexTriggers = []
+  const specTrigger = triggerCodexReview(normalizedState, 'spec', { projectRoot: root, enabled: reviewEnabled })
+  if (specTrigger.triggered) codexTriggers.push({ phase: 'spec', ...specTrigger })
+  const planTrigger = triggerCodexReview(normalizedState, 'plan', { projectRoot: root, enabled: reviewEnabled })
+  if (planTrigger.triggered) codexTriggers.push({ phase: 'plan', ...planTrigger })
+  if (codexTriggers.length > 0) writeState(statePath, normalizedState)
 
   return {
     review_recorded: true,
@@ -1140,16 +1229,18 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
     workflow_status: normalizedState.status,
     spec_file: specStored,
     plan_file: planStored,
-    task_count: parsedTasks.length,
+    task_count: shellTaskIds.length,
     current_tasks: normalizedState.current_tasks,
     awaiting_user_spec_review: false,
     spec_review_status: normalizedState.review_status.user_spec_review.status,
+    codex_review_triggers: codexTriggers,
   }
 }
 
 // T5 cmdPlanReview：读 active workflow state → 读 spec.md / plan.md → 跑全部 lint → 汇总成统一 JSON。
 // ready 判定矩阵见 workflow-plan plan §T20:
-//   - placeholder.hits / coverage.uncovered_ids → hard block
+//   - placeholder.hits → hard block
+//   - coverage.uncovered_ids → advisory only（T8/FR-7：不卡 ready，仅返回供人参考）
 //   - 其他 lint 由 Phase B/C 任务陆续接入
 function cmdPlanReview(projectId = null, projectRoot = null) {
   const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
@@ -1202,9 +1293,9 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
     : true
   const mandatoryOk = !(lints.mandatory_reading.declared && lints.mandatory_reading.violations.length > 0)
   const specOk = specStatus === 'ok'
+  // T8/FR-7: coverage 降为 advisory —— uncovered_ids 不再卡 ready，仅作为返回字段供人参考。
   const ready =
     lints.placeholder.hits.length === 0 &&
-    coverage.uncovered_ids.length === 0 &&
     anchorOk &&
     mandatoryOk &&
     specOk
@@ -1482,18 +1573,21 @@ function cmdPlanEdit({ anchor, mode = 'replace_between', contentFile, allowLegac
       note: '写入会破坏锚点配对 / 删除必需锚点 / 残留无对应 heading 的 task anchor,已拒绝。',
     }
   }
-  // 防止编辑后 plan 不再包含 state.current_tasks 引用的 task heading,
-  // 让 workflow-execute 失锚。`##` / `###` 两种 heading 都视作 task。
+  // S3 重基（FR-2）：orphan guard 从「校验 current_tasks 命中 plan.md heading」迁为
+  // 「校验 current_tasks 仍存在于 task 源（TaskDirSource）」—— task 源已切到 task-dir,
+  // plan.md 不再承载结构化 task block,按 heading 校验会对 task-dir 流程恒误报失锚。
   const currentTasks = Array.isArray(state.current_tasks) ? state.current_tasks : []
   if (currentTasks.length > 0) {
-    const newTaskIds = new Set((newMd.match(/^(?:##|###)\s+(T\d+):/gm) || []).map((s) => s.match(/T\d+/)[0]))
-    const orphaned = currentTasks.filter((tid) => !newTaskIds.has(tid))
+    const sourceTaskIds = new Set(
+      (resolvedProjectId ? new TaskDirSource(resolvedProjectId).listTasks() : []).map((task) => task.id)
+    )
+    const orphaned = currentTasks.filter((tid) => !sourceTaskIds.has(tid))
     if (orphaned.length > 0) {
       return {
         error: 'current_tasks_orphaned_by_edit',
         orphaned_task_ids: orphaned,
         current_tasks: currentTasks,
-        note: `编辑后 plan 不再包含 state.current_tasks 中的任务 ${orphaned.join(', ')},workflow-execute 会失锚。请先调整 state.current_tasks 或保留这些 task。`,
+        note: `state.current_tasks 中的任务 ${orphaned.join(', ')} 不存在于 task 源(task-dir),workflow-execute 会失锚。请先调整 state.current_tasks 或恢复对应 task 目录。`,
       }
     }
   }
@@ -1516,6 +1610,8 @@ module.exports = {
   renderRequirementCoverage,
   buildPRDCoverageReport,
   buildPlanTasks,
+  createTaskShellsFromCoverage,
+  buildNarrativeTasksBody,
   lintTaskAtomicity,
   lintPlaceholder,
   checkRequirementCoverage,

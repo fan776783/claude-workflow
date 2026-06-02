@@ -19,6 +19,8 @@ const {
 const { cmdArchive, cmdDeltaInit, cmdDeltaImpact, cmdDeltaApply, cmdDeltaFail, cmdDeltaSync, cmdSpecReview, cmdPlan, cmdPlanReview, cmdPlanEdit, cmdUnblock, cmdAcceptDeviation, recoverArchiveTombstone } = require('./lifecycle_cmds')
 const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
+const { createTaskSource } = require('./task_source')
+const taskStore = require('./task_store')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
 const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
 const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
@@ -164,11 +166,45 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
   const [tasksPath] = uniqueCandidates
 
   const tasksContent = tasksPath ? fs.readFileSync(tasksPath, 'utf8') : null
-  if (!tasksContent) return { error: '未找到 plan.md，无法推导首个任务' }
 
-  const tasks = parseTasksV2(tasksContent)
-  if (!tasks.length) return { error: '无法从 plan.md 解析任务' }
-  const inferred = summarizeTaskProgress(tasks)
+  // task 源 = task-dir：state.json 丢失但 task-dir 在 → 从 task-dir 重建（plan.md 已退化为叙述，
+  // parseTasksV2 解不出结构化 task）。仅当 task-dir 空时回退解析存量 legacy plan.md（C-7）。
+  let inferred
+  const dirRecords = taskStore.listTasks(pid)
+  if (dirRecords.length) {
+    const progress = { completed: [], skipped: [], failed: [], blocked: [] }
+    for (const record of dirRecords) {
+      if (record.status === 'completed') progress.completed.push(record.id)
+      else if (record.status === 'skipped') progress.skipped.push(record.id)
+      else if (record.status === 'failed') progress.failed.push(record.id)
+      // F-04：blocked 状态在 state.json 丢失后无处可取（仅活在 progress.blocked）。
+      // 用 task.json 持久字段 blocked_by 作恢复信号——非空即视为 blocked（state.unblocked 已随 state.json 丢失，
+      // 保守按未解除处理：宁可重新 halt 等用户 unblock，也不放行可能仍被阻塞的 task）。defensive 兼顾 status==='blocked'。
+      // 注意只看 blocked_by（外部依赖键），不看 depends（task 间顺序依赖，属正常排程，不构成 halt）。
+      else if (record.status === 'blocked' || (Array.isArray(record.blocked_by) && record.blocked_by.length)) progress.blocked.push(record.id)
+    }
+    const finished = new Set([...progress.completed, ...progress.skipped, ...progress.failed])
+    const blockedSet = new Set(progress.blocked)
+    const nextRecord = dirRecords.find((record) => !finished.has(record.id) && !blockedSet.has(record.id)) || null
+    let workflowStatus
+    let haltReason = null
+    if (progress.failed.length) { workflowStatus = 'halted'; haltReason = 'failure' }
+    else if (!nextRecord && progress.blocked.length) { workflowStatus = 'halted'; haltReason = 'dependency' }
+    else if (!nextRecord) workflowStatus = 'completed'
+    else if (progress.completed.length || progress.skipped.length) workflowStatus = 'running'
+    else workflowStatus = 'planned'
+    inferred = {
+      progress,
+      current_task_id: nextRecord ? nextRecord.id : (progress.failed[0] || progress.blocked[0] || null),
+      workflow_status: workflowStatus,
+      halt_reason: haltReason,
+    }
+  } else {
+    if (!tasksContent) return { error: '未找到 task-dir 或 plan.md，无法推导首个任务' }
+    const tasks = parseTasksV2(tasksContent)
+    if (!tasks.length) return { error: '无法从 plan.md 解析任务（task-dir 也为空）' }
+    inferred = summarizeTaskProgress(tasks)
+  }
 
   const planRelative = tasksPath
     ? (tasksPath.startsWith(path.join(os.homedir(), '.claude', 'workflows')) ? tasksPath : path.relative(root, tasksPath).replace(/\\/g, '/'))
@@ -222,7 +258,10 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
       state.current_tasks = []
       const progress = state.progress || {}
       const finishedCount = (progress.completed || []).length + (progress.skipped || []).length
-      const totalTasks = tasksContent ? countTasks(tasksContent) : 0
+      // task 源 = task-dir（plan.md 已退化为叙述，countTasks(plan.md) 恒 0）。total 从 TaskSource 取，
+      // 否则末 task 完成后 totalTasks=0 → 完成门恒不触发，workflow 永远停在 running。
+      const source = createTaskSource(state, { projectId, projectRoot, quiet: true })
+      const totalTasks = source ? source.listTasks().length : (tasksContent ? countTasks(tasksContent) : 0)
       // 所有 task 完成 → execute Step 7 inline 末尾终审通过后直接 completed，无中间审查态。
       // completeWorkflow 内部已 writeState，避免外层再写一次造成终态双写。
       if (totalTasks > 0 && finishedCount >= totalTasks) {

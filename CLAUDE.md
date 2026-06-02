@@ -114,7 +114,7 @@ Notes:
 
 Skills are the portable unit shipped to each AI tool. The authoritative list lives under `core/skills/` — every directory there is a published skill. A few skill families worth knowing when navigating the repo:
 
-- **Workflow state machine** (`workflow-spec`, `workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. `workflow-spec` handles requirement analysis through spec approval; `workflow-plan` handles plan generation from approved specs. State lives under `~/.claude/workflows/{project-hash}/`.
+- **Workflow state machine** (`workflow-spec`, `workflow-plan`, `workflow-execute`, `workflow-review`, `workflow-delta`, `workflow-status`, `workflow-archive`) — phased lifecycle with spec/plan artifacts and quality gates. `workflow-spec` handles requirement analysis through spec approval; `workflow-plan` handles plan generation from approved specs. State lives under `~/.claude/workflows/{project-hash}/`. The machine-readable task source is the **task-dir** (`tasks/{taskId}/`), written by `workflow-plan` and read by execute via `createTaskSource(state)`; `plan.md` degrades to an optional human-readable narrative, not a parsed task source (legacy plan.md-only workflows still work via `LegacyPlanMdSource`). 7 states `{idle, spec_review, planned, running, halted, completed, archived}` + `halt_reason {failure, dependency, awaiting_codex_review}`.
 - **Code Specs** (`spec-bootstrap`, `spec-update`, `spec-review`) — declarative 7-section code-spec contract; `.claude/code-specs/{pkg}/{layer}/` layout + shared `guides/`; no machine-readable blocking rules (review is human-driven).
 - **Lightweight planning & review** — `quick-plan` (migrated to skill from command), `diff-review` (supports `--session` mode; replaces old `session-review`), `fix-bug`, `bug-batch`, `diagnose`.
 - **Design elaboration** — `ux-elaboration` (前端设计深化: User Flow + Page Hierarchy + Layout Anchors → §4.4). 从 `workflow-spec` Step 5 剥离为独立原子 skill，可被 workflow-spec 委托调用或用户独立触发。
@@ -130,4 +130,4 @@ Skills are the portable unit shipped to each AI tool. The authoritative list liv
 
 When updating this section, re-check `core/skills/` rather than trusting this list — it drifts.
 
-Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git).
+Workflow state stored at `~/.claude/workflows/{project-hash}/` (user-level, not in git). The machine task source is the per-workflow **task-dir** (`tasks/{taskId}/{task.json,context.jsonl}`), not `plan.md` — `plan.md` is an optional human narrative. resume after `/clear` rebuilds the triple **`current_tasks[0]` + `status` + task source** from disk for equivalent recovery; `current_tasks[0]` = task source `firstTaskId()` (stable numeric ordering). See `core/specs/workflow-runtime/state-machine.md` § Task 源与 resume 恢复.

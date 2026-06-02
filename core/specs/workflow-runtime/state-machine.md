@@ -10,15 +10,24 @@
 | 状态 | 说明 |
 |------|------|
 | `idle` | 初始状态，无活动任务 |
-| `spec_review` | Spec 已生成，等待用户确认范围 |
-| `planning` | Spec 已批准，正在生成 Plan（短暂内部状态） |
+| `spec_review` | Spec 已生成，等待用户确认范围（Plan 生成期间复用此态，无独立 planning 态） |
 | `planned` | Plan 已生成，等待执行 |
 | `running` | workflow执行中 |
-| `paused` | 暂停等待用户操作 |
-| `blocked` | 等待外部依赖 |
-| `failed` | 任务失败，需要处理 |
+| `halted` | 执行中断，等待治理介入；中断原因由 `halt_reason` 区分 |
 | `completed` | 所有任务完成且 execute 末尾终审通过 |
 | `archived` | workflow已archive |
+
+> 状态集与 `workflow_types.js` `MINIMUM_STATE_STATUSES` 逐项一致（7 态）：`{idle, spec_review, planned, running, halted, completed, archived}`。旧的 `planning`/`paused`/`blocked`/`failed` 已收敛——`planning` 并入 `spec_review`，`paused`/`blocked`/`failed` 统一为 `halted` + `halt_reason`。
+
+### halt_reason 枚举
+
+`halted` 态的中断原因由 `halt_reason` 字段区分（`workflow_types.js` `HALT_REASON`）：
+
+| `halt_reason` | 含义 | 恢复 |
+|---------------|------|------|
+| `failure` | 任务失败（默认值） | `workflow execute --retry` / `--skip` |
+| `dependency` | 等待外部依赖阻塞 | `workflow unblock <dependency>` 后恢复 |
+| `awaiting_codex_review` | 等待 Codex review 回合 | review 回合完成后恢复 |
 
 ## 状态转换
 
@@ -33,13 +42,9 @@ spec_review → idle          用户拒绝/拆分范围                      [/w
 
 # workflow-execute 管辖
 planned → running           workflow execute                       [/workflow-execute Step 1]
-running → paused            暂停 / 预算暂停
-running → blocked           遇到阻塞任务
-running → failed            任务失败
+running → halted            任务失败 / 依赖阻塞 / 等待 Codex review（halt_reason 区分）
 running → completed         所有任务完成且 /workflow-execute 末尾终审通过（Step 7 inline final reviewer）
-paused → running            workflow execute (resume)
-blocked → running           workflow unblock <dependency>
-failed → running            workflow execute --retry / --skip
+halted → running            workflow execute --retry / --skip（failure）、unblock <dep>（dependency）、review 回合完成（awaiting_codex_review）
 completed → archived        workflow archive
 ```
 
@@ -96,7 +101,7 @@ node utils/workflow/workflow_cli.js start docs/prd.md
 # 用户审批 Spec（spec_review → planned）
 node utils/workflow/workflow_cli.js spec-review --choice "Spec 正确，生成 Plan"
 
-# 开始/恢复执行（planned/paused/failed → running）
+# 开始/恢复执行（planned/halted → running）
 node utils/workflow/workflow_cli.js execute
 node utils/workflow/workflow_cli.js execute --mode phase
 node utils/workflow/workflow_cli.js execute retry
@@ -105,7 +110,7 @@ node utils/workflow/workflow_cli.js execute skip
 # 完成任务并推进到下一个
 node utils/workflow/workflow_cli.js advance T3 --journal "实现了用户认证"
 
-# 解除依赖阻塞（blocked → running）
+# 解除依赖阻塞（halted[dependency] → running）
 node utils/workflow/workflow_cli.js unblock api_spec
 
 # 归档（completed → archived）
@@ -139,6 +144,15 @@ node utils/workflow/workflow_cli.js journal search "关键词"
 | Plan | `~/.claude/workflows/{projectId}/plans/{name}-{MMDD}.md` | workflowDir 下 |
 
 > `workflow-state.json` 只能位于 `~/.claude/workflows/` 下，**不得存在于项目目录**。
+
+## Task 源与 resume 恢复
+
+机器 task 源 = **task-dir**（`~/.claude/workflows/{projectId}/tasks/{taskId}/{task.json,context.jsonl}`），由 `/workflow-plan` 现写、execute 期 `execution_sequencer` / `task_manager` 经 `createTaskSource(state)` 反查。`plan.md` **退化为可选的人类可读叙述**（front matter + 锚点），不再作机器 task 源解析。
+
+- `createTaskSource(state)` 工厂：task-dir 非空 → `TaskDirSource`；仅 legacy plan.md（无 task-dir）→ `LegacyPlanMdSource`（复用 `parseTasksV2` 兼容读 + stderr 显式迁移提示，C-7 不静默失效）；皆无 → `null`（调用方报 `task_source_missing`）。
+- `current_tasks[0]` = task 源 `firstTaskId()`，顺序由 task-dir 数字序（或 legacy plan.md 解析序）稳定确定，是 resume 的可复现起点。
+
+**resume 三元组**：`/clear` 后内存全丢，运行时仅从 disk 重建 **`current_tasks[0]` + `status` + task 源**三者，即可等价恢复执行位置（C-1）。task 序列、`current_tasks[0]`、`status`、各 task status 重建前后逐项等价。
 
 ## 最小必需状态
 

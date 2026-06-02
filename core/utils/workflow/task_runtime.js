@@ -3,7 +3,8 @@
 const fs = require('fs')
 const path = require('path')
 const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getCodeSpecsDir, safeReadJson } = require('./path_utils')
-const { findTaskById, extractTaskBlock } = require('./task_parser')
+const { extractTaskBlock } = require('./task_parser')
+const taskStore = require('./task_store')
 
 function readFile(targetPath, fallback = '') {
   try {
@@ -81,7 +82,18 @@ function getWorkflowRuntime(projectRoot = process.cwd()) {
   const tasksPath = planFileRef ? (path.isAbsolute(planFileRef) ? planFileRef : path.join(root, planFileRef)) : null
   const tasksContent = tasksPath && fs.existsSync(tasksPath) ? readFile(tasksPath) : ''
   const currentTaskId = (state?.current_tasks || [])[0] || null
-  const currentTask = currentTaskId && tasksContent ? findTaskById(tasksContent, currentTaskId) : null
+  // S3 重基（FR-2 / C-2）：currentTask 元数据（package/target_layer/...）经 createTaskSource 工厂取——
+  // task-dir → TaskDirSource，legacy plan.md workflow → LegacyPlanMdSource（否则 readTask 直查 task-dir
+  // 对 legacy 恒返回 null，scoped code-specs 注入静默退化）。供 resolveActiveCodeSpecsScope 解析注入。
+  let currentTask = null
+  if (currentTaskId) {
+    // lazy require 避免与 task_source → task_manager 的加载顺序耦合。
+    const { createTaskSource } = require('./task_source')
+    const source = createTaskSource(state, { projectId, projectRoot: root, quiet: true })
+    currentTask = source ? source.getTask(currentTaskId) : taskStore.readTask(projectId, currentTaskId)
+  }
+  // currentTaskBlock 仍尝试从 plan.md 叙述正文提取（存量 plan 有 task block 时可读）；
+  // task-dir 流程 plan.md 仅叙述无结构化 block，则为空——dispatch 不依赖此 block 存在。
   const currentTaskBlock = currentTaskId && tasksContent ? extractTaskBlock(tasksContent, currentTaskId) : ''
 
   return {
@@ -107,10 +119,35 @@ function getCurrentTaskId(runtime) {
   return runtime?.currentTaskId || null
 }
 
+// task-dir 记录渲染成可读 task block（plan.md 无结构化 block 时的回退）。
+function renderTaskBlockFromRecord(record) {
+  if (!record || !record.id) return ''
+  const lines = [`## ${record.id}`]
+  if (record.phase) lines.push(`- **阶段**: ${record.phase}`)
+  if (record.package) lines.push(`- **Package**: ${record.package}`)
+  if (record.target_layer) lines.push(`- **Target Layer**: ${record.target_layer}`)
+  if (Array.isArray(record.depends) && record.depends.length) lines.push(`- **依赖**: ${record.depends.join(', ')}`)
+  if (record.interaction) lines.push(`- **Interaction**: ${record.interaction}`)
+  if (Array.isArray(record.acceptance) && record.acceptance.length) {
+    lines.push(`- **验收项**:`)
+    for (const item of record.acceptance) lines.push(`  - ${item}`)
+  }
+  if (record.status) lines.push(`- **状态**: ${record.status}`)
+  return lines.join('\n')
+}
+
 function getTaskBlock(runtime, taskId = null) {
   const resolvedTaskId = taskId || getCurrentTaskId(runtime)
-  if (!runtime?.tasksContent || !resolvedTaskId) return ''
-  return extractTaskBlock(runtime.tasksContent, resolvedTaskId)
+  if (!resolvedTaskId) return ''
+  // 优先 plan.md 叙述正文里的结构化 block（存量 plan 兼容）；
+  // task-dir 流程 plan.md 无 block 时回退渲染 task-dir 记录（C-2：dispatch 上下文不退化为空）。
+  if (runtime?.tasksContent) {
+    const block = extractTaskBlock(runtime.tasksContent, resolvedTaskId)
+    if (block) return block
+  }
+  const record = getCurrentTask(runtime)
+  if (record && record.id === resolvedTaskId) return renderTaskBlockFromRecord(record)
+  return ''
 }
 
 function getTaskActions(task) {
@@ -148,6 +185,101 @@ function getContractDigest(runtime, maxChars = 3000) {
   if (!content) return ''
   const truncated = content.length > maxChars ? content.slice(0, maxChars) : content
   return sanitizeContractBody(truncated)
+}
+
+// JSONL 背包展开（S4 / FR-3）：读 task-dir 的 context.jsonl 每行 {file,reason}，
+// 仅放行 spec/research 路径，命中 code 源码扩展名 → 跳过 + stderr warn（对齐 §4.2 Trellis seed 跳过语义）；
+// 缺失文件同样 stderr warn 不阻断。命中文件按 getContractDigest 的 read + sanitize + 截断风格拼块。
+// 复用 task_store.readContext（JSONL 容错解析，坏行跳过）+ sanitizeContractBody（与 <task-contract> 对等）。
+//
+// curate 时已按扩展名丢 code 路径，但 inject 时仍独立做 code 路径拒绝——curate / inject 两侧都应防御
+// （存量 context.jsonl 可能含 curate 之前写入的脏行）。
+const CONTEXT_PACK_CODE_EXT_PATTERN = /\.(js|mjs|cjs|ts|tsx|jsx|py|go|rs|java|rb|php|c|h|cpp|hpp|cs|swift|kt|sh)$/i
+
+// context-pack 专用清洗（F-02）：在 task-contract 清洗基础上再中和 </context-pack>，
+// 防 spec/research 文件正文含闭合标签时越出 <context-pack> 注入块伪造 prompt 结构。
+function sanitizeContextPackBody(content) {
+  return sanitizeContractBody(content).replace(/<\/context-pack>/gi, '&lt;/context-pack&gt;')
+}
+
+// 文件标签清洗（F-02）：剥换行 + 转义 & < >，防 fileRef 原样进 markdown 头时伪造 `### ` 文件头或注入闭合标签。
+function sanitizeContextPackLabel(label) {
+  return String(label || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .trim()
+}
+
+function expandContextPack(runtime, { maxCharsPerFile = 3000, maxFiles = 12 } = {}) {
+  const projectId = runtime?.projectId
+  const taskId = getCurrentTaskId(runtime)
+  if (!projectId || !taskId) return ''
+  let entries
+  try {
+    entries = taskStore.readContext(projectId, taskId)
+  } catch {
+    return ''
+  }
+  if (!entries.length) return ''
+
+  const projectRoot = path.resolve(runtime?.projectRoot || process.cwd())
+  const blocks = []
+  let used = 0
+  for (const entry of entries) {
+    if (used >= maxFiles) break
+    const fileRef = typeof entry.file === 'string' ? entry.file.trim() : ''
+    if (!fileRef) continue
+    // code 源码路径拒绝（inject 侧独立防御）
+    if (CONTEXT_PACK_CODE_EXT_PATTERN.test(fileRef)) {
+      process.stderr.write(`[workflow-hook] context-pack skip code path: ${fileRef}\n`)
+      continue
+    }
+    // 仅放行 spec/research 路径，且 containment-check 落在 projectRoot 或 workflowDir 内（legacy spec 落 workflowDir）。
+    // F-02：相对/绝对分支统一过 isPathUnderRoot（realpath + 软链拒绝）——否则树内软链指向树外
+    // （docs/x.md -> ~/.ssh/id_rsa）会绕过相对路径的 `..` 守卫被读入 subagent 上下文；
+    // /etc/passwd 一类绝对路径同样被拒。
+    // allowedRoots 也 realpath（与 isPathUnderRoot 内部对 candidate 的 realpathSync 对齐）——
+    // 否则 macOS /var→/private/var、/tmp→/private/tmp 一类符号链接会让 realpath(candidate) 与
+    // 文本 allowedPrefix 前缀不匹配，误拒合法的临时目录 context pack。目录不存在则回退 resolve。
+    const allowedRoots = [projectRoot, runtime?.workflowDir].filter(Boolean).map((r) => {
+      const abs = path.resolve(r)
+      try { return fs.realpathSync(abs) } catch { return abs }
+    })
+    const candidate = path.isAbsolute(fileRef)
+      ? path.resolve(fileRef)
+      : resolveRuntimeRelativePath(projectRoot, fileRef)
+    if (!candidate) {
+      process.stderr.write(`[workflow-hook] context-pack skip unsafe path: ${fileRef}\n`)
+      continue
+    }
+    // 缺失文件 warn 不阻断（realpath 校验前先判存在，保留原 missing 语义；dangling 软链同走此分支）
+    if (!fs.existsSync(candidate)) {
+      process.stderr.write(`[workflow-hook] context-pack missing file: ${fileRef}\n`)
+      continue
+    }
+    // realpath + 软链拒绝（相对/绝对统一）：解析后真实路径必须仍落在 allowedRoots 内
+    if (!allowedRoots.some((root) => isPathUnderRoot(candidate, root))) {
+      process.stderr.write(`[workflow-hook] context-pack skip unsafe path: ${fileRef}\n`)
+      continue
+    }
+    const content = readFile(candidate, null)
+    if (content == null) {
+      process.stderr.write(`[workflow-hook] context-pack missing file: ${fileRef}\n`)
+      continue
+    }
+    const truncated = content.length > maxCharsPerFile ? content.slice(0, maxCharsPerFile) : content
+    const body = sanitizeContextPackBody(truncated)
+    // reason 进 attribute 前剥换行 + 转义引号/尖括号，防伪造 </context-pack> 或额外 `### ` 文件头。
+    const reasonText = typeof entry.reason === 'string' ? entry.reason.replace(/[\r\n]+/g, ' ').trim() : ''
+    const reason = reasonText
+      ? ` reason="${reasonText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 200)}"`
+      : ''
+    blocks.push(`### ${sanitizeContextPackLabel(fileRef)}${reason}\n${body}`)
+    used += 1
+  }
+  return blocks.length ? blocks.join('\n\n') : ''
 }
 
 function getThinkingGuides(projectRoot = process.cwd()) {
@@ -830,6 +962,7 @@ module.exports = {
   getTaskVerificationCommands,
   getSpecContent,
   getContractDigest,
+  expandContextPack,
   sanitizeContractBody,
   getThinkingGuides,
   getCodeSpecsContext,

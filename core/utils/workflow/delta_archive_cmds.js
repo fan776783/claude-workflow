@@ -17,10 +17,22 @@ const {
   recordDeltaChange,
   writeState,
 } = require('./state_manager')
-const { detectProjectRoot, resolveStateAndTasks } = require('./task_manager')
-const { parseTasksV2, taskToDict } = require('./task_parser')
+const { resolveStateAndTasks } = require('./task_manager')
+const { createTaskSource } = require('./task_source')
 const { deriveEffectiveStatus, ensureStateDefaults, buildDeviationRecord } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
+
+// S3 重基（FR-2 / carry-forward）：unblock/deltaSync 的 newly_unblocked / summary count
+// 反查经 createTaskSource 工厂选 adapter——task-dir → TaskDirSource，仅 legacy plan.md → LegacyPlanMdSource（C-6/C-7：
+// legacy workflow 的 unblock/deltaSync 仍能反查到 task，halted[dependency] 可恢复 running，不静默失效）。
+// task-dir 记录承载 depends（task 间依赖）+ 可选 blocked_by（外部依赖键，存量字段）；reconcileBlockedTasks
+// 比对 blocked_by 与 unblocked 集，task-dir 缺 blocked_by 时归一为 []，报告字段如实反映 task 源建模。
+// quiet:true：unblock/sync 多次调用复用，迁移提示由 task_manager 首个命中处打印（进程内去重），避免刷屏。
+// 工厂返回 null（task-dir + legacy plan.md 皆无）→ 空列表，保留现有「无源跳过 reconcile」行为，不回退正常流程。
+function listSourceTasks(projectId, state, projectRoot) {
+  const source = createTaskSource(state, { projectId, projectRoot, quiet: true })
+  return source ? source.listTasks() : []
+}
 const { slugifyFilename, summarizeText } = require('./project_setup')
 const { resolveWorkflowRuntime } = require('./runtime_locator')
 
@@ -218,12 +230,11 @@ function cmdDeltaSync(dependency, projectId = null, projectRoot = null) {
   const changeDir = path.join(workflowDir, 'changes', changeId)
   fs.mkdirSync(changeDir, { recursive: true })
 
-  // 2. 解除阻塞
+  // 2. 解除阻塞（task 反查走 TaskSource，不再 parseTasksV2(plan.md)）
   markDependencyUnblocked(normalizedState, dep)
-  const [, , tasksContent] = resolveStateAndTasks(resolvedProjectId, root)
+  const tasks = listSourceTasks(resolvedProjectId, normalizedState, root)
   let newlyUnblocked = []
-  if (tasksContent) {
-    const tasks = parseTasksV2(tasksContent).map(taskToDict)
+  if (tasks.length) {
     const reconciliation = reconcileBlockedTasks(tasks, normalizedState.unblocked || [], ((normalizedState.progress || {}).blocked) || [])
     if (!normalizedState.progress) normalizedState.progress = {}
     normalizedState.progress.blocked = reconciliation.blocked
@@ -476,10 +487,10 @@ function cmdUnblock(dependency, projectId = null, projectRoot = null) {
   const normalizedState = ensureStateDefaults(state)
   markDependencyUnblocked(normalizedState, dep)
 
-  const [, , tasksContent] = resolveStateAndTasks(resolvedProjectId, root)
+  // task 反查走 TaskSource（task-dir），不再 parseTasksV2(plan.md)。
+  const tasks = listSourceTasks(resolvedProjectId, normalizedState, root)
   let newlyUnblocked = []
-  if (tasksContent) {
-    const tasks = parseTasksV2(tasksContent).map(taskToDict)
+  if (tasks.length) {
     const reconciliation = reconcileBlockedTasks(tasks, normalizedState.unblocked || [], ((normalizedState.progress || {}).blocked) || [])
     if (!normalizedState.progress) normalizedState.progress = {}
     normalizedState.progress.blocked = reconciliation.blocked

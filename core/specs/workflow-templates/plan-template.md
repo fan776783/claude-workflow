@@ -45,26 +45,11 @@ context_profile: "{{context_profile}}"
 
 ---
 
-## Requirement Coverage
-
-| Requirement ID | Summary | Spec Section | Covered By Tasks | Coverage Status |
-|----------------|---------|--------------|------------------|-----------------|
-{{requirement_coverage}}
-
----
-
 ## Tasks
 
-> 每个任务块必须使用 `## Tn:` 标题，并包含 `阶段`、`Package`（plan 生成器按以下顺序推断：单包→project.name / package.json#name / 仓库目录名；monorepo→monorepo.defaultPackage / monorepo.packages[0]；若需改写，由写 plan 的人手动调整）、`Spec 参考`、`Plan 参考`、`需求 ID`、`actions`、`步骤` 等 WorkflowTaskV2 字段。
+> S2 去骨架后：机器 task 源 = task-dir（`~/.claude/workflows/{pid}/tasks/{Tn}/task.json`），spec 审批落壳、`/workflow-plan` 现写定粒度。本节为人类可读叙述，**不再**承载结构化 task block。
 >
-> 任务可选字段：
->
-> - `Target Layer`（可省略）— `frontend` / `backend` / `guides` 之一。显式声明后，`pre-execute-inject` 会把 `.claude/code-specs/{Package}/{Target Layer}/` 作为优先注入子集；省略则按 package 级别回退。
->
-> - `Interaction`（可省略，默认 `AFK`）— `AFK` / `HITL` 之一。
->   - `AFK`（默认）：任务可由 agent 独立完成到 quality_gate，无需人工介入
->   - `HITL`：任务需要人工决策点（如设计选择、API 密钥 / 凭证输入、手动浏览器验证、外部操作确认）；`workflow-execute` Step 4 命中 HITL 任务时**必须**调用 `AskUserQuestion` 才能继续
->   - 省略 = `AFK`（向后兼容：老 plan 行为不变）
+> task-dir 的 `task.json` 字段（对齐 WorkflowTaskV2，由 workflow-plan 现写时细化）：`阶段`、`Package`、`Spec 参考`、`Plan 参考`、`需求 ID`、`actions`、`步骤`、可选 `Target Layer`（`frontend`/`backend`/`guides`，命中则 `pre-execute-inject` 优先注入对应 code-specs 子集）、可选 `Interaction`（`AFK` 默认 / `HITL` 需人工决策点，命中时 `workflow-execute` Step 4 必须 `AskUserQuestion`）。
 
 <!-- WF:ANCHOR:tasks:begin -->
 {{tasks}}

@@ -52,12 +52,39 @@ function mapSpecReviewChoice(choice) {
 }
 
 /**
+ * FR-6：机器 review（codex spec/plan + execute 两段 review）默认不自动触发，
+ * 仅在 project-config.json 显式开启或命令 flag 显式开启时才走原 signal 判定。
+ * 沿用现有 `config.workflow.<flag>` 读取范式（参见 triage_rules workflow.triageDenylist /
+ * readiness workflow.readiness）。
+ *
+ * config 形态（任一为真即开启 codex 自动 review）：
+ *   { workflow: { review: { codex: true } } }   // 细粒度
+ *   { workflow: { review: true } }                // 整体开关
+ *
+ * @param {Object|null} config - project-config.json 内容
+ * @returns {boolean}
+ */
+function isMachineReviewEnabled(config) {
+  const review = config && config.workflow && config.workflow.review
+  if (review === true) return true
+  if (review && typeof review === 'object') return review.codex === true || review.enabled === true
+  return false
+}
+
+/**
  * 判断是否需要执行 Codex Spec 审查（advisory-to-human）
+ *
+ * FR-6 降级：默认 return false（review 自动触发已改为显式开关）；
+ * 仅当 `options.reviewEnabled === true`（config/flag 显式开启）时才走原 signal 判定。
+ * 注意：降级的是「自动触发」，不是删除 review 能力——显式开启后两段判定完整恢复。
+ *
  * @param {string} specContent - Spec 文档内容
  * @param {Object} [signals={}] - deriveRoleSignals 输出的结构化信号
+ * @param {Object} [options={}] - { reviewEnabled?: boolean } 显式开关
  * @returns {{ run: boolean, reason: string|null }} 是否触发及触发原因
  */
-function shouldRunCodexSpecReview(specContent, signals = {}) {
+function shouldRunCodexSpecReview(specContent, signals = {}, options = {}) {
+  if (options.reviewEnabled !== true) return { run: false, reason: 'review-gating-disabled' }
   if (signals.security) return { run: true, reason: 'signal:security' }
   if (signals.backend_heavy) return { run: true, reason: 'signal:backend_heavy' }
   if (signals.data) return { run: true, reason: 'signal:data' }
@@ -69,13 +96,6 @@ function shouldRunCodexSpecReview(specContent, signals = {}) {
   return { run: false, reason: null }
 }
 
-/**
- * 判断是否需要执行 Codex Plan 审查（bounded-autofix）
- * @param {string} planContent - Plan 文档内容
- * @param {string} specContent - Spec 文档内容（备用）
- * @param {Object} [signals={}] - deriveRoleSignals 输出的结构化信号
- * @returns {{ run: boolean, reason: string|null }} 是否触发及触发原因
- */
 const UI_KEYWORDS_REGEX = /页面|界面|表单|列表|面板|弹窗|导航|路由|仪表盘|编辑器|sidebar|tab|modal|dashboard|GUI|桌面|desktop|窗口|window/i
 const UI_BROAD_KEYWORDS_REGEX = /UI|界面|页面|组件|布局|样式|交互|显示|渲染|视图|前端/i
 const FRONTEND_FRAMEWORK_REGEX = /react|vue|angular|svelte|tauri|electron|next\.?js|nuxt|vite/i
@@ -130,7 +150,18 @@ function buildSpecReviewSummary(specContent) {
     .join('\n\n')
 }
 
-function shouldRunCodexPlanReview(planContent, specContent, signals = {}) {
+/**
+ * 判断是否需要执行 Codex Plan 审查（bounded-autofix）
+ *
+ * FR-6 降级：默认 return false；仅当 `options.reviewEnabled === true` 时走原 signal 判定。
+ *
+ * @param {string} planContent
+ * @param {string} specContent
+ * @param {Object} [signals={}]
+ * @param {Object} [options={}] - { reviewEnabled?: boolean } 显式开关
+ */
+function shouldRunCodexPlanReview(planContent, specContent, signals = {}, options = {}) {
+  if (options.reviewEnabled !== true) return { run: false, reason: 'review-gating-disabled' }
   if (signals.security) return { run: true, reason: 'signal:security' }
   if (signals.backend_heavy) return { run: true, reason: 'signal:backend_heavy' }
   if (signals.data) return { run: true, reason: 'signal:data' }
@@ -158,7 +189,8 @@ function main() {
     const content = args.shift() || ''
     const signalsIndex = args.indexOf('--signals-json')
     const signals = signalsIndex >= 0 ? JSON.parse(args[signalsIndex + 1]) : {}
-    process.stdout.write(`${JSON.stringify(shouldRunCodexSpecReview(content, signals))}\n`)
+    const reviewEnabled = args.includes('--review-enabled')
+    process.stdout.write(`${JSON.stringify(shouldRunCodexSpecReview(content, signals, { reviewEnabled }))}\n`)
     return
   }
   if (command === 'codex-plan-review') {
@@ -166,7 +198,8 @@ function main() {
     const specContent = args.shift() || ''
     const signalsIndex = args.indexOf('--signals-json')
     const signals = signalsIndex >= 0 ? JSON.parse(args[signalsIndex + 1]) : {}
-    process.stdout.write(`${JSON.stringify(shouldRunCodexPlanReview(planContent, specContent, signals))}\n`)
+    const reviewEnabled = args.includes('--review-enabled')
+    process.stdout.write(`${JSON.stringify(shouldRunCodexPlanReview(planContent, specContent, signals, { reviewEnabled }))}\n`)
     return
   }
   process.stderr.write('Usage: node planning_gates.js <workspaces|spec-review-choice|codex-spec-review|codex-plan-review> ...\n')
@@ -177,6 +210,7 @@ module.exports = {
   deriveRoleSignals,
   detectAgentWorkspaces,
   mapSpecReviewChoice,
+  isMachineReviewEnabled,
   shouldRunCodexSpecReview,
   shouldRunCodexPlanReview,
   shouldRunDiscussion,

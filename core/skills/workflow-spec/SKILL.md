@@ -64,12 +64,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
 
 CLI 此刻会落盘:
 - `workflow-state.json`(status=`spec_review`)
-- `spec.md` 骨架(带模板 front matter)— **plan.md 不在此时生成**
+- `spec.md` 骨架(带模板 front matter)— **plan.md / task-dir 不在此时生成**
 - `ux_gate_required` 标记(仅当涉及 UI 关键词或检测到前端框架时为 true)
 
 **文件命名**:落盘格式 `<slug>-<MMDD>.md`。每次必须传 `--task-name "<需求中文名>"`——主会话从需求拟一个 4-20 字的中文名词短语(如 `项目所属成员组与迁移`),禁止 hash 文件名。
 
-**plan.md 何时生成**:Step 6 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时,CLI 读取已扩写好的 spec.md 首次生成 plan.md 骨架并推到 `planned`。
+**spec approve 落点(task 源)**:Step 6 调用 `spec-review --choice "Spec 正确，生成 Plan"` 时,CLI **只**做两件事:(1) 落 task-dir 结构骨架(`~/.claude/workflows/{pid}/tasks/{taskId}/` 下 task.json 元数据壳,**无占位 task body**),作 invariant 守护的机器 task 源;(2) 推 `status=planned`。**不在此预定最终 task 粒度/ID**——task 切分留给 `/workflow-plan` 现写阶段按 implementation slice 定(对齐"最后一刻定粒度"共识)。plan.md 此时若生成也只是 front matter + 结构锚点的可选叙述壳,非机器 task 源。`current_tasks[0]` 仍由 task 源(TaskDirSource.firstTaskId)给出,作 resume 起点——松绑的是"锁死最终粒度"而非"取消 resume 起点"。
 
 **spec.md 落点**:默认 `<project-root>/docs/workflows/specs/<slug>-MMDD.md`(team 可见,可入 git)。`project-config.json` `workflow.specDocsRoot` 可改根目录;`workflow.legacySpecLocation: true` 时回退 `~/.claude/workflows/{pid}/specs/`。plan.md / state / 其它工件仍在 user 级 `~/.claude/workflows/{pid}/`。
 
@@ -327,11 +327,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
   --project-root "$PWD" spec-review --choice "<canonical 字符串>"
 ```
 
-approve 分支 CLI 重新读取 spec.md 并生成 plan.md 骨架(含任务拆分),状态推进到 `planned`。
+approve 分支 CLI 落 task-dir 元数据壳(无占位 task body) + `current_tasks=[firstTaskId]`,状态推进到 `planned`。**不预渲染占位 task 列表、不锁定最终 task 粒度**——真实 task 切分由 `/workflow-plan` 现写。
 
 ### 写 handoff(spec→plan,approve 分支末尾)
 
-plan.md 骨架生成后,把本阶段决策蒸馏成 handoff 交给 plan 阶段:正文 ≤20 行(CLI 自动拼 5 行 freshness header),建议 `## Decisions`(关键技术选型/范围裁决)/ `## Rejected`(被拒方案+原因)/ `## Risks`(未解决依赖)+ 一行 contract-digest 指针(指向 Step 2 落盘的 contract-digest.md)。
+task-dir 壳落盘后,把本阶段决策蒸馏成 handoff 交给 plan 阶段:正文 ≤20 行(CLI 自动拼 5 行 freshness header),建议 `## Decisions`(关键技术选型/范围裁决)/ `## Rejected`(被拒方案+原因)/ `## Risks`(未解决依赖)+ 一行 contract-digest 指针(指向 Step 2 落盘的 contract-digest.md)。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js write-handoff --from spec --to plan --content-file <handoff 正文 .md 绝对路径>

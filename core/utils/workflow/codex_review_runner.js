@@ -61,7 +61,12 @@ function hasActiveCodexReview(state) {
 
 // 触发一次 codex review job：spawn codex-bridge.mjs --background fire-and-forget。
 // 不阻塞主线 — 立即拿 jobId 写回 state，由后续入口 scan 续接终态。
+//
+// FR-6 降级：codex 自动 review 默认关闭。除非 `options.enabled === true`（project-config.json
+// workflow.review 显式开启或命令 flag 显式传入），否则不派 codex job。
+// 降级的是「自动触发」而非删除能力——显式开启后完整 dispatch 链恢复。
 function triggerCodexReview(state, phase, options = {}) {
+  if (options.enabled !== true) return { triggered: false, reason: 'review-gating-disabled' }
   const projectRoot = options.projectRoot || state.project_root || process.cwd()
   const reviewKey = `codex_${phase}_review`
   const reviewStatus = (state.review_status || {})

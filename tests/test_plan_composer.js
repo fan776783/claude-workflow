@@ -343,14 +343,15 @@ test('cmdPlanReview ready=false when placeholder hit', () => {
   }
 })
 
-test('cmdPlanReview ready=false when requirement uncovered', () => {
+// T8/FR-7: coverage 降为 advisory —— uncovered_ids 不再卡 ready，但仍作为字段返回。
+test('cmdPlanReview ready=true when requirement uncovered (coverage advisory only)', () => {
   const plan = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
   const spec = 'R-001 R-999 second untouched requirement'
   const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
   try {
     const result = cmdPlanReview(projectId, repoRoot)
-    assert.equal(result.ready, false)
-    assert.deepEqual(result.coverage.uncovered_ids, ['R-999'])
+    assert.equal(result.ready, true, `uncovered must not block ready (advisory), got ${JSON.stringify(result)}`)
+    assert.deepEqual(result.coverage.uncovered_ids, ['R-999'], 'coverage still returned as advisory field')
   } finally {
     fs.rmSync(statePath, { force: true })
     fs.rmSync(tmpDir, { recursive: true, force: true })

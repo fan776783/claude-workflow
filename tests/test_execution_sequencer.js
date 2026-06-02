@@ -36,37 +36,24 @@ function canonicalStatePath(home, projectId = 'proj-test') {
 // retry runtime reset — remain the live execution_sequencer helpers and stay under test here.
 // markTaskSkipped / prepareRetry survivors are exercised in tests/test_workflow_helpers.js.
 
-const PLAN_FIXTURE = `## T1: 第一个任务
-- **阶段**: implement
-- **Spec 参考**: §1
-- **Plan 参考**: P1
-- **状态**: pending
-- **actions**: edit_file
-- **步骤**:
-  - A1: 修改实现 → 完成第一个任务
+// S3 重基（FR-2）：detectNextTask 从吃 plan.md 文本改为吃 TaskSource.listTasks() 的 task 记录数组。
+const TASK_RECORDS = [
+  { id: 'T1', phase: 'implement', status: 'pending' },
+  { id: 'T2', phase: 'test', status: 'pending' },
+]
 
-## T2: 第二个任务
-- **阶段**: test
-- **Spec 参考**: §2
-- **Plan 参考**: P2
-- **状态**: pending
-- **actions**: run_tests
-- **步骤**:
-  - A2: 运行测试 → 完成第二个任务
-`
-
-test('detectNextTask walks the plan based on progress', async (t) => {
+test('detectNextTask walks the task source based on progress', async (t) => {
   await t.test('returns first task when nothing is completed', () => {
-    assert.equal(detectNextTask(PLAN_FIXTURE, { status: 'running' }), 'T1')
+    assert.equal(detectNextTask(TASK_RECORDS, { status: 'running' }), 'T1')
   })
 
   await t.test('advances past completed tasks', () => {
-    const next = detectNextTask(PLAN_FIXTURE, { status: 'running', progress: { completed: ['T1'] } })
+    const next = detectNextTask(TASK_RECORDS, { status: 'running', progress: { completed: ['T1'] } })
     assert.equal(next, 'T2')
   })
 
   await t.test('skips skipped and failed tasks too', () => {
-    const next = detectNextTask(PLAN_FIXTURE, {
+    const next = detectNextTask(TASK_RECORDS, {
       status: 'running',
       progress: { completed: [], skipped: ['T1'], failed: [], blocked: [] },
     })
@@ -74,12 +61,12 @@ test('detectNextTask walks the plan based on progress', async (t) => {
   })
 
   await t.test('returns null when all tasks are done', () => {
-    const next = detectNextTask(PLAN_FIXTURE, { status: 'running', progress: { completed: ['T1', 'T2'] } })
+    const next = detectNextTask(TASK_RECORDS, { status: 'running', progress: { completed: ['T1', 'T2'] } })
     assert.equal(next, null)
   })
 
-  await t.test('returns null for empty tasks content', () => {
-    assert.equal(detectNextTask('', { status: 'running' }), null)
+  await t.test('returns null for empty task source', () => {
+    assert.equal(detectNextTask([], { status: 'running' }), null)
     assert.equal(detectNextTask(null, { status: 'running' }), null)
   })
 })

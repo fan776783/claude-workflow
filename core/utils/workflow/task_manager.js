@@ -22,13 +22,37 @@ const {
 } = require('./state_manager')
 const { addUnique, getStatusEmoji } = require('./status_utils')
 const {
-  countTasks,
   extractConstraints,
-  findNextTask,
-  parseTasksV2,
-  taskToDict,
-  updateTaskStatusInMarkdown,
 } = require('./task_parser')
+const { createTaskSource } = require('./task_source')
+
+// S3 重基（FR-2）：task_manager 的 task 序列来源从 parseTasksV2(plan.md) 切到 TaskSource。
+// 这些命令（complete/next/list/progress/deps）是 execute 主推进路径（workflow_cli advance）的真实落点。
+// T9（C-7/C-1）：经 createTaskSource 工厂选 adapter——task-dir → TaskDirSource，仅 legacy plan.md → LegacyPlanMdSource。
+function resolveProjectIdForTasks(state, projectId = null, projectRoot = null) {
+  return projectId || (state && (state.project_id || state.projectId)) || detectProjectId(projectRoot) || null
+}
+
+// 取 TaskSource：legacy plan.md workflow 缺 task-dir 时回退 LegacyPlanMdSource（真实 advance 路径 C-7 兜底）。
+// quiet=true：task_manager 内部多命令复用，迁移提示由首个命中处打印（进程内去重），避免重复刷屏。
+function taskSourceFor(state, projectId = null, projectRoot = null) {
+  return createTaskSource(state, { projectId, projectRoot, quiet: true })
+}
+
+// 下一个待执行 task：按 TaskSource 顺序排除 completed/skipped/failed/blocked。
+function nextTaskIdFromSource(tasks, progress = {}) {
+  const excluded = new Set([
+    ...(progress.completed || []),
+    ...(progress.skipped || []),
+    ...(progress.failed || []),
+  ])
+  const blocked = new Set(progress.blocked || [])
+  for (const task of tasks || []) {
+    const id = task && task.id
+    if (id && !excluded.has(id) && !blocked.has(id)) return id
+  }
+  return null
+}
 
 /**
  * 检测当前项目的项目 ID
@@ -129,10 +153,12 @@ function buildRuntimeSummary(state) {
  * @returns {Object} 状态概览，包含进度、任务数、运行时摘要等
  */
 function cmdStatus(projectId = null, projectRoot = null) {
-  const [state, , tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
+  const [state, , , tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
   if (!state) return { error: '没有活跃的工作流', code }
   const progress = state.progress || {}
-  const total = tasksContent ? countTasks(tasksContent) : 0
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  const source = taskSourceFor(state, pid, projectRoot)
+  const total = source ? source.listTasks().length : 0
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
   return {
     workflow_status: state.status,
@@ -156,19 +182,21 @@ function cmdStatus(projectId = null, projectRoot = null) {
  * @returns {Object} 任务列表，包含 total 和 tasks 数组
  */
 function cmdList(projectId = null, projectRoot = null) {
-  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
-  const tasks = parseTasksV2(tasksContent)
+  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  const source = taskSourceFor(state, pid, projectRoot)
+  const tasks = source ? source.listTasks() : []
   return {
     total: tasks.length,
     tasks: tasks.map((task) => ({
       id: task.id,
-      name: task.name,
+      name: task.name || '',
       phase: task.phase,
       status: task.status,
       emoji: getStatusEmoji(task.status),
-      quality_gate: task.quality_gate,
-      actions: task.actions,
+      target_layer: task.target_layer,
+      package: task.package,
     })),
   }
 }
@@ -180,13 +208,19 @@ function cmdList(projectId = null, projectRoot = null) {
  * @returns {Object} 下一个任务信息或完成提示
  */
 function cmdNext(projectId = null, projectRoot = null) {
-  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
+  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  const source = taskSourceFor(state, pid, projectRoot)
+  const tasks = source ? source.listTasks() : []
+  // task 源为空 + plan 未解析 → 透传 resolveStateAndTasks 的诊断 code（如 plan_file_unset / plan_file_missing），
+  // 保持「无任务」的可诊断契约（task-dir 流程任务齐时 code 为 null，不影响正常推进）。
+  if (!tasks.length && code) return { error: '没有活跃的工作流或任务', code }
   const progress = state.progress || {}
-  const nextId = findNextTask(tasksContent, progress.completed || [], progress.skipped || [], progress.failed || [], progress.blocked || [])
+  const nextId = nextTaskIdFromSource(tasks, progress)
   if (!nextId) return { next_task: null, message: '所有任务已完成或被阻塞' }
-  const task = parseTasksV2(tasksContent).find((item) => item.id === nextId)
-  return { next_task: task ? taskToDict(task) : nextId }
+  const task = source ? source.getTask(nextId) : null
+  return { next_task: task || nextId }
 }
 
 /**
@@ -197,11 +231,14 @@ function cmdNext(projectId = null, projectRoot = null) {
  * @returns {Object} 操作结果
  */
 function cmdComplete(taskId, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
-  const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
-  if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记完成` }
-  fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'completed'))
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  if (!pid) return { error: '无法解析 project id，无法标记完成', code }
+  const source = taskSourceFor(state, pid, projectRoot)
+  const task = source ? source.getTask(taskId) : null
+  if (!task) return { error: `任务 ${taskId} 不存在于 task 源中，无法标记完成` }
+  source.updateTaskStatus(taskId, 'completed')
   const progress = state.progress || (state.progress = {})
   const completed = progress.completed || (progress.completed = [])
   addUnique(completed, taskId)
@@ -222,11 +259,14 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
  * @returns {Object} 操作结果
  */
 function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
-  const [state, statePath, tasksContent, tasksPath, code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !statePath || !tasksContent || !tasksPath) return { error: '没有活跃的工作流或任务', code }
-  const task = parseTasksV2(tasksContent).find((t) => t.id === taskId)
-  if (!task) return { error: `任务 ${taskId} 不存在于 plan 中，无法标记失败` }
-  fs.writeFileSync(tasksPath, updateTaskStatusInMarkdown(tasksContent, taskId, 'failed'))
+  const [state, statePath, , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  if (!pid) return { error: '无法解析 project id，无法标记失败', code }
+  const source = taskSourceFor(state, pid, projectRoot)
+  const task = source ? source.getTask(taskId) : null
+  if (!task) return { error: `任务 ${taskId} 不存在于 task 源中，无法标记失败` }
+  source.updateTaskStatus(taskId, 'failed')
   state.status = 'halted'
   state.halt_reason = 'failure'
   state.failure_reason = reason
@@ -234,6 +274,8 @@ function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
   const progress = state.progress || (state.progress = {})
   const failed = progress.failed || (progress.failed = [])
   addUnique(failed, taskId)
+  // 与 cmdComplete 对称：失败时把 taskId 移出 completed，避免 completed→fail 同 task 双计入。
+  if ((progress.completed || []).includes(taskId)) progress.completed = progress.completed.filter((item) => item !== taskId)
   writeState(statePath, state)
   return { failed: true, task_id: taskId, reason }
 }
@@ -246,16 +288,19 @@ function cmdFail(taskId, reason, projectId = null, projectRoot = null) {
  * @returns {Object} 依赖检查结果
  */
 function cmdDeps(taskId, projectId = null, projectRoot = null) {
-  const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
-  const task = parseTasksV2(tasksContent).find((item) => item.id === taskId)
+  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
+  if (!state) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  const source = taskSourceFor(state, pid, projectRoot)
+  const task = source ? source.getTask(taskId) : null
   if (!task) return { error: `任务 ${taskId} 不存在` }
   const progress = state.progress || {}
+  // task-dir 记录仅含 depends（无 blocked_by）；blocked_by 为 plan.md 时代字段，task-dir 流程不再承载。
   return {
     ...checkTaskDeps(task.depends, progress.completed || []),
     task_id: taskId,
     depends: task.depends,
-    blocked_by: task.blocked_by,
+    blocked_by: task.blocked_by || [],
   }
 }
 
@@ -267,9 +312,11 @@ function cmdDeps(taskId, projectId = null, projectRoot = null) {
  */
 function cmdProgress(projectId = null, projectRoot = null) {
   const [state, , tasksContent, , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state || !tasksContent) return { error: '没有活跃的工作流或任务', code }
+  if (!state) return { error: '没有活跃的工作流或任务', code }
+  const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
+  const source = taskSourceFor(state, pid, projectRoot)
   const progress = state.progress || {}
-  const total = countTasks(tasksContent)
+  const total = source ? source.listTasks().length : 0
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
   return {
     total,
@@ -280,7 +327,8 @@ function cmdProgress(projectId = null, projectRoot = null) {
     pending: total - (progress.completed || []).length - (progress.skipped || []).length - (progress.failed || []).length,
     percent,
     bar: generateProgressBar(percent),
-    constraints: extractConstraints(tasksContent),
+    // 约束仍从 plan.md 叙述正文提取（如可读）；task-dir 不承载约束文本。
+    constraints: tasksContent ? extractConstraints(tasksContent) : [],
   }
 }
 

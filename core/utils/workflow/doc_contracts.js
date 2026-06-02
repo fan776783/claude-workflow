@@ -8,7 +8,7 @@ const CLI_COMMAND_REGEX = /(?:sub\.add_parser\(\s*"([a-z0-9_-]+)"|command === '(
 const WORKFLOW_COMMAND_DOC_REGEX = /\/workflow\s+([a-z0-9_-]+)/gi
 const SCRIPT_REF_REGEX = /`(?:scripts\/)?([a-zA-Z0-9_./-]+\.(?:py|js))`/g
 
-const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '{{requirement_coverage}}', '## Requirement Coverage', '## Tasks', '<!-- WF:ANCHOR:file_structure:begin -->', '<!-- WF:ANCHOR:tasks:begin -->', '<!-- WF:ANCHOR:verification_summary:begin -->']
+const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '## Tasks', '<!-- WF:ANCHOR:file_structure:begin -->', '<!-- WF:ANCHOR:tasks:begin -->', '<!-- WF:ANCHOR:verification_summary:begin -->']
 const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{critical_constraints}}', '{{scope_summary}}', '{{acceptance_criteria}}', '## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']
 const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])
