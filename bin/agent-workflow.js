@@ -2,6 +2,7 @@
 /** @file agent-workflow CLI 主入口，提供 sync / link / init / status / doctor 等子命令 */
 
 const { Command } = require('commander');
+const { spawnSync } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs-extra');
@@ -138,11 +139,13 @@ if (process.argv.length === 2) {
     console.log(`\n使用: ${CLI_NAME} <command>\n`);
     console.log('可用命令:');
     console.log('  sync     同步 Skills 到 AI 编码工具');
+    console.log('  update   更新到最新版本并重新同步（全局安装）');
     console.log('  init     初始化项目配置');
     console.log('  status   查看安装状态');
     console.log('  doctor   诊断配置问题');
     console.log('\n示例:');
     console.log(`  ${CLI_NAME} sync`);
+    console.log(`  ${CLI_NAME} update`);
     console.log(`  ${CLI_NAME} sync --project`);
   }
 } else {
@@ -275,6 +278,84 @@ if (process.argv.length === 2) {
         }
       } catch (err) {
         console.error(`${LOG_PREFIX} sync 失败: ${err.message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command('update')
+    .description('更新到最新版本并重新同步（全局安装场景：npm i -g 最新版 + sync）')
+    .option('-r, --registry <url>', '指定 npm registry（首次提供后会记住，之后可省略）')
+    .option('-t, --tag <tag>', 'dist-tag（默认 latest）', 'latest')
+    .option('--project', 'sync 阶段使用项目级作用域')
+    .option('--dry-run', '只打印将执行的命令，不实际更新')
+    .action(async (options) => {
+      try {
+        const pkgName = pkg.name; // @justinfan/agent-workflow
+        const tag = options.tag || 'latest';
+        const scope = pkgName.startsWith('@') ? pkgName.split('/')[0] : null;
+        const isWin = process.platform === 'win32';
+
+        // registry 解析优先级：本次 flag > 持久化 > npm scoped 配置
+        const canonicalDir = getCanonicalDir(true);
+        const updateCfgPath = path.join(canonicalDir, '.meta', 'update.json');
+        let persisted = null;
+        try {
+          const cfg = await fs.readJson(updateCfgPath);
+          persisted = cfg && cfg.registry ? cfg.registry : null;
+        } catch { /* 无持久化记录 */ }
+
+        let registry = options.registry || persisted || null;
+        if (!registry && scope) {
+          const probe = spawnSync('npm', ['config', 'get', `${scope}:registry`], {
+            encoding: 'utf8',
+            shell: isWin,
+          });
+          const val = (probe.stdout || '').trim();
+          if (/^https?:\/\//.test(val)) registry = val;
+        }
+
+        const installArgs = ['install', '-g', `${pkgName}@${tag}`];
+        if (registry) installArgs.push('--registry', registry);
+
+        const syncArgs = ['sync', '-y'];
+        if (options.project) syncArgs.splice(1, 0, '--project');
+
+        console.log(`${LOG_PREFIX} 更新到 ${tag}: npm ${installArgs.join(' ')}`);
+        if (options.dryRun) {
+          console.log(`${LOG_PREFIX} [dry-run] 接着执行: ${CLI_NAME} ${syncArgs.join(' ')}`);
+          return;
+        }
+
+        // 仅当本次显式传入 registry 时持久化，下次 update 可省略 --registry
+        if (options.registry) {
+          try {
+            await fs.ensureDir(path.dirname(updateCfgPath));
+            await fs.writeJson(updateCfgPath, { registry: options.registry }, { spaces: 2 });
+          } catch { /* 持久化失败不阻塞 */ }
+        }
+
+        // 1. 全局安装最新版（触发新版本 postinstall，为 installer-mount 类工具复制模板）
+        const inst = spawnSync('npm', installArgs, { stdio: 'inherit', shell: isWin });
+        if (inst.status !== 0) {
+          console.error(`${LOG_PREFIX} npm 安装失败 (exit ${inst.status ?? (inst.error && inst.error.message)})`);
+          if (!registry) {
+            console.error(`${LOG_PREFIX} 若使用私有源，先指定一次: ${CLI_NAME} update --registry <url>`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        // 2. 用刚装好的版本重新 sync —— spawn 新 bin 保证跑的是新代码 + 新模板，
+        //    并补齐 postinstall 不处理的 Plugin 类工具（Claude Code / Qoder）与 v5 残留清理
+        console.log(`\n${LOG_PREFIX} 重新同步: ${CLI_NAME} ${syncArgs.join(' ')}`);
+        const sync = spawnSync(CLI_NAME, syncArgs, { stdio: 'inherit', shell: isWin });
+        if (sync.status !== 0) {
+          console.error(`${LOG_PREFIX} sync 失败 (exit ${sync.status})，可手动重试: ${CLI_NAME} ${syncArgs.join(' ')}`);
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        console.error(`${LOG_PREFIX} update 失败: ${err.message}`);
         process.exitCode = 1;
       }
     });

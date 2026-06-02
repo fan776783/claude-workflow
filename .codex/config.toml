@@ -19,7 +19,4 @@ project_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md"]
 # - min_wait_timeout_ms: 480000 = 8 min。Codex 默认 10s 太短，
 #   collaborating-with-codex 的 review/adversarial-review 经常 2-10 min。
 #   硬上限 3,600,000 (1 h)。
-[features.multi_agent_v2]
-enabled = true
-max_concurrent_threads_per_session = 6
-min_wait_timeout_ms = 480000
+

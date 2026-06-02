@@ -19,6 +19,7 @@ npm run prepublishOnly    # Runs scripts/validate.js (the only validation gate)
 # CLI commands (after npm install -g)
 agent-workflow status    # Show installation status
 agent-workflow sync      # Sync templates to every detected AI coding tool
+agent-workflow update    # Global-install only: npm i -g <pkg>@latest (registry remembered) + re-sync; one-shot upgrade shortcut
 agent-workflow link      # Symlink core/ into detected mount-tools (Claude Code & Qoder use Plugin; dev: `claude --plugin-dir <repo>/core` / `qodercli --plugin-dir <repo>/core`)
 agent-workflow init      # Init project config in current directory
 agent-workflow doctor    # Diagnose configuration issues

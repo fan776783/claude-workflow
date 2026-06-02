@@ -14,8 +14,8 @@
 
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const fs = require('fs');
-const path = require('path');
+
+const { resolveCliBinary } = require('./cli-resolve');
 
 const execFileP = promisify(execFile);
 
@@ -26,31 +26,16 @@ const IS_WINDOWS = process.platform === 'win32';
 let cachedBinary = null;
 
 /**
- * 在 PATH 中解析 qodercli 可执行文件。
+ * 解析 qodercli 可执行文件路径。
  *
- * Windows 下 npm 安装的 CLI 通常是 `qodercli.cmd` shim，而 Node 的 execFile
- * 不会自动追加 PATHEXT，因此需要我们手动遍历 PATHEXT 找到实际文件路径。
+ * 走 scripts/cli-resolve.js 的多级解析（PATH → 已知安装目录 → 登录 shell / where），
+ * 与 claude-cli 共用同一套逻辑，统一处理 Windows PATHEXT / .cmd shim 与 profile 注入
+ * 的 PATH 漏检。
  */
 function resolveQoderBinary() {
   if (cachedBinary) return cachedBinary;
-  const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  const exts = IS_WINDOWS
-    ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map((s) => s.toLowerCase())
-    : [''];
-  for (const dir of pathDirs) {
-    for (const ext of exts) {
-      const candidate = path.join(dir, `qodercli${ext}`);
-      try {
-        if (fs.statSync(candidate).isFile()) {
-          cachedBinary = candidate;
-          return cachedBinary;
-        }
-      } catch (_) {
-        // 不存在，继续
-      }
-    }
-  }
-  return null;
+  cachedBinary = resolveCliBinary('qodercli');
+  return cachedBinary;
 }
 
 function runQoder(args, options = {}) {

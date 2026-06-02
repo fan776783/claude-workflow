@@ -220,6 +220,23 @@ async function main() {
       pythonCommand: runtimeCheck.pythonCommand,
     }, { spaces: 2 });
 
+    // 持久化本次安装使用的 registry，供 `agent-workflow update` 复用（私有源场景下
+    // 首次 `npm i -g --registry <url>` 后，后续 update 可省略 --registry）。
+    try {
+      const scope = pkg.name.startsWith('@') ? pkg.name.split('/')[0] : null;
+      const isDefault = (u) => !u || /registry\.npmjs\.org/.test(u);
+      const scoped = scope ? process.env[`npm_config_${scope}:registry`] : null;
+      const generic = process.env.npm_config_registry;
+      const registry = (scoped && !isDefault(scoped)) ? scoped : (!isDefault(generic) ? generic : null);
+      if (registry) {
+        const updateCfg = path.join(installStatus.canonicalDir || canonicalDir, '.meta', 'update.json');
+        await fs.ensureDir(path.dirname(updateCfg));
+        await fs.writeJson(updateCfg, { registry }, { spaces: 2 });
+      }
+    } catch {
+      // registry 持久化失败不阻塞 postinstall
+    }
+
     console.log(`\n${LOG_PREFIX} 安装位置: ${installStatus.canonicalDir || canonicalDir}`);
     if (installStatus.errors.length > 0) {
       console.log(`${LOG_PREFIX} 完成 (有 ${installStatus.errors.length} 个警告)\n`);

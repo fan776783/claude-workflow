@@ -82,92 +82,54 @@
 
 ## 2. 安装与同步
 
-### 2.1 Claude Code / Qoder 用户（走原生 Plugin 机制）
+### 2.1 安装（全局安装，覆盖全部 9 个工具）
 
-Claude Code 用户从 **v6.0.0** 起走官方 Plugin 机制分发；**Qoder（v6.5.1+）** 同属 Plugin-managed，走 `qodercli plugins install`。其余 7 个工具（Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid）继续走 installer。
+统一走全局安装：一条 `npm i -g` + 一次 `sync` 覆盖所有已检测到的 AI 编码工具（Claude Code / Qoder 走各自原生 Plugin，其余 7 个走 installer 逐 skill mount）。
 
-#### 方式 A —— Claude Code Plugin（Claude Code 用户首选）
+```bash
+npm i -g --registry <private-registry-url> @justinfan/agent-workflow
+agent-workflow sync -y
+```
 
-在 Claude Code 会话里安装：
+- `npm i -g` 会**记住这个 registry**（供后续 `update` 复用），并为 installer-mount 类工具（Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid）复制模板。
+- `agent-workflow sync -y` 装上 Claude Code / Qoder 的原生 Plugin、补齐其余工具、并清理 v5.x 残留。`claude` CLI 不在 PATH 时，sync 会降级为直接写 Plugin 配置安装，仍找不到才打印手动指引。
+
+### 2.2 更新
+
+```bash
+agent-workflow update
+```
+
+= `npm i -g <pkg>@latest` + 重新 `sync -y`。registry 已记住，无需重复 `--registry`；换源用 `agent-workflow update --registry <url>`（传一次即记住）。`--dry-run` 先预览要执行的命令，`--project` 走项目级作用域。
+
+### 2.3 验证
+
+```bash
+agent-workflow status     # 各工具安装状态（含 Claude Code / Qoder Plugin）
+agent-workflow doctor     # 诊断配置问题
+```
+
+### 2.4 其他方式（可选）
+
+项目级安装（写到当前仓库 `.agents/` 而非 `~/.agents/`）：
+
+```bash
+agent-workflow sync --project -y
+```
+
+仅需 Claude Code 时，也可直接用其原生 Plugin（git marketplace，不经 npm）：
 
 ```
 /plugin marketplace add fan776783/claude-workflow
 /plugin install agent-workflow@agent-workflow-marketplace
 ```
 
-更新到最新版本：
-
-```
-/plugin update agent-workflow@agent-workflow-marketplace
-```
-
-在 Claude Code 会话外（终端）安装（需要 `claude` CLI 在 PATH）：
-
-```bash
-claude plugin marketplace add fan776783/claude-workflow
-claude plugin install agent-workflow@agent-workflow-marketplace
-```
-
-更新到最新版本：
-
-```bash
-claude plugin marketplace update agent-workflow-marketplace
-claude plugin update agent-workflow@agent-workflow-marketplace
-```
-
-查看当前已安装的 Plugin：
-
-```bash
-claude plugin list --json
-```
-
-#### 方式 B —— 通过 npx sync（次选，也覆盖其他工具）
-
-如果要同时给 Cursor / Codex / Gemini CLI 等安装，或需要在一条命令里顺带清理 v5.x 残留，用 sync：
-
-```bash
-npx --yes --registry <private-registry-url> @justinfan/agent-workflow@latest sync -y
-```
-
-sync 自动同步所有已检测到的工具（不再支持 `-a` 选择子集）。若 `claude` CLI 不在 PATH，sync 会打印方式 A 的手动指引。
-
-#### 方式 C —— 克隆仓库后本地同步（开发调试）
+开发调试（克隆仓库本地同步，sync 会自动同步全部已检测工具，不再支持 `-a` 选择子集）：
 
 ```bash
 git clone https://github.com/fan776783/claude-workflow claude-workflow
-cd claude-workflow
-npm install
-npm run sync
-```
-
-
-#### Qoder 用户（v6.5.1+，原生 Plugin）
-
-Qoder 与 Claude Code 一样走原生 Plugin，不经 installer 逐 skill mount。`npm install` 时**不会**自动 mount Qoder（避免落入 installer 失败），需显式触发：
-
-```bash
-# 检测到 qodercli 后，sync 会自动走 qodercli plugins install
-npm run sync
-
-# 本地开发调试（对齐 Claude Code 的 --plugin-dir）
-qodercli --plugin-dir <repo>/core
-```
-
-`agent-workflow status` / `doctor` 会一并报告 Qoder Plugin 的安装状态。
-
-### 2.2 其他 7 个 AI 工具（Cursor / Codex / Gemini CLI 等）
-
-方式 B 的 npx sync 与方式 C 的 `npm run sync` 自动同步所有已检测到的工具，包括 Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid。不再支持 `-a` 选择子集。常用选项：
-
-```bash
-# 项目级安装（写到当前仓库的 .agents/，而不是 ~/.agents/）
-npm run sync -- --project
-
-# 跳过确认
-npm run sync -- -y
-
-# 本地开发调试：把受管目录链接到当前仓库 core/（claude-code 不支持 link，开发者请用 --plugin-dir）
-npm run link
+cd claude-workflow && npm install && npm run sync
+# 链接调试：npm run link（claude-code 不支持 link，用 claude --plugin-dir <repo>/core）
 ```
 
 同步完成后，建议先执行：
