@@ -15,7 +15,7 @@ function getDateSuffix() {
 
 const { getWorkflowsDir, validateProjectId } = require('./path_utils')
 const taskStore = require('./task_store')
-const { TaskDirSource } = require('./task_source')
+const { TaskDirSource, createTaskSource } = require('./task_source')
 const {
   readState,
   updateCodexPlanReview,
@@ -1242,6 +1242,55 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
 //   - placeholder.hits → hard block
 //   - coverage.uncovered_ids → advisory only（T8/FR-7：不卡 ready，仅返回供人参考）
 //   - 其他 lint 由 Phase B/C 任务陆续接入
+// 校验 task-dir 机器 task 源的 task.json schema（B2：planner 经 task-write 直写后的完整性门控）。
+// listTasks 经 normalizeTaskRecord 读，故数组/缺省字段已归一；本 lint 抓 normalize 兜不住的：
+//   hard（挡 ready）：非法 id 目录 / task.json 缺失或解析失败 / status 越界枚举。
+//   warning（不挡）：name 空 / acceptance 空——提示 planner 补全，但不阻断（兼容 spec-approve 落壳未填态）。
+const TASK_STATUS_ENUM = new Set(['pending', 'blocked', 'in_progress', 'completed', 'failed', 'skipped'])
+function lintTaskSchema(projectId) {
+  const issues = []
+  const warnings = []
+  let dirNames = []
+  try {
+    const root = taskStore.getTasksRoot(projectId)
+    if (root && fs.existsSync(root)) {
+      dirNames = fs.readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => e.name)
+    }
+  } catch { /* 缺 task-dir → checked:0，由 anchor lint 兜整体缺失 */ }
+  const tasks = taskStore.listTasks(projectId)
+  const parsedIds = new Set(tasks.map((t) => t.id))
+  for (const name of dirNames) {
+    if (!taskStore.isValidTaskId(name)) issues.push({ dir: name, problem: 'invalid_task_id_dir' })
+    else if (!parsedIds.has(name)) issues.push({ dir: name, problem: 'task_json_missing_or_unparseable' })
+  }
+  for (const task of tasks) {
+    if (task.status && !TASK_STATUS_ENUM.has(task.status)) {
+      issues.push({ id: task.id, problem: `invalid_status:${task.status}` })
+    }
+    if (!task.name || !String(task.name).trim()) warnings.push({ id: task.id, problem: 'empty_name' })
+    if (!Array.isArray(task.acceptance) || task.acceptance.length === 0) warnings.push({ id: task.id, problem: 'empty_acceptance' })
+  }
+  return { issues, warnings, checked: tasks.length }
+}
+
+// 机器 task 源完整性的「存在性」门：lintTaskSchema 只抓 corruption（非法 id 目录 / 坏 task.json /
+// status 越界），抓不住「task 源整体为空」。task-dir 已是 canonical 机器源（execute 期
+// assertTaskSourcePresent 也会兜底），plan-review 作为 handoff 前的权威门必须对称地挡空源，
+// 否则会放行一个 execute 立刻 halt(task_source_missing) 的 plan。
+// legacy 兼容：createTaskSource 命中有 task 的 LegacyPlanMdSource 时 count>0，不误挡存量 plan.md workflow。
+function taskSourceEmptyIssue(state, projectId, projectRoot) {
+  let count = 0
+  try {
+    const source = createTaskSource(state, { projectId, projectRoot, quiet: true })
+    count = source ? source.listTasks().length : 0
+  } catch {
+    count = taskStore.listTasks(projectId).length
+  }
+  return count === 0 ? { problem: 'empty_task_source' } : null
+}
+
 function cmdPlanReview(projectId = null, projectRoot = null) {
   const [resolvedProjectId, root, workflowDir, statePath, state] = resolveWorkflowRuntime(projectId, projectRoot)
   if (!resolvedProjectId || !workflowDir || !statePath || !state) return { error: '没有活跃的工作流' }
@@ -1277,7 +1326,11 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
     command_syntax: lintCommandSyntax(planMd),
     pattern_fidelity: lintPatternFidelity(planMd, root),
     type_consistency: lintTypeConsistency(planMd),
+    task_schema: lintTaskSchema(resolvedProjectId),
   }
+  // 存在性门：非 legacy 工作流 task 源为空 → 追加 hard issue（与 corruption issues 一并挡 ready）。
+  const emptySourceIssue = taskSourceEmptyIssue(state, resolvedProjectId, root)
+  if (emptySourceIssue) lints.task_schema.issues.push(emptySourceIssue)
   const coverage = checkRequirementCoverage(planMd, specMd)
   const confidence = scoreConfidence(planMd, {
     coverage,
@@ -1298,7 +1351,8 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
     lints.placeholder.hits.length === 0 &&
     anchorOk &&
     mandatoryOk &&
-    specOk
+    specOk &&
+    lints.task_schema.issues.length === 0
   return {
     ready,
     project_id: resolvedProjectId,
@@ -1627,4 +1681,6 @@ module.exports = {
   lintCommandSyntax,
   lintPatternFidelity,
   lintTypeConsistency,
+  lintTaskSchema,
+  taskSourceEmptyIssue,
 }

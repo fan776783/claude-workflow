@@ -11,7 +11,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 
 返回 JSON:`{ ready, lints, coverage, confidence, summary, plan_file, spec_file }`。
 
-`confidence` = `{ score, level, breakdown{prd_coverage,patterns,verification,test_task}, hints[] }`。**confidence 偏低时直接读 `hints`**——每个未达标/被封顶维度给一行可执行提升项(如 `patterns=0` → "需 ≥3 个 `### 标题` 各紧跟一行 `// SOURCE: <file>`")。不要 grep `plan_composer.js` 的 `scoreConfidence` 逆向打分公式;rubric 是实现细节,以 `hints` 为准。`test_task=0` 的 hint 为中性提示,纯手动验证 plan 可忽略,**不要为凑分造测试任务**。
+`confidence` = `{ score, level, breakdown{prd_coverage,patterns,verification,test_task}, hints[] }`。**confidence 偏低时直接读 `hints`**——每个未达标/被封顶维度给一行可执行提升项(如 `patterns=0` → "需 ≥3 个 `### 标题` 各紧跟一行 `// SOURCE: <file>`")。`test_task=0` 的 hint 为中性提示,纯手动验证 plan 可忽略,**不要为凑分造测试任务**。
+
+> ⛔ **禁逆向引擎**(HARD-GATE #4):不要 Read/grep `core/utils/workflow/*.js`(`plan_composer.js` 的 `scoreConfidence` 打分公式、`task_store.js` 的写函数等)——rubric / 写入实现都是细节。打分提升以 `hints` 为准,写 task-dir 用 `task-write`/`context-curate`(schema 见 [`../../../specs/workflow-runtime/task-dir-schema.md`](../../../specs/workflow-runtime/task-dir-schema.md)),查签名用 `<cmd> --help`。CLI 不满足 → halt 报错,不自写 `.cjs` 绕过(`guard-engine-source` hook 会 deny)。
 
 ## ready 判定矩阵
 
@@ -28,6 +30,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 | `lints.pattern_fidelity.unresolved`(Phase C) | ❌ 否 | ✅ patterns 维度封顶,无加分 |
 | `lints.type_consistency.pairs`(Phase C) | ❌ 否 | ❌ 完全不进 rubric(假阳性后患) |
 | `lints.atomicity.warnings` | ❌ 否 | ❌ 不扣 |
+| `lints.task_schema.issues`(task-dir:非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源) | ✅ 是 | — |
+| `lints.task_schema.warnings`(`name` 空 / `acceptance` 空) | ❌ 否 | ❌ 不挡(提示补全) |
 
 ## 各 lint 含义
 

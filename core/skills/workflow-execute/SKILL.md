@@ -84,7 +84,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js next
 
 `plan_file` 缺失(自愈失败 / 路径未解析)→ 不打印,按下方"状态文件自愈"处理。
 
-**读 handoff(plan→execute,定向)**:确认 state 后读 plan 阶段决策摘要,定向 task 派发,不必整篇重读 plan/spec。
+**读 handoff(plan→execute,定向)**:确认 state 后读 plan 阶段决策摘要,定向 task 派发,**禁**整篇读 plan.md / spec.md 全文(全文交 subagent 按路径自读;controller 只持 contract-digest + task 源切片)。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff --from plan
@@ -142,6 +142,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 ## Step 4: 执行任务动作
 
 **默认行为(fresh-subagent-per-task)**：每个 task **必须**起一个 fresh implementer subagent 完成实现，再起**单 reviewer subagent**（合并 AC + 代码质量两 phase，AC→质量顺序，见 [`prompts/reviewer.md`](prompts/reviewer.md)）。controller(主会话) 只做编排，不直接写代码。
+
+> **Controller 上下文纪律(铁律)**:controller 全程**不读业务源码 / plan.md / spec.md 全文**(任何通道,含 `cat/grep/sed/rg` bash),只持 contract-digest + Step 1 task 切片;`workflow_cli status/context`、`git diff/log` 等诊断输出取字段不全量 dump;源码/diff 读取与验证一律下放 subagent。详见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」——违反是单会话上下文膨胀主因。
 
 > **机器 review 显式开启(FR-6)**：**codex 自动 review** 默认关闭,需显式开启。降级的是「自动触发」,不是删除能力——开启后完整恢复。
 >
@@ -372,6 +374,7 @@ HARD-GATE 已覆盖的违规不在此重复。下列行为同样违规:
 - 多个 task 攒到最后批量回写 plan.md / state.json（每个 task 立即 advance）
 - 已失败 ≥ 3 次仍"再试一次"而不走 diagnose 四阶段（CLI hard-stop 在 `retry_count >= 3` 时触发）
 - 末尾终审未跑就标 `completed`,或终审发现跨 task 问题却自动回退 / 擅改 state（须展示给用户决策）
+- controller 自读业务源码 / plan / spec 全文,或全量 dump diff·CLI 输出回灌上下文(任何通道,含 bash `cat/grep`;见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」)
 
 ## CLI 参考
 

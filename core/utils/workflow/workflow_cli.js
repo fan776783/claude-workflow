@@ -491,6 +491,89 @@ function optionOrArg(args, flag, fallback = null) {
   return first != null ? first : fallback
 }
 
+// --from-file <path|->：读路径或 stdin（-）。返回 {raw} 或 {error}。
+function readFromFileArg(fromFile) {
+  if (!fromFile) return { error: '--from-file 必填（文件路径，或 - 读 stdin）' }
+  try {
+    return { raw: fromFile === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(fromFile, 'utf8') }
+  } catch (error) {
+    return { error: `读取 --from-file 失败: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+// task-write：从 JSON 文件/stdin 整集写 task-dir（包 taskStore.replaceAllTasks，tmp→rename 原子替换 + 清孤儿）。
+// 输入 = task 记录数组，或 {tasks:[...]}。字段 = normalizeTaskRecord 11 项（见 task-dir-schema.md）。
+// 这是 planner 写 task-dir 的唯一正路——禁止读 task_store.js 逆向 replaceAllTasks 自写 .cjs。
+function cmdTaskWrite(fromFile, projectId, projectRoot) {
+  const resolved = projectId || detectProjectId(projectRoot)
+  if (!resolved) return { error: '无法检测项目 ID，请使用 --project-id 指定' }
+  const fileRes = readFromFileArg(fromFile)
+  if (fileRes.error) return fileRes
+  let records
+  try {
+    const parsed = JSON.parse(fileRes.raw)
+    records = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null)
+  } catch (error) {
+    return { error: `--from-file JSON 解析失败: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  if (!Array.isArray(records)) return { error: '--from-file 内容须为 task 数组或 {tasks:[...]}' }
+  if (!records.length) return { error: 'task 数组为空（至少一条）' }
+  const seenIds = new Set()
+  for (const record of records) {
+    if (!record || !taskStore.isValidTaskId(String(record.id || ''))) {
+      return { error: `非法 task id: ${record && record.id}（须 T<number>，如 T1）` }
+    }
+    const id = String(record.id)
+    // 拒重复 id：replaceAllTasks 按 id 命名目录，重复 id 后者会静默覆盖前者、丢一个 task 且 count 误报。
+    if (seenIds.has(id)) return { error: `重复 task id: ${id}（task-write 要求整集内每个 id 唯一）` }
+    seenIds.add(id)
+  }
+  let written
+  try {
+    written = taskStore.replaceAllTasks(resolved, records)
+  } catch (error) {
+    return { error: `写入 task-dir 失败: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  return { written: true, project_id: resolved, task_ids: written, count: written.length }
+}
+
+// context-curate：从 JSONL 文件/stdin 写单 task 的 context.jsonl 背包（包 taskStore.curateContext，覆盖式）。
+// 每行 {file,reason}；code 路径由 curateContext 内部过滤。execute 期 pre-execute-inject 展开为 <context-pack>。
+function cmdContextCurate(taskId, fromFile, projectId, projectRoot) {
+  const resolved = projectId || detectProjectId(projectRoot)
+  if (!resolved) return { error: '无法检测项目 ID，请使用 --project-id 指定' }
+  if (!taskId || !taskStore.isValidTaskId(String(taskId))) {
+    return { error: `--id 须为合法 task id（T<number>），收到: ${taskId}` }
+  }
+  // task 必须已存在：curateContext 经 atomicWrite 会 mkdir 出 tasks/{id}/，给不存在的 id 写背包
+  // 会造出无 task.json 的孤儿目录，事后被 plan-review lintTaskSchema 当 corruption 硬挡且难归因。
+  if (!taskStore.readTask(resolved, String(taskId))) {
+    return { error: `task ${taskId} 不存在：先用 task-write 写入 task 元数据，再 curate 背包` }
+  }
+  const fileRes = readFromFileArg(fromFile)
+  if (fileRes.error) return fileRes
+  const entries = []
+  let skippedLines = 0
+  for (const line of fileRes.raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const obj = JSON.parse(trimmed)
+      if (obj && typeof obj.file === 'string') entries.push({ file: obj.file, reason: obj.reason })
+      else skippedLines += 1
+    } catch {
+      skippedLines += 1
+    }
+  }
+  let entriesWritten
+  try {
+    entriesWritten = taskStore.curateContext(resolved, String(taskId), entries)
+  } catch (error) {
+    return { error: `写 context.jsonl 失败: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  return { written: true, project_id: resolved, task_id: String(taskId), entries_written: entriesWritten, input_entries: entries.length, skipped_lines: skippedLines }
+}
+
 const SUBCOMMAND_HELP = {
   advance: `advance - 标记任务完成并推进。
 
@@ -535,6 +618,26 @@ const SUBCOMMAND_HELP = {
 
 返回 {ready, lints, coverage, confidence{score,level,breakdown,hints}, summary}。
   confidence.hints 列出每个未达标维度的可执行提升项 → 不必读 plan_composer.js 源码。
+  lints.task_schema 列出 task.json 字段校验问题（缺 id / 非法 id / 类型错误 / empty_task_source 空源）→ 用 task-write 写入/重写修正。
+`,
+  'task-write': `task-write - 整集写 task-dir（planner 写机器 task 源的唯一正路，原子替换 + 清孤儿）。
+
+用法：
+  task-write --from-file <path.json | ->
+    --from-file <path>  必填。JSON 文件路径，或 - 读 stdin。
+    内容 = task 记录数组，或 {tasks:[...]}。字段（normalizeTaskRecord 11 项）：
+      id(必填 T<n>) name phase package target_layer depends[] blocked_by[] status acceptance[] verification{commands,expected_output,notes} interaction
+    返回 {written, task_ids, count}。整集 tmp→rename 原子替换，旧 task-dir 不在新集合的自动清除。
+  禁止读 core/utils/workflow/task_store.js 逆向 replaceAllTasks 自写 .cjs——本命令即正路。
+`,
+  'context-curate': `context-curate - 写单 task 的 context.jsonl 背包（覆盖式；execute 期注入 <context-pack>）。
+
+用法：
+  context-curate --id <Tn> --from-file <path.jsonl | ->
+    --id <Tn>           必填。task id。
+    --from-file <path>  必填。JSONL，每行 {file,reason}；- 读 stdin。
+    仅 spec/research 路径——code 扩展名行被自动丢弃（背包不承载源码，implementer 执行期自读）。
+    返回 {entries_written, input_entries, skipped_lines}。
 `,
   'write-handoff': `write-handoff - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，覆盖式写）。
 
@@ -556,11 +659,13 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|execute|continue|init|spec-review|delta|archive|unblock|advance|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|execute|continue|init|spec-review|delta|archive|unblock|advance|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
   plan (alias: start) - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
+  task-write --from-file <path.json|-> - 整集写 task-dir（planner 写机器 task 源唯一正路，原子替换 + 清孤儿；禁逆向 task_store.js）
+  context-curate --id <Tn> --from-file <path.jsonl|-> - 写单 task 的 context.jsonl 背包（覆盖式，仅 spec/research 路径）
   init - 状态文件自愈（执行阶段缺失时自动创建）
   help <advance|delta|journal|plan-edit|...> - 查看子命令参数签名
   set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入
@@ -738,6 +843,12 @@ function main() {
       })
     } else if (command === 'context') {
       result = cmdContext(pid, projectRoot)
+    } else if (command === 'task-write') {
+      result = cmdTaskWrite(option(args, '--from-file'), pid, projectRoot)
+      if (result && result.error) process.exitCode = 1
+    } else if (command === 'context-curate') {
+      result = cmdContextCurate(option(args, '--id'), option(args, '--from-file'), pid, projectRoot)
+      if (result && result.error) process.exitCode = 1
     } else if (command === 'task-bundle') {
       const taskId = args.find((arg) => !String(arg).startsWith('--'))
       if (!taskId) {
@@ -833,6 +944,8 @@ module.exports = {
   cmdSetContractDigestPath,
   cmdWriteHandoff,
   cmdReadHandoff,
+  cmdTaskWrite,
+  cmdContextCurate,
   inferSpecRelativeFromPlan,
   resolveHelpRequest,
 }

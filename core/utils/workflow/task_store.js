@@ -150,6 +150,13 @@ function replaceAllTasks(projectId, records = []) {
       const dir = path.join(tmpRoot, record.id)
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, 'task.json'), `${JSON.stringify(record, null, 2)}\n`)
+      // 保留存活 id 的 context.jsonl 背包：对齐 createTask「已存在则 context.jsonl 不动」语义。
+      // 整集换目录否则会连同存活 task 的策展背包一起丢弃（旧 root 此刻仍在，换入前可安全读）。
+      // 被移除 id 的背包随旧 root 一并清掉，符合孤儿清理预期。
+      const prevCtx = path.join(root, record.id, 'context.jsonl')
+      try {
+        if (fs.existsSync(prevCtx)) fs.copyFileSync(prevCtx, path.join(dir, 'context.jsonl'))
+      } catch { /* 背包保留失败不阻断整集替换（execute 期 readContext 容错） */ }
       written.push(record.id)
     }
   } catch (err) {

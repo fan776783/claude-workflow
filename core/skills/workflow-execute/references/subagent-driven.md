@@ -69,9 +69,11 @@ controller (主会话)
 - ❌ 在支持 subagent 的平台静默走 degraded mode
 - ❌ Phase 1 REVISE 仍跑 Phase 2（gate-rule 违反）
 - ❌ 让 implementer 自己读 plan.md / spec.md（controller 必须把 task block 完整粘进 prompt）
+- ❌ controller 自读业务源码回灌上下文——**不限 Read 工具,`cat/sed/head/tail/grep/rg/awk` 等 bash 通道同禁**。补 patterns-to-mirror / mandatory-reading 时只给路径 + 意图让 implementer 自读定位(行号可选);源码/diff 读取一律 subagent 侧。实测违反此条(Read + bash-cat 双通道 controller 自读 ~129k)是单会话上下文膨胀主因
+- ❌ controller 读 plan.md / spec.md **全文**回灌上下文(只持 contract-digest + Step 1 task 源切片;plan/spec 全文交 subagent 按路径自读)
 - ❌ 让 controller 把整文件正文粘进 reviewer prompt（reviewer 自跑 `git diff <base>..HEAD`）
-- ❌ controller 为补 patterns-to-mirror / mandatory-reading 的行号去 Read 源码（行号可选；缺失时给路径 + 意图，让 implementer 自读定位 —— 否则读取成本回灌 controller，是 333k 上下文膨胀的主因）
-- ❌ reviewer / implementer 返回散文报告（strict JSON-only，schema 违规重派 1 次后 halt）
+- ❌ controller 全量 dump 诊断输出回灌上下文(`workflow_cli status/context`、`git diff/log/status` 一律 `jq`/`grep`/`--stat` 取字段;原始 diff 验证交 reviewer subagent,不在 controller 跑)
+- ❌ reviewer / implementer 返回散文报告,或 **JSON 前后夹带散文/markdown/推理**(strict JSON-only:首字符即 `{`;controller 不做 loose-extract 容忍,夹带散文 = schema 违规,重派 1 次后 halt)
 - ❌ 在 plan 执行路径里同时派发多个 implementer subagent（plan task 有依赖 / 共享文件，写动作顺序执行）。文件不重叠的独立写任务走 `dispatching-parallel-agents` 的 writable fan-out，不在本主路径并行
 
 ## 与其它 skill 的边界
