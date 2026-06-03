@@ -308,32 +308,56 @@ function getSpecReviewGateViolation(state) {
 // 替换原 "plan_file ≠ null" 隐式假设；单点守门，供 sequencer / pre-execute-inject 调用，
 // 避免去骨架/惰性化中间态打穿 dispatch gate / sequencer / handoff freshness / status 四消费者。
 //
-// task 源 = task-dir（TaskDirSource）。projectId 优先取自参数，回退 state.project_id。
+// task 源 = TaskSource（task-dir；legacy plan.md 仅兼容读）。projectId 优先取自参数，回退 state.project_id。
 // 缺源 → 抛带 code='task_source_missing' 的 Error。正常态（idle/spec_review/completed/archived 或有 task）不报。
 const TASK_SOURCE_REQUIRED_STATUSES = new Set(['planned', 'running', 'halted'])
 
-function assertTaskSourcePresent(state, projectId = null) {
+function assertTaskSourcePresent(state, projectId = null, projectRoot = null) {
   const source = state || {}
   const status = source.status || 'idle'
   if (!TASK_SOURCE_REQUIRED_STATUSES.has(status)) return true
   const pid = projectId || source.project_id || source.projectId || null
-  // lazy require 断循环依赖（task_store → workflow_types.isoNow）。
-  const { listTasks } = require('./task_store')
+  const hasLegacyRef = Boolean(source.plan_file || source.tasks_file)
+  if (!pid && !projectRoot && !hasLegacyRef) {
+    throwTaskSourceMissing(status, pid)
+  }
+  // lazy require 断循环依赖：TaskSource 工厂会按 task-dir / legacy plan.md 统一判源。
+  const { createTaskSource } = require('./task_source')
   let tasks = []
-  if (pid) {
-    try {
-      tasks = listTasks(pid) || []
-    } catch {
-      tasks = []
-    }
+  try {
+    const taskSource = createTaskSource(source, { projectId: pid, projectRoot, quiet: true })
+    tasks = taskSource ? (taskSource.listTasks() || []) : []
+  } catch {
+    tasks = []
   }
   if (!tasks.length) {
-    const err = new Error(`task_source_missing: status='${status}' requires a non-empty task source (task-dir) but none found${pid ? ` for project ${pid}` : ' (no project id)'}`)
-    err.code = 'task_source_missing'
-    err.status = status
-    throw err
+    throwTaskSourceMissing(status, pid)
   }
   return true
+}
+
+function assertExecutableTaskSourcePresent(state, projectId = null, projectRoot = null) {
+  assertTaskSourcePresent(state, projectId, projectRoot)
+  const source = state || {}
+  const status = source.status || 'idle'
+  if (!TASK_SOURCE_REQUIRED_STATUSES.has(status)) return true
+  const pid = projectId || source.project_id || source.projectId || null
+  if (!pid) return true
+  // task-dir 才需要 schema/rich readiness；legacy plan.md source 没有 task-dir 时保持兼容。
+  const { getTaskDirExecutionIssue } = require('./task_store')
+  const issue = getTaskDirExecutionIssue(pid)
+  if (!issue) return true
+  const err = new Error(issue.message || issue.code)
+  err.code = issue.code
+  err.task_ids = issue.task_ids || []
+  throw err
+}
+
+function throwTaskSourceMissing(status, projectId = null) {
+  const err = new Error(`task_source_missing: status='${status}' requires a non-empty task source (task-dir or legacy plan.md) but none found${projectId ? ` for project ${projectId}` : ' (no project id)'}`)
+  err.code = 'task_source_missing'
+  err.status = status
+  throw err
 }
 
 function main() {
@@ -406,6 +430,7 @@ module.exports = {
   acknowledgeSkippedSpecReview,
   getSpecReviewGateViolation,
   assertTaskSourcePresent,
+  assertExecutableTaskSourcePresent,
   TASK_SOURCE_REQUIRED_STATUSES,
   getStatusMessages,
 }

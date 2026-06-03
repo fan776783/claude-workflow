@@ -196,25 +196,19 @@ test('derivePlanSummary extracts paths + task table + interaction legend', () =>
 // ---------- scoreConfidence ----------
 
 test('scoreConfidence full marks rubric', () => {
-  const plan = [
-    '## T1: implement',
-    '- **阶段**: implement',
-    '- **需求 ID**: R-001',
-    '- **验证命令**: npm test -- a',
-    '- **验证期望**: PASS',
-    '## T2: test',
-    '- **阶段**: test',
-    '- **需求 ID**: R-002',
-    '- **验证命令**: npm test -- b',
-    '- **验证期望**: PASS',
-    '### Pattern A',
-    '// SOURCE: src/x.ts:1-10',
-    '### Pattern B',
-    '// SOURCE: src/y.ts:1-10',
-    '### Pattern C',
-    '// SOURCE: src/z.ts:1-10',
-  ].join('\n')
-  const result = scoreConfidence(plan, {
+  // v2：confidence 读 task.json 记录（patterns[] / verification{commands,expected_output} / phase）。
+  const tasks = [
+    {
+      id: 'T1', phase: 'implement',
+      patterns: [{ file: 'src/x.ts' }, { file: 'src/y.ts' }, { file: 'src/z.ts' }],
+      verification: { commands: ['npm test -- a'], expected_output: ['PASS'] },
+    },
+    {
+      id: 'T2', phase: 'test',
+      verification: { commands: ['npm test -- b'], expected_output: ['PASS'] },
+    },
+  ]
+  const result = scoreConfidence(tasks, {
     coverage: { covered_ids: ['R-001', 'R-002'], uncovered_ids: [], partial_ids: [] },
   })
   assert.equal(result.breakdown.prd_coverage, 3)
@@ -226,42 +220,31 @@ test('scoreConfidence full marks rubric', () => {
 })
 
 test('scoreConfidence partial coverage drops PRD by 1', () => {
-  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
-  const result = scoreConfidence(plan, {
+  const result = scoreConfidence([{ id: 'T1' }], {
     coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: ['R-001'] },
   })
   assert.equal(result.breakdown.prd_coverage, 2, 'partial → +2 not +3')
 })
 
-test('scoreConfidence verification needs both 命令 and 期望', () => {
-  const plan = [
-    '## T1: foo',
-    '- **需求 ID**: R-001',
-    '- **验证命令**: npm test',
-    // no 验证期望
-  ].join('\n')
-  const result = scoreConfidence(plan, {
+test('scoreConfidence verification needs both commands and expected_output', () => {
+  const tasks = [{ id: 'T1', verification: { commands: ['npm test'], expected_output: [] } }]
+  const result = scoreConfidence(tasks, {
     coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
   })
-  assert.equal(result.breakdown.verification, 0, '只有命令没有期望 → 不给分')
+  assert.equal(result.breakdown.verification, 0, '只有 commands 没有 expected_output → 不给分')
 })
 
 test('scoreConfidence level boundaries', () => {
-  const empty = scoreConfidence('', {})
+  const empty = scoreConfidence([], {})
   assert.equal(empty.score, 0)
   assert.equal(empty.level, 'low')
 })
 
 // F-10 regression: confidence dimensions capped by command_syntax / pattern_fidelity lint failures.
+// task 本身达标（commands+expected）但 commandSyntax 报 issue → 仍封顶 0。
 test('scoreConfidence verification capped at 0 when commandSyntax has issues (F-10 regression)', () => {
-  const plan = [
-    '## T1: implement',
-    '- **阶段**: implement',
-    '- **需求 ID**: R-001',
-    '- **验证命令**: npm test ((unmatched',
-    '- **验证期望**: PASS',
-  ].join('\n')
-  const result = scoreConfidence(plan, {
+  const tasks = [{ id: 'T1', phase: 'implement', verification: { commands: ['npm test'], expected_output: ['PASS'] } }]
+  const result = scoreConfidence(tasks, {
     coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
     commandSyntax: { issues: [{ task: 'T1', kinds: ['bracket_mismatch'] }] },
   })
@@ -269,17 +252,8 @@ test('scoreConfidence verification capped at 0 when commandSyntax has issues (F-
 })
 
 test('scoreConfidence patterns capped at 0 when patternFidelity has unresolved (F-10 regression)', () => {
-  const plan = [
-    '## T1: foo',
-    '- **需求 ID**: R-001',
-    '### Pattern A',
-    '// SOURCE: src/x.ts:1-10',
-    '### Pattern B',
-    '// SOURCE: src/y.ts:1-10',
-    '### Pattern C',
-    '// SOURCE: src/z.ts:1-10',
-  ].join('\n')
-  const result = scoreConfidence(plan, {
+  const tasks = [{ id: 'T1', patterns: [{ file: 'src/x.ts' }, { file: 'src/y.ts' }, { file: 'src/z.ts' }] }]
+  const result = scoreConfidence(tasks, {
     coverage: { covered_ids: ['R-001'], uncovered_ids: [], partial_ids: [] },
     patternFidelity: { unresolved: [{ file: 'src/x.ts', reason: 'file_not_found' }] },
   })
@@ -374,6 +348,53 @@ test('cmdPlanReview blocks ready when spec_file is missing on disk (F-13 regress
     assert.equal(result.spec_status, 'spec_file_missing')
   } finally {
     fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// P3 golden：v2 task-dir 驱动 plan-review 的 rich 维度（patterns/mandatory/verification/confidence），
+// plan.md 仅叙述（无 task block）。验证 lint/confidence 已切到 task.json 源。
+test('cmdPlanReview v2: lints/confidence 读 task-dir（叙述 plan.md 无 task block）', () => {
+  const taskStore = require(path.join(workflowDir, 'task_store.js'))
+  const plan = '# 叙述\n机器 task 源为 task-dir。\n'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: 'R-001 only', currentTasks: ['T1'] })
+  taskStore.replaceAllTasks(projectId, [{
+    id: 'T1', phase: 'test', status: 'pending',
+    patterns: [
+      { file: 'core/utils/workflow/plan_composer.js' },
+      { file: 'core/utils/workflow/task_store.js' },
+      { file: 'package.json' },
+    ],
+    mandatory_reading: [{ path: 'README.md', line_hint: '1-5', reason: 'ctx' }],
+    verification: { commands: ['npm test'], expected_output: ['PASS'] },
+    acceptance: ['R-001 covered'],
+  }])
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.deepEqual(result.lints.pattern_fidelity.unresolved, [], 'patterns 引用真实文件 → 无 unresolved（来自 task-dir）')
+    assert.equal(result.lints.mandatory_reading.declared, true, 'mandatory_reading 来自 task-dir')
+    assert.deepEqual(result.lints.command_syntax.issues, [])
+    assert.equal(result.confidence.breakdown.patterns, 2, '3 个 resolved patterns → +2')
+    assert.equal(result.confidence.breakdown.verification, 3, 'commands+expected_output 双非空 → +3')
+    assert.equal(result.confidence.breakdown.test_task, 2, 'phase=test → +2')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(path.join(path.dirname(statePath), 'tasks'), { recursive: true, force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview v2: 坏 pattern file → pattern_fidelity unresolved（task-dir 来源）', () => {
+  const taskStore = require(path.join(workflowDir, 'task_store.js'))
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: '# 叙述\n', specContent: 'R-001', currentTasks: ['T1'] })
+  taskStore.replaceAllTasks(projectId, [{ id: 'T1', patterns: [{ file: 'nope/missing.ts' }] }])
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.lints.pattern_fidelity.unresolved.length, 1, '坏 pattern 来自 task-dir')
+    assert.equal(result.lints.pattern_fidelity.unresolved[0].reason, 'file_not_found')
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(path.join(path.dirname(statePath), 'tasks'), { recursive: true, force: true })
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 })
@@ -818,91 +839,75 @@ test('cmdPlanReview v1 plan with no anchors → ready=true (anchor not enforced)
 
 // ---------- Phase C: lintMandatoryReading ----------
 
-test('lintMandatoryReading no section → declared=false, no block', () => {
-  const result = lintMandatoryReading('## T1: foo\n')
+test('lintMandatoryReading no entries → declared=false, no block', () => {
+  const result = lintMandatoryReading([{ id: 'T1' }])
   assert.equal(result.declared, false)
   assert.deepEqual(result.violations, [])
 })
 
-test('lintMandatoryReading well-formed table → declared=true, no violations', () => {
-  const plan = [
-    '## Mandatory Reading',
-    '',
-    '| Priority | File | Lines | Why |',
-    '|----------|------|-------|-----|',
-    '| P0 | src/a.ts | 1-50 | core logic |',
-    '| P1 | src/b.ts | 100 | helper |',
-    '',
-    '## T1: foo',
-  ].join('\n')
-  const result = lintMandatoryReading(plan)
+test('lintMandatoryReading well-formed entries → declared=true, no violations', () => {
+  const tasks = [{
+    id: 'T1',
+    mandatory_reading: [
+      { path: 'src/a.ts', line_hint: '1-50', reason: 'core logic' },
+      { path: 'src/b.ts', line_hint: '100', reason: 'helper' },
+    ],
+  }]
+  const result = lintMandatoryReading(tasks)
   assert.equal(result.declared, true)
   assert.deepEqual(result.violations, [])
 })
 
-test('lintMandatoryReading malformed lines field → violation', () => {
-  const plan = [
-    '## Mandatory Reading',
-    '',
-    '| Priority | File | Lines | Why |',
-    '|----------|------|-------|-----|',
-    '| P0 | src/a.ts | entire file | core |',
-    '',
-  ].join('\n')
-  const result = lintMandatoryReading(plan)
+test('lintMandatoryReading malformed line_hint → violation', () => {
+  const tasks = [{ id: 'T1', mandatory_reading: [{ path: 'src/a.ts', line_hint: 'entire file', reason: 'core' }] }]
+  const result = lintMandatoryReading(tasks)
   assert.equal(result.declared, true)
   assert.equal(result.violations.length, 1)
 })
 
-// 行号可选(superpowers 式)：lines 列留空 = 合规,implementer 自读定位。
-test('lintMandatoryReading empty lines column → no violation (line numbers optional)', () => {
-  const plan = [
-    '## Mandatory Reading',
-    '',
-    '| Priority | File | Lines | Why |',
-    '|----------|------|-------|-----|',
-    '| P0 | src/a.ts |  | core logic |',
-    '| P1 | src/b.ts | 100 | helper |',
-    '',
-  ].join('\n')
-  const result = lintMandatoryReading(plan)
+// 行号可选(superpowers 式)：line_hint 留空 = 合规,implementer 自读定位。
+test('lintMandatoryReading empty line_hint → no violation (line numbers optional)', () => {
+  const tasks = [{
+    id: 'T1',
+    mandatory_reading: [
+      { path: 'src/a.ts', line_hint: '', reason: 'core logic' },
+      { path: 'src/b.ts', line_hint: '100', reason: 'helper' },
+    ],
+  }]
+  const result = lintMandatoryReading(tasks)
   assert.equal(result.declared, true)
-  assert.deepEqual(result.violations, [], `empty lines col must be compliant, got ${JSON.stringify(result)}`)
+  assert.deepEqual(result.violations, [], `empty line_hint must be compliant, got ${JSON.stringify(result)}`)
 })
 
-// Multi-digit priority rows (P10+) must be inspected, not silently skipped.
-test('lintMandatoryReading flags malformed P10 row (multi-digit priority)', () => {
-  const plan = [
-    '## Mandatory Reading',
-    '',
-    '| Priority | File | Lines | Why |',
-    '|----------|------|-------|-----|',
-    '| P10 | src/a.ts | entire file | core |',
-    '',
-  ].join('\n')
-  const result = lintMandatoryReading(plan)
+// 跨 task 的 mandatory_reading 条目都要被检查，不能漏（多 task 聚合不漏项）。
+test('lintMandatoryReading inspects entries across all tasks', () => {
+  const tasks = [
+    { id: 'T1', mandatory_reading: [{ path: 'src/a.ts', line_hint: '1-50' }] },
+    { id: 'T2', mandatory_reading: [{ path: 'src/b.ts', line_hint: 'entire file' }] },
+  ]
+  const result = lintMandatoryReading(tasks)
   assert.equal(result.declared, true)
-  assert.equal(result.violations.length, 1, `P10 row must be inspected, got ${JSON.stringify(result)}`)
+  assert.equal(result.violations.length, 1, `每个 task 的条目都须检查, got ${JSON.stringify(result)}`)
 })
 
 // ---------- Phase C: lintCommandSyntax ----------
 
 test('lintCommandSyntax happy path → no issues', () => {
-  const plan = '## T1: foo\n- **验证命令**: npm test -- a.test.ts\n- **验证期望**: PASS\n'
-  const result = lintCommandSyntax(plan)
+  const tasks = [{ id: 'T1', verification: { commands: ['npm test -- a.test.ts'], expected_output: ['PASS'] } }]
+  const result = lintCommandSyntax(tasks)
   assert.deepEqual(result.issues, [])
 })
 
 test('lintCommandSyntax catches unclosed bracket', () => {
-  const plan = '## T1: foo\n- **验证命令**: npm test (foo\n'
-  const result = lintCommandSyntax(plan)
+  const tasks = [{ id: 'T1', verification: { commands: ['npm test (foo'] } }]
+  const result = lintCommandSyntax(tasks)
   assert.equal(result.issues.length, 1)
   assert.ok(result.issues[0].kinds.includes('bracket_mismatch'))
 })
 
 test('lintCommandSyntax catches trailing pipe and unclosed quote', () => {
-  const plan = '## T1: foo\n- **验证命令**: npm test "abc |\n'
-  const result = lintCommandSyntax(plan)
+  const tasks = [{ id: 'T1', verification: { commands: ['npm test "abc |'] } }]
+  const result = lintCommandSyntax(tasks)
   assert.equal(result.issues.length, 1)
   assert.ok(result.issues[0].kinds.includes('trailing_pipe'))
   assert.ok(result.issues[0].kinds.includes('double_quote_unclosed'))
@@ -911,21 +916,21 @@ test('lintCommandSyntax catches trailing pipe and unclosed quote', () => {
 // ---------- Phase C: lintPatternFidelity ----------
 
 test('lintPatternFidelity catches missing file', () => {
-  const plan = '### Pattern A\n// SOURCE: nonexistent/file.ts:1-10\n'
-  const result = lintPatternFidelity(plan, repoRoot)
+  const tasks = [{ id: 'T1', patterns: [{ file: 'nonexistent/file.ts', line: '1-10', note: 'p' }] }]
+  const result = lintPatternFidelity(tasks, repoRoot)
   assert.equal(result.unresolved.length, 1)
   assert.equal(result.unresolved[0].reason, 'file_not_found')
 })
 
 test('lintPatternFidelity accepts existing file', () => {
-  const plan = '### Pattern A\n// SOURCE: core/utils/workflow/plan_composer.js:1-10\n'
-  const result = lintPatternFidelity(plan, repoRoot)
+  const tasks = [{ id: 'T1', patterns: [{ file: 'core/utils/workflow/plan_composer.js', line: '1-10' }] }]
+  const result = lintPatternFidelity(tasks, repoRoot)
   assert.equal(result.unresolved.length, 0)
 })
 
 test('lintPatternFidelity catches line out of range', () => {
-  const plan = '### Pattern A\n// SOURCE: package.json:9999-10000\n'
-  const result = lintPatternFidelity(plan, repoRoot)
+  const tasks = [{ id: 'T1', patterns: [{ file: 'package.json', line: '9999-10000' }] }]
+  const result = lintPatternFidelity(tasks, repoRoot)
   assert.equal(result.unresolved.length, 1)
   assert.equal(result.unresolved[0].reason, 'line_out_of_range')
 })

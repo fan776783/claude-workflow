@@ -147,7 +147,9 @@ node utils/workflow/workflow_cli.js journal search "关键词"
 
 ## Task 源与 resume 恢复
 
-机器 task 源 = **task-dir**（`~/.claude/workflows/{projectId}/tasks/{taskId}/{task.json,context.jsonl}`），由 `/workflow-plan` 现写、execute 期 `execution_sequencer` / `task_manager` 经 `createTaskSource(state)` 反查。`plan.md` **退化为可选的人类可读叙述**（front matter + 锚点），不再作机器 task 源解析。
+机器 task 源 = **task-dir**（`~/.claude/workflows/{projectId}/tasks/{taskId}/{task.json,task.md,context.jsonl}`），由 `/workflow-plan` 现写、execute 期 `execution_sequencer` / `task_manager` 经 `createTaskSource(state)` 反查。`plan.md` **退化为可选的人类可读叙述**（front matter + 锚点），不再作机器 task 源解析。
+
+**task-dir schema v2**（见 `task-dir-schema.md`）：执行所需 rich 正文（`files`/`patterns`/`mandatory_reading`/`constraints`/`task_text`）进 task.json 结构化字段，`task.md` 为其渲染产物（execute 逐字注入、不回解析）。`task.json.schema_version` 标版本——**execute 入口对 `< 2` 的 task-dir 硬阻断**（`reason: task_dir_schema_v1`），引导全量重 plan；本版本不兼容 v1 task-dir，无回退。只读命令不受影响。
 
 - `createTaskSource(state)` 工厂：task-dir 非空 → `TaskDirSource`；仅 legacy plan.md（无 task-dir）→ `LegacyPlanMdSource`（复用 `parseTasksV2` 兼容读 + stderr 显式迁移提示，C-7 不静默失效）；皆无 → `null`（调用方报 `task_source_missing`）。
 - `current_tasks[0]` = task 源 `firstTaskId()`，顺序由 task-dir 数字序（或 legacy plan.md 解析序）稳定确定，是 resume 的可复现起点。

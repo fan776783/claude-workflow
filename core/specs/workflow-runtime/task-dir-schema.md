@@ -1,4 +1,4 @@
-# task-dir Schema (v1)
+# task-dir Schema (v2)
 
 > 📌 **Canonical Source**：机器 task 源（task-dir）的写入 contract。`workflow-plan` 经 CLI 写、`workflow-execute`/`workflow-delta` 读。CLI 实现见 `core/utils/workflow/task_store.js` `normalizeTaskRecord`——**本文件即 contract，不要读 task_store.js 源码反推**。
 
@@ -7,10 +7,15 @@
 ```text
 tasks/
 ├── T1/
-│   ├── task.json       # 元数据（本文件 schema）
+│   ├── task.json       # 元数据 + v2 rich 执行字段（本文件 schema）
+│   ├── task.md         # v2 人读执行正文（从 task.json 渲染，execute 逐字注入 implementer；不回解析）
 │   └── context.jsonl   # 可选 per-task 背包，每行 {file,reason}
 └── T2/ ...
 ```
+
+> **v1 → v2**：v2 把执行所需 rich 正文（`files`/`patterns`/`mandatory_reading`/`constraints`/`task_text`）收进 task.json 结构化字段（取代旧版散在 plan.md 锚点、execute 期 task-bundle 解析的脆弱路径）。`schema_version` 标记版本：**execute 入口对 `< 2` 的 task-dir 硬阻断**（`reason: task_dir_schema_v1`），引导 `workflow_cli plan --force` 全量重 plan 或 archive——本版本不兼容 v1 task-dir，无回退路径。只读命令（status/list）不受影响。
+>
+> **可执行 readiness**：`schema_version=2` 只代表结构版本，不代表已经完成 `/workflow-plan` 现写。spec-approve 落下的 metadata 壳也可能是 v2；execute / Task 派发还要求每个 task 的 `task_text` 非空，否则返回 `task_dir_not_executable`，提示先运行 `/workflow-plan` 经 `task-write` 写入最终 task-dir。
 
 ## 写入正路（唯一）
 
@@ -28,10 +33,11 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 
 `<cmd> --help` 打印参数签名。CLI 不满足需求时 **halt 报错让用户介入**，禁止读 `task_store.js` / `plan_composer.js` 等引擎源码逆向函数自写脚本（PreToolUse `guard-engine-source` hook 会 deny）。
 
-## task.json 字段（11 项，对齐 normalizeTaskRecord）
+## task.json 字段（v2，对齐 normalizeTaskRecord）
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
+| `schema_version` | number | — | 写侧盖章 `2` | task-dir schema 版本。读侧缺省视为 `1`。**execute 入口对 `< 2` 阻断**（v1 不兼容，须重 plan） |
 | `id` | string | ✅ | — | `T<number>`（T1/T2…）。非法 id 写入即报错 |
 | `name` | string | ✅(实务) | `''` | task 标题。空 → plan-review warning |
 | `phase` | string | — | `implement` | `implement` / `test` / `config` |
@@ -43,6 +49,13 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 | `acceptance` | string[] | — | `[]` | 验收信号。空 → plan-review warning |
 | `verification` | object | — | `null` | `{commands:string[], expected_output?, notes?}`。execute 注 `<verification-commands>` |
 | `interaction` | string | — | `AFK` | 交互模式 |
+| `files` | string[] | — | `[]` | **v2** task 写作用域（implementer `allowed_write_paths` 来源） |
+| `constraints` | string[] | — | `[]` | **v2** 关键约束（implementer 护栏文本） |
+| `patterns` | object[] | — | `[]` | **v2** Patterns to Mirror，每项 `{file, line?, note}`。plan-review `lintPatternFidelity` 校验 file 存在 |
+| `mandatory_reading` | object[] | — | `[]` | **v2** Mandatory Reading，每项 `{path, reason, symbols[], line_hint}`。plan-review `lintMandatoryReading` 校验 |
+| `task_text` | string | — | `''` | **v2** 执行正文，渲染进 `task.md` 逐字注入 implementer |
+
+未知扩展字段必须在读写 / status 更新中透传保留，避免 planner、delta 或未来 runtime 写入的 metadata 被 normalization 意外丢弃。写侧仍必须覆盖 `schema_version=2`；手写旧文件缺省才视为 v1。
 
 ### 最小示例
 
@@ -67,6 +80,14 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 
 - **仅 spec/research 路径**。code 扩展名（`.js/.ts/.py/...`）行被 `context-curate` 自动丢弃——源码复用面走 contract-digest，implementer 执行期自读。
 - execute 期 `pre-execute-inject` 在 active task scope 展开为 `<context-pack>`，注入 implementer/check subagent。
+
+## task.md（v2 执行正文）
+
+`task.md` 是 workflow-plan 从 task.json（主要 `task_text` + 结构化 rich 字段）渲染的人读执行切片：
+
+- **只读注入**：execute 期 controller 逐字注入 implementer prompt，**不回解析**——结构化语义一律读 task.json 对应字段，task.md 仅承载叙述正文，避免重蹈旧版 markdown 解析的脆弱性。
+- **可重生**：缺失非致命（`readTaskMd` 返回 `''`），可由 task.json 重渲染。
+- 写入走 `task_store.writeTaskMd`（planner 现写阶段）；整集 `task-write` 替换时按新 task.json 重渲染 task.md。不要保留旧 task.md，避免渲染产物和 canonical task.json 分叉。
 
 ## 完整性门控
 

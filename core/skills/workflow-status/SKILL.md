@@ -34,7 +34,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 | `--detail` | 详细 | `progress` + `next` + `list` + `budget` + `journal list` + `context` |
 | `--json` | JSON | 直接输出 `status` 原始 JSON |
 
-`context` 返回 workflow 上下文字段;`spec_file` / `plan_file` 存在于磁盘 `workflow-state.json` 中,可直接从 `status` 原始 JSON 获取;`list` 返回各任务的 id / name / phase / status / actions。
+`context` 返回 workflow 上下文字段;`spec_file` / `plan_file` 存在于磁盘 `workflow-state.json` 中,可直接从 `status` 原始 JSON 获取;`list` 返回各任务的 id / name / phase / status / emoji / target_layer / package。
 
 ## Step 3: 格式化输出
 
@@ -44,6 +44,6 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
 
 按 `workflow_status` + `halt_reason` 选建议,完整映射表 + halt_reason 解读见 [`references/next-action.md`](references/next-action.md)。CLI `next` 命令只返回下一个 task 对象,不出 next-action,建议由本 skill 翻译。
 
-> Legacy 状态 `paused` / `blocked` / `failed` / `planning` 会被 CLI 投影为新状态。一次性升级旧文件运行 `workflow_cli.js migrate-state`。
+> Legacy 状态 `paused` / `blocked` / `failed` / `planning` 会被 CLI 读取时自动投影为新状态,无需手动迁移。
 >
 > 本 skill 只读 workflow runtime;若用户用 `/team`,改查 `/team status`。

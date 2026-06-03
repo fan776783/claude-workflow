@@ -58,3 +58,17 @@ node workflow_cli.js plan-edit --anchor <id> --content-file <path> \
 | `--allow-anchor-change` | 显式确认 `replace_full` 模式 |
 
 写入前校验:锚点配对完整性 / `state.current_tasks` 不被孤立 / CRLF 兼容。任一失败拒绝写入并返回错误码,不静默 no-op。
+
+## fail
+
+`fail` 标记任务失败并把 workflow 推入 `halted/failure`——验证失败 / reviewer schema failure / review-loop 失败的**统一写入口**(取代散落各处的 state 手写)。
+
+```
+node workflow_cli.js fail <task-id> --reason "<失败原因>"
+```
+
+写入:task 状态 → `failed`、`state.status` → `halted`、`halt_reason` → `failure`、`failure_reason` = reason、`current_tasks` = `[task-id]`、`progress.failed` 追加 task-id(并从 `progress.completed` 移除避免双计)。task 不在 task 源中 → 返回错误且不改 state。
+
+## archive
+
+`archive` 把 `completed` workflow 落到 `history/{yearMonth}/{slug}-{timestamp}/`,snapshot `workflow-state.json` + `tasks.md` + canonical 机器 task 源 `tasks/`(每 task `task.json`/`context.jsonl`) + 迁入 `changes/CHG-*`,提交阶段删根 `workflow-state.json` / `tasks.md` / `tasks/` / `changes/`。两阶段 tombstone(`populating` → `committing`)保证崩溃可恢复:`populating` 崩 → 回滚 destDir,根目录完整保留;`committing` 崩 → forward-commit。归档后根 `tasks/` 必须清空,否则按 project-id 泄漏给下个 workflow。

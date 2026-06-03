@@ -93,6 +93,7 @@ function seedTaskDir(ids = ['T1'], projectId = 'proj-test') {
     phase: 'implement',
     status: 'pending',
     depends: index > 0 ? [`T${index}`] : [],
+    task_text: `${id} 执行正文`,
   }))
 }
 
@@ -786,7 +787,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.deepEqual(state.delta_tracking.applied_changes, ['CHG-001'])
   })
 
-  await t.test('delta apply is idempotent and does not duplicate task blocks', () => {
+  await t.test('delta apply is idempotent and does not write task blocks to plan.md (task 源走 task-write)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-delta-apply-'))
     const [extraEnv, home] = makeCliEnv(root)
     writeProjectConfig(root, 'proj-test')
@@ -805,12 +806,8 @@ test('workflow helper migration coverage', async (t) => {
     const changeDir = path.join(path.dirname(statePath), 'changes', 'CHG-001')
     const deltaPath = path.join(changeDir, 'delta.json')
     const delta = JSON.parse(fs.readFileSync(deltaPath, 'utf8'))
-    delta.task_deltas = [
-      {
-        action: 'add',
-        task_markdown: `## T3: 增量任务\n- **阶段**: implement\n- **Spec 参考**: §1\n- **Plan 参考**: P3\n- **状态**: pending\n- **actions**: edit_file\n- **步骤**:\n  - A3: 处理增量变更 → 完成增量任务\n`,
-      },
-    ]
+    // task_deltas 现仅作审计计数（P4.2：delta apply 不再据此写 plan.md；task 增删改走 task-write 落 task-dir）。
+    delta.task_deltas = [{ action: 'add', task_markdown: '## T3: 增量任务\n' }]
     fs.writeFileSync(deltaPath, `${JSON.stringify(delta, null, 2)}\n`)
 
     const firstApplyResult = runNode(cliScript, ['delta', 'apply', '--change-id', 'CHG-001'], { cwd: root, env: extraEnv })
@@ -821,8 +818,9 @@ test('workflow helper migration coverage', async (t) => {
     const secondApplyPayload = JSON.parse(secondApplyResult.stdout)
     assert.equal(secondApplyPayload.already_applied, true)
 
+    // P4.2：delta apply 不再把 task block 写进 plan.md（task 增删改走 task-write 落 task-dir）。
     const planContent = fs.readFileSync(planPath, 'utf8')
-    assert.equal((planContent.match(/## T3: 增量任务/g) || []).length, 1)
+    assert.equal((planContent.match(/## T3: 增量任务/g) || []).length, 0, 'delta apply 不应写 task block 到 plan.md')
   })
 
   await t.test('detectDeltaTrigger recognizes Windows autogen paths as api changes', () => {
@@ -854,7 +852,7 @@ test('workflow helper migration coverage', async (t) => {
       // S3 重基（FR-2 / C-2）：plan.md 退化为叙述；task 元数据走 task-dir，hook 注入 <current-task> 块由 task-dir 渲染。
       fs.writeFileSync(planPath, '# Plan\n\n叙述正文。\n')
       const taskStore = require(path.join(workflowDir, 'task_store.js'))
-      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', package: 'pkg-a', target_layer: 'backend', status: 'pending', acceptance: ['确认导出可工作'] })
+      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', package: 'pkg-a', target_layer: 'backend', status: 'pending', acceptance: ['确认导出可工作'], task_text: '执行 T1。' })
 
       const sessionResult = runHook(sessionStartHook, {}, { cwd: root, env: { HOME: home } })
       assert.equal(sessionResult.status, 0)
@@ -913,6 +911,39 @@ test('workflow helper migration coverage', async (t) => {
       // verification-commands 为 plan.md 时代字段，task-dir 不承载 → 不再断言其出现。
       assert.match(injectedPayload.tool_input.description, /<current-task/)
       assert.match(injectedPayload.tool_input.description, /T1/)
+
+      fs.rmSync(path.join(home, '.claude', 'workflows', 'proj-test', 'tasks'), { recursive: true, force: true })
+      const missingSourceTask = runHook(preExecuteHook, {
+        tool_name: 'Task',
+        tool_input: { description: '执行 T1' },
+      }, { cwd: root, env: { HOME: home } })
+      const missingSourcePayload = JSON.parse(missingSourceTask.stdout)
+      assert.equal(missingSourcePayload.continue, false)
+      assert.match(missingSourcePayload.reason, /task_source_missing/)
+    })
+  })
+
+  await t.test('pre-execute hook blocks v1 task-dir direct Task dispatch', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-hook-v1-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root, 'proj-test')
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+      const v1JsonPath = path.join(home, '.claude', 'workflows', 'proj-test', 'tasks', 'T1', 'task.json')
+      fs.mkdirSync(path.dirname(v1JsonPath), { recursive: true })
+      fs.writeFileSync(v1JsonPath, `${JSON.stringify({ id: 'T1', phase: 'implement', status: 'pending' }, null, 2)}\n`)
+
+      const result = runHook(preExecuteHook, {
+        tool_name: 'Task',
+        tool_input: { description: '执行 T1' },
+      }, { cwd: root, env: { HOME: home } })
+      const payload = JSON.parse(result.stdout)
+      assert.equal(payload.continue, false)
+      assert.match(payload.reason, /task_dir_schema_v1/)
     })
   })
 
@@ -1349,6 +1380,66 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
+  await t.test('buildExecuteEntry blocks execute/continue on v1 task-dir (schema_version < 2)', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-v1-block-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+      // 模拟旧版写的 v1 task.json：无 schema_version 字段（不经 createTask 盖章）。
+      const v1JsonPath = path.join(home, '.claude', 'workflows', 'proj-test', 'tasks', 'T1', 'task.json')
+      fs.mkdirSync(path.dirname(v1JsonPath), { recursive: true })
+      fs.writeFileSync(v1JsonPath, `${JSON.stringify({ id: 'T1', phase: 'implement', status: 'pending' }, null, 2)}\n`)
+
+      for (const cmd of ['execute', 'continue']) {
+        const result = executionSequencer.buildExecuteEntry(cmd, null, null, root)
+        assert.equal(result.entry_action, 'none', `${cmd} 应被 v1 阻断`)
+        assert.equal(result.reason, 'task_dir_schema_v1')
+        assert.match(result.message, /v1 task-dir|plan --force/)
+      }
+    })
+  })
+
+  await t.test('buildExecuteEntry blocks execute on v2 metadata shell without task_text', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-v2-shell-block-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+      const taskStore = require(path.join(workflowDir, 'task_store.js'))
+      taskStore.createTask('proj-test', { id: 'T1', phase: 'implement', status: 'pending' })
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'none')
+      assert.equal(result.reason, 'task_dir_not_executable')
+      assert.match(result.message, /metadata 壳|task_text/)
+    })
+  })
+
+  await t.test('buildExecuteEntry allows execute on executable v2 task-dir (createTask 盖章 v2)', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-v2-ok-'))
+    const home = path.join(tmpRoot, 'home')
+    const root = path.join(tmpRoot, 'project')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(root, { recursive: true })
+    writeProjectConfig(root)
+
+    withHome(home, () => {
+      createCanonicalStateFile(home, 'proj-test', 'running', ['T1'])
+      seedTaskDir(['T1']) // createTask → schema_version 盖章 2 + task_text
+      const result = executionSequencer.buildExecuteEntry('execute', null, null, root)
+      assert.equal(result.entry_action, 'execute')
+      assert.equal(result.reason, 'explicit_execute')
+    })
+  })
+
   await t.test('buildExecuteEntry rejects execute while workflow is still in spec_review', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-spec-review-'))
     const home = path.join(tmpRoot, 'home')
@@ -1627,8 +1718,14 @@ test('workflow helper migration coverage', async (t) => {
     assert.match(journalHelp.stdout, /journal add/)
     assert.match(journalHelp.stdout, /journal search/)
 
+    // P0.3：fail 统一失败写入口，help 暴露签名。
+    const failHelp = runNode(cliScript, ['help', 'fail'])
+    assert.equal(failHelp.status, 0, failHelp.stderr)
+    assert.match(failHelp.stdout, /fail <task-id> --reason/)
+    assert.match(failHelp.stdout, /halted\/failure/)
+
     const unknownHelp = runNode(cliScript, ['help', 'unknown-sub'])
     assert.equal(unknownHelp.status, 0)
-    assert.match(unknownHelp.stdout, /Available subcommands: advance, delta, journal/)
+    assert.match(unknownHelp.stdout, /Available subcommands: advance, fail, delta, journal/)
   })
 })

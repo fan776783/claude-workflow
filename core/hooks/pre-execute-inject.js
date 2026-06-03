@@ -20,7 +20,7 @@ const {
   collectSpecFiles,
   renderSpecFiles,
 } = require('../utils/workflow/task_runtime')
-const { deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { assertExecutableTaskSourcePresent, deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { shouldSkipInjection } = require('./_skip')
 const { normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
 
@@ -140,7 +140,8 @@ function buildTaskContext(runtime, kind, role) {
   if (taskBlock) {
     // kind 非 null 代表 subagent dispatch；role 缺失保留 'unknown' 标记，与旧行为一致
     const header = kind ? `<current-task subagent_role="${role || 'unknown'}">` : '<current-task>'
-    parts.push(`${header}\n${taskBlock.slice(0, 3000)}\n</current-task>`)
+    // v2 task.md 切片含 task_text + patterns/mandatory/constraints/files/验证，比旧 plan.md block 大 → 放宽截断上限。
+    parts.push(`${header}\n${taskBlock.slice(0, 6000)}\n</current-task>`)
     if (kind !== 'research') {
       const verificationCommands = getTaskVerificationCommands(task)
       if (verificationCommands.length) {
@@ -267,14 +268,30 @@ function main() {
     return
   }
 
+  try {
+    assertExecutableTaskSourcePresent(state, runtime.projectId, runtime.projectRoot)
+  } catch (error) {
+    if (error && error.code === 'task_source_missing') {
+      process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] task_source_missing：当前 workflow 缺少非空 task 源，禁止派发执行型 Task。请先通过 /workflow-plan 重建 task-dir，或 archive 当前 workflow。`)))
+      return
+    }
+    if (error && (error.code === 'task_dir_schema_v1' || error.code === 'task_dir_not_executable')) {
+      process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] ${error.code}：${error.message}`)))
+      return
+    }
+    throw error
+  }
+
   const currentTaskId = (state.current_tasks || [])[0]
   if (!currentTaskId) {
     process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 当前没有 active task，禁止派发执行型 Task。请先通过 `/workflow-execute` 解析下一步任务。')))
     return
   }
 
-  if (!state.spec_file || !state.plan_file) {
-    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 缺少 spec_file 或 plan_file，执行上下文不完整。请先修复 workflow 状态后再继续。')))
+  // plan.md 已退化为可选叙述（机器 task 源 = task-dir）；不再因 plan_file 缺失而拦截 task-dir-only 流程。
+  // 仍要求 spec_file（spec 是执行契约）；task 源存在性由 assertTaskSourcePresent 统一覆盖。
+  if (!state.spec_file) {
+    process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 缺少 spec_file，执行上下文不完整。请先修复 workflow 状态后再继续。')))
     return
   }
 

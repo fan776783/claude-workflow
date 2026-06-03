@@ -14,8 +14,7 @@ const {
 const { readState, writeState } = require('./state_manager')
 const { detectProjectId, resolveStateAndTasks } = require('./task_manager')
 const { createTaskSource } = require('./task_source')
-const taskStore = require('./task_store')
-const { acknowledgeSkippedSpecReview, assertTaskSourcePresent, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+const { acknowledgeSkippedSpecReview, assertExecutableTaskSourcePresent, assertTaskSourcePresent, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
 
 // S3 重基（FR-2）：sequencer 的 task 序列来源从 parseTasksV2(plan.md) 切到 TaskSource（task-dir）。
 // projectId 优先取自参数/state，再回退 detectProjectId(projectRoot)。
@@ -115,6 +114,22 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
       reason: 'task_source_missing',
       message: context.error || 'task 源缺失（task-dir 为空），无法进入执行阶段。请重新运行 /workflow-plan 生成 task 源。',
     }
+  }
+  try {
+    assertExecutableTaskSourcePresent(context.state || {}, projectId, String(projectRoot))
+  } catch (error) {
+    if (error && (error.code === 'task_dir_schema_v1' || error.code === 'task_dir_not_executable')) {
+      return {
+        entry_action: 'none',
+        resolved_mode: null,
+        project_id: projectId,
+        state_status: context.state ? context.state.status : null,
+        can_resume: false,
+        reason: error.code,
+        message: error.message,
+      }
+    }
+    throw error
   }
   // task_source_missing 之外的可诊断态：context.state 仍带回供门控判定。
   // 真正"无 state"（resolveStateAndTasks 早退）才置 null。
@@ -269,7 +284,7 @@ function loadExecutionContext(projectId = null, projectRoot = null) {
   // 缺源诊断走显式 error 字段（status 要求 task 源但为空时），advance/dispatch 路径另由 assertTaskSourcePresent 守门。
   if (!tasks.length) {
     try {
-      assertTaskSourcePresent(normalizedState, pid)
+      assertTaskSourcePresent(normalizedState, pid, projectRoot)
     } catch (err) {
       if (err && err.code === 'task_source_missing') {
         return { error: err.message, code: err.code, state: normalizedState, state_path: statePath }

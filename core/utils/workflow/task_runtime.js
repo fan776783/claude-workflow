@@ -5,6 +5,7 @@ const path = require('path')
 const { detectProjectIdFromRoot, getWorkflowsDir, getThinkingGuidesDir, getCodeSpecsDir, safeReadJson } = require('./path_utils')
 const { extractTaskBlock } = require('./task_parser')
 const taskStore = require('./task_store')
+const { renderTaskMd } = require('./task_md_render')
 
 function readFile(targetPath, fallback = '') {
   try {
@@ -139,13 +140,20 @@ function renderTaskBlockFromRecord(record) {
 function getTaskBlock(runtime, taskId = null) {
   const resolvedTaskId = taskId || getCurrentTaskId(runtime)
   if (!resolvedTaskId) return ''
-  // 优先 plan.md 叙述正文里的结构化 block（存量 plan 兼容）；
-  // task-dir 流程 plan.md 无 block 时回退渲染 task-dir 记录（C-2：dispatch 上下文不退化为空）。
+  const record = getCurrentTask(runtime)
+  // P2.2：v2 task-dir → 注入 task.md 渲染正文（含 task_text/patterns/mandatory_reading/constraints/files/验证）。
+  // 优先读已渲染的 task.md；缺失则从 task.json 记录即时重渲染（同一渲染器，内容等价，不依赖 task.md 文件存在）。
+  if (record && record.id === resolvedTaskId && Number(record.schema_version) >= taskStore.CURRENT_SCHEMA_VERSION) {
+    const md = runtime?.projectId ? taskStore.readTaskMd(runtime.projectId, resolvedTaskId) : ''
+    if (md && md.trim()) return md
+    const rendered = renderTaskMd(record)
+    if (rendered && rendered.trim()) return rendered
+  }
+  // legacy / v1：优先 plan.md 叙述正文里的结构化 block（存量 plan 兼容），回退渲染最小记录。
   if (runtime?.tasksContent) {
     const block = extractTaskBlock(runtime.tasksContent, resolvedTaskId)
     if (block) return block
   }
-  const record = getCurrentTask(runtime)
   if (record && record.id === resolvedTaskId) return renderTaskBlockFromRecord(record)
   return ''
 }

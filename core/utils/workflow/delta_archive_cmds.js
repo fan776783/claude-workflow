@@ -6,7 +6,6 @@ const fs = require('fs')
 const path = require('path')
 
 const {
-  applyTaskDeltas,
   createDeltaArtifacts,
   summarizeTaskDeltas,
   toPrettyJson,
@@ -17,7 +16,6 @@ const {
   recordDeltaChange,
   writeState,
 } = require('./state_manager')
-const { resolveStateAndTasks } = require('./task_manager')
 const { createTaskSource } = require('./task_source')
 const { deriveEffectiveStatus, ensureStateDefaults, buildDeviationRecord } = require('./workflow_types')
 const { reconcileBlockedTasks } = require('./dependency_checker')
@@ -168,16 +166,11 @@ function cmdDeltaApply(changeId, projectId = null, projectRoot = null) {
     fs.writeFileSync(reviewStatusPath, toPrettyJson(reviewStatus))
   }
 
-  // 应用 task deltas（如有）
-  let taskDeltaSummary = { add: 0, modify: 0, remove: 0 }
-  const taskDeltas = delta.task_deltas || []
-  if (taskDeltas.length) {
-    const [, , tasksContent, tasksPath] = resolveStateAndTasks(resolvedProjectId, root)
-    if (tasksContent && tasksPath) {
-      fs.writeFileSync(tasksPath, applyTaskDeltas(tasksContent, taskDeltas))
-      taskDeltaSummary = summarizeTaskDeltas(taskDeltas)
-    }
-  }
+  // P4.2：删除旧的「写 plan.md/tasks.md task block」死写入路径（task_deltas 从未被填充 + 目标错指 plan.md）。
+  // v2 下 task 增删改由 workflow-delta SKILL 经 `task-write` 整集重写 task-dir 完成（见 SKILL Step 6.1）；
+  // delta apply 只做审计推进 + blocked 反查（cmdDeltaSync/cmdUnblock），不再触碰机器 task 源。
+  // task_delta_summary 退化为审计计数（保留返回字段形状向后兼容）。
+  const taskDeltaSummary = summarizeTaskDeltas(delta.task_deltas || [])
 
   writeState(statePath, normalizedState)
 
@@ -363,6 +356,9 @@ function finalizeArchiveCommit(workflowDir, destDir) {
   if (fs.existsSync(rootStateLock)) fs.rmSync(rootStateLock, { force: true })
   const rootTasks = path.join(workflowDir, 'tasks.md')
   if (fs.existsSync(rootTasks)) fs.rmSync(rootTasks, { force: true })
+  // 删根 task-dir（canonical 机器 task 源已 snapshot 进 destDir/tasks）；否则残留按 project-id 泄漏给下个 workflow（幽灵 task）。
+  const rootTasksDir = path.join(workflowDir, 'tasks')
+  if (fs.existsSync(rootTasksDir)) fs.rmSync(rootTasksDir, { recursive: true, force: true })
   const rootChanges = path.join(workflowDir, 'changes')
   if (fs.existsSync(rootChanges)) {
     try {
@@ -428,6 +424,18 @@ function cmdArchive(summary = false, projectId = null, projectRoot = null) {
   const rootTasks = path.join(workflowDir, 'tasks.md')
   if (fs.existsSync(rootTasks)) fs.copyFileSync(rootTasks, path.join(destDir, 'tasks.md'))
 
+  // Snapshot canonical 机器 task 源 task-dir（每 task task.json/context.jsonl）。Phase 1 用 copy 不删源——
+  // 若 populating 崩溃，recovery 回滚 destDir，根 tasks/ 完整保留；根目录删除留到 Phase 2 finalizeArchiveCommit。
+  const rootTasksDir = path.join(workflowDir, 'tasks')
+  let archivedTaskCount = 0
+  if (fs.existsSync(rootTasksDir)) {
+    fs.cpSync(rootTasksDir, path.join(destDir, 'tasks'), { recursive: true })
+    try {
+      archivedTaskCount = fs.readdirSync(rootTasksDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^T\d+$/.test(entry.name)).length
+    } catch { archivedTaskCount = 0 }
+  }
+
   const destChanges = path.join(destDir, 'changes')
   const archivedChanges = []
   if (plannedEntries.length) {
@@ -445,7 +453,7 @@ function cmdArchive(summary = false, projectId = null, projectRoot = null) {
   if (summary) {
     summaryPath = path.join(destDir, `archive-summary-${timestamp}.md`)
     const progress = normalizedState.progress || {}
-    fs.writeFileSync(summaryPath, ['# 工作流归档摘要', '', `- 项目 ID: ${resolvedProjectId}`, `- Task: ${normalizedState.task_name || 'N/A'}`, `- Spec: ${normalizedState.spec_file || 'N/A'}`, `- Plan: ${normalizedState.plan_file || 'N/A'}`, `- 已归档变更: ${archivedChanges.length ? archivedChanges.join(', ') : '无'}`, `- 已完成任务: ${(progress.completed || []).length}`, `- 已跳过任务: ${(progress.skipped || []).length}`, `- 失败任务: ${(progress.failed || []).length}`, ''].join('\n'))
+    fs.writeFileSync(summaryPath, ['# 工作流归档摘要', '', `- 项目 ID: ${resolvedProjectId}`, `- Task: ${normalizedState.task_name || 'N/A'}`, `- Spec: ${normalizedState.spec_file || 'N/A'}`, `- Plan: ${normalizedState.plan_file || 'N/A'}`, `- 已归档变更: ${archivedChanges.length ? archivedChanges.join(', ') : '无'}`, `- 已归档 task-dir 任务数: ${archivedTaskCount}`, `- 已完成任务: ${(progress.completed || []).length}`, `- 已跳过任务: ${(progress.skipped || []).length}`, `- 失败任务: ${(progress.failed || []).length}`, ''].join('\n'))
   }
 
   // Transition to phase='committing'. This is the cut point that recoveries use to decide
@@ -471,6 +479,7 @@ function cmdArchive(summary = false, projectId = null, projectRoot = null) {
     archived: true,
     project_id: resolvedProjectId,
     archived_changes: archivedChanges,
+    archived_task_count: archivedTaskCount,
     history_dir: destDir,
     summary_file: summaryPath,
     workflow_status: 'archived',

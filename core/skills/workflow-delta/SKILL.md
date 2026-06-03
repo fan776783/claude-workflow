@@ -124,17 +124,25 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js delta fail \
 
 ## Step 6: 应用 delta
 
-### 6.1 更新 spec.md 和 plan.md
+### 6.1 更新机器 task 源(task-dir)与 spec.md
 
-> ⚠️ **Spec-Normative 约束**:对 plan.md 的修改若涉及 spec 中已定义的章节(需求范围、架构 module、验收标准),必须**先更新 spec.md 对应章节**,再修改 plan.md。不得绕过 spec 直接在 plan 中新增或修改 spec 层面语义。
+> ⚠️ **Spec-Normative 约束**:若 delta 涉及 spec 中已定义的章节(需求范围、架构 module、验收标准),必须**先更新 spec.md 对应章节**,再改 task。不得绕过 spec 直接在 task 中新增或修改 spec 层面语义。
 >
 > 允许不改 spec 的场景:纯执行层 delta(调整步骤顺序、更新文件路径、添加验证命令)。
 
-按影响分析直接编辑文件:
-- **新增任务**:追加为 `## Tn:` WorkflowTaskV2 任务块到 plan.md
-- **修改任务**:更新 files / actions / steps / verification 字段
-- **废弃任务**:标记 deprecated 或移出执行范围
-- **更新 spec.md**:追加 delta 章节(如有 PRD delta)
+机器 task 源 = task-dir。按影响分析**算出更新后的完整 task 数组 → `task-write --from-file` 整集重写**(原子替换 + 自动清孤儿 + 渲染 task.md;字段含 v2 rich：patterns/mandatory_reading/constraints/files/task_text,见 task-dir-schema.md)：
+
+```bash
+CLI=~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js
+node "$CLI" task-write --from-file /tmp/delta-tasks.json    # 整集 = 现有存活 task + 新增/修改后的 task
+```
+
+- **新增任务**:加进数组(新 `Tn`,带完整 v2 字段)
+- **修改任务**:就地改该 task 字段(files / depends / verification / patterns / …)
+- **废弃任务**:从数组**移出** → `replaceAllTasks` 自动清孤儿(含 context.jsonl)彻底消失;变更留痕只在 `changes/CHG-*`,task 源**不留 deprecated 态**
+- **更新 spec.md / plan.md 叙述**:有 PRD delta 追加 spec 章节;plan.md 叙述可选同步,**不承载机器 task 字段**
+
+> ⚠️ 不要把 task 增删改写进 plan.md task block——execute 读 task-dir 不读 plan.md,写 plan.md 的改动对执行不可见。
 
 ### 6.2 调用 CLI 应用
 
@@ -142,7 +150,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js delta fail \
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js delta apply --change-id CHG-XXX
 ```
 
-CLI 自动:更新 `delta.json` 状态为 `applied` → 更新 `review-status.json` 为 `approved` → 持久化 `workflow-state.json`。
+CLI 自动:更新 `delta.json` 状态为 `applied` → 更新 `review-status.json` 为 `approved` → 持久化 `workflow-state.json`。task 增删改已在 6.1 经 `task-write` 落 task-dir,**`delta apply` 不再触碰 task 源**(只做审计推进 + blocked 反查)。
 
 ## Step 7: 生成 delta 摘要
 

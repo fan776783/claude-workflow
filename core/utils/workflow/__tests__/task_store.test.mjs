@@ -42,6 +42,7 @@ test('createTask + readTask: round-trip 字段集对齐 §5.2', () => {
   assert.equal(written.id, 'T1')
   const read = taskStore.readTask(PID, 'T1')
   assert.deepEqual(read, {
+    schema_version: 2,
     id: 'T1',
     name: '',
     phase: 'implement',
@@ -53,6 +54,11 @@ test('createTask + readTask: round-trip 字段集对齐 §5.2', () => {
     acceptance: ['AC-8'],
     verification: null,
     interaction: 'AFK',
+    files: [],
+    constraints: [],
+    patterns: [],
+    mandatory_reading: [],
+    task_text: '',
   })
 })
 
@@ -74,6 +80,80 @@ test('createTask + readTask: 保留 name / verification / blocked_by 现写字�
   assert.deepEqual(read.blocked_by, ['api_spec'])
   assert.deepEqual(read.verification, { commands: ['npm test -- login'], expected_output: ['PASS'], notes: [] })
   assert.equal(read.interaction, 'HITL')
+})
+
+test('schema_version: 写侧盖章 2；normalizeTaskRecord 忠实回缺省 1（v1 探测）', () => {
+  taskStore.createTask(PID, { id: 'T1' })
+  assert.equal(taskStore.readTask(PID, 'T1').schema_version, 2, '写侧 createTask 盖章 v2')
+  assert.equal(taskStore.normalizeTaskRecord({ id: 'T9' }).schema_version, 1, '读侧缺省忠实回 1')
+  taskStore.createTask(PID, { id: 'T2', schema_version: 1 })
+  assert.equal(taskStore.readTask(PID, 'T2').schema_version, 2, '显式 v1 也被写侧盖章覆盖为 v2')
+  taskStore.replaceAllTasks(PID, [{ id: 'T3', schema_version: 1 }])
+  assert.equal(taskStore.readTask(PID, 'T3').schema_version, 2, '整集写入同样强制盖章 v2')
+})
+
+test('normalize/read/update: unknown 字段透传保留', () => {
+  const normalized = taskStore.normalizeTaskRecord({
+    id: 'T9',
+    planner_metadata: { owner: 'workflow-plan', score: 0.91 },
+  })
+  assert.deepEqual(normalized.planner_metadata, { owner: 'workflow-plan', score: 0.91 })
+
+  taskStore.createTask(PID, {
+    id: 'T1',
+    planner_metadata: { owner: 'workflow-plan', score: 0.91 },
+    delta_trace_id: 'CHG-001',
+  })
+  assert.deepEqual(taskStore.readTask(PID, 'T1').planner_metadata, { owner: 'workflow-plan', score: 0.91 })
+  assert.equal(taskStore.readTask(PID, 'T1').delta_trace_id, 'CHG-001')
+
+  taskStore.updateTaskStatus(PID, 'T1', 'completed')
+  const updated = taskStore.readTask(PID, 'T1')
+  assert.deepEqual(updated.planner_metadata, { owner: 'workflow-plan', score: 0.91 })
+  assert.equal(updated.delta_trace_id, 'CHG-001')
+})
+
+test('createTask + readTask: v2 rich 字段 round-trip + 归一化', () => {
+  taskStore.createTask(PID, {
+    id: 'T1',
+    files: ['src/auth.ts', 'src/types.ts'],
+    constraints: ['C-1: 保持 token 过期边界', ''],
+    patterns: [{ file: 'src/login.ts', line: '42', note: '镜像错误处理' }, { note: '无 file 丢弃' }],
+    mandatory_reading: [{ path: 'docs/auth.md', reason: '契约', symbols: ['verify', ' '], line_hint: '10-20' }, { reason: '无 path 丢弃' }],
+    task_text: '实现登录校验。\n步骤：...',
+  })
+  const read = taskStore.readTask(PID, 'T1')
+  assert.deepEqual(read.files, ['src/auth.ts', 'src/types.ts'])
+  assert.deepEqual(read.constraints, ['C-1: 保持 token 过期边界'])
+  assert.deepEqual(read.patterns, [{ file: 'src/login.ts', note: '镜像错误处理', line: '42' }])
+  assert.deepEqual(read.mandatory_reading, [{ path: 'docs/auth.md', reason: '契约', symbols: ['verify'], line_hint: '10-20' }])
+  assert.equal(read.task_text, '实现登录校验。\n步骤：...')
+})
+
+test('task.md 读写: round-trip + 缺失返回空串 + 非法 id 抛错', () => {
+  taskStore.createTask(PID, { id: 'T1' })
+  assert.equal(taskStore.readTaskMd(PID, 'T1'), '', '未写时返回空串')
+  taskStore.writeTaskMd(PID, 'T1', '# T1\n实现登录。')
+  assert.equal(taskStore.readTaskMd(PID, 'T1'), '# T1\n实现登录。')
+  assert.throws(() => taskStore.writeTaskMd(PID, '../evil', 'x'), /invalid task id/)
+})
+
+test('replaceAllTasks: 存活 id 不保留旧 task.md（避免旧渲染覆盖新 task.json）', () => {
+  taskStore.createTask(PID, { id: 'T1' })
+  taskStore.writeTaskMd(PID, 'T1', 'T1 正文')
+  taskStore.replaceAllTasks(PID, [{ id: 'T1', package: 'p' }, { id: 'T2' }])
+  assert.equal(taskStore.readTaskMd(PID, 'T1'), '', '整集替换后旧 task.md 应丢弃，由 task-write 按新 task.json 重渲染')
+})
+
+test('getTaskDirExecutionIssue: v2 metadata 壳不可执行，含 task_text 才可执行', () => {
+  taskStore.createTask(PID, { id: 'T1' })
+  assert.deepEqual(taskStore.getTaskDirExecutionIssue(PID), {
+    code: 'task_dir_not_executable',
+    task_ids: ['T1'],
+    message: '检测到 v2 task-dir 仍是 metadata 壳（缺 task_text）：T1。请先通过 /workflow-plan 用 task-write 写入最终 task-dir，再执行。',
+  })
+  taskStore.replaceAllTasks(PID, [{ id: 'T1', task_text: '执行正文' }])
+  assert.equal(taskStore.getTaskDirExecutionIssue(PID), null)
 })
 
 test('createTask: 非法 taskId 抛错', () => {

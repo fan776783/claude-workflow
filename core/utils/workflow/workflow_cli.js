@@ -8,6 +8,7 @@ const { getWorkflowStatePath, getWorkflowsDir, getHandoffPath } = require('./pat
 const {
   cmdComplete,
   cmdContextBudget,
+  cmdFail,
   cmdList,
   cmdNext,
   cmdProgress,
@@ -25,6 +26,7 @@ const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journa
 const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
 const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
 const { buildTaskBundle } = require('./task_bundle')
+const { renderTaskMd } = require('./task_md_render')
 const { runReadiness } = require('./readiness_checks')
 const { loadProjectConfig, resolveSpecDocsRoot } = require('./project_setup')
 const os = require('os')
@@ -534,6 +536,15 @@ function cmdTaskWrite(fromFile, projectId, projectRoot) {
   } catch (error) {
     return { error: `写入 task-dir 失败: ${error instanceof Error ? error.message : String(error)}` }
   }
+  // 渲染 task.md（v2 人读正文，execute 逐字注入）：读回规范化记录再渲染，确保渲染源 = 落盘真相。
+  // task.md 非关键产物（可重生），单条渲染失败不阻断整集写入。
+  for (const id of written) {
+    const rec = taskStore.readTask(resolved, id)
+    if (!rec) continue
+    try {
+      taskStore.writeTaskMd(resolved, id, renderTaskMd(rec))
+    } catch { /* task.md 渲染/落盘失败不致命：execute 期 readTaskMd 容错回退 '' */ }
+  }
   return { written: true, project_id: resolved, task_ids: written, count: written.length }
 }
 
@@ -581,8 +592,16 @@ const SUBCOMMAND_HELP = {
   advance <task-id> [--journal STR] [--decisions a,b,c] [--full]
     标记单任务完成。planned 状态下自动升为 running（返回 status_transition）。
     默认 next_task 仅返回 {id, name}。--full 返回完整 task 对象。
-    完整数据走 task-bundle <id>（execute Step 5.1.0 标准流程）。
+    v2 完整 task 切片来自 task-dir(task.json + task.md)；execute Step 1 持全量 task，无需 per-task task-bundle。
+    task-bundle 仅用于 legacy plan.md workflow。
     末任务完成（无后续 task）→ 直接 completed（execute Step 7 inline 末尾终审通过后调用，无中间审查态）。
+`,
+  fail: `fail - 标记任务失败并 halt workflow。
+
+用法：
+  fail <task-id> --reason "<失败原因>"
+    把 task 状态置 failed，workflow 入 halted/failure，current_tasks=[task-id]。
+    验证失败 / reviewer schema failure / review-loop 失败的统一写入口。
 `,
   delta: `delta - 规划时捕获并应用delta。
 
@@ -620,13 +639,17 @@ const SUBCOMMAND_HELP = {
   confidence.hints 列出每个未达标维度的可执行提升项 → 不必读 plan_composer.js 源码。
   lints.task_schema 列出 task.json 字段校验问题（缺 id / 非法 id / 类型错误 / empty_task_source 空源）→ 用 task-write 写入/重写修正。
 `,
-  'task-write': `task-write - 整集写 task-dir（planner 写机器 task 源的唯一正路，原子替换 + 清孤儿）。
+  'task-write': `task-write - 整集写 task-dir（planner 写机器 task 源的唯一正路，原子替换 + 清孤儿 + 渲染 task.md）。
 
 用法：
   task-write --from-file <path.json | ->
     --from-file <path>  必填。JSON 文件路径，或 - 读 stdin。
-    内容 = task 记录数组，或 {tasks:[...]}。字段（normalizeTaskRecord 11 项）：
-      id(必填 T<n>) name phase package target_layer depends[] blocked_by[] status acceptance[] verification{commands,expected_output,notes} interaction
+    内容 = task 记录数组，或 {tasks:[...]}。字段（task.json v2，schema_version 写侧自动盖章 2）：
+      id(必填 T<n>) name phase package target_layer depends[] blocked_by[] status acceptance[]
+      verification{commands,expected_output,notes} interaction
+      v2 rich（execute 护栏 / plan-review lint 直读）：files[] constraints[]
+      patterns[]{file,line?,note} mandatory_reading[]{path,reason,symbols[],line_hint} task_text
+    每条写入后自动从 task.json 渲染 task.md（execute 逐字注入正文）；不要手写 task.md，也不要把 rich 内容写进 plan.md 锚点。
     返回 {written, task_ids, count}。整集 tmp→rename 原子替换，旧 task-dir 不在新集合的自动清除。
   禁止读 core/utils/workflow/task_store.js 逆向 replaceAllTasks 自写 .cjs——本命令即正路。
 `,
@@ -659,12 +682,12 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|execute|continue|init|spec-review|delta|archive|unblock|advance|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|execute|continue|init|spec-review|delta|archive|unblock|advance|fail|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
   plan (alias: start) - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
-  task-write --from-file <path.json|-> - 整集写 task-dir（planner 写机器 task 源唯一正路，原子替换 + 清孤儿；禁逆向 task_store.js）
+  task-write --from-file <path.json|-> - 整集写 task-dir v2（含 files/constraints/patterns/mandatory_reading/task_text；自动渲染 task.md；原子替换 + 清孤儿；禁逆向 task_store.js）
   context-curate --id <Tn> --from-file <path.jsonl|-> - 写单 task 的 context.jsonl 背包（覆盖式，仅 spec/research 路径）
   init - 状态文件自愈（执行阶段缺失时自动创建）
   help <advance|delta|journal|plan-edit|...> - 查看子命令参数签名
@@ -672,7 +695,8 @@ const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--projec
   write-handoff --from <phase> --to <phase> --content-file <path> - 落 handoff/{from-phase}.md（5 行 freshness header + ≤20 行正文，不入 state schema，覆盖式写）
   read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）
   triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1
-  task-bundle <taskId> [--state <path>] - 提取单个 task 的结构化执行 bundle（task_text + AC + constraints + patterns + mandatory-reading + verification）
+  fail <task-id> --reason <msg> - 标记任务失败 → workflow 入 halted/failure（验证失败 / reviewer schema failure / review-loop 统一写入口）
+  task-bundle <taskId> [--state <path>] - 【legacy，仅 plan.md workflow】提取单 task 执行 bundle；v2 task-dir workflow 改从 task-dir(task.json+task.md)取，返回 legacy 提示不参与
   verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）
 `
 
@@ -820,6 +844,10 @@ function main() {
       }, pid, projectRoot)
     } else if (command === 'advance') {
       result = cmdAdvance(args[0], option(args, '--journal'), splitCsv(option(args, '--decisions', '')), pid, projectRoot, { full: args.includes('--full') })
+    } else if (command === 'fail') {
+      // 验证失败 / reviewer schema failure / review-loop 失败的统一写入口（代理 task_manager.cmdFail）。
+      result = cmdFail(args[0], option(args, '--reason'), pid, projectRoot)
+      if (result && result.error) process.exitCode = 1
     } else if (command === 'set-contract-digest-path') {
       const unset = args.includes('--unset')
       const digestPath = optionOrArg(args, '--path')

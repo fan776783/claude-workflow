@@ -667,8 +667,10 @@ function derivePlanSummary(planMarkdown, state = {}) {
 // PRD +3 / Patterns +2 / Verification +3 / Test Task +2；partial 命中 PRD -1。
 // F-10: command_syntax issues 非空 → verification 维度封顶为 0(命令本身坏不算合格验证);
 //       pattern_fidelity unresolved 非空 → patterns 维度封顶为 0(引用不真实的 pattern 不算可复用)。
-function scoreConfidence(planMarkdown, { coverage, atomicity, commandSyntax, patternFidelity } = {}) {
-  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+// v2：从 task-dir 记录（非 plan.md 解析）算 confidence。patterns/verification/test_task 三维改读
+// task.json 结构化字段（patterns[] / verification{commands,expected_output} / phase），与 plan-review lint 同源。
+function scoreConfidence(tasks, { coverage, atomicity, commandSyntax, patternFidelity } = {}) {
+  const taskList = Array.isArray(tasks) ? tasks : []
   const breakdown = { prd_coverage: 0, patterns: 0, verification: 0, test_task: 0 }
   // hints：每个未达标/被封顶维度给一行可执行提升项，让调用方拿到 why 而不必读本文件源码逆向 rubric。
   const hints = []
@@ -695,45 +697,39 @@ function scoreConfidence(planMarkdown, { coverage, atomicity, commandSyntax, pat
     hints.push(`prd_coverage=2（封顶 3）：${partialIds.join(', ')} spec 多处提及仅单 task 覆盖；拆分或确认单 task 已覆盖全部提及点`)
   }
 
-  // Patterns to Mirror（要求至少 3 个 ### 头紧跟 `// SOURCE:`）
+  // Patterns to Mirror（task.json patterns[] 总数 ≥ 3）
   // F-10: pattern_fidelity 有 unresolved 引用 → 不给分(引用文件不存在,pattern 不可复用)
-  const patternMatches = planMd.match(/^### .+\n+\/\/ SOURCE:/gm) || []
+  const patternCount = taskList.reduce((n, t) => n + (Array.isArray(t.patterns) ? t.patterns.length : 0), 0)
   const patternUnresolvedCount = (patternFidelity && patternFidelity.unresolved) ? patternFidelity.unresolved.length : 0
-  if (patternMatches.length >= 3 && patternUnresolvedCount === 0) breakdown.patterns = 2
+  if (patternCount >= 3 && patternUnresolvedCount === 0) breakdown.patterns = 2
   else if (patternUnresolvedCount > 0) {
-    hints.push(`patterns=0：Patterns to Mirror 有 ${patternUnresolvedCount} 处 // SOURCE 引用文件不存在，修正引用后给分`)
+    hints.push(`patterns=0：patterns[] 有 ${patternUnresolvedCount} 处 file 引用不存在，修正引用后给分`)
   } else {
-    hints.push(`patterns=0：需 ≥3 个 \`### 标题\` 各紧跟一行 \`// SOURCE: <file>\`（当前 ${patternMatches.length} 个达标块）`)
+    hints.push(`patterns=0：需 ≥3 条 task.json \`patterns[]\`（当前 ${patternCount} 条）`)
   }
 
-  // Verification 维度：每 task 必须 验证命令 + 验证期望 同时非空
+  // Verification 维度：每 task verification.commands 与 expected_output 同时非空
   // F-10: command_syntax 有 issues → 不给分(命令本身语法坏,验证不可信)
-  const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
   const commandIssuesCount = (commandSyntax && commandSyntax.issues) ? commandSyntax.issues.length : 0
-  const unqualifiedTasks = taskBlocks
-    .filter((b) => {
-      const cmd = b.match(/-\s*\*\*验证命令\*\*\s*[:：]\s*([^\n]+)/)
-      const exp = b.match(/-\s*\*\*验证期望\*\*\s*[:：]\s*([^\n]+)/)
-      return !(cmd && cmd[1].trim() && exp && exp[1].trim())
+  const unqualifiedTasks = taskList
+    .filter((t) => {
+      const v = t && t.verification
+      return !(v && Array.isArray(v.commands) && v.commands.length && Array.isArray(v.expected_output) && v.expected_output.length)
     })
-    // 锚定 heading 取 task id（与 split/filter 同形态），避免抓到块内首个 T\d+（如正文里引用的别的 task）
-    .map((b) => {
-      const h = b.match(/^(?:## |### )?(T\d+):/m)
-      return h ? h[1] : (b.match(/T\d+/) || ['?'])[0]
-    })
-  if (taskBlocks.length > 0 && commandIssuesCount === 0 && unqualifiedTasks.length === 0) {
+    .map((t) => t.id || '?')
+  if (taskList.length > 0 && commandIssuesCount === 0 && unqualifiedTasks.length === 0) {
     breakdown.verification = 3
   } else if (commandIssuesCount > 0) {
     hints.push(`verification=0：${commandIssuesCount} 处验证命令语法有问题（见 lints.command_syntax）`)
   } else if (unqualifiedTasks.length > 0) {
-    hints.push(`verification=0：${unqualifiedTasks.join(', ')} 缺 \`验证命令\` 或 \`验证期望\`（每 task 两者须非空）`)
-  } else if (taskBlocks.length === 0) {
-    hints.push('verification=0：plan 中无可识别的 `## T<n>:` / `### T<n>:` task 块，无法评估验证维度')
+    hints.push(`verification=0：${unqualifiedTasks.join(', ')} 缺 \`verification.commands\` 或 \`expected_output\`（每 task 两者须非空）`)
+  } else if (taskList.length === 0) {
+    hints.push('verification=0：task 源为空，无法评估验证维度')
   }
 
   // Test task 存在
-  if (/-\s*\*\*阶段\*\*\s*[:：]\s*test\b/m.test(planMd)) breakdown.test_task = 2
-  else hints.push('test_task=0：无 `阶段: test` 任务；纯手动验证 plan 可忽略此项，不必为凑分造测试任务')
+  if (taskList.some((t) => t && t.phase === 'test')) breakdown.test_task = 2
+  else hints.push('test_task=0：无 `phase: test` 任务；纯手动验证 plan 可忽略此项，不必为凑分造测试任务')
 
   const score = breakdown.prd_coverage + breakdown.patterns + breakdown.verification + breakdown.test_task
   const level = score >= 8 ? 'high' : score >= 6 ? 'medium' : 'low'
@@ -1318,13 +1314,18 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
   const planVersion = detectPlanVersion(planMd)
   const isV2Plan = planVersion === 2
   const anchorIntegrity = lintAnchorIntegrity(planMd)
+  // v2：rich 维度（mandatory_reading / command_syntax / pattern_fidelity / confidence）改读 task-dir 记录，
+  // 不再解析 plan.md task block（plan.md 已降为叙述）。task-dir → TaskDirSource；legacy plan.md → LegacyPlanMdSource。
+  const { createTaskSource } = require('./task_source')
+  const taskSource = createTaskSource(state, { projectId: resolvedProjectId, projectRoot: root, quiet: true })
+  const reviewTasks = taskSource ? taskSource.listTasks() : []
   const lints = {
     placeholder: lintPlaceholder(planMd),
     atomicity: lintTaskAtomicity(planMd),
     anchor_integrity: { ...anchorIntegrity, plan_version: planVersion, enforced: isV2Plan },
-    mandatory_reading: lintMandatoryReading(planMd),
-    command_syntax: lintCommandSyntax(planMd),
-    pattern_fidelity: lintPatternFidelity(planMd, root),
+    mandatory_reading: lintMandatoryReading(reviewTasks),
+    command_syntax: lintCommandSyntax(reviewTasks),
+    pattern_fidelity: lintPatternFidelity(reviewTasks, root),
     type_consistency: lintTypeConsistency(planMd),
     task_schema: lintTaskSchema(resolvedProjectId),
   }
@@ -1332,7 +1333,7 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
   const emptySourceIssue = taskSourceEmptyIssue(state, resolvedProjectId, root)
   if (emptySourceIssue) lints.task_schema.issues.push(emptySourceIssue)
   const coverage = checkRequirementCoverage(planMd, specMd)
-  const confidence = scoreConfidence(planMd, {
+  const confidence = scoreConfidence(reviewTasks, {
     coverage,
     atomicity: lints.atomicity,
     commandSyntax: lints.command_syntax,
@@ -1369,83 +1370,80 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
 // T16 lintMandatoryReading：抽 Mandatory Reading 表行,校验 lines 字段格式。
 // 行号可选(superpowers 式：controller/planner 不读源码补行号,implementer 自读定位);
 // 仅当 lines 列填了非空值且格式错时才算违规。区分 declared=false(无该区块,不挡)/declared=true 且有违规(hard block)。
-function lintMandatoryReading(planMarkdown) {
-  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
-  // 截取 Mandatory Reading section：从 heading 起,直到下一个 ## heading / --- 分隔 / 文件末尾。
-  const headingMatch = planMd.match(/^##\s*Mandatory Reading.*$/m)
-  if (!headingMatch) return { violations: [], declared: false }
-  const startIdx = planMd.indexOf(headingMatch[0])
-  const tail = planMd.slice(startIdx + headingMatch[0].length)
-  const stopMatch = tail.match(/\n(##\s|---)/)
-  const section = stopMatch ? tail.slice(0, stopMatch.index) : tail
+function lintMandatoryReading(tasks) {
+  const taskList = Array.isArray(tasks) ? tasks : []
+  // v2：从 task.json mandatory_reading[]（每项 {path,reason,symbols,line_hint}）校验 line_hint 格式。
+  // declared = 任一 task 声明了 mandatory_reading；行号可选（留空 = 合规，implementer 自读定位）。
+  const declared = taskList.some((t) => Array.isArray(t.mandatory_reading) && t.mandatory_reading.length > 0)
+  if (!declared) return { violations: [], declared: false }
   const violations = []
-  const ROW_RE = /^\|\s*P\d+\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/gm
-  let row
-  while ((row = ROW_RE.exec(section)) !== null) {
-    const file = row[1].trim()
-    const lines = row[2].trim()
-    // 行号可选：留空 = 合规(implementer 自读定位)。填了才校验格式: `123` 或 `123-456` 或反引号包裹版本
-    const cleanedLines = lines.replace(/^`|`$/g, '').trim()
-    if (cleanedLines && !/^\d+(-\d+)?$/.test(cleanedLines)) {
-      violations.push({ file, lines, reason: 'lines 若填须形如 N 或 N-M(可留空,implementer 自读定位)' })
+  for (const task of taskList) {
+    for (const entry of (task.mandatory_reading || [])) {
+      if (!entry || !entry.path) continue
+      const cleaned = String(entry.line_hint || '').replace(/^`|`$/g, '').trim()
+      if (cleaned && !/^\d+(-\d+)?$/.test(cleaned)) {
+        violations.push({ file: entry.path, lines: entry.line_hint, reason: 'line_hint 若填须形如 N 或 N-M(可留空,implementer 自读定位)' })
+      }
     }
   }
   return { violations, declared: true }
 }
 
-// T17 lintCommandSyntax：抽 task 块的 `验证命令` 字段,做轻量语法校验。
+// T17 lintCommandSyntax：校验 task.json verification.commands 的轻量语法。
 // 不依赖第三方 shell parser(避免引入 npm 依赖),仅做括号 / 引号 / 管道闭合校验。
-function lintCommandSyntax(planMarkdown) {
-  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+function lintCommandSyntax(tasks) {
+  const taskList = Array.isArray(tasks) ? tasks : []
   const issues = []
-  const taskBlocks = planMd.split(/\n(?=## T\d+:|### T\d+:)/g).filter((b) => /^(?:## |### )?T\d+:/m.test(b))
-  for (const block of taskBlocks) {
-    const idMatch = block.match(/^(?:## |### )?(T\d+):/m)
-    if (!idMatch) continue
-    const taskId = idMatch[1]
-    const cmdMatch = block.match(/-\s*\*\*验证命令\*\*\s*[:：]\s*([^\n]+)/)
-    if (!cmdMatch) continue
-    const cmd = cmdMatch[1].trim()
-    const issuesForCmd = []
-    // 括号配对
-    const open = (cmd.match(/[([{]/g) || []).length
-    const close = (cmd.match(/[)\]}]/g) || []).length
-    if (open !== close) issuesForCmd.push('bracket_mismatch')
-    // 引号闭合(单/双)
-    if (((cmd.match(/'/g) || []).length) % 2 !== 0) issuesForCmd.push('single_quote_unclosed')
-    if (((cmd.match(/"/g) || []).length) % 2 !== 0) issuesForCmd.push('double_quote_unclosed')
-    // 管道末尾不应裸悬空
-    if (/\|\s*$/.test(cmd)) issuesForCmd.push('trailing_pipe')
-    if (issuesForCmd.length > 0) {
-      issues.push({ task: taskId, command: cmd, kinds: issuesForCmd })
+  for (const task of taskList) {
+    const commands = (task.verification && Array.isArray(task.verification.commands)) ? task.verification.commands : []
+    for (const raw of commands) {
+      const cmd = String(raw).trim()
+      if (!cmd) continue
+      const issuesForCmd = []
+      // 括号配对
+      const open = (cmd.match(/[([{]/g) || []).length
+      const close = (cmd.match(/[)\]}]/g) || []).length
+      if (open !== close) issuesForCmd.push('bracket_mismatch')
+      // 引号闭合(单/双)
+      if (((cmd.match(/'/g) || []).length) % 2 !== 0) issuesForCmd.push('single_quote_unclosed')
+      if (((cmd.match(/"/g) || []).length) % 2 !== 0) issuesForCmd.push('double_quote_unclosed')
+      // 管道末尾不应裸悬空
+      if (/\|\s*$/.test(cmd)) issuesForCmd.push('trailing_pipe')
+      if (issuesForCmd.length > 0) {
+        issues.push({ task: task.id || '?', command: cmd, kinds: issuesForCmd })
+      }
     }
   }
   return { issues }
 }
 
-// T18 lintPatternFidelity：检查 Patterns to Mirror 区块的 `// SOURCE: file:lines` 引用真实存在。
-function lintPatternFidelity(planMarkdown, projectRoot = process.cwd()) {
-  const planMd = typeof planMarkdown === 'string' ? planMarkdown : ''
+// T18 lintPatternFidelity：检查 task.json patterns[]（{file,line?,note}）的 file 引用真实存在、行号在范围内。
+function lintPatternFidelity(tasks, projectRoot = process.cwd()) {
+  const taskList = Array.isArray(tasks) ? tasks : []
   const unresolved = []
-  const SRC_RE = /\/\/\s*SOURCE:\s*(\S+?)(?::(\d+)(?:-(\d+))?)?$/gm
-  let m
-  while ((m = SRC_RE.exec(planMd)) !== null) {
-    const file = m[1]
-    const startLine = m[2] ? Number(m[2]) : null
-    const endLine = m[3] ? Number(m[3]) : startLine
-    const abs = path.isAbsolute(file) ? file : path.join(projectRoot, file)
-    if (!fs.existsSync(abs)) {
-      unresolved.push({ file, reason: 'file_not_found' })
-      continue
-    }
-    if (startLine !== null) {
-      try {
-        const totalLines = fs.readFileSync(abs, 'utf8').split('\n').length
-        if (startLine > totalLines || (endLine && endLine > totalLines)) {
-          unresolved.push({ file, lines: `${startLine}-${endLine || ''}`, reason: 'line_out_of_range', total_lines: totalLines })
+  for (const task of taskList) {
+    for (const pattern of (task.patterns || [])) {
+      if (!pattern || !pattern.file) continue
+      const file = pattern.file
+      const abs = path.isAbsolute(file) ? file : path.join(projectRoot, file)
+      if (!fs.existsSync(abs)) {
+        unresolved.push({ file, reason: 'file_not_found' })
+        continue
+      }
+      // line 可选：形如 "42" 或 "1-10"。填了才校验范围。
+      const lineStr = pattern.line != null ? String(pattern.line).trim() : ''
+      const mm = lineStr.match(/^(\d+)(?:-(\d+))?$/)
+      if (mm) {
+        const startLine = Number(mm[1])
+        const endLine = mm[2] ? Number(mm[2]) : startLine
+        try {
+          const totalLines = fs.readFileSync(abs, 'utf8').split('\n').length
+          if (startLine > totalLines || (endLine && endLine > totalLines)) {
+            unresolved.push({ file, lines: lineStr, reason: 'line_out_of_range', total_lines: totalLines })
+          }
+        } catch {
+          unresolved.push({ file, reason: 'read_error' })
         }
-      } catch {
-        unresolved.push({ file, reason: 'read_error' })
       }
     }
   }

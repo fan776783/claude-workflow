@@ -13,6 +13,7 @@
 const fs = require('fs')
 const { getWorkflowStatePath } = require('./path_utils')
 const { readState } = require('./state_manager')
+const taskStore = require('./task_store')
 const {
   findTaskById,
   extractTaskBlock,
@@ -284,6 +285,19 @@ function extractVerification(block) {
  */
 function buildTaskBundle(taskId, opts = {}) {
   const { projectId, statePath: statePathOverride } = opts || {}
+  // P2.3：task-bundle 仅服务 legacy plan.md workflow。检测到 v2 task-dir（schema_version≥2）→ 不参与，
+  // 引导走 task-dir（execute 从 task-dir 取全切片，无需 per-task task-bundle）。
+  if (projectId) {
+    const dirTasks = taskStore.listTasks(projectId)
+    if (dirTasks.length && dirTasks.some((t) => Number(t.schema_version) >= taskStore.CURRENT_SCHEMA_VERSION)) {
+      return {
+        legacy: true,
+        deprecated: true,
+        task_id: taskId,
+        error: 'task-bundle 仅用于 legacy plan.md workflow；当前为 v2 task-dir workflow，execute 从 task-dir(task.json + task.md)取全切片，无需 task-bundle。',
+      }
+    }
+  }
   const statePath = statePathOverride || getWorkflowStatePath(projectId)
   if (!statePath) return { error: 'workflow state path not resolvable', task_id: taskId }
   if (!fs.existsSync(statePath)) return { error: '没有活跃的工作流', task_id: taskId }
@@ -300,6 +314,7 @@ function buildTaskBundle(taskId, opts = {}) {
 
   const block = extractTaskBlock(content, taskId)
   return {
+    legacy: true,
     task_id: taskId,
     task_text: block,
     acceptance_criteria: extractAcceptanceCriteria(block),
