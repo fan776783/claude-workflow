@@ -151,7 +151,7 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
         state_status: null,
         can_resume: false,
         reason: 'no_active_workflow',
-        message: '未发现活动工作流，请先执行 /workflow-plan 创建规划。',
+        message: '未发现活动工作流，请先执行 /workflow-spec 启动新流程。',
       }
     }
     if (gateViolation) {

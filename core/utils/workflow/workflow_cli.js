@@ -788,7 +788,9 @@ function main() {
     }
 
     if (command === 'execute' || command === 'continue') {
-      const intent = args[0] && !args[0].startsWith('--') ? args[0] : null
+      // 子命令形式（execute retry|skip）与 flag 形式（--retry|--skip）皆接受，避免 flag 被静默忽略当普通 execute 跑。
+      const flagIntent = args.includes('--retry') ? 'retry' : args.includes('--skip') ? 'skip' : null
+      const intent = (args[0] && !args[0].startsWith('--') ? args[0] : null) || flagIntent
       const mode = option(args, '--mode')
       const root = projectRoot ? path.resolve(projectRoot) : process.cwd()
       const normalizedMode = mode || (intent && EXECUTION_MODE_ALIASES[intent]) || intent

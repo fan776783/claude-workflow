@@ -25,15 +25,16 @@
 
 | `halt_reason` | 含义 | 恢复 |
 |---------------|------|------|
-| `failure` | 任务失败（默认值） | `workflow execute --retry` / `--skip` |
+| `failure` | 任务失败（默认值；含 review-loop 上限 / reviewer schema 非法，成因记入 `failure_reason`） | `workflow execute retry` / `skip`（`--retry` / `--skip` 亦可） |
 | `dependency` | 等待外部依赖阻塞 | `workflow unblock <dependency>` 后恢复 |
-| `awaiting_codex_review` | 等待 Codex review 回合 | review 回合完成后恢复 |
+
+> review-loop 上限 / reviewer schema 失败经 `fail` 统一写入口落 `halt_reason=failure`、成因写 `failure_reason`，不单列独立 halt_reason 值（见 `../shared/workflow-cli.md` § fail）。halt_reason 已较 ADR 0004 进一步收敛（去 `review-loop` / `awaiting_codex_review` 独立值），ADR 为历史记录不回写。
 
 ## 状态转换
 
 ```
 # workflow-spec 管辖
-idle → spec_review         workflow plan (spec 生成完成)           [/workflow-spec Step 1]
+idle → spec_review         workflow start (spec 生成完成；alias: plan)  [/workflow-spec Step 1]
 spec_review → planned      workflow spec-review --choice "approve" [/workflow-spec Step 5]
 spec_review → spec_review   用户要求修改 Spec                      [/workflow-spec Step 5→4]
 spec_review → idle          用户拒绝/拆分范围                      [/workflow-spec Step 5]
@@ -42,9 +43,9 @@ spec_review → idle          用户拒绝/拆分范围                      [/w
 
 # workflow-execute 管辖
 planned → running           workflow execute                       [/workflow-execute Step 1]
-running → halted            任务失败 / 依赖阻塞 / 等待 Codex review（halt_reason 区分）
+running → halted            任务失败（含 review-loop 上限 / reviewer schema 非法）/ 依赖阻塞（halt_reason 区分）
 running → completed         所有任务完成且 /workflow-execute 末尾终审通过（Step 7 inline final reviewer）
-halted → running            workflow execute --retry / --skip（failure）、unblock <dep>（dependency）、review 回合完成（awaiting_codex_review）
+halted → running            workflow execute retry / skip（failure；`--retry` / `--skip` 亦可）、unblock <dep>（dependency）
 completed → archived        workflow archive
 ```
 
@@ -120,8 +121,8 @@ node utils/workflow/workflow_cli.js archive
 ### delta
 
 ```bash
-# 基于 PRD 变更生成增量
-node utils/workflow/workflow_cli.js delta docs/prd-v2.md
+# 基于 PRD 变更生成增量（常规由 /workflow-delta skill 编排）。delta 需子命令：init|impact|apply|fail|sync
+node utils/workflow/workflow_cli.js delta init --type requirement --source docs/prd-v2.md
 ```
 
 ### 会话日志
@@ -167,7 +168,7 @@ CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
   "current_tasks": ["T1"],
   "plan_file": "/Users/<you>/.claude/workflows/{pid}/plans/example-0506.md",
   "spec_file": "/Users/<you>/.claude/workflows/{pid}/specs/example-0506.md",
-  "progress": { "completed": [], "failed": [], "skipped": [] },
+  "progress": { "completed": [], "blocked": [], "failed": [], "skipped": [] },
   "updated_at": "2026-03-29T10:00:00Z"
 }
 ```

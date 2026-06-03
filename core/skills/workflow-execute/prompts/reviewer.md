@@ -128,8 +128,8 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **prompt 不含整文件正文**：注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **task acceptance + constraints 完整粘进 prompt**：不让 reviewer 读 plan.md。
 - **code-specs context 注入**：把 `.claude/code-specs/{pkg}/{layer}/` 中适用本 task 的段落粘进 `<code-specs-context>`；不让 reviewer 自己读全部 code-specs。
-- **循环上限 3 次**：implementer ↔ reviewer 来回 ≥3 次后，halt + `halt_reason: 'review-loop'`，等用户介入。
-- **JSON 解析失败 / 夹带散文 → 重派**：reviewer 返回非 strict JSON(首字符非 `{`,或 JSON 前后夹带散文 / markdown / 推理)时，controller 提示 "schema violation, output JSON only" 重派 1 次;**不做 loose-extract 容忍**——被夹带的散文会回灌 controller 上下文(实测 reviewer 散文使其返回体积达 implementer 2.2×);仍失败 → halt + `halt_reason: 'reviewer-schema-failure'`，escalate user。
+- **循环上限 3 次**：implementer ↔ reviewer 来回 ≥3 次后，halt + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
+- **JSON 解析失败 / 夹带散文 → 重派**：reviewer 返回非 strict JSON(首字符非 `{`,或 JSON 前后夹带散文 / markdown / 推理)时，controller 提示 "schema violation, output JSON only" 重派 1 次;**不做 loose-extract 容忍**——被夹带的散文会回灌 controller 上下文(实测 reviewer 散文使其返回体积达 implementer 2.2×);仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure），escalate user。
 - **REVISE 后**：把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review（**复用同一 reviewer prompt，不分 spec/质量两轮**）。
 
 ## Decision 处理

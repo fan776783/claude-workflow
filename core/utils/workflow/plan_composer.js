@@ -923,7 +923,7 @@ function applyReviewRecords(state, { roleContext, specContent, planContent, plan
   }
 }
 
-function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = 'Spec 正确，生成 Plan', taskNameOverride = null) {
+function cmdPlan(requirement, force = false, noDiscuss = false, projectId = null, projectRoot = null, specChoice = null, taskNameOverride = null) {
   const root = detectProjectRoot(projectRoot)
   if (projectId && !validateProjectId(projectId)) return { error: `非法项目 ID: ${projectId}` }
 

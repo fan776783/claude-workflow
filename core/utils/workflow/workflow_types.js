@@ -81,7 +81,6 @@ const POST_SPEC_REVIEW_STATUSES = new Set([
 const HALT_REASON = Object.freeze({
   FAILURE: 'failure',
   DEPENDENCY: 'dependency',
-  AWAITING_CODEX_REVIEW: 'awaiting_codex_review',
 })
 
 const TRIGGER_REASON = Object.freeze({
@@ -293,7 +292,7 @@ function getSpecReviewGateViolation(state) {
       code: 'spec_upgrade_required',
       status: normalized.status,
       review_status: 'skipped',
-      message: '当前 workflow 由无 spec 的 plan 自愈恢复，执行前需先升级到 /workflow-plan，或显式使用 /workflow-execute --force 确认降级。',
+      message: '当前 workflow 由无 spec 的 plan 自愈恢复，执行前需先回 /workflow-spec 补全 spec 审批，或显式使用 /workflow-execute --force 确认降级。',
     }
   }
   return {
@@ -442,7 +441,7 @@ module.exports = {
 function getStatusMessages(state, { verbose = true } = {}) {
   if (!state) {
     return verbose
-      ? { nextAction: '没有活跃的工作流。使用 `/workflow-plan` 开始新任务。', guardrail: '无活动 workflow：仅允许新建流程，不应猜测恢复执行。' }
+      ? { nextAction: '没有活跃的工作流。使用 `/workflow-spec` 开始新任务。', guardrail: '无活动 workflow：仅允许新建流程，不应猜测恢复执行。' }
       : { nextAction: null, guardrail: null }
   }
   if (getSpecReviewGateViolation(state)) {
@@ -466,7 +465,7 @@ function getStatusMessages(state, { verbose = true } = {}) {
 }
 
 const VERBOSE_STATUS_TABLE = {
-  idle: { nextAction: '使用 `/workflow-plan` 开始新的工作流。', guardrail: 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。' },
+  idle: { nextAction: '使用 `/workflow-spec` 开始新的工作流。', guardrail: 'Guardrail：主流程由 command + skill + state machine 控制，hook 只做上下文提示与守门。' },
   planned: { nextAction: '规划已完成。使用 `/workflow-execute` 开始执行；不要重新进入规划。', guardrail: 'Guardrail：此状态只允许显式 `/workflow-execute` 进入执行器；禁止自动继续或重新规划。' },
   spec_review: { nextAction: 'Spec 等待确认。请先审查 Spec 文档并完成人工确认，不能直接执行。', guardrail: 'Guardrail：当前处于人工 Spec 审查关口（或 Plan 生成中）；禁止直接进入实现。' },
   running: (state) => ({
@@ -489,7 +488,7 @@ const VERBOSE_STATUS_TABLE = {
     nextAction: `工作流已完成 (${((state.progress || {}).completed || []).length} 任务)。使用 /workflow-archive 归档，不要继续执行。`,
     guardrail: 'Guardrail：已完成流程只允许归档或查看状态，不允许继续执行。',
   }),
-  archived: { nextAction: '工作流已归档。使用 `/workflow-plan` 开始新任务。', guardrail: 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-plan`。' },
+  archived: { nextAction: '工作流已归档。使用 `/workflow-spec` 开始新任务。', guardrail: 'Guardrail：归档流程视为结束，后续需求需重新 `/workflow-spec`。' },
 }
 
 const SHORT_STATUS_TABLE = {

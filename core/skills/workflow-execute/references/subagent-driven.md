@@ -51,7 +51,7 @@ controller (主会话)
 - **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。
 - **Phase 2 — Code Quality**：critical / important / minor 三档。`critical: []` 且 `important: []` 才 PASS。
 
-`decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review。循环上限 **3 次**（合并 phase1+phase2 共享），超过 → `halted` + `halt_reason: 'review-loop'`。
+`decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review。循环上限 **3 次**（合并 phase1+phase2 共享），超过 → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
 
 ### HITL × subagent
 

@@ -291,13 +291,15 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 |---|---|
 | "OK" / "通过" / "生成 Plan" | approve 分支,canonical `Spec 正确，生成 Plan` |
 | "改 §X" / "再扩一下" / "Spec 要改" | revise 分支,canonical `需要修改 Spec`(细节缺失走 `缺少需求细节`) |
+| "页面分层不对" / "页面层级要调整" / "§4.4 重排" | revise 分支,canonical `页面分层需要调整` |
+| "缺用户流程" / "没有 user flow" / "补流程图" | revise 分支,canonical `缺少用户流程` |
 | "拆" / "范围太大" / "拆开" | split 分支,canonical `需要拆分范围` |
 | "先做前端深化" | elaborate-then-approve,委托 `/ux-elaboration` 后回到 Step 6 |
 | 直接调用 `/workflow-plan`(无文字回复) | **隐式 approve**:先输出一行 "未见显式回复,按 `/workflow-plan` 调用视为通过 spec 审批",再走 approve 分支 |
 
 **模糊回复**(如"看着办" / "你决定")→ 不归一化,反问用户具体走哪条。
 
-> **完整 canonical 字符串清单以 `core/utils/workflow/planning_gates.js` 中 `mapSpecReviewChoice` 为准**(共 7 个 key);`core/specs/shared/workflow-cli.md` 提供常用 5 个的快速参考。**禁止把用户原话直接塞给 `--choice`**。
+> **完整 canonical 字符串清单以 `core/utils/workflow/planning_gates.js` 中 `mapSpecReviewChoice` 为准**(共 7 个 key);`core/specs/shared/workflow-cli.md` 提供全部 7 个的快速参考。**禁止把用户原话直接塞给 `--choice`**。
 
 ### 设计深化分支(仅 elaborate-then-approve)
 
