@@ -19,7 +19,6 @@ const REQUIRED_AGENTS = [
   'codex',
   'cursor',
   'droid',
-  'gemini-cli',
   'github-copilot',
   'opencode',
 ]

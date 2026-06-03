@@ -106,8 +106,9 @@ Notes:
 
 **Supported Agents:**
 
-- Claude Code, Cursor, Codex, Antigravity, Droid, Gemini CLI, GitHub Copilot, OpenCode, Qoder
-- **Plugin-managed**（原生 Plugin 机制，非 installer mount）：Claude Code（`lib/claude-code-plugin.js`）、Qoder（`lib/qoder-plugin.js`，`qodercli plugins install`）。其余 7 个工具走 installer 逐 skill mount。
+- Claude Code, Cursor, Codex, Antigravity, Droid, GitHub Copilot, OpenCode, Qoder
+- **Plugin-managed**（原生 Plugin 机制，非 installer mount）：Claude Code（`lib/claude-code-plugin.js`）、Qoder（`lib/qoder-plugin.js`，`qodercli plugins install`）、Antigravity（`lib/antigravity-plugin.js`，`agy plugin install`）。其余 5 个工具走 installer 逐 skill mount。
+- **Gemini CLI 已于 2026-06-18 停服**，合并进 Antigravity CLI（`agy`）。原 gemini-cli agent 已移除，Antigravity 从 installer-mount 改为 Plugin-managed。
 
 **Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`
 

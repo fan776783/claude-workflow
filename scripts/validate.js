@@ -679,6 +679,27 @@ async function validatePluginManifests(repoRoot, packageRoot, errors) {
     errors.push(`plugin.json name 必须为 "agent-workflow"（当前：${pluginManifest.name}）`);
   }
 
+  // 1b. core/plugin.json（Antigravity CLI 读的根级清单）存在 + 与 .claude-plugin/plugin.json 同步
+  const agyManifestPath = path.join(packageRoot, 'plugin.json');
+  if (!(await fs.pathExists(agyManifestPath))) {
+    errors.push('core/plugin.json 不存在（Antigravity CLI 的 agy plugin install 需要根级 plugin.json）');
+  } else {
+    try {
+      const agyManifest = JSON.parse(await fs.readFile(agyManifestPath, 'utf8'));
+      if (agyManifest.version !== pkgJson.version) {
+        errors.push(
+          `core/plugin.json version (${agyManifest.version}) 与 package.json version (${pkgJson.version}) 不一致，` +
+          `请运行 node scripts/sync-plugin-version.js ${pkgJson.version}`
+        );
+      }
+      if (agyManifest.name !== 'agent-workflow') {
+        errors.push(`core/plugin.json name 必须为 "agent-workflow"（当前：${agyManifest.name}）`);
+      }
+    } catch (err) {
+      errors.push(`core/plugin.json 解析失败: ${err.message}`);
+    }
+  }
+
   // 2. marketplace.json 存在 + 含 agent-workflow 条目
   const marketplaceManifestPath = path.join(repoRoot, '.claude-plugin', 'marketplace.json');
   if (!(await fs.pathExists(marketplaceManifestPath))) {

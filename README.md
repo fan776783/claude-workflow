@@ -2,7 +2,7 @@
 
 以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
 
-它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Qoder、Cursor、Codex、Gemini CLI、Antigravity、Droid 等多种 AI 编码工具。
+它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Qoder、Antigravity、Cursor、Codex、Droid 等多种 AI 编码工具。
 
 ---
 
@@ -91,8 +91,8 @@ npm i -g --registry <private-registry-url> @justinfan/agent-workflow
 agent-workflow sync -y
 ```
 
-- `npm i -g` 会**记住这个 registry**（供后续 `update` 复用），并为 installer-mount 类工具（Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid）复制模板。
-- `agent-workflow sync -y` 装上 Claude Code / Qoder 的原生 Plugin、补齐其余工具、并清理 v5.x 残留。`claude` CLI 不在 PATH 时，sync 会降级为直接写 Plugin 配置安装，仍找不到才打印手动指引。
+- `npm i -g` 会**记住这个 registry**（供后续 `update` 复用），并为 installer-mount 类工具（Cursor / Codex / GitHub Copilot / OpenCode / Droid）复制模板。
+- `agent-workflow sync -y` 装上 Claude Code / Qoder / Antigravity 的原生 Plugin、补齐其余工具、并清理 v5.x 残留。`claude` CLI 不在 PATH 时，sync 会降级为直接写 Plugin 配置安装，仍找不到才打印手动指引。
 
 ### 2.2 更新
 
@@ -695,19 +695,20 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 
 ## 7. 支持的 AI 编码工具
 
-当前支持 9 个 AI 编码工具，包括：
+当前支持 8 个 AI 编码工具，包括：
 
 - Claude Code（Plugin-managed）
 - Qoder（Plugin-managed，`qodercli plugins install`）
+- Antigravity（Plugin-managed，`agy plugin install`；Gemini CLI 后继者）
 - Cursor
 - Codex
-- Gemini CLI
 - GitHub Copilot
 - OpenCode
-- Antigravity
 - Droid
 
-> **分发方式**：Claude Code 与 Qoder 走各自工具的原生 Plugin 机制；其余 7 个工具由 installer 逐 skill mount。
+> **分发方式**：Claude Code、Qoder、Antigravity 走各自工具的原生 Plugin 机制；其余 5 个工具由 installer 逐 skill mount。
+>
+> **Gemini CLI 已于 2026-06-18 停服**，合并进 Antigravity CLI（`agy`）。原 Gemini CLI 支持已移除，迁移到 Antigravity Plugin。
 
 ---
 

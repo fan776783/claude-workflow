@@ -25,14 +25,16 @@ Canonical 源的枚举规则：
 `lib/agents.js` 必须满足：
 
 1. **必须存在的 agents**（至少包含）：
-   `antigravity`、`claude-code`、`codex`、`cursor`、`droid`、`gemini-cli`、`github-copilot`、`opencode`
+   `antigravity`、`claude-code`、`codex`、`cursor`、`droid`、`github-copilot`、`opencode`
+   - Gemini CLI 已于 2026-06-18 停服并合并进 Antigravity CLI（`agy`），移出清单。
+   - `antigravity` 与 `claude-code` 走原生 Plugin 机制（`managedViaPlugin: true`），不经 installer mount。
 2. **每个 agent 的字段**必须非空：
    - `name`（字符串）
    - `displayName`（字符串）
-   - `skillsDir`（相对路径字符串，用于项目级安装）
-   - `globalSkillsDir`（绝对路径字符串，用于全局安装）
+   - `skillsDir`（相对路径字符串，用于项目级安装）—— `managedViaPlugin` 的 agent 豁免
+   - `globalSkillsDir`（绝对路径字符串，用于全局安装）—— `managedViaPlugin` 的 agent 豁免
    - `detectInstalled`（可调用函数）
-3. **skillsDir convention**：必须是 `.<agent-home>/skills` 形式，目的地由 `getAgentBaseDir()` 反推得到。允许 `.agent/skills`、`.claude/skills` 等现有convention；禁止指向 `skills/` 根目录（否则会与 canonical 冲突）。
+3. **skillsDir convention**：必须是 `.<agent-home>/skills` 形式，目的地由 `getAgentBaseDir()` 反推得到。允许 `.agent/skills`、`.claude/skills` 等现有convention；禁止指向 `skills/` 根目录（否则会与 canonical 冲突）。`managedViaPlugin` 的 agent 不声明 skillsDir，不受本条约束。
 
 ## Installer contract
 
@@ -44,8 +46,8 @@ Canonical 源的枚举规则：
 
 ## CI 失败条件（由 validator 实施）
 
-- `lib/agents.js` 少于 8 个 agent
-- 任一 agent 缺少上述 5 个必填字段
+- `lib/agents.js` 少于 7 个 agent
+- 任一 agent 缺少上述 5 个必填字段（`managedViaPlugin` 的 agent 豁免 skillsDir / globalSkillsDir）
 - `core/skills/<x>/` 存在但没有 `SKILL.md`
 - `core/commands/*.md` 里的命令文件命名与 `core/skills/` 提供的 skill 无法对应（仅警告，不阻塞；对应关系由 command doc 内容声明）
 - `core/` 存在未在 `TEMPLATE_DIRS` 登记的一级目录

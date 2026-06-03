@@ -29,6 +29,8 @@ const {
 } = require('../lib/interactive-installer');
 const claudeCodePlugin = require('../lib/claude-code-plugin');
 const qoderPlugin = require('../lib/qoder-plugin');
+const antigravityPlugin = require('../lib/antigravity-plugin');
+const { syncAgentMemories } = require('../lib/memory-sync');
 
 /**
  * 把目标 agent 列表拆成 [claude-code-targets, other-targets]。
@@ -37,13 +39,15 @@ const qoderPlugin = require('../lib/qoder-plugin');
 function partitionAgents(targetAgents) {
   const ccTargets = [];
   const qoderTargets = [];
+  const antigravityTargets = [];
   const otherTargets = [];
   for (const name of targetAgents) {
     if (name === 'claude-code') ccTargets.push(name);
     else if (name === 'qoder') qoderTargets.push(name);
+    else if (name === 'antigravity') antigravityTargets.push(name);
     else otherTargets.push(name);
   }
-  return { ccTargets, qoderTargets, otherTargets };
+  return { ccTargets, qoderTargets, antigravityTargets, otherTargets };
 }
 
 /**
@@ -80,6 +84,45 @@ function printQoderPluginResult(qoderResult) {
   };
   const reason = reasonMap[qoderResult.reason] || qoderResult.reason || '未知原因';
   console.log(`    ✗ Qoder (via Plugin): ${reason}`);
+}
+
+/**
+ * 打印 Antigravity Plugin 安装结果。
+ */
+function printAntigravityPluginResult(antigravityResult) {
+  if (!antigravityResult) return;
+  if (antigravityResult.success) {
+    console.log(`    ✓ Antigravity (via Plugin)`);
+    return;
+  }
+  const reasonMap = {
+    'cli-not-found': '未检测到 agy CLI，已打印手动指引',
+    'install-failed': 'plugin install 失败',
+  };
+  const reason = reasonMap[antigravityResult.reason] || antigravityResult.reason || '未知原因';
+  console.log(`    ✗ Antigravity (via Plugin): ${reason}`);
+}
+
+/**
+ * 打印 agent memory 文件分发结果（syncAgentMemories 的返回）。
+ */
+function printMemoryResults(records) {
+  if (!records || records.length === 0) return;
+  console.log(`\n  Agent memory:`);
+  for (const { agent, source, result } of records) {
+    const displayName = agents[agent]?.displayName || agent;
+    if (result.skipped) {
+      if (result.reason === 'source-not-found') {
+        console.log(`    ⚠ ${displayName}: 源 ${source} 缺失，跳过`);
+      } else {
+        console.log(`    = ${displayName}: ${source} 已是最新`);
+      }
+      continue;
+    }
+    const verb = result.action === 'create' ? '已写入' : '已更新';
+    const bak = result.backup ? `（旧版备份 ${path.basename(result.backup)}）` : '';
+    console.log(`    ✓ ${displayName}: ${source} ${verb} → ${result.destPath}${bak}`);
+  }
 }
 
 const CLI_NAME = 'agent-workflow';
@@ -183,11 +226,11 @@ if (process.argv.length === 2) {
 
         if (targetAgents.length === 0) {
           console.log(`${LOG_PREFIX} 未检测到任何支持的 AI 编码工具`);
-          console.log('  请先安装 Claude Code / Cursor / Codex / Gemini CLI / GitHub Copilot / OpenCode / Antigravity / Droid 中的任一个');
+          console.log('  请先安装 Claude Code / Cursor / Codex / GitHub Copilot / OpenCode / Antigravity / Droid 中的任一个');
           return;
         }
 
-        const { ccTargets, qoderTargets, otherTargets } = partitionAgents(targetAgents);
+        const { ccTargets, qoderTargets, antigravityTargets, otherTargets } = partitionAgents(targetAgents);
 
         console.log(`${LOG_PREFIX} 同步到 ${targetAgents.length} 个 Agent...`);
         console.log(`  目标: ${targetAgents.map(a => agents[a]?.displayName || a).join(', ')}`);
@@ -196,8 +239,9 @@ if (process.argv.length === 2) {
         let installResult = null;
         let ccResult = null;
         let qoderResult = null;
+        let antigravityResult = null;
 
-        // 其他 8 个工具：走 installer；同时会触发 ensureCanonicalInstalled 把 marketplace.json 复制到 canonical
+        // installer-mount 类工具：走 installer；同时会触发 ensureCanonicalInstalled 把 marketplace.json 复制到 canonical
         if (otherTargets.length > 0) {
           installResult = await installForAgents({
             templatesDir: repoRoot,
@@ -267,13 +311,52 @@ if (process.argv.length === 2) {
           printQoderPluginResult(qoderResult);
         }
 
+        // Antigravity：Plugin 分支（agy plugin install，Gemini CLI 后继者）
+        if (antigravityTargets.length > 0) {
+          const canonicalDir = getCanonicalDir(global, process.cwd());
+          // 若前面几类目标都为空，installer 没触发过 ensureCanonicalInstalled，需手动确保
+          if (otherTargets.length === 0 && ccTargets.length === 0 && qoderTargets.length === 0) {
+            await installForAgents({
+              templatesDir: repoRoot,
+              agents: [],
+              global,
+              cwd: process.cwd(),
+            });
+          }
+
+          console.log(`\n  Antigravity Plugin:`);
+          antigravityResult = await antigravityPlugin.ensureAntigravityPluginInstalled({
+            canonicalDir,
+            options: { yes: options.yes, dryRun: options.dryRun },
+          });
+          printAntigravityPluginResult(antigravityResult);
+        }
+
+        // Agent memory 分发：canonical 下的 AGENTS.md / GEMINI.md 按各工具原生文件名
+        // 写到对应 config home（CLAUDE.md → ~/.claude 仍由上面 Claude Plugin 分支负责）。
+        // 此时 canonical 已被某个安装分支 populate。失败不阻塞 sync（对齐 syncClaudeMd）。
+        if (options.dryRun) {
+          console.log(`\n  [dry-run] Agent memory 分发已跳过`);
+        } else {
+          try {
+            const memoryRecords = await syncAgentMemories({
+              canonicalDir: getCanonicalDir(global, process.cwd()),
+              agentNames: targetAgents,
+            });
+            printMemoryResults(memoryRecords);
+          } catch (err) {
+            console.log(`\n  ⚠️  Agent memory 分发失败: ${err.message}（不阻塞）`);
+          }
+        }
+
         console.log(`\n${LOG_PREFIX} sync 完成`);
 
         // 退出码：任一分支失败则 exit 1（但 CLI 缺失打印指引不算失败，由用户决定）
         const installFailed = installResult && installResult.errors.length > 0;
         const ccFailed = ccResult && !ccResult.success && ccResult.reason !== 'cli-not-found';
         const qoderFailed = qoderResult && !qoderResult.success && qoderResult.reason !== 'cli-not-found';
-        if (installFailed || ccFailed || qoderFailed) {
+        const antigravityFailed = antigravityResult && !antigravityResult.success && antigravityResult.reason !== 'cli-not-found';
+        if (installFailed || ccFailed || qoderFailed || antigravityFailed) {
           process.exitCode = 1;
         }
       } catch (err) {
@@ -638,6 +721,19 @@ if (process.argv.length === 2) {
           } else {
             console.log(`    ✗ 未安装 - 运行 ${CLI_NAME} sync 安装`);
           }
+
+          // Antigravity Plugin 状态单独查询
+          const antigravityStatus = await antigravityPlugin.inspectStatus({
+            canonicalDir: status.canonicalDir,
+          });
+          console.log('\n  Antigravity Plugin:');
+          if (antigravityStatus.installed) {
+            console.log(`    ✓ 已安装`);
+          } else if (antigravityStatus.cliAvailable === false) {
+            console.log(`    ○ agy CLI 未在 PATH，无法查询 Plugin 状态`);
+          } else {
+            console.log(`    ✗ 未安装 - 运行 ${CLI_NAME} sync 安装`);
+          }
         } else {
           console.log('  状态: 未安装');
           console.log(`  运行 npm install ${pkg.name} 安装`);
@@ -750,6 +846,16 @@ if (process.argv.length === 2) {
         for (const line of qoderDiag.issues) issues.push(`Qoder: ${line}`);
         if (qoderDiag.suggestions.length > 0) {
           for (const line of qoderDiag.suggestions) {
+            issues.push(`  建议: ${line}`);
+          }
+        }
+
+        // Antigravity Plugin 诊断
+        const antigravityDiag = await antigravityPlugin.diagnose({ canonicalDir: status.canonicalDir });
+        for (const line of antigravityDiag.ok) ok.push(`Antigravity: ${line}`);
+        for (const line of antigravityDiag.issues) issues.push(`Antigravity: ${line}`);
+        if (antigravityDiag.suggestions.length > 0) {
+          for (const line of antigravityDiag.suggestions) {
             issues.push(`  建议: ${line}`);
           }
         }
