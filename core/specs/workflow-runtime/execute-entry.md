@@ -27,7 +27,7 @@
 仅在以下条件全部满足时，允许将裸“继续”解释为恢复当前 workflow：
 
 1. 存在活动workflow状态文件
-2. `state.status` 属于 `running` / `paused` / `failed` / `blocked`
+2. `state.status` 属于 `running` / `halted`（对应 `execution_sequencer.js` `RESUME_ENTRY_STATUSES`；`planned` 需显式 `/workflow-execute` 命令启动，对应 `EXECUTE_ENTRY_STATUSES`）
 3. 当前对话上下文仍在 workflow 任务链上
 
 若不满足上述条件，禁止猜测进入执行器，应提示用户：
@@ -43,21 +43,22 @@
 - `/workflow-execute 继续`
 - 裸自然语言“继续”（满足恢复条件时）
 
-都必须先进入同一个 execute resolver，再执行以下顺序：
+都必须先进入同一个 execute resolver（`execution_sequencer.js` `buildExecuteEntry`），再执行以下顺序：
 
-1. 读取并校验 `workflow-state.json`
+1. 读取并校验 `workflow-state.json`（normalize 经 `ensureStateDefaults`，旧 `continuation` 字段读侧丢弃）
 2. 解析 execution mode / retry / skip
    - 同步解析 `--tdd`，返回 `tdd_enabled` 给 controller；该开关不改变 execution mode
-3. 读取 `continuation.last_decision`
-4. 调用 `ContextGovernor`
-5. 决定 `continue-direct` / `pause-*` / `handoff-required`
+3. 按状态守门：resolver 仅以 `EXECUTE_ENTRY_STATUSES = {planned, running, halted}` / `RESUME_ENTRY_STATUSES = {running, halted}` 集合决定可执行性，**不读 `halt_reason`**
+4. 从 task 源（task-dir，legacy plan.md 兜底）解析当前 task 并派发
+
+`halted` 的 `halt_reason` 分流提示（`failure` → `--retry` / `--skip`，`dependency` → `unblock <dep>`）由 skill 层完成（workflow-execute Step 2 状态预检查 / preflight.md Step 3），不在 resolver 内。
 
 **模式优先级**：`explicit_mode` > `intent` > `execution_mode` > `continuous`
 
 ## 重要约束
 
 - “继续”不是无条件继续跑下一个 task，而是“尝试恢复执行器”。
-- 真正是否继续，始终以 `ContextGovernor`、验证证据、质量关卡和阻塞状态为准。
+- 真正是否继续，始终以验证证据、质量关卡和阻塞状态（`halt_reason`，由 skill 层分流——resolver 不读，见上）为准。
 - `phase` 与 `continuous` 只定义语义暂停偏好，不绕过预算与验证治理。
 - TDD 只由显式 `--tdd` 开启；默认执行路径不得因 task phase/actions 自动引用 `/tdd`。
 - 即使识别到 2+ 独立任务也不得自动切入 `/team`；workflow-execute 默认每 task 起 fresh implementer subagent + 串行两段 review（spec → quality）。

@@ -20,7 +20,7 @@ const {
   collectSpecFiles,
   renderSpecFiles,
 } = require('../utils/workflow/task_runtime')
-const { assertExecutableTaskSourcePresent, deriveEffectiveStatus, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
+const { assertExecutableTaskSourcePresent, deriveEffectiveStatus, finishedTaskIds, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { shouldSkipInjection } = require('./_skip')
 const { normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
 
@@ -285,6 +285,26 @@ function main() {
   const currentTaskId = (state.current_tasks || [])[0]
   if (!currentTaskId) {
     process.stdout.write(JSON.stringify(buildBlockResult('[workflow-hook] 当前没有 active task，禁止派发执行型 Task。请先通过 `/workflow-execute` 解析下一步任务。')))
+    return
+  }
+
+  // C-1 resume 锚点可解析性：current_tasks[0] 指向 task 源中不存在的 task（孤儿锚点）→ 硬阻断。
+  // 不阻断则 getTaskBlock 落空、<current-task> 静默缺失，implementer 拿不到任务上下文照常派发（静默失锚）。
+  // 与 task_source_missing 同级治理（源非空但锚点不可解析）。task 源缺失场景已被上方 assert 先行拦截。
+  if (!getCurrentTask(runtime)) {
+    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] current_tasks_orphaned：active task ${currentTaskId} 不存在于 task 源，resume 锚点失效，禁止派发执行型 Task。请跑 \`workflow_cli.js repair-anchor\`（reseed-only 修锚）或重跑 /workflow-plan（task-write 会自动重导锚点）。`)))
+    return
+  }
+
+  // C-1 锚点新鲜度（对称防御）：anchor 存在于源但已 completed/skipped（仅手编 state 可达——
+  // advance/skip/task-write 重导均会移走终结锚点）→ 阻断，防 implementer 重做已完成 task。
+  // failed/blocked 锚点合法（retry/unblock 目标），不在此拦——状态门已按 halted 拦截派发；
+  // 重导/推进写侧（alignStatusWithAnchor）保证不落出 running + failed/blocked 锚点，唯一例外是
+  // retry 窗口（prepareRetry 置 running 时锚点仍在 progress.failed）——重试派发恰依赖本 gate
+  // 不拦 failed 锚点放行，窗口由 complete 清 failed 收口。本 gate 只拦终结锚点。
+  // finishedTaskIds 自带 Array.isArray 防御：state 是 raw JSON（未经 ensureStateDefaults），手编坏 progress 不抛。
+  if (finishedTaskIds(state.progress || {}).has(currentTaskId)) {
+    process.stdout.write(JSON.stringify(buildBlockResult(`[workflow-hook] current_tasks_finished：active task ${currentTaskId} 已是 completed/skipped 终态，重派发会重做已完成工作。请跑 \`workflow_cli.js repair-anchor\` 重导锚点后再继续。`)))
     return
   }
 

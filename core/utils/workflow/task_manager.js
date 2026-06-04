@@ -25,6 +25,7 @@ const {
   extractConstraints,
 } = require('./task_parser')
 const { createTaskSource } = require('./task_source')
+const { findOrphanedAnchors, firstDispatchableTaskId } = require('./workflow_types')
 
 // S3 重基（FR-2）：task_manager 的 task 序列来源从 parseTasksV2(plan.md) 切到 TaskSource。
 // 这些命令（complete/next/list/progress/deps）是 execute 主推进路径（workflow_cli advance）的真实落点。
@@ -40,18 +41,9 @@ function taskSourceFor(state, projectId = null, projectRoot = null) {
 }
 
 // 下一个待执行 task：按 TaskSource 顺序排除 completed/skipped/failed/blocked。
+// 实现收敛到 workflow_types.firstDispatchableTaskId（C-1 共享谓词），此处保留导出名兼容既有调用方。
 function nextTaskIdFromSource(tasks, progress = {}) {
-  const excluded = new Set([
-    ...(progress.completed || []),
-    ...(progress.skipped || []),
-    ...(progress.failed || []),
-  ])
-  const blocked = new Set(progress.blocked || [])
-  for (const task of tasks || []) {
-    const id = task && task.id
-    if (id && !excluded.has(id) && !blocked.has(id)) return id
-  }
-  return null
+  return firstDispatchableTaskId(tasks, progress)
 }
 
 /**
@@ -158,12 +150,18 @@ function cmdStatus(projectId = null, projectRoot = null) {
   const progress = state.progress || {}
   const pid = resolveProjectIdForTasks(state, projectId, projectRoot)
   const source = taskSourceFor(state, pid, projectRoot)
-  const total = source ? source.listTasks().length : 0
+  const sourceTasks = source ? source.listTasks() : []
+  const total = sourceTasks.length
   const percent = calculateProgress(total, progress.completed || [], progress.skipped || [], progress.failed || [])
+  // C-1 锚点可解析性只读暴露：current_tasks 含不在 task 源的 id → 派生 current_tasks_orphaned 标记，
+  // 让 status 直接呈现矛盾（否则 current_tasks 原样回显 + total_tasks 各自健康，失配被双重掩盖）。
+  // 全量 current_tasks 检查（对齐 plan-review 广度）；复用 listTasks 结果免二次读盘。
+  const anchorOrphaned = Boolean(source) && findOrphanedAnchors(state.current_tasks, sourceTasks).length > 0
   return {
     workflow_status: state.status,
     plan_file: tasksPath || state.plan_file || state.tasks_file || '',
     current_tasks: state.current_tasks || [],
+    ...(anchorOrphaned ? { current_tasks_orphaned: true } : {}),
     total_tasks: total,
     completed: (progress.completed || []).length,
     failed: (progress.failed || []).length,
@@ -242,7 +240,10 @@ function cmdComplete(taskId, projectId = null, projectRoot = null) {
   const progress = state.progress || (state.progress = {})
   const completed = progress.completed || (progress.completed = [])
   addUnique(completed, taskId)
+  // complete 终结该 task：failed/blocked 一并清除（与 markTaskSkipped 对称）——
+  // 终结 id 残留 blocked 会污染 selectAnchorId 回退域，让 repair-anchor 面对本可避免的脏数据。
   if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
+  if ((progress.blocked || []).includes(taskId)) progress.blocked = progress.blocked.filter((item) => item !== taskId)
   const statusTransition = liftPlannedToRunning(state)
   writeState(statePath, state)
   const result = { completed: true, task_id: taskId }

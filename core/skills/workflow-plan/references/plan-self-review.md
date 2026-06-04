@@ -30,7 +30,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 | `lints.pattern_fidelity.unresolved`(Phase C) | ❌ 否 | ✅ patterns 维度封顶,无加分 |
 | `lints.type_consistency.pairs`(Phase C) | ❌ 否 | ❌ 完全不进 rubric(假阳性后患) |
 | `lints.atomicity.warnings` | ❌ 否 | ❌ 不扣 |
-| `lints.task_schema.issues`(task-dir:非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源) | ✅ 是 | — |
+| `lints.task_schema.issues`(task-dir:非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源 / `current_tasks_orphaned` resume 锚点孤儿 / `current_tasks_empty` 锚点缺失而源有未终结 task(failed/blocked 算未终结;repair-anchor/task-write 重导会回退锚到 retry/unblock 目标)) | ✅ 是 | — |
 | `lints.task_schema.warnings`(`name` 空 / `acceptance` 空) | ❌ 否 | ❌ 不挡(提示补全) |
 
 ## 各 lint 含义

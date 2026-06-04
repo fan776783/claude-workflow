@@ -291,7 +291,8 @@ test('cmdPlanReview ready=true for clean plan covering all requirements', () => 
     '- **验证期望**: PASS',
   ].join('\n')
   const spec = 'R-001 the only requirement'
-  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
+  // C-1 不变式：planned ⟹ current_tasks[0]=firstTaskId（缺失会被 current_tasks_empty 正确拦下，非本测试关注点）。
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec, currentTasks: ['T1'] })
   try {
     const result = cmdPlanReview(projectId, repoRoot)
     assert.equal(result.ready, true, `expected ready=true, got ${JSON.stringify(result)}`)
@@ -321,7 +322,8 @@ test('cmdPlanReview ready=false when placeholder hit', () => {
 test('cmdPlanReview ready=true when requirement uncovered (coverage advisory only)', () => {
   const plan = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
   const spec = 'R-001 R-999 second untouched requirement'
-  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec })
+  // C-1 不变式：planned ⟹ current_tasks[0]=firstTaskId（缺失会被 current_tasks_empty 正确拦下，非本测试关注点）。
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec, currentTasks: ['T1'] })
   try {
     const result = cmdPlanReview(projectId, repoRoot)
     assert.equal(result.ready, true, `uncovered must not block ready (advisory), got ${JSON.stringify(result)}`)
@@ -824,6 +826,8 @@ test('cmdPlanReview v1 plan with no anchors → ready=true (anchor not enforced)
   const { projectId, statePath, tmpDir } = setupSandboxState({
     planContent: v1,
     specContent: 'R-001',
+    // C-1 不变式：planned ⟹ current_tasks[0]=firstTaskId（缺失会被 current_tasks_empty 正确拦下，非本测试关注点）。
+    currentTasks: ['T1'],
   })
   try {
     const result = cmdPlanReview(projectId, repoRoot)

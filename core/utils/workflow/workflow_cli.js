@@ -23,7 +23,7 @@ const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_pars
 const { createTaskSource } = require('./task_source')
 const taskStore = require('./task_store')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
-const { buildMinimumState, buildUserSpecReview, ensureStateDefaults } = require('./workflow_types')
+const { buildMinimumState, buildUserSpecReview, ensureStateDefaults, finishedTaskIds, firstDispatchableTaskId, selectAnchorId, alignStatusWithAnchor } = require('./workflow_types')
 const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
 const { buildTaskBundle } = require('./task_bundle')
 const { renderTaskMd } = require('./task_md_render')
@@ -185,19 +185,20 @@ function cmdInit(projectId = null, projectRoot = null, planPath = null) {
       // 注意只看 blocked_by（外部依赖键），不看 depends（task 间顺序依赖，属正常排程，不构成 halt）。
       else if (record.status === 'blocked' || (Array.isArray(record.blocked_by) && record.blocked_by.length)) progress.blocked.push(record.id)
     }
-    const finished = new Set([...progress.completed, ...progress.skipped, ...progress.failed])
-    const blockedSet = new Set(progress.blocked)
-    const nextRecord = dirRecords.find((record) => !finished.has(record.id) && !blockedSet.has(record.id)) || null
+    // 可派发判定 + 锚点选择走 C-1 共享谓词（workflow_types）：state-aware——推导出 halted 时
+    // 锚定 halt 目标（failure → failed，dependency → blocked，与 cmdFail 落锚 / preflight
+    // retry/unblock 分流对齐，resume 三元组指向 halt 原因）；非 halted 时可派发 task 优先。
+    const nextRecordId = firstDispatchableTaskId(dirRecords, progress)
     let workflowStatus
     let haltReason = null
     if (progress.failed.length) { workflowStatus = 'halted'; haltReason = 'failure' }
-    else if (!nextRecord && progress.blocked.length) { workflowStatus = 'halted'; haltReason = 'dependency' }
-    else if (!nextRecord) workflowStatus = 'completed'
+    else if (!nextRecordId && progress.blocked.length) { workflowStatus = 'halted'; haltReason = 'dependency' }
+    else if (!nextRecordId) workflowStatus = 'completed'
     else if (progress.completed.length || progress.skipped.length) workflowStatus = 'running'
     else workflowStatus = 'planned'
     inferred = {
       progress,
-      current_task_id: nextRecord ? nextRecord.id : (progress.failed[0] || progress.blocked[0] || null),
+      current_task_id: selectAnchorId(dirRecords, progress, { status: workflowStatus, halt_reason: haltReason }),
       workflow_status: workflowStatus,
       halt_reason: haltReason,
     }
@@ -257,16 +258,25 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
     if (nextTask && typeof nextTask === 'object') state.current_tasks = [nextTask.id]
     else if (typeof nextTask === 'string') state.current_tasks = [nextTask]
     else {
-      state.current_tasks = []
+      // cmdNext 无可派发 task ≠ 全部终结：failed/blocked 残留时锚点回退 retry/unblock 目标
+      //（selectAnchorId，与 cmdInit 自愈、task-write 重导同语义，C-1 锚点不悬空），全部终结才置空。
+      // 此前这里无条件置 [] → 落出「空锚点 + failed/blocked 残留」状态：plan-review 的
+      // current_tasks_empty 挡 ready，而重导也选不出锚点 → 无解循环。
       const progress = state.progress || {}
-      const finishedCount = (progress.completed || []).length + (progress.skipped || []).length
       // task 源 = task-dir（plan.md 已退化为叙述，countTasks(plan.md) 恒 0）。total 从 TaskSource 取，
       // 否则末 task 完成后 totalTasks=0 → 完成门恒不触发，workflow 永远停在 running。
       const source = createTaskSource(state, { projectId, projectRoot, quiet: true })
-      const totalTasks = source ? source.listTasks().length : (tasksContent ? countTasks(tasksContent) : 0)
+      const sourceTasks = source ? source.listTasks() : []
+      const fallbackAnchor = selectAnchorId(sourceTasks, progress, state)
+      state.current_tasks = fallbackAnchor ? [fallbackAnchor] : []
+      alignStatusWithAnchor(state, fallbackAnchor)
+      const finishedCount = finishedTaskIds(progress).size
+      const totalTasks = sourceTasks.length || (tasksContent ? countTasks(tasksContent) : 0)
       // 所有 task 完成 → execute Step 7 inline 末尾终审通过后直接 completed，无中间审查态。
-      // completeWorkflow 内部已 writeState，避免外层再写一次造成终态双写。
-      if (totalTasks > 0 && finishedCount >= totalTasks) {
+      // completeWorkflow 内部已 writeState（并置空 current_tasks），避免外层再写一次造成终态双写。
+      // !fallbackAnchor 前置：fallback 锚非空 = failed/blocked 残留未终结，stale finished id
+      // 凑数（finishedCount 含不在源的 id）也不得越过刚对齐的 halted 误判 completed。
+      if (!fallbackAnchor && totalTasks > 0 && finishedCount >= totalTasks) {
         completeWorkflow(state, statePath, totalTasks)
         persistedByCompleteWorkflow = true
       }
@@ -545,7 +555,87 @@ function cmdTaskWrite(fromFile, projectId, projectRoot) {
       taskStore.writeTaskMd(resolved, id, renderTaskMd(rec))
     } catch { /* task.md 渲染/落盘失败不致命：execute 期 readTaskMd 容错回退 '' */ }
   }
-  return { written: true, project_id: resolved, task_ids: written, count: written.length }
+  // resume 锚点重导（C-1）：整集替换后 spec-approve 落的 current_tasks[0] 可能已不在新 id 集
+  // （renumber / 合并 / 首 slice 不从 T1 起），或仍在新集但已 completed/skipped（re-plan 场景）。
+  // 孤儿锚点会让 execute 首派发与 /clear resume 失锚（hook 注入 <current-task> 静默落空），
+  // 而 planner 被 HARD-GATE 禁手改 state——改 task 源的命令对依赖它的锚点负责
+  // （与 cmdPlan/cmdSpecReview 落锚、advanceAfterComplete 重导同构）。核对对象 = 写后真实
+  // task 源（taskStore.listTasks，而非本批 written 局部变量）——对未来非全量写入模式免疫。
+  // 锚点仍有效（在新 id 集且未终结）时不动 state（避免无谓 bump updated_at 打 stale 下游 handoff）。
+  let currentTasksReseeded = null
+  let reseedError = null
+  let staleProgressIds = null
+  try {
+    const [state, statePath] = resolveStateAndTasks(resolved, projectRoot)
+    // 无活跃 state（纯 task-dir 场景）→ resolveStateAndTasks 返回 null（不抛），静默跳过重导。
+    if (state && statePath) {
+      const sourceTasks = taskStore.listTasks(resolved)
+      const progress = state.progress || {}
+      // 陈旧 progress 暴露：progress 记录的 id 不在新源（renumber/legacy 迁移残留）→ 回报给
+      // 调用方人工裁决，不自动清（completed/failed 记录是恢复证据）。stale completed id 会让
+      // 重导静默跳过「复用该 id 的新 task」——必须可见。
+      const sourceIds = new Set(sourceTasks.map((task) => task.id))
+      const stale = [...new Set([
+        ...(progress.completed || []), ...(progress.skipped || []),
+        ...(progress.failed || []), ...(progress.blocked || []),
+      ])].filter((id) => !sourceIds.has(id))
+      if (stale.length) staleProgressIds = stale
+      const reseeded = reseedAnchorAgainstTasks(state, statePath, sourceTasks, resolved)
+      if (reseeded) currentTasksReseeded = reseeded
+    }
+  } catch (error) {
+    // 真实故障（state 锁被占 / 磁盘满 / state JSON 损坏）不静默吞：task-dir 已替换而锚点可能仍是
+    // 孤儿，显式回报 reseed_error 让调用方修复（repair-anchor / 重跑 task-write），不掩盖为全量成功。
+    reseedError = error instanceof Error ? error.message : String(error)
+  }
+  const result = { written: true, project_id: resolved, task_ids: written, count: written.length }
+  if (currentTasksReseeded) result.current_tasks_reseeded = currentTasksReseeded
+  if (staleProgressIds) result.stale_progress_ids = staleProgressIds
+  if (reseedError) result.reseed_error = reseedError
+  return result
+}
+
+// 锚点状态一致性 alignStatusWithAnchor 已收敛到 workflow_types（C-1 共享谓词），此处直接复用导入。
+// 锚点核对 + 重导核心（task-write 重导 / repair-anchor 共用）：
+// 锚点有效（存在于源且未 completed/skipped；failed/blocked 锚点 = retry/unblock 目标，合法保留）
+// → 返回 null 且不写 state；否则按 selectAnchorId（state-aware：halted 优先 halt 目标）重导并落盘
+//（重导落在 failed/blocked 目标时同步对齐 halted 状态），返回 {from, to}。
+// 幂等护栏：重导结果与现状相同（含「空锚点 + 全部终结」的双 null）→ 视为已对齐，不写 state
+// 不返回重导——否则 repair-anchor 会对不可改善的状态反复报 repaired:true + 白写 state（假修复死循环）。
+function reseedAnchorAgainstTasks(state, statePath, tasks, projectId) {
+  const progress = state.progress || {}
+  const anchor = Array.isArray(state.current_tasks) ? state.current_tasks[0] : undefined
+  const sourceIds = new Set((tasks || []).map((task) => task && task.id).filter(Boolean))
+  const anchorValid = Boolean(anchor) && sourceIds.has(anchor) && !finishedTaskIds(progress).has(anchor)
+  if (anchorValid) return null
+  const nextId = selectAnchorId(tasks, progress, state)
+  if ((nextId || null) === (anchor || null)) return null
+  state.current_tasks = nextId ? [nextId] : []
+  alignStatusWithAnchor(state, nextId)
+  writeState(statePath, state, projectId)
+  return { from: anchor || null, to: nextId || null }
+}
+
+// repair-anchor：reseed-only 幂等修锚原语——不重写 task 集（task.json/context.jsonl 全保留），
+// 仅当锚点孤儿/缺失/已终结时按 selectAnchorId 重导。修复手编损坏 state 的最小手段，
+// 替代「为修一个指针被迫全量重跑 task-write/plan」。经 createTaskSource 兼容 legacy plan.md 源。
+const ANCHOR_REPAIR_STATUSES = new Set(['planned', 'running', 'halted'])
+function cmdRepairAnchor(projectId, projectRoot) {
+  const resolved = projectId || detectProjectId(projectRoot)
+  if (!resolved) return { error: '无法检测项目 ID，请使用 --project-id 指定' }
+  const [state, statePath, , , code] = resolveStateAndTasks(resolved, projectRoot)
+  if (!state || !statePath) return { error: '没有活跃的工作流', code }
+  // 终态/未规划态守门：completed/archived 等不可修锚——task-dir 壳在完成后仍留盘，
+  // 重导会凭空复活锚点、打破「status ↔ current_tasks」一致性（resume 三元组）。
+  if (!ANCHOR_REPAIR_STATUSES.has(state.status)) {
+    return { repaired: false, reason: 'status_not_repairable', workflow_status: state.status }
+  }
+  const source = createTaskSource(state, { projectId: resolved, projectRoot, quiet: true })
+  const tasks = source ? source.listTasks() : []
+  if (!tasks.length) return { error: 'task 源为空，无可锚定 task（先 task-write 写入）', code: 'task_source_missing' }
+  const reseeded = reseedAnchorAgainstTasks(state, statePath, tasks, resolved)
+  if (!reseeded) return { repaired: false, reason: 'anchor_valid', current_tasks: state.current_tasks }
+  return { repaired: true, ...reseeded, current_tasks: state.current_tasks }
 }
 
 // context-curate：从 JSONL 文件/stdin 写单 task 的 context.jsonl 背包（包 taskStore.curateContext，覆盖式）。
@@ -651,7 +741,22 @@ const SUBCOMMAND_HELP = {
       patterns[]{file,line?,note} mandatory_reading[]{path,reason,symbols[],line_hint} task_text
     每条写入后自动从 task.json 渲染 task.md（execute 逐字注入正文）；不要手写 task.md，也不要把 rich 内容写进 plan.md 锚点。
     返回 {written, task_ids, count}。整集 tmp→rename 原子替换，旧 task-dir 不在新集合的自动清除。
+    写后自动重导 resume 锚点（孤儿/缺失/已终结 → current_tasks_reseeded:{from,to}；锚点有效不写 state）。
+    可选回报字段：stale_progress_ids（progress 含不在新源的 id，需人工裁决）、reseed_error（锚点重导失败，
+    task 已写入但锚点可能仍是孤儿 → 跑 repair-anchor 修复）。
   禁止读 core/utils/workflow/task_store.js 逆向 replaceAllTasks 自写 .cjs——本命令即正路。
+`,
+  'repair-anchor': `repair-anchor - reseed-only 幂等修锚（不重写 task 集，task.json/context.jsonl 全保留）。
+
+用法：
+  repair-anchor
+    锚点孤儿/缺失/已终结 → state-aware 重导（halted 优先锚 halt 目标：failure→failed、dependency→blocked；
+    非 halted 锚首个可派发 task，无可派发回退未终结的 failed/blocked retry/unblock 目标，
+    并同步对齐 halted 状态），返回 {repaired:true, from, to, current_tasks}；
+    锚点有效或重导无可改善（含空锚点+全部终结）→ {repaired:false, reason:'anchor_valid'}，不写 state。
+    仅 planned/running/halted 可修；completed/archived 等终态返回 {repaired:false, reason:'status_not_repairable'}
+    （task-dir 壳在完成后仍留盘，终态重导会凭空复活锚点）。
+    修复手编损坏 state.current_tasks 的最小手段，无需全量重跑 task-write / re-plan。
 `,
   'context-curate': `context-curate - 写单 task 的 context.jsonl 背包（覆盖式；execute 期注入 <context-pack>）。
 
@@ -682,13 +787,14 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|execute|continue|init|spec-review|delta|archive|unblock|advance|fail|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|repair-anchor|execute|continue|init|spec-review|delta|archive|unblock|advance|fail|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
   plan (alias: start) - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
   task-write --from-file <path.json|-> - 整集写 task-dir v2（含 files/constraints/patterns/mandatory_reading/task_text；自动渲染 task.md；原子替换 + 清孤儿；禁逆向 task_store.js）
   context-curate --id <Tn> --from-file <path.jsonl|-> - 写单 task 的 context.jsonl 背包（覆盖式，仅 spec/research 路径）
+  repair-anchor - reseed-only 幂等修锚（锚点孤儿/缺失/已终结时重导，不重写 task 集）
   init - 状态文件自愈（执行阶段缺失时自动创建）
   help <advance|delta|journal|plan-edit|...> - 查看子命令参数签名
   set-contract-digest-path --path <path> [--unset] - 写 state.contract_digest_path，避免 controller 手编 state.json 触发全文件重注入
@@ -876,6 +982,9 @@ function main() {
     } else if (command === 'task-write') {
       result = cmdTaskWrite(option(args, '--from-file'), pid, projectRoot)
       if (result && result.error) process.exitCode = 1
+    } else if (command === 'repair-anchor') {
+      result = cmdRepairAnchor(pid, projectRoot)
+      if (result && result.error) process.exitCode = 1
     } else if (command === 'context-curate') {
       result = cmdContextCurate(option(args, '--id'), option(args, '--from-file'), pid, projectRoot)
       if (result && result.error) process.exitCode = 1
@@ -976,6 +1085,7 @@ module.exports = {
   cmdReadHandoff,
   cmdTaskWrite,
   cmdContextCurate,
+  cmdRepairAnchor,
   inferSpecRelativeFromPlan,
   resolveHelpRequest,
 }

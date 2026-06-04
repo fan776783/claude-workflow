@@ -69,11 +69,11 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
    │   → 提示用户先归档：`/workflow-archive`
    │   → 归档完成后自动继续
    │
-   ├─ status: running / paused
+   ├─ status: running
    │   → 调用 AskUserQuestion（见下）
    │
-   ├─ status: failed / blocked
-   │   → 调用 AskUserQuestion（见下）
+   ├─ status: halted
+   │   → 按 halt_reason 调用 AskUserQuestion（见下）
    │
    └─ status: archived
        → 等同于"不存在"，继续
@@ -81,15 +81,16 @@ node -e "const {stableProjectId}=require('./core/utils/workflow/lifecycle_cmds')
 
 **AskUserQuestion 选项**：
 
-`running` / `paused`，`question` 写"检测到进行中的workflow，如何处理？"，`options`：
+`running`，`question` 写"检测到进行中的workflow，如何处理？"，`options`：
 
 - `resume` — 恢复当前workflow（使用 `/workflow-execute`）
 - `archive_and_new` — archive并新建（调用 `/workflow-archive` 后继续）
 - `force_overwrite` — 强制覆盖（等同 `--force`；备份现状到 `workflow-state.backup-{timestamp}.json` 后覆盖）
 
-`failed` / `blocked`，`question` 写"上次workflow未正常结束，如何处理？"，`options`：
+`halted`，`question` 写"上次workflow中断（halt_reason: failure=执行失败 / dependency=依赖阻塞），如何处理？"，`options` 按 `halt_reason` 给：
 
-- `retry` — 重试（使用 `/workflow-execute --retry`）
+- `retry` — 重试（`halt_reason: failure`，使用 `/workflow-execute --retry`）
+- `unblock` — 解除依赖（`halt_reason: dependency`，`workflow_cli.js unblock <dep>` 后 `/workflow-execute`）
 - `archive_and_new` — archive并新建
 
 > 覆盖时必须要求 `--force` 标志或用户通过 AskUserQuestion 显式确认，防止误删进行中的workflow。备份路径：`~/.claude/workflows/{projectId}/workflow-state.backup-{timestamp}.json`。

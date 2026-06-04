@@ -359,6 +359,85 @@ function throwTaskSourceMissing(status, projectId = null) {
   throw err
 }
 
+// ---------------------------------------------------------------------------
+// C-1 锚点共享谓词 —— finished/dispatchable/orphan 判定的唯一实现。
+// 此前 6 处内联副本对 failed/blocked 取舍不一致（lint 把 failed/blocked 算未完成、
+// reseed 又选不出它们 → 空锚点修复死循环），收敛到这里防再漂移。
+
+// 终结集：completed ∪ skipped——已终结、绝不重派发。failed/blocked 不算终结
+// （failed = retry 目标，blocked = unblock 目标，锚点可合法停留其上）。
+// Array.isArray 防御：调用方含 pre-execute-inject hook 的 raw JSON state（未经 ensureStateDefaults），
+// 手编坏 progress（非数组）不得让 spread 抛错或误展开字符。
+function finishedTaskIds(progress = {}) {
+  const completed = Array.isArray(progress.completed) ? progress.completed : []
+  const skipped = Array.isArray(progress.skipped) ? progress.skipped : []
+  return new Set([...completed, ...skipped])
+}
+
+// 首个可派发 task：按 task 源顺序排除 completed/skipped/failed/blocked。
+// task_manager.nextTaskIdFromSource / execution_sequencer.nextTaskIdFromTasks 委托此实现。
+function firstDispatchableTaskId(tasks, progress = {}) {
+  const excluded = new Set([
+    ...(progress.completed || []),
+    ...(progress.skipped || []),
+    ...(progress.failed || []),
+  ])
+  const blocked = new Set(progress.blocked || [])
+  for (const task of tasks || []) {
+    const id = task && task.id
+    if (id && !excluded.has(id) && !blocked.has(id)) return id
+  }
+  return null
+}
+
+// 锚点选择：首个可派发 task；无可派发时回退首个仍在源中且未终结的 failed（retry 目标）/
+// blocked（unblock 目标）——与 cmdInit 自愈恢复同语义（C-1 锚点不悬空），全部终结才返回 null。
+// fallback 双重过滤：源成员资格（progress 可能含 stale id，锚到源外 id 会自造孤儿）+
+// 终结集排除（completed/skipped 残留在 failed/blocked 时锚上去会触发 hook current_tasks_finished
+// 阻断，且 repair-anchor 重导回同一 id 永不收敛——脏数据域死循环）。
+// state-aware：调用方处于 halted 时优先锚定 halt 目标（failure → failed，dependency → blocked，
+// 与 cmdFail 落锚、preflight retry/unblock 分流对齐）——否则 dispatchable-first 会在 halted 态
+// 选中 pending task，落出「status 说要 retry 失败任务、锚点却指向从未失败 task」的矛盾三元组。
+// stateContext 可选（{status, halt_reason} 即够，不要求完整 state）；非 halted 上下文行为不变。
+function selectAnchorId(tasks, progress = {}, stateContext = null) {
+  const finished = finishedTaskIds(progress)
+  const sourceIds = new Set((tasks || []).map((task) => task && task.id).filter(Boolean))
+  const anchorable = (id) => sourceIds.has(id) && !finished.has(id)
+  if (stateContext && stateContext.status === 'halted') {
+    const haltPools = stateContext.halt_reason === 'dependency'
+      ? [...(progress.blocked || []), ...(progress.failed || [])]
+      : [...(progress.failed || []), ...(progress.blocked || [])]
+    const haltTarget = haltPools.find(anchorable)
+    if (haltTarget) return haltTarget
+  }
+  const dispatchable = firstDispatchableTaskId(tasks, progress)
+  if (dispatchable) return dispatchable
+  return [...(progress.failed || []), ...(progress.blocked || [])].find(anchorable) || null
+}
+
+// 锚点状态一致性：failed/blocked 锚点必须伴随 halted（与 cmdInit 自愈推导同源）。
+// 否则 running + blocked 锚点会让 pre-execute hook 的状态门（canDispatch=running）放行
+// 派发被阻塞任务——hook 对 failed/blocked 锚点不单独拦截，依赖本不变式。
+// 共享谓词（C-1）：advanceAfterComplete / reseedAnchorAgainstTasks（workflow_cli）与
+// updateAfterTaskCompletion / markTaskSkipped（execution_sequencer）共用同一语义，防漂移。
+function alignStatusWithAnchor(state, anchorId) {
+  if (!anchorId) return
+  const progress = state.progress || {}
+  if ((progress.failed || []).includes(anchorId)) {
+    state.status = 'halted'
+    state.halt_reason = 'failure'
+  } else if ((progress.blocked || []).includes(anchorId)) {
+    state.status = 'halted'
+    state.halt_reason = 'dependency'
+  }
+}
+
+// 孤儿锚点：current_tasks 中不存在于 task 源的 id（plan-review lint / cmdStatus 派生标记共用）。
+function findOrphanedAnchors(currentTasks, tasks) {
+  const sourceIds = new Set((tasks || []).map((task) => task && task.id).filter(Boolean))
+  return (Array.isArray(currentTasks) ? currentTasks : []).filter((tid) => !sourceIds.has(tid))
+}
+
 function main() {
   const fs = require('fs')
   const args = [...process.argv.slice(2)]
@@ -432,6 +511,11 @@ module.exports = {
   assertExecutableTaskSourcePresent,
   TASK_SOURCE_REQUIRED_STATUSES,
   getStatusMessages,
+  finishedTaskIds,
+  firstDispatchableTaskId,
+  selectAnchorId,
+  alignStatusWithAnchor,
+  findOrphanedAnchors,
 }
 
 /**

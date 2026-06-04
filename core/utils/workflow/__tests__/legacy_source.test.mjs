@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -12,6 +13,7 @@ const require = createRequire(import.meta.url)
 // createTaskSource 工厂三分支：task-dir → TaskDirSource，仅 legacy plan.md → LegacyPlanMdSource，皆无 → null。
 // 验证：legacy fixture 全链路 load→detect→update 不失锚 + resume 起点等价 + stderr 迁移提示。
 
+let homeEnv
 let tmpHome
 let tmpProject
 let taskSource
@@ -118,15 +120,14 @@ function captureStderr(fn) {
 }
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-home-'))
+  homeEnv = isolateHome('legacy-home-')
+  tmpHome = homeEnv.tmpHome
   tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-proj-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
   freshRequire()
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
   try { fs.rmSync(tmpProject, { recursive: true, force: true }) } catch { /* ignore */ }
 })
 

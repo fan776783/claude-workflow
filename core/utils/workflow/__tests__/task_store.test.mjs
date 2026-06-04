@@ -2,22 +2,22 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
 // task_store 解析路径走 path_utils.getWorkflowsDir(pid) = os.homedir()/.claude/workflows/{pid}。
 // 用临时 HOME fixture override，避免污染真实 ~/.claude。须在 require task_store 前设置 HOME，
 // 但 os.homedir 在 Linux/macOS 读 HOME 环境变量动态求值 → 每次调用都重新读，故运行期 override 即可。
+let homeEnv
 let tmpHome
 let taskStore
 const PID = 'testpid01'
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-taskstore-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
+  homeEnv = isolateHome('wf-taskstore-')
+  tmpHome = homeEnv.tmpHome
   // 清缓存确保 path_utils / task_store 在新 HOME 下重新求值（os.homedir 本身动态，但保险）。
   delete require.cache[require.resolve('../task_store.js')]
   delete require.cache[require.resolve('../path_utils.js')]
@@ -25,7 +25,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
 })
 
 test('createTask + readTask: round-trip 字段集对齐 §5.2', () => {

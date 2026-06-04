@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -15,6 +16,7 @@ const require = createRequire(import.meta.url)
 //   - legacy plan.md 路径（LegacyPlanMdSource，无 task-dir）
 //   - firstTaskId 顺序稳定性（重建后 current_tasks[0] 可复现）
 
+let homeEnv
 let tmpHome
 let tmpProject
 let taskSource
@@ -68,15 +70,14 @@ function snapshotFromDisk(state, projectRoot = null) {
 }
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-home-'))
+  homeEnv = isolateHome('resume-home-')
+  tmpHome = homeEnv.tmpHome
   tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-proj-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
   freshRequire()
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
   try { fs.rmSync(tmpProject, { recursive: true, force: true }) } catch { /* ignore */ }
 })
 

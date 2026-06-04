@@ -61,6 +61,50 @@ node workflow_cli.js plan-edit --anchor <id> --content-file <path> \
 
 写入前校验:锚点配对完整性 / `state.current_tasks` 不被孤立 / CRLF 兼容。任一失败拒绝写入并返回错误码,不静默 no-op。
 
+## task-write 的 resume 锚点重导
+
+`task-write` 整集替换 task-dir 后,按**写后真实 task 源**核对锚点对象(`task.json`/`context.jsonl` 不动,本命令只校正 resume 锚点):
+
+- **锚点无效**(孤儿 / 缺失 / 已 `completed`|`skipped`)→ **自动重导**,返回 `current_tasks_reseeded: {from, to}`。
+- **锚点有效**(在源且未终结;`failed`/`blocked` 仍在源 = retry/unblock 目标,合法)→ **不写 state**(避免无谓 bump `updated_at` 打 stale 下游 handoff,`updated_at` 保持不动)。
+
+**重导目标**(共享 `selectAnchorId`,state-aware):state 处于 `halted` 时**优先锚定 halt 目标**(`failure` → 源内未终结的 `failed` id,`dependency` → `blocked` id;与 `fail` 落锚、preflight retry/unblock 分流对齐——否则 halted 态会锚到 pending task,落出「status 要 retry、锚点却指向从未失败 task」的矛盾三元组);非 halted 时首个可派发 task(排除 `completed`/`skipped`/`failed`/`blocked`);无可派发 → 回退源内首个未终结的 `failed`(retry 目标)→ `blocked`(unblock 目标,按 progress 记录序);全部终结才置空。回退域**排除已终结 id**(`completed`/`skipped` 残留在 `failed`/`blocked` 的脏数据不可锚——锚上去会被 hook `current_tasks_finished` 阻断且修复不收敛)。重导落在 `failed`/`blocked` 目标时**同步对齐 `halted`**(`failure`/`dependency`)——重导/推进**写侧路径**不得落出 `running` + `failed`/`blocked` 锚点(pre-execute hook 状态门依赖此拦截派发;`advance` 末 task 的锚点回退同此规则)。例外:`retry` 路径(`execution_sequencer.js retry`)在重试窗口内合法存在 `running` + 锚点仍在 `progress.failed` 的状态——hook 恰不对 failed 锚点单独拦截,重试派发依赖此放行;该窗口由 task 完成时 `complete` 清 `failed` 收口。
+
+回报字段:
+
+- `current_tasks_reseeded: {from, to}` — 锚点被重导(见上)。
+- `stale_progress_ids` — `progress` 含不在新 task 源的 id;**仅作人工裁决暴露,不自动清**(stale 的 `completed` id 会让被复用的同名 id 静默被排除出重导)。
+- `reseed_error` — task 已写入但锚点重导失败(锁 / state 损坏 / 磁盘);跑 `repair-anchor` 修复或重跑 `task-write`,**不再静默吞错**。
+
+残留孤儿由 `plan-review` 的 `current_tasks_orphaned` hard issue 挡 ready。
+
+## repair-anchor
+
+```
+node workflow_cli.js repair-anchor
+```
+
+reseed-only 幂等锚点修复:**不重写 task 集**(`task.json`/`context.jsonl` 原样保留),只在锚点损坏时重导 `state.current_tasks`——修复手编损坏 `state.current_tasks` 的最小手段,无需全量重跑 `task-write` / re-plan。legacy plan.md 源经 `createTaskSource` 同样适用。
+
+- 锚点孤儿 / 缺失 / 已终结(`completed`|`skipped`)→ 按 `selectAnchorId` 重导(state-aware:`halted` 优先 halt 目标;非 halted 首个可派发 → 源内首个未终结 `failed`(retry 目标)→ `blocked`(unblock 目标);落 `failed`/`blocked` 时同步对齐 `halted`;语义同 § task-write 的重导目标),返回 `{repaired: true, from, to, current_tasks}`。
+- 锚点有效,或重导结果与现状相同(含「空锚点 + 全部终结」)→ `{repaired: false, reason: 'anchor_valid', current_tasks}`,不写 state——幂等护栏:不可改善的状态不报 `repaired: true`、不反复 bump `updated_at`。
+- **仅 `planned`/`running`/`halted` 可修**;`completed`/`archived` 等终态 → `{repaired: false, reason: 'status_not_repairable', workflow_status}`(task-dir 壳在完成后仍留盘,终态重导会凭空复活锚点、打破 status ↔ current_tasks 一致性)。
+
+## write-handoff / read-handoff
+
+跨阶段衔接摘要的读写入口,落 `handoff/{from}.md`(**按 from-phase 寻址**,`--to` 仅写入 header 作语义标注,不参与路由)。不入 state schema,覆盖式写;CLI 自动拼 5 行 freshness header(`from`/`to`/`state_updated_at`/`spec_file`/`plan_file`,值取当前 state 快照),正文 ≤20 行超限报错。
+
+```
+node workflow_cli.js write-handoff --from <spec|plan|execute> --to <phase> --content-file <path>
+node workflow_cli.js read-handoff --from <spec|plan|execute>
+```
+
+`read-handoff` 比对 header 三键(`state_updated_at`/`spec_file`/`plan_file`)与当前 state:全等 → `{fresh:true, content}`;任一不符 → `{fresh:false, reason:'stale', fallback:'read-full', mismatch}`;文件缺失 → `{fresh:false, reason:'missing', fallback:'read-full'}`。
+
+**不变量(C-4)**:`fresh:false` 是正常回退(下游按 `fallback` 读全文),**绝非错误**——任何分支不抛异常、不置 exitCode。skill 侧误把 `fresh:false` 当报错阻断属违反本 contract。
+
+现役衔接对仅两段:`spec→plan`(workflow-spec Step 6 写,workflow-plan Step 1 读)、`plan→execute`(workflow-plan Step 3 写,workflow-execute Step 2 读)。execute 末尾终审为同会话 inline 派发,决策蒸馏直接拼进 final reviewer prompt,**不走 handoff 文件**。
+
 ## fail
 
 `fail` 标记任务失败并把 workflow 推入 `halted/failure`——验证失败 / reviewer schema failure / review-loop 失败的**统一写入口**(取代散落各处的 state 手写)。

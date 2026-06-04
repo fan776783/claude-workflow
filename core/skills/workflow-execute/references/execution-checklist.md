@@ -57,7 +57,7 @@
 
 | 条件 | 记录内容 |
 |------|----------|
-| ContextGovernor 决定暂停时 | 已完成任务 + 暂停原因 + 下一步计划 |
+| workflow 暂停（`halted`）时 | 已完成任务 + 暂停原因（`halt_reason`/`failure_reason`） + 下一步计划 |
 | 所有 task 完成（末尾终审前）时 | 全部任务摘要 + 最终产物 |
 
 - [ ] 调用 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --title "..." --tasks-completed "..." --summary "..." --decisions "..." --next-steps "..."`
@@ -69,14 +69,14 @@
 
 ## ❌ 禁止项
 
-- ❌ **批量回写 plan.md** — 必须逐 task 更新
+- ❌ **批量回写 task-dir / state.json** — 必须逐 task advance（仅 legacy plan.md workflow 才回写 plan.md）
 - ❌ **跳过验证直接标记 completed** — 必须有验证证据
 - ❌ **先更新 plan/state 再验证** — 验证必须在状态更新之前（Iron Law）
 - ❌ **跳过状态文件更新** — 即使快速执行也必须更新
 - ❌ **使用过时验证结果** — 必须使用本次运行的新鲜结果
 - ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + plan/state 更新管线
 - ❌ **覆盖其他workflow的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
-- ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 plan.md / state.json。每个 task 完成后必须立即输出 checkpoint 行
+- ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 task-dir / state.json。每个 task 完成后必须立即输出 checkpoint 行
 - ❌ **跳过末尾终审标记 completed** — 所有 task 完成后必须先跑 inline final reviewer 终审（Step 7），PASS 后才 `advance` 到 `completed`（HARD-GATE #4，无独立 review 中间态）
 
 ---
@@ -84,7 +84,7 @@
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 reviewer PASS 内存确认 → ③更新 plan.md → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
+Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 reviewer PASS 内存确认 → ③更新 task-dir(task.json) → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
 所有 Task 完成 → inline final reviewer 末尾终审（Step 7）→ PASS → advance 到 completed
 ```
 

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -11,6 +12,7 @@ const require = createRequire(import.meta.url)
 // task-dir 壳落地，current_tasks[0] = TaskDirSource.firstTaskId。
 // 临时 HOME 隔离真实 ~/.claude；require 在设 HOME 后做，并清缓存让 path_utils/task_store 读临时 HOME。
 
+let homeEnv
 let tmpHome
 let projectRoot
 let planComposer
@@ -34,9 +36,8 @@ function clearModuleCache() {
 }
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-specrev-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
+  homeEnv = isolateHome('wf-specrev-')
+  tmpHome = homeEnv.tmpHome
   // 项目根独立于 HOME，写入 project-config.json（project.id 必须 = PROJECT_ID）。
   projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-specrev-proj-'))
   const configPath = path.join(projectRoot, '.claude', 'config', 'project-config.json')
@@ -50,7 +51,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
   try { fs.rmSync(projectRoot, { recursive: true, force: true }) } catch { /* ignore */ }
 })
 

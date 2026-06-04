@@ -4,11 +4,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
 // task_store / task_runtime 解析 context.jsonl 走 path_utils.getWorkflowsDir(pid) = HOME/.claude/workflows/{pid}。
 // 用临时 HOME fixture override（os.homedir 动态读 HOME），并清缓存确保模块在新 HOME 下重新求值。
+let homeEnv
 let tmpHome
 let projectRoot
 let taskStore
@@ -52,16 +54,15 @@ function makeRuntime(extraState = {}) {
 }
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-ctxpack-home-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
+  homeEnv = isolateHome('wf-ctxpack-home-')
+  tmpHome = homeEnv.tmpHome
   projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-ctxpack-proj-'))
   freshRequire()
   taskStore.createTask(PID, { id: TASK_ID, package: 'my-pkg', target_layer: 'backend' })
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
   try { fs.rmSync(projectRoot, { recursive: true, force: true }) } catch { /* ignore */ }
 })
 

@@ -1,13 +1,19 @@
 // T8/FR-7: Coverage 降级为 advisory。
 // 断言 cmdPlanReview 在 spec 有 uncovered R-ID 时 ready 仍可 true（coverage 不卡 ready），
 // 且 coverage 仍作为 advisory 字段返回；并断言 doc_contracts 不再要求 requirement_coverage marker。
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
+
+// HOME 隔离（require 之前生效）：getWorkflowStatePath 在调用时读 os.homedir()，
+// 隔离后 state 落临时目录，不污染真实 ~/.claude/workflows。
+const homeEnv = isolateHome('cov-advisory-home-')
+after(() => homeEnv.cleanup())
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -33,6 +39,9 @@ function setupSandboxState({ planContent, specContent }) {
     status: 'planned',
     plan_file: planPath,
     spec_file: specPath,
+    // C-1 不变式：planned ⟹ current_tasks[0] = task 源 firstTaskId（缺失会被
+    // plan-review 的 current_tasks_empty hard issue 正确拦下，非本测试关注点）。
+    current_tasks: ['T1'],
   })
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
   return { projectId, statePath, tmpDir }

@@ -30,7 +30,7 @@ const {
 const { detectProjectRoot } = require('./task_manager')
 const { getCodeSpecsContext, getCodeSpecsContextScoped } = require('./task_runtime')
 const { triggerCodexReview } = require('./codex_review_runner')
-const { buildMinimumState, ensureStateDefaults } = require('./workflow_types')
+const { buildMinimumState, ensureStateDefaults, findOrphanedAnchors, finishedTaskIds } = require('./workflow_types')
 const {
   buildSpecReviewSummary,
   deriveRoleSignals,
@@ -1332,6 +1332,35 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
   // 存在性门：非 legacy 工作流 task 源为空 → 追加 hard issue（与 corruption issues 一并挡 ready）。
   const emptySourceIssue = taskSourceEmptyIssue(state, resolvedProjectId, root)
   if (emptySourceIssue) lints.task_schema.issues.push(emptySourceIssue)
+  // resume 锚点门（C-1）：current_tasks 必须全部解析到 task 源中存在的 task。task-write 已自动重导，
+  // 此处兜底（与 cmdPlanEdit 的 current_tasks_orphaned_by_edit 同语义）——孤儿锚点会让 execute
+  // 首派发与 /clear resume 失锚，作为 hard issue 挡 ready。判定走 workflow_types 共享谓词。
+  const anchorTasks = Array.isArray(state.current_tasks) ? state.current_tasks : []
+  if (anchorTasks.length > 0 && reviewTasks.length > 0) {
+    const orphanedAnchors = findOrphanedAnchors(anchorTasks, reviewTasks)
+    if (orphanedAnchors.length > 0) {
+      lints.task_schema.issues.push({
+        problem: 'current_tasks_orphaned',
+        orphaned_task_ids: orphanedAnchors,
+        note: `state.current_tasks 中的 ${orphanedAnchors.join(', ')} 不存在于 task 源,execute 首派发会失锚。跑 repair-anchor（reseed-only 修锚）或重跑 task-write（会自动重导锚点）。`,
+      })
+    }
+  }
+  // 空锚点门（C-1 对称）：task 源仍有未终结 task 而 current_tasks 为空——task-dir 流程下 task-write
+  // 自动落锚后不该出现；主要兜 legacy 未 seed 的存量 state。全部 completed/skipped 时空锚点合法,不报。
+  // failed/blocked 算未终结（锚点应回退停在 retry/unblock 目标上）——repair-anchor/task-write 的
+  // selectAnchorId 回退保证此态可修（不再出现「lint 挡 ready 而重导选不出锚点」的死循环）。
+  if (anchorTasks.length === 0 && reviewTasks.length > 0) {
+    const finishedIds = finishedTaskIds(state.progress || {})
+    const unfinished = reviewTasks.filter((task) => !finishedIds.has(task.id))
+    if (unfinished.length > 0) {
+      lints.task_schema.issues.push({
+        problem: 'current_tasks_empty',
+        unfinished_count: unfinished.length,
+        note: `task 源仍有 ${unfinished.length} 个未终结 task 但 state.current_tasks 为空,resume 锚点缺失。跑 repair-anchor（会自动落锚,failed/blocked 残留时锚到 retry/unblock 目标）或重跑 task-write。`,
+      })
+    }
+  }
   const coverage = checkRequirementCoverage(planMd, specMd)
   const confidence = scoreConfidence(reviewTasks, {
     coverage,
@@ -1630,10 +1659,9 @@ function cmdPlanEdit({ anchor, mode = 'replace_between', contentFile, allowLegac
   // plan.md 不再承载结构化 task block,按 heading 校验会对 task-dir 流程恒误报失锚。
   const currentTasks = Array.isArray(state.current_tasks) ? state.current_tasks : []
   if (currentTasks.length > 0) {
-    const sourceTaskIds = new Set(
-      (resolvedProjectId ? new TaskDirSource(resolvedProjectId).listTasks() : []).map((task) => task.id)
-    )
-    const orphaned = currentTasks.filter((tid) => !sourceTaskIds.has(tid))
+    // 内联 orphan 判定收敛到 findOrphanedAnchors（共享谓词，别处 cmdPlanReview 兜底已用同实现）。
+    const sourceTasks = resolvedProjectId ? new TaskDirSource(resolvedProjectId).listTasks() : []
+    const orphaned = findOrphanedAnchors(currentTasks, sourceTasks)
     if (orphaned.length > 0) {
       return {
         error: 'current_tasks_orphaned_by_edit',

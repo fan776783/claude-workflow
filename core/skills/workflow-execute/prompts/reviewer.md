@@ -155,7 +155,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 | `<spec-relative-path>` | `state.spec_file` | 相对路径 |
 | `<plan-relative-path>` | `state.plan_file` | 相对路径 |
 | `<commit-sha>` | per-task 用 implementer dispatch 前 `git rev-parse HEAD`；final-review 用 `state.initial_head_commit` | 7+ 位短 SHA 即可 |
-| `files_changed` | implementer JSON 输出的 `files_changed` 数组（final-review 改为已完成 task 清单） | 注入 `<implementer-output>` 段 |
+| `files_changed` | implementer JSON 输出的 `files_changed` 数组（final-review 改为已完成 task 清单 + 执行阶段决策蒸馏 Decisions/Rejected/Risks，controller 从本会话内存装配） | 注入 `<implementer-output>` 段 |
 | `${code_specs_context}` | controller 按 task 涉及的 `pkg/layer` 读 `.claude/code-specs/{pkg}/{layer}/` 摘要 | 适用段落原文；为空则写 `(none — generic quality heuristics)` 提示 reviewer 降级 |
 
 > Degraded 平台（无 subagent）：controller 主会话扮 reviewer，本映射照样适用（自渲染自执行）。

@@ -8,6 +8,9 @@ const {
   getStatusEmoji,
   validateTaskId,
 } = require('./status_utils')
+// 共享谓词（C-1）：findNextTask 委托 firstDispatchableTaskId，消除内联 finished-set 副本。
+// workflow_types 顶层零 require（叶子），不构成 task_source→task_parser 循环。
+const { firstDispatchableTaskId } = require('./workflow_types')
 
 function createTaskFiles(data = {}) {
   return {
@@ -247,11 +250,10 @@ function findTaskById(content, taskId) {
 }
 
 function findNextTask(content, completed, skipped, failed, blocked = []) {
-  const excluded = new Set([...(completed || []), ...(skipped || []), ...(failed || [])])
-  for (const taskId of extractAllTaskIds(content)) {
-    if (!excluded.has(taskId) && !(blocked || []).includes(taskId)) return taskId
-  }
-  return null
+  // 委托 firstDispatchableTaskId（共享谓词）：plan.md 文本 id 序列包成 [{id}] 记录数组。
+  // 排除语义（completed∪skipped∪failed + blocked）由谓词统一保证，不再内联。
+  const tasks = extractAllTaskIds(content).map((id) => ({ id }))
+  return firstDispatchableTaskId(tasks, { completed, skipped, failed, blocked })
 }
 
 function countTasks(content) {

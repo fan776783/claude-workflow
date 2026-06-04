@@ -92,7 +92,7 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 ## 完整性门控
 
 `plan-review` 的 `lints.task_schema`：
-- **hard（挡 ready）**：非法 id 目录 / task.json 缺失或解析失败 / status 越界枚举 / task 源整体为空（`empty_task_source`，非 legacy workflow；execute 期 `assertTaskSourcePresent` 也会兜底，但 plan-review 作为 handoff 前的权威门须对称挡空）。
+- **hard（挡 ready）**：非法 id 目录 / task.json 缺失或解析失败 / status 越界枚举 / task 源整体为空（`empty_task_source`，非 legacy workflow；execute 期 `assertTaskSourcePresent` 也会兜底，但 plan-review 作为 handoff 前的权威门须对称挡空）/ resume 锚点孤儿（`current_tasks_orphaned`：`state.current_tasks` 含不在 task 源中的 id）/ 锚点缺失（`current_tasks_empty`：源仍有未终结 task 而 `current_tasks` 为空，兜 legacy 未 seed 存量；unfinished 不含 `completed`/`skipped`，`failed`/`blocked` 算未终结，重导会回退锚到 retry/unblock 目标）。两者修复均跑 `repair-anchor` 或重跑 `task-write`。
 - **warning（不挡）**：`name` 空 / `acceptance` 空。
 
-`current_tasks[0]` = task 源 `firstTaskId()`（数字序首个），整集重写后必须仍解析到一个存在的 task（resume 三元组不可断）。
+`current_tasks[0]` = task 源 `firstTaskId()`（数字序首个），整集重写后必须仍解析到一个存在的 task（resume 三元组不可断）。锚点重导/修复语义（task-write 自动重导、repair-anchor 修锚、回报字段 `current_tasks_reseeded`/`stale_progress_ids`/`reseed_error`）见 `core/specs/shared/workflow-cli.md` § task-write 的 resume 锚点重导 / § repair-anchor；残留孤儿由 `plan-review` 的 `current_tasks_orphaned` hard issue 挡 ready。

@@ -84,7 +84,9 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | failed | ❌ | `status_utils.getStatusEmoji("failed")` |
 | skipped | ⏭️ | `status_utils.getStatusEmoji("skipped")` |
 
-### 上下文预算阈值
+### 上下文预算阈值（已退役机制，历史参考）
+
+> ⚠️ **读侧已退役**：`contextMetrics` / `continuation` 字段由 `workflow_types.ensureStateDefaults` 读时丢弃（与 ContextGovernor 同批退役），全仓无写入方，不再参与执行期决策——context 压力仅剩 workflow-execute Step 6 的启发式 banner。`context_budget.js` 仅作 `context-budget` 只读估算命令保留（历史 state 无该字段时各值兜底 0）。下表仅供读历史 state 文件参考。
 
 | 阈值 | 默认值 | 含义 |
 |------|--------|------|
@@ -92,9 +94,9 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | danger | 80% | 危险区，优先暂停 |
 | hard_handoff | 90% | 硬停止，生成 continuation artifact |
 
-### ContextMetrics（workflow-state.json 中的上下文预算指标）
+### ContextMetrics（历史 workflow-state.json 中的上下文预算指标）
 
-状态文件中 `contextMetrics` 字段的完整定义，供构建和读取时参考：
+历史状态文件中 `contextMetrics` 字段定义（新状态不再写入，读侧丢弃）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -118,7 +120,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `history[].tokenDelta` | number | token delta |
 | `history[].executionPath` | `direct / single-subagent` | 执行路径 |
 
-> 动态任务上限由 `context_budget.js:calculateMaxTasks()` 根据 `usagePercent` + 任务复杂度计算。continuation 决策以 `projectedUsagePercent`（而非 `usagePercent`）为准。
+> （历史）动态任务上限曾由 `context_budget.js:calculateMaxTasks()` 根据 `usagePercent` + 任务复杂度计算；continuation 决策机制已随 ContextGovernor 退役。
 
 ---
 

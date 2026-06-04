@@ -31,7 +31,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 ```
 
 Notes:
-- No test suite or linter — `prepublishOnly` running `scripts/validate.js` is the sole pre-publish check.
+- `prepublishOnly` = `scripts/validate.js` + 三段 `node --test` 套件（`test:codex-bridge` / `test:lib` / `test:workflow`，后者 glob `core/utils/workflow/__tests__/*.test.mjs`）；`npm test` 跑同三段。No linter.
 - `scripts/release.sh` is a bash script. On Windows, run the `release:*` scripts from Git Bash / WSL.
 
 ## Architecture

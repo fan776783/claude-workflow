@@ -14,7 +14,7 @@ const {
 const { readState, writeState } = require('./state_manager')
 const { detectProjectId, resolveStateAndTasks } = require('./task_manager')
 const { createTaskSource } = require('./task_source')
-const { acknowledgeSkippedSpecReview, assertExecutableTaskSourcePresent, assertTaskSourcePresent, deriveEffectiveStatus, ensureStateDefaults, getSpecReviewGateViolation } = require('./workflow_types')
+const { acknowledgeSkippedSpecReview, alignStatusWithAnchor, assertExecutableTaskSourcePresent, assertTaskSourcePresent, deriveEffectiveStatus, ensureStateDefaults, firstDispatchableTaskId, getSpecReviewGateViolation, selectAnchorId } = require('./workflow_types')
 
 // S3 重基（FR-2）：sequencer 的 task 序列来源从 parseTasksV2(plan.md) 切到 TaskSource（task-dir）。
 // projectId 优先取自参数/state，再回退 detectProjectId(projectRoot)。
@@ -24,19 +24,9 @@ function resolveSequencerProjectId(state, projectId = null, projectRoot = null) 
 
 // detectNextTask 改吃 task 记录数组（{id,status}），不再吃 plan.md 文本。
 // 顺序由 TaskDirSource.listTasks() 的 taskId 数字序保证（C-1）。
+// 实现收敛到 workflow_types.firstDispatchableTaskId（共享谓词），保留导出名兼容既有调用方。
 function nextTaskIdFromTasks(tasks, progress = {}) {
-  const excluded = new Set([
-    ...(progress.completed || []),
-    ...(progress.skipped || []),
-    ...(progress.failed || []),
-  ])
-  const blocked = new Set(progress.blocked || [])
-  for (const task of tasks || []) {
-    const id = task && task.id
-    if (!id) continue
-    if (!excluded.has(id) && !blocked.has(id)) return id
-  }
-  return null
+  return firstDispatchableTaskId(tasks, progress)
 }
 
 function loadProjectConfig(projectRoot) {
@@ -238,10 +228,10 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
         message,
       }
     }
-    const continuation = state.continuation || {}
+    // continuation/ContextGovernor 已退役：ensureStateDefaults 读侧丢弃 state.continuation，
+    // 这里不再派生 continuation_action/continuation_reason（恒 undefined 的死字段，无消费者）。
     const preferredMode = state.execution_mode || 'continuous'
     const resolvedMode = resolveExecutionMode(explicitMode || intent, preferredMode)
-    const lastDecision = continuation.last_decision || {}
     const result = {
       entry_action: 'execute',
       resolved_mode: resolvedMode,
@@ -250,8 +240,6 @@ function buildExecuteEntry(command, intent, explicitMode, projectRoot, options =
       state_status: status,
       can_resume: true,
       reason: 'implicit_continue_resume',
-      continuation_action: lastDecision.action,
-      continuation_reason: lastDecision.reason,
     }
     if (intent && !explicitMode && resolvedMode === preferredMode && !VALID_EXECUTION_MODES.has(intent)) {
       result.warning = `unrecognized_intent:${intent}`
@@ -323,6 +311,30 @@ function detectNextTask(tasks, state) {
   return nextTaskIdFromTasks(tasks, progress)
 }
 
+// 完成 / skip 推进后的锚点 + 状态决策（updateAfterTaskCompletion 与 markTaskSkipped 共享）：
+// 1) 有可派发 task → 锚定它 + running；
+// 2) 无可派发但 failed/blocked 残留 → 锚点回退 retry/unblock 目标（selectAnchorId），alignStatusWithAnchor 落 halted（failure/dependency）；
+// 3) 全部终结（completed ∪ skipped）→ completed + 清空锚点。
+// 与 workflow_cli.advanceAfterComplete 同语义（C-1 锚点不悬空），消除「仅剩 failed/blocked 误标 completed」不对称。
+function applyAnchorOutcome(state, taskList) {
+  const dispatchable = detectNextTask(taskList, state)
+  if (dispatchable) {
+    state.current_tasks = [dispatchable]
+    state.status = 'running'
+    return
+  }
+  const fallbackAnchor = selectAnchorId(Array.isArray(taskList) ? taskList : [], state.progress || {}, state)
+  if (fallbackAnchor) {
+    state.current_tasks = [fallbackAnchor]
+    state.status = 'running'
+    alignStatusWithAnchor(state, fallbackAnchor)
+    return
+  }
+  // 所有 task 完成 → execute Step 7 inline 末尾终审通过后 completed，无中间审查态。
+  state.current_tasks = []
+  state.status = 'completed'
+}
+
 // updateAfterTaskCompletion(state, tasks?)：tasks 可选；缺省时从 state 的 projectId 经 TaskDirSource 重新拉。
 // 调用方（sequencer skip 路径）传入已更新的 task 列表以反映刚落盘的状态变化。
 function updateAfterTaskCompletion(state, tasks = null) {
@@ -334,15 +346,7 @@ function updateAfterTaskCompletion(state, tasks = null) {
     const source = createTaskSource(normalizedState, { projectId: pid, quiet: true })
     taskList = source ? source.listTasks() : []
   }
-  const nextTaskId = detectNextTask(taskList, normalizedState)
-  if (nextTaskId) {
-    normalizedState.current_tasks = [nextTaskId]
-    normalizedState.status = 'running'
-  } else {
-    // 所有 task 完成 → execute Step 7 inline 末尾终审通过后 completed，无中间审查态。
-    normalizedState.current_tasks = []
-    normalizedState.status = 'completed'
-  }
+  applyAnchorOutcome(normalizedState, taskList)
   return normalizedState
 }
 
@@ -354,6 +358,10 @@ function markTaskSkipped(statePath, taskId, projectId = null, projectRoot = null
   const progress = state.progress || (state.progress = {})
   const skipped = progress.skipped || (progress.skipped = [])
   if (!skipped.includes(taskId)) skipped.push(taskId)
+  // skip 终结该 task：与 cmdComplete 对称，把 taskId 移出 failed/blocked，避免同 id 双计入
+  //（skip 一个 failed/blocked task 后它已终结，不再是 retry/unblock 目标）。
+  if ((progress.failed || []).includes(taskId)) progress.failed = progress.failed.filter((item) => item !== taskId)
+  if ((progress.blocked || []).includes(taskId)) progress.blocked = progress.blocked.filter((item) => item !== taskId)
   // 工厂选 adapter：legacy plan.md 缺 task-dir 时走 LegacyPlanMdSource（C-7 / C-1）。
   const source = createTaskSource(state, { projectId: pid, projectRoot, quiet: true })
   if (source) {
@@ -363,14 +371,9 @@ function markTaskSkipped(statePath, taskId, projectId = null, projectRoot = null
   }
   const tasks = source ? source.listTasks() : []
   const nextTaskId = detectNextTask(tasks, state)
-  if (nextTaskId) {
-    state.current_tasks = [nextTaskId]
-    state.status = 'running'
-  } else {
-    // 所有 task 完成 → execute Step 7 inline 末尾终审通过后 completed，无中间审查态。
-    state.current_tasks = []
-    state.status = 'completed'
-  }
+  // 锚点 + 状态决策共享 applyAnchorOutcome：无可派发但 failed/blocked 残留时回退 retry/unblock 目标 + halted，
+  // 不再无条件 completed（与 updateAfterTaskCompletion / advanceAfterComplete 同语义）。
+  applyAnchorOutcome(state, tasks)
   writeState(statePath, state)
   return { skipped: true, task_id: taskId, next_task_id: nextTaskId, workflow_status: state.status }
 }

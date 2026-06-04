@@ -1,9 +1,9 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url)
 //   - current_task 元数据 package/target_layer 可解析（C-2 scoped 注入前提）
 //   - planned/running/halted 缺 task 源 → assertTaskSourcePresent 报 task_source_missing
 
+let homeEnv
 let tmpHome
 let sequencer
 let taskStore
@@ -51,14 +52,13 @@ function seedTasks() {
 }
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'seq-taskdir-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
+  homeEnv = isolateHome('seq-taskdir-')
+  tmpHome = homeEnv.tmpHome
   freshRequire()
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
 })
 
 test('loadExecutionContext 从 task-dir 读 task 序列（无 plan.md task block）', () => {

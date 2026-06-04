@@ -153,7 +153,7 @@ node utils/workflow/workflow_cli.js journal search "关键词"
 **task-dir schema v2**（见 `task-dir-schema.md`）：执行所需 rich 正文（`files`/`patterns`/`mandatory_reading`/`constraints`/`task_text`）进 task.json 结构化字段，`task.md` 为其渲染产物（execute 逐字注入、不回解析）。`task.json.schema_version` 标版本——**execute 入口对 `< 2` 的 task-dir 硬阻断**（`reason: task_dir_schema_v1`），引导全量重 plan；本版本不兼容 v1 task-dir，无回退。只读命令不受影响。
 
 - `createTaskSource(state)` 工厂：task-dir 非空 → `TaskDirSource`；仅 legacy plan.md（无 task-dir）→ `LegacyPlanMdSource`（复用 `parseTasksV2` 兼容读 + stderr 显式迁移提示，C-7 不静默失效）；皆无 → `null`（调用方报 `task_source_missing`）。
-- `current_tasks[0]` = task 源 `firstTaskId()`，顺序由 task-dir 数字序（或 legacy plan.md 解析序）稳定确定，是 resume 的可复现起点。
+- `current_tasks[0]` = task 源 `firstTaskId()`，顺序由 task-dir 数字序（或 legacy plan.md 解析序）稳定确定，是 resume 的可复现起点。锚点重导/修复语义（task-write 自动重导、repair-anchor 修锚、failed/blocked 回退 retry/unblock 目标）见 `core/specs/shared/workflow-cli.md` § task-write 的 resume 锚点重导 / § repair-anchor，plan-review 的 current_tasks_orphaned/current_tasks_empty hard issue 兜底挡 ready。
 
 **resume 三元组**：`/clear` 后内存全丢，运行时仅从 disk 重建 **`current_tasks[0]` + `status` + task 源**三者，即可等价恢复执行位置（C-1）。task 序列、`current_tasks[0]`、`status`、各 task status 重建前后逐项等价。
 

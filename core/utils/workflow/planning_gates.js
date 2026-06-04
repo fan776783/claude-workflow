@@ -36,13 +36,16 @@ function detectAgentWorkspaces(homeDir) {
 
 /**
  * 将用户的 Spec 审查选择映射为状态和下一步动作
+ * approve → workflow_status 'planned'（与 cmdPlan/cmdSpecReview 实际推进一致——两个消费者在
+ * approve 分支用 status==='approved' 判定并推 planned，本字段仅 non-approve 分支被读取；
+ * 保持字段自洽，防未来消费者直读 workflow_status 落错状态）。
  * @param {string} choice - 用户选择的审查结论文本
  * @returns {Object} 包含 status、next_action、workflow_status 的映射结果
  */
 function mapSpecReviewChoice(choice) {
   return {
-    'Spec 正确，生成 Plan': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'spec_review' },
-    'Spec 正确，继续': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'spec_review' },
+    'Spec 正确，生成 Plan': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'planned' },
+    'Spec 正确，继续': { status: 'approved', next_action: 'continue_to_plan_generation', workflow_status: 'planned' },
     '需要修改 Spec': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation', workflow_status: 'spec_review' },
     '页面分层需要调整': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation', workflow_status: 'spec_review' },
     '缺少用户流程': { status: 'revise_required', next_action: 'return_to_phase_1_spec_generation', workflow_status: 'spec_review' },

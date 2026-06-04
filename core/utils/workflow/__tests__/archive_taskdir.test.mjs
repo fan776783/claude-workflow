@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { isolateHome } from './_test_env.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -12,18 +13,18 @@ const require = createRequire(import.meta.url)
 // 路径经 os.homedir() call-time 解析 process.env.HOME → 落临时 HOME（同 invariant.test.mjs）。
 const PID = 'archpid01'
 let tmpHome
+let homeEnv
 const pathUtils = require('../path_utils.js')
 const taskStore = require('../task_store.js')
 const { cmdArchive } = require('../delta_archive_cmds.js')
 
 beforeEach(() => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-archive-'))
-  process.env.HOME = tmpHome
-  process.env.USERPROFILE = tmpHome
+  homeEnv = isolateHome('wf-archive-')
+  tmpHome = homeEnv.tmpHome
 })
 
 afterEach(() => {
-  try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* ignore */ }
+  try { homeEnv.cleanup() } catch { /* ignore */ }
 })
 
 function writeState(state) {
