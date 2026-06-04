@@ -31,15 +31,11 @@ module.exports = {
   buildTechStackSummary: runtimeLocator.buildTechStackSummary,
   resolveWorkflowRuntime: runtimeLocator.resolveWorkflowRuntime,
 
-  // plan_composer (cmdStart 是 cmdPlan 的 alias)
+  // plan_composer
   renderTemplate: planComposer.renderTemplate,
   extractRequirementItems: planComposer.extractRequirementItems,
   buildRequirementCoverage: planComposer.buildRequirementCoverage,
-  renderRequirementCoverage: planComposer.renderRequirementCoverage,
-  buildPRDCoverageReport: planComposer.buildPRDCoverageReport,
-  buildPlanTasks: planComposer.buildPlanTasks,
   cmdPlan: planComposer.cmdPlan,
-  cmdStart: planComposer.cmdPlan,
   cmdSpecReview: planComposer.cmdSpecReview,
   cmdPlanReview: planComposer.cmdPlanReview,
   cmdPlanEdit: planComposer.cmdPlanEdit,

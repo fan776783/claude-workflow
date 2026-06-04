@@ -62,12 +62,4 @@ context_profile: "{{context_profile}}"
 > 由 `workflow_cli.js plan-review` 自动执行（lintPlaceholder / coverage / anchor_integrity / scoreConfidence 等）。
 > 详见 [`../../skills/workflow-plan/references/plan-self-review.md`](../../skills/workflow-plan/references/plan-self-review.md)。
 > HITL 标注与 Depth 段触发等语义判定仍由 plan 作者人工保证。
-
----
-
-<!-- WF:ANCHOR:verification_summary:begin -->
-## Verification Summary
-
-| Task | Requirement IDs | Spec Ref | Files | Verification Command | Expected |
-|------|-----------------|----------|-------|---------------------|----------|
-<!-- WF:ANCHOR:verification_summary:end -->
+> 验证数据（验证命令 / 预期输出）在 task.json 的 `verification` 字段，plan.md 不复写。

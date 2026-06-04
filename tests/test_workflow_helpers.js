@@ -188,14 +188,6 @@ test('workflow helper migration coverage', async (t) => {
     const backwardCompatible = planningGates.mapSpecReviewChoice('Spec 正确，继续')
     assert.equal(backwardCompatible.status, 'approved')
     assert.equal(backwardCompatible.next_action, 'continue_to_plan_generation')
-
-    const summary = planningGates.buildSpecReviewSummary(
-      '## 2. Scope\n\n### 2.1 In Scope\nA\n\n### 2.2 Out of Scope\nB\n\n## 3. Constraints\nC\n\n## 4. User-facing Behavior\nD\n\n## 7. Acceptance Criteria\nE\n\n### 7.1 Test Strategy\nF\n'
-    )
-    assert.match(summary, /## 2\. Scope/)
-    assert.match(summary, /### 2\.1 In Scope/)
-    assert.match(summary, /## 7\. Acceptance Criteria/)
-    assert.match(summary, /### 7\.1 Test Strategy/)
   })
 
   await t.test('requirement coverage preserves quality gate semantics', () => {
@@ -230,14 +222,24 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(highRiskCoverage[0].must_preserve, true)
     assert.deepEqual(highRiskCoverage[0].protected_details, ['管理员只能导出自己有权限的数据'])
 
-    // quality_gate semantics survive at plan-task level: must_preserve requirement → quality_gate task
-    // carrying its requirement_ids. The per-task governor decision machine (decideGovernanceAction /
-    // decidePostExecutionAction) was retired in the lean-execute refactor; quality gating now runs as a
-    // per-task reviewer (execute Step 6) + inline final review (Step 7), with no persisted decision.
-    const tasks = taskParser.parseTasksV2(lifecycleCmds.buildPlanTasks(highRiskCoverage))
-    assert.equal(tasks.length, 1)
-    assert.equal(tasks[0].quality_gate, true)
-    assert.deepEqual(tasks[0].requirement_ids, ['R-001'])
+    // quality_gate semantics survive at task-shell level (v2 task-dir path): must_preserve requirement
+    // → quality_gate shell carrying its requirement_ids. The per-task governor decision machine was
+    // retired in the lean-execute refactor; quality gating now runs as a per-task reviewer (execute
+    // Step 4.2) + inline final review (Step 7), with no persisted decision. coverage 比对（plan-review）
+    // 读的就是这里落的 requirement_ids。
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-shells-'))
+    const home = path.join(root, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    withHome(home, () => {
+      const planComposer = require(path.join(workflowDir, 'plan_composer.js'))
+      const taskStore = require(path.join(workflowDir, 'task_store.js'))
+      const ids = planComposer.createTaskShellsFromCoverage('proj-test', highRiskCoverage, 'pkg-a')
+      assert.deepEqual(ids, ['T1'])
+      const shells = taskStore.listTasks('proj-test')
+      assert.equal(shells.length, 1)
+      assert.equal(shells[0].quality_gate, true)
+      assert.deepEqual(shells[0].requirement_ids, ['R-001'])
+    })
   })
 
 
@@ -273,7 +275,7 @@ test('workflow helper migration coverage', async (t) => {
   await t.test('quality review gate builders and evidence survive as final-review library helpers', () => {
     // Per-task gate persistence (writeQualityGateResult / readQualityGateResult) was retired; these
     // builders now feed the inline final reviewer (execute Step 7). The gate-result shape, the
-    // approved/rejected decisions, and the evidence label remain the contract that final review reuses.
+    // approved/rejected decisions remain the contract that final review reuses.
     const gate = qualityReview.buildPassGateResult(
       'T8',
       'abc123',
@@ -290,13 +292,10 @@ test('workflow helper migration coverage', async (t) => {
       1,
       2
     )
-    const evidence = qualityReview.createQualityReviewEvidence('T8', gate)
 
     assert.equal(gate.overall_passed, true)
     assert.equal(gate.attempt, 3)
     assert.equal(gate.stage2.assessment, 'approved')
-    assert.equal(evidence.artifact_ref, 'quality_gates.T8')
-    assert.equal(evidence.passed, true)
 
     // getReviewResult reads from state.quality_gates only (legacy-state compatible read accessor).
     assert.equal(workflowTypes.getReviewResult({ execution_reviews: { T4: {} } }, 'T4'), null)
@@ -376,9 +375,8 @@ test('workflow helper migration coverage', async (t) => {
   // verbs (per-task gate persistence + governor budget). quality_review.js no longer ships CLI verbs.
 
   await t.test('verification and project id checks stay aligned', () => {
-    const verificationResult = verification.validateVerificationOrder(null, true, true)
-    assert.equal(verificationResult.valid, false)
-    assert.ok(verificationResult.violations.includes('updated_before_verification'))
+    const evidenceResult = verification.validateEvidence(null)
+    assert.equal(evidenceResult.valid, false)
 
     assert.equal(pathUtils.validateProjectId('proj_test-123'), true)
     assert.equal(pathUtils.validateProjectId(''), false)
@@ -629,7 +627,7 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(executePayload.entry_action, 'none')
     assert.equal(executePayload.reason, 'no_active_workflow')
 
-    const startResult = runNode(cliScript, ['start', '实现导出功能'], { cwd: root, env: extraEnv })
+    const startResult = runNode(cliScript, ['plan', '实现导出功能'], { cwd: root, env: extraEnv })
     assert.equal(startResult.status, 0, startResult.stderr)
     const startPayload = JSON.parse(startResult.stdout)
     assert.equal(startPayload.started, true)
@@ -647,13 +645,13 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(initialState.status, 'spec_review')
     assert.deepEqual(initialState.current_tasks, [])
 
-    const continuePlannedResult = runNode(cliScript, ['continue'], { cwd: root, env: extraEnv })
-    assert.equal(continuePlannedResult.status, 0, continuePlannedResult.stderr)
-    const continuePlannedPayload = JSON.parse(continuePlannedResult.stdout)
-    assert.equal(continuePlannedPayload.entry_action, 'none')
-    assert.equal(continuePlannedPayload.reason, 'status_not_resumable')
-    assert.equal(continuePlannedPayload.state_status, 'spec_review')
-    assert.match(continuePlannedPayload.message, /规划已完成|workflow-execute/)
+    // spec_review 态下 execute 入口拒绝（continue 同入口共享同样的状态门，见 buildExecuteEntry）。
+    const executeBlockedResult = runNode(cliScript, ['execute'], { cwd: root, env: extraEnv })
+    assert.equal(executeBlockedResult.status, 0, executeBlockedResult.stderr)
+    const executeBlockedPayload = JSON.parse(executeBlockedResult.stdout)
+    assert.equal(executeBlockedPayload.entry_action, 'none')
+    assert.equal(executeBlockedPayload.state_status, 'spec_review')
+    assert.match(executeBlockedPayload.message, /Spec|规划/)
 
     let editedSpecContent = fs.readFileSync(specPath, 'utf8')
     editedSpecContent = editedSpecContent.replace('R-001: 实现导出功能', 'R-001: 仅实现 CSV 导出')
@@ -720,7 +718,6 @@ test('workflow helper migration coverage', async (t) => {
     const summaryState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     summaryState.delta_tracking.current_change = 'CHG-002'
     summaryState.discussion.completed = true
-    summaryState.ux_design.completed = true
     summaryState.review_status.user_spec_review.status = 'approved'
     fs.writeFileSync(statePath, JSON.stringify(summaryState, null, 2))
 
@@ -1040,13 +1037,15 @@ test('workflow helper migration coverage', async (t) => {
     const [extraEnv, home] = makeCliEnv(root)
     writeProjectConfig(root, 'proj-test')
 
-    const startResult = runNode(
-      cliScript,
-      ['start', '实现导出功能', '--spec-choice', '需要修改 Spec'],
-      { cwd: root, env: extraEnv }
-    )
+    const startResult = runNode(cliScript, ['plan', '实现导出功能'], { cwd: root, env: extraEnv })
     assert.equal(startResult.status, 0, startResult.stderr)
     const startPayload = JSON.parse(startResult.stdout)
+    const reviseResult = runNode(
+      cliScript,
+      ['spec-review', '--choice', '需要修改 Spec'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(reviseResult.status, 0, reviseResult.stderr)
     const statePath = workflowStatePath(home, startPayload.project_id)
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     assert.equal(startPayload.plan_file, null)
@@ -1076,7 +1075,7 @@ test('workflow helper migration coverage', async (t) => {
     const [extraEnv, home] = makeCliEnv(root)
     writeProjectConfig(root, 'proj-test')
 
-    const startResult = runNode(cliScript, ['start', '实现导出功能'], { cwd: root, env: extraEnv })
+    const startResult = runNode(cliScript, ['plan', '实现导出功能'], { cwd: root, env: extraEnv })
     assert.equal(startResult.status, 0, startResult.stderr)
 
     const splitResult = runNode(
@@ -1094,7 +1093,7 @@ test('workflow helper migration coverage', async (t) => {
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
     assert.equal(state.status, 'idle')
 
-    const restartResult = runNode(cliScript, ['start', '实现新的缩小范围需求'], { cwd: root, env: extraEnv })
+    const restartResult = runNode(cliScript, ['plan', '实现新的缩小范围需求'], { cwd: root, env: extraEnv })
     assert.equal(restartResult.status, 0, restartResult.stderr)
     const restartPayload = JSON.parse(restartResult.stdout)
     assert.equal(restartPayload.started, true)
@@ -1663,6 +1662,31 @@ test('workflow helper migration coverage', async (t) => {
     assert.equal(advanceAgain.status, 0, advanceAgain.stderr)
     const payload2 = JSON.parse(advanceAgain.stdout)
     assert.equal(payload2.status_transition, undefined)
+
+    // 单一契约：`journal add --summary "string"` 与 `advance --journal "string"` 同样被接受
+    // （原 legacy_string hard-reject 已废，string 由 journal.cmdAdd 包装为 evidence 最小结构）。
+    const journalAddResult = runNode(
+      cliScript,
+      ['journal', 'add', '--title', '完成 T1', '--tasks-completed', 'T1', '--summary', '实现了首任务'],
+      { cwd: root, env: extraEnv }
+    )
+    assert.equal(journalAddResult.status, 0, journalAddResult.stderr)
+    const journalAddPayload = JSON.parse(journalAddResult.stdout)
+    assert.equal(journalAddPayload.added, true)
+    const journalListResult = runNode(cliScript, ['journal', 'list', '--limit', '5'], { cwd: root, env: extraEnv })
+    assert.equal(journalListResult.status, 0, journalListResult.stderr)
+    const sessions = JSON.parse(journalListResult.stdout).sessions || []
+    const added = sessions.find((s) => s.title === '完成 T1')
+    assert.ok(added, 'journal add 写入的 session 应可被 list 读到')
+
+    // 回归：summary 落盘为 evidence 对象（wrapStringSummary），journal search 须经 diff_summary 渲染
+    // 成可读文本，而非 String(object) = '[object Object]'。
+    const journalSearchResult = runNode(cliScript, ['journal', 'search', '实现了首任务'], { cwd: root, env: extraEnv })
+    assert.equal(journalSearchResult.status, 0, journalSearchResult.stderr)
+    const searchPayload = JSON.parse(journalSearchResult.stdout)
+    assert.equal(searchPayload.count, 1, `应命中 1 条，got ${JSON.stringify(searchPayload)}`)
+    assert.equal(searchPayload.matches[0].summary, '实现了首任务')
+    assert.doesNotMatch(searchPayload.matches[0].summary, /\[object Object\]/)
   })
 
   await t.test('resolveStateAndTasks errors carry diagnose code', () => {

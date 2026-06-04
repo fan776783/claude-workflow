@@ -5,7 +5,7 @@
  * 通过 project-config.json 的 `workflow.readinessOptions.command_runnable = { command: "pnpm" }`
  * 配置目标命令。本期实现并预留扩展，不在默认 readiness 列表启用。
  *
- * 单文件单 named export `{ name, check }`。由 readiness_checks/index.js 自动扫描注册。
+ * 单文件单 named export `{ name, check }`。在 readiness_checks/index.js 字面量 registry 注册。
  * CommonJS。
  */
 

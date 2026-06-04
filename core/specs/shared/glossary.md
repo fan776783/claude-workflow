@@ -124,10 +124,9 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **Forbidden synonyms**: `术语表` (in normative sections only)
 
 ### pre-flight
-**Definition**: (Deprecated as shared gate) Each skill now declares context needs inline via `<CONTEXT>` block. The file `core/specs/shared/pre-flight.md` remains as a shared protocol index only. Distinct from `workflow-runtime/preflight.md`, which is runtime startup checks.
+**Definition**: (Retired) Each skill declares context needs inline via `<CONTEXT>` block; there is no shared pre-flight gate or index file. Distinct from `workflow-runtime/preflight.md`, which is runtime startup checks.
 **Forbidden synonyms**: `前置协议`
 **Note**: `预检` is the legitimate Chinese term used by the runtime preflight file and its references; it is **not** flagged.
-**See**: `core/specs/shared/pre-flight.md`
 
 ## Fixing a drift warning
 

@@ -175,6 +175,9 @@ flowchart TD
 
 ## 8. Implementation Slices
 
+> 本节为人类切片指引（供审批人与 planner 读）：`/workflow-plan` task-write 现写 task 粒度时应镜像本节切片思路；
+> 切片→task 的机器追溯走 task.json `requirement_ids`（spec §2.1 R-ID），本节不被机器解析。
+
 {{implementation_slices}}
 
 ---

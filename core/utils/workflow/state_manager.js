@@ -175,15 +175,11 @@ function updateDiscussionRecord(state, clarificationCount, completed = true) {
   return normalized.discussion
 }
 
-function updateUxDesignRecord(state, flowchartScenarios = 0, pageCount = 0, approved = false, gateRequired = false) {
+// ux_design 收敛为单字段：仅 ux_gate_required 有消费方（workflow-spec Step 5 路由）。
+// 进度类子字段（flowchart_scenarios/page_count/approved）无任何读者，已删。
+function updateUxDesignRecord(state, gateRequired = false) {
   const normalized = normalizeStateInPlace(state)
-  normalized.ux_design = {
-    completed: approved,
-    ux_gate_required: gateRequired,
-    flowchart_scenarios: flowchartScenarios,
-    page_count: pageCount,
-    approved_at: approved ? isoNow() : null,
-  }
+  normalized.ux_design = { ux_gate_required: Boolean(gateRequired) }
   return normalized.ux_design
 }
 

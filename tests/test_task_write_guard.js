@@ -206,3 +206,38 @@ test('F-04 taskSourceEmptyIssue：空 task 源报 hard，有 task 不报', () =>
     cleanup(pid)
   }
 })
+
+test('F-06 task-write 承接旧同 id 的 requirement_ids（incoming 省略字段）+ 回报 requirement_ids_inherited', () => {
+  const pid = freshPid()
+  try {
+    cmdTaskWrite(writeTmp('t.json', JSON.stringify([
+      { id: 'T1', name: 'a', requirement_ids: ['R-001'] },
+      { id: 'T2', name: 'b' },
+    ])), pid, null)
+    // 重写：T1 省略 requirement_ids（undefined）→ 承接旧值；T2 仍无 → 进 gap 报告
+    const r = cmdTaskWrite(writeTmp('t2.json', JSON.stringify([
+      { id: 'T1', name: 'a-fixed' },
+      { id: 'T2', name: 'b-fixed' },
+    ])), pid, null)
+    assert.deepEqual(r.requirement_ids_inherited, ['T1'], '省略字段且旧值非空 → 承接并回报')
+    assert.deepEqual(r.tasks_without_requirement_ids, ['T2'], 'T2 写后仍无 R-ID → gap 回报')
+    assert.deepEqual(taskStore.readTask(pid, 'T1').requirement_ids, ['R-001'], '旧 R-ID 链保留')
+    assert.deepEqual(taskStore.readTask(pid, 'T2').requirement_ids, [])
+  } finally {
+    cleanup(pid)
+  }
+})
+
+test('F-07 task-write 显式 requirement_ids:[] 不承接（planner 主动清空被尊重）', () => {
+  const pid = freshPid()
+  try {
+    cmdTaskWrite(writeTmp('t.json', JSON.stringify([{ id: 'T1', name: 'a', requirement_ids: ['R-001'] }])), pid, null)
+    // 显式传 [] ≠ 省略字段：不承接，写后无 R-ID
+    const r = cmdTaskWrite(writeTmp('t2.json', JSON.stringify([{ id: 'T1', name: 'a-cleared', requirement_ids: [] }])), pid, null)
+    assert.equal(r.requirement_ids_inherited, undefined, '显式清空不触发承接 → 字段省略')
+    assert.deepEqual(r.tasks_without_requirement_ids, ['T1'])
+    assert.deepEqual(taskStore.readTask(pid, 'T1').requirement_ids, [])
+  } finally {
+    cleanup(pid)
+  }
+})

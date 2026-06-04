@@ -3,10 +3,6 @@
 
 const fs = require('fs')
 const path = require('path')
-const {
-  evaluateBudgetThresholds,
-  generateContextBar,
-} = require('./context_budget')
 const { checkTaskDeps } = require('./dependency_checker')
 const {
   detectProjectIdFromRoot,
@@ -98,7 +94,7 @@ function resolveStateAndTasks(projectId = null, projectRoot = null) {
   const statePath = getWorkflowStatePath(pid)
   if (!statePath || !fs.existsSync(statePath)) return [null, null, null, null, 'state_file_missing']
   const state = readState(statePath, pid)
-  const planRef = state.plan_file || state.tasks_file || ''
+  const planRef = state.plan_file || ''
   if (!planRef) return [state, statePath, null, null, 'plan_file_unset']
   const resolvedProjectRoot = detectProjectRoot(projectRoot || state.project_root)
   const artifactPath = resolvePlanArtifactPath(resolvedProjectRoot, planRef)
@@ -159,7 +155,7 @@ function cmdStatus(projectId = null, projectRoot = null) {
   const anchorOrphaned = Boolean(source) && findOrphanedAnchors(state.current_tasks, sourceTasks).length > 0
   return {
     workflow_status: state.status,
-    plan_file: tasksPath || state.plan_file || state.tasks_file || '',
+    plan_file: tasksPath || state.plan_file || '',
     current_tasks: state.current_tasks || [],
     ...(anchorOrphaned ? { current_tasks_orphaned: true } : {}),
     total_tasks: total,
@@ -334,28 +330,6 @@ function cmdProgress(projectId = null, projectRoot = null) {
 }
 
 /**
- * 查询上下文预算使用情况
- * @param {string|null} [projectId=null] - 项目 ID
- * @param {string|null} [projectRoot=null] - 项目根目录
- * @returns {Object} 预算评估结果
- */
-function cmdContextBudget(projectId = null, projectRoot = null) {
-  const [state, , , , code] = resolveStateAndTasks(projectId, projectRoot)
-  if (!state) return { error: '没有活跃的工作流', code }
-  const metrics = state.contextMetrics || {}
-  const usage = Number(metrics.usagePercent || 0)
-  const projected = Number(metrics.projectedUsagePercent || 0)
-  const budget = evaluateBudgetThresholds(projected)
-  return {
-    ...budget,
-    current_usage: usage,
-    context_bar: generateContextBar(usage),
-    max_consecutive_tasks: Number(metrics.maxConsecutiveTasks || 5),
-    consecutive_count: Number(state.consecutive_count || 0),
-  }
-}
-
-/**
  * 获取工作流运行时摘要
  * @param {string|null} [projectId=null] - 项目 ID
  * @param {string|null} [projectRoot=null] - 项目根目录
@@ -390,11 +364,10 @@ function main() {
       fail: () => cmdFail(args[0], args[1], options.projectId, options.projectRoot),
       deps: () => cmdDeps(args[0], options.projectId, options.projectRoot),
       progress: () => cmdProgress(options.projectId, options.projectRoot),
-      'context-budget': () => cmdContextBudget(options.projectId, options.projectRoot),
     }
     const handler = handlers[command]
     if (!handler) {
-      process.stderr.write('Usage: node task_manager.js [--project-id ID] [--project-root DIR] <status|list|next|complete|fail|deps|progress|context-budget> ...\n')
+      process.stderr.write('Usage: node task_manager.js [--project-id ID] [--project-root DIR] <status|list|next|complete|fail|deps|progress> ...\n')
       process.exitCode = 1
       return
     }
@@ -419,7 +392,6 @@ module.exports = {
   cmdFail,
   cmdDeps,
   cmdProgress,
-  cmdContextBudget,
   cmdRuntimeSummary,
 }
 

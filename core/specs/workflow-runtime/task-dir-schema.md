@@ -54,6 +54,8 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 | `patterns` | object[] | — | `[]` | **v2** Patterns to Mirror，每项 `{file, line?, note}`。plan-review `lintPatternFidelity` 校验 file 存在 |
 | `mandatory_reading` | object[] | — | `[]` | **v2** Mandatory Reading，每项 `{path, reason, symbols[], line_hint}`。plan-review `lintMandatoryReading` 校验 |
 | `task_text` | string | — | `''` | **v2** 执行正文，渲染进 `task.md` 逐字注入 implementer |
+| `requirement_ids` | string[] | ✅(实务) | `[]` | 本 task 承接的 spec §2.1 R-ID（`R-NNN`）。plan-review coverage 比对 + confidence PRD 维度数据源；spec-approve 壳已按 1:1 预填，task-write 重切时**必须承接**（缺失 → coverage 全 uncovered、PRD 维度 0 分，advisory 不挡 ready） |
+| `quality_gate` | boolean | — | `false` | commit 边界 marker（spec-approve 由需求 `must_preserve` 预填）。代码质量 review 由 per-task reviewer 默认覆盖，与本字段解耦 |
 
 未知扩展字段必须在读写 / status 更新中透传保留，避免 planner、delta 或未来 runtime 写入的 metadata 被 normalization 意外丢弃。写侧仍必须覆盖 `schema_version=2`；手写旧文件缺省才视为 v1。
 
@@ -62,10 +64,10 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 ```json
 [
   { "id": "T1", "name": "store 树缓存重构", "package": "reelmate", "target_layer": "frontend",
-    "status": "pending", "acceptance": ["懒加载子树"],
+    "status": "pending", "acceptance": ["懒加载子树"], "requirement_ids": ["R-001"],
     "verification": { "commands": ["pnpm --filter reelmate lint"] } },
   { "id": "T2", "name": "删除文件夹守卫", "depends": ["T1"], "blocked_by": ["backend:dir-subtree-asset-check"],
-    "status": "blocked", "acceptance": ["子树有资产 → 拒删并 toast"] }
+    "status": "blocked", "acceptance": ["子树有资产 → 拒删并 toast"], "requirement_ids": ["R-002"] }
 ]
 ```
 

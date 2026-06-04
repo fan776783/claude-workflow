@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
-const crypto = require('crypto')
 const { resolveStatePath } = require('./state_manager')
-const { createEvidence } = require('./verification')
 const { assertCanonicalWorkflowStatePath } = require('./path_utils')
-const { ensureStateDefaults, buildAttemptRecord, ATTEMPT_PHASE, ATTEMPT_OUTCOME, FINDING_STATUS } = require('./workflow_types')
+const { ensureStateDefaults } = require('./workflow_types')
 const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRoleProfile, STAGE2_REVIEW_MODE_SET } = require('./role_injection')
 
 // per-task gate 持久化 + governor budget 已退役（R-002）。
@@ -288,82 +286,6 @@ function buildFailedGateResult(taskId, failedStage, baseCommit, currentCommit = 
   return result
 }
 
-// T7 findings 三态：从 blocking_issues 提取 finding，与上轮 diff 标 new/carried/resolved。
-// finding_id 用 description 内容 sha1 前 10 位 — 同一 finding 跨轮可识别。
-function normalizeFinding(rawFinding, fallbackSeverity = 'medium') {
-  const description = typeof rawFinding === 'string'
-    ? rawFinding
-    : (rawFinding && (rawFinding.description || rawFinding.message)) || JSON.stringify(rawFinding || {})
-  const severity = (rawFinding && rawFinding.severity) || fallbackSeverity
-  const findingId = 'f-' + crypto.createHash('sha1').update(description).digest('hex').slice(0, 10)
-  return {
-    finding_id: findingId,
-    description,
-    severity,
-    status: FINDING_STATUS.NEW,
-  }
-}
-
-function extractFindingsFromGateResult(gateResult) {
-  const findings = []
-  const seen = new Set()
-  const blocking = Array.isArray(gateResult.blocking_issues) ? gateResult.blocking_issues : []
-  for (const item of blocking) {
-    const f = normalizeFinding(item, 'high')
-    if (!seen.has(f.finding_id)) { seen.add(f.finding_id); findings.push(f) }
-  }
-  return findings
-}
-
-function diffFindings(prevFindings, currentFindings) {
-  const prevById = new Map((prevFindings || []).map((f) => [f.finding_id, f]))
-  const currentById = new Map(currentFindings.map((f) => [f.finding_id, f]))
-  const out = []
-  for (const f of currentFindings) {
-    out.push({ ...f, status: prevById.has(f.finding_id) ? FINDING_STATUS.CARRIED : FINDING_STATUS.NEW })
-  }
-  for (const f of (prevFindings || [])) {
-    if (!currentById.has(f.finding_id)) out.push({ ...f, status: FINDING_STATUS.RESOLVED })
-  }
-  return out
-}
-
-// 三态计数聚合 — workflow-status 展示用
-function summarizeFindings(findings) {
-  const summary = { new: 0, carried: 0, resolved: 0 }
-  for (const f of (findings || [])) {
-    if (f.status === FINDING_STATUS.NEW) summary.new++
-    else if (f.status === FINDING_STATUS.CARRIED) summary.carried++
-    else if (f.status === FINDING_STATUS.RESOLVED) summary.resolved++
-  }
-  return summary
-}
-
-// 从一次完整 gate result（含 stage1+stage2 快照）派生 attempts 数组的"本轮新增"条目。
-function buildAttemptsFromGateResult(gateResult) {
-  const attempts = []
-  const stage1 = gateResult.stage1 || {}
-  if (stage1.completed_at) {
-    attempts.push(buildAttemptRecord({
-      phase: ATTEMPT_PHASE.STAGE1,
-      outcome: stage1.passed ? ATTEMPT_OUTCOME.PASS : ATTEMPT_OUTCOME.REVISE,
-      findingsRef: stage1.cross_layer_depth_gap ? 'cross_layer_depth_gap' : null,
-      timestamp: stage1.completed_at,
-    }))
-  }
-  const stage2 = gateResult.stage2 || {}
-  if (stage2.completed_at) {
-    attempts.push(buildAttemptRecord({
-      phase: ATTEMPT_PHASE.STAGE2,
-      outcome: stage2.passed
-        ? ATTEMPT_OUTCOME.PASS
-        : (gateResult.last_decision === 'rejected' ? ATTEMPT_OUTCOME.REJECTED : ATTEMPT_OUTCOME.REVISE),
-      timestamp: stage2.completed_at,
-    }))
-  }
-  return attempts
-}
-
 function resolveCliStatePath(projectId = null, stateFile = null) {
   if (stateFile) return assertCanonicalWorkflowStatePath(stateFile, projectId)
   if (projectId) return resolveStatePath(projectId)
@@ -377,14 +299,6 @@ function resolveExistingCliStatePath(projectId = null, stateFile = null) {
   } catch {
     return null
   }
-}
-
-function createQualityReviewEvidence(taskId, gateResult) {
-  const passed = Boolean(gateResult.overall_passed)
-  const stage1 = gateResult.stage1 || {}
-  const stage2 = gateResult.stage2 || {}
-  const outputSummary = `Stage 1 passed=${stage1.passed || false} attempts=${stage1.attempts || 0}, Stage 2 passed=${stage2.passed || false} attempts=${stage2.attempts || 0}, decision=${gateResult.last_decision}`
-  return createEvidence('two-stage code review', passed ? 0 : 1, outputSummary, passed, `quality_gates.${taskId}`)
 }
 
 // R-002：per-task gate 持久化（pass/fail 落盘、read 读盘）与 governor budget 子命令均已退役。
@@ -402,16 +316,9 @@ module.exports = {
   collectBlockingIssues,
   buildPassGateResult,
   buildFailedGateResult,
-  buildAttemptsFromGateResult,
-  extractFindingsFromGateResult,
-  diffFindings,
-  summarizeFindings,
-  normalizeFinding,
   resolveQualityReviewProfile,
-  createReviewerPrompt,
   resolveCliStatePath,
   resolveExistingCliStatePath,
-  createQualityReviewEvidence,
   getGitHead,
 }
 

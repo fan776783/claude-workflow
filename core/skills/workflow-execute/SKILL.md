@@ -58,7 +58,7 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 
 ### 一次性持全 task 切片(必须)
 
-**task 源 = task-dir**(`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`),非 plan.md 物理解析。每个 task 的 rich 执行切片(task_text + acceptance + constraints + patterns/mandatory-reading + files + 验证)存于 **task.json v2 结构化字段**,并渲染为人读 **task.md**。确认 state(下方 Step 2)后,controller **一次性**从 task 源(`TaskSource(state).listTasks()`)读全部 task 元数据持于内存。派发 implementer 时,`pre-execute-inject` hook **自动把当前 task 的 task.md 渲染正文注入 `<current-task>`**(源自 task-dir,**非 plan.md、非 task-bundle**)——guardrails(constraints/patterns/mandatory)随之到达 implementer。**不每 task 重读,也不再调 `task-bundle`**(对齐 superpowers controller-持全 范式,见 [`references/subagent-driven.md`](references/subagent-driven.md))。
+**task 源 = task-dir**(`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`),非 plan.md 物理解析。每个 task 的 rich 执行切片(task_text + acceptance + constraints + patterns/mandatory-reading + files + 验证)存于 **task.json v2 结构化字段**,并渲染为人读 **task.md**。确认 state(下方 Step 2)后,controller **一次性**从 task 源(`TaskSource(state).listTasks()`)读全部 task 元数据持于内存。派发 implementer 时,`pre-execute-inject` hook **自动把当前 task 的 task.md 渲染正文注入 `<current-task>`**(源自 task-dir,**非 plan.md**)——guardrails(constraints/patterns/mandatory)随之到达 implementer。**不每 task 重读盘**(对齐 superpowers controller-持全 范式,见 [`references/subagent-driven.md`](references/subagent-driven.md))。
 
 - 后续每个 task 的 implementer / reviewer prompt **从这份内存切片构造**(衔接 `prompts/implementer.md` / `prompts/reviewer.md`),不回头读盘。
 - plan.md 在新模型下退化为**可选人类可读叙述**(front matter + 锚点),非机器 task 源——execute 不依赖它解析 task。
@@ -72,8 +72,7 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js next
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context   # 返回已内嵌 next_task,无需再调 next
 ```
 
 **首次打印 plan 路径(必须)**:确认 state 后,从 `status` 返回的 `plan_file`(绝对路径)向用户打印一行,方便执行期 review plan:
@@ -166,7 +165,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 ### 4.1 派发 implementer subagent
 
-implementer prompt **从 Step 1 持有的当前 task 切片构造**(`task_text` + controller 策展 context),不再调 `task-bundle` CLI、不回头读 plan.md。按 [`prompts/implementer.md`](prompts/implementer.md) 模板填充:
+implementer prompt **从 Step 1 持有的当前 task 切片构造**(`task_text` + controller 策展 context),不回头读 plan.md。按 [`prompts/implementer.md`](prompts/implementer.md) 模板填充:
 
 - **第一行必须**：`Active task: <task_id>`(可选附加 `Spec: <path>` / `Plan: <path>`)
 - 注入完整 task text(取自 Step 1 切片)+ 关键约束 + 验收项
@@ -217,18 +216,6 @@ implementer ↔ reviewer loop 进行到 **第 2 次仍 REVISE** 时，controller
 - 用途：作为 **第 3 次重派的 `revise_instructions` 增强输入**;第 3 次 implementer **仍按 Step 4.1 派发路径**(prompt 从 Step 1 切片构造,supported 平台 fresh implementer subagent / 无 subagent 平台走下方 Degraded mode),实现完成后照常进 Step 4.2 reviewer。oracle 不接管实现
 - 预算：codex 调用**不消耗** loop 预算,第 3 次循环按原节奏跑,仍失败 → 上面 halt 不变
 - 降级：codex 不可用 → controller 跳过 oracle 回灌直接第 3 次重派,journal 写 `codex-status: codex_degraded` + 降级原因
-
-### 4.3 codex 回归 triage（implementer 走 codex 路径时必须）
-
-```bash
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js triage --result <job-id> [--strict]
-```
-
-返回 `{ in_scope, out_of_scope, suggested_reverts, reasons }`。对 `suggested_reverts` 内文件统一 `git checkout --` 还原;`in_scope` 进入 4.2 reviewer。
-
-`--strict` 模式可作 CI / hook 守门(`out_of_scope` 非空 → exit 1)。
-
-triage 不替代 git diff 内容检查,但替代了文件级越界识别。
 
 ### TDD 手动开启条件
 
@@ -315,7 +302,19 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --
 
 阈值是经验值(非硬门限),用户可忽略继续。新会话无自动 resume——靠 plan.md + `git log` + `state.progress.completed` 手动定位进度。
 
-## 特殊模式
+## 特殊模式（条件路径——默认 fresh-subagent 主路径不触发，按命中场景查阅）
+
+### codex 回归 triage（仅 implementer 走 codex 路径时）
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js triage --result <job-id> [--strict]
+```
+
+返回 `{ in_scope, out_of_scope, suggested_reverts, reasons }`。对 `suggested_reverts` 内文件统一 `git checkout --` 还原;`in_scope` 进入 4.2 reviewer。
+
+`--strict` 模式可作 CI / hook 守门(`out_of_scope` 非空 → exit 1)。
+
+triage 不替代 git diff 内容检查,但替代了文件级越界识别。
 
 ### 重试模式(`--retry`)
 
@@ -350,17 +349,26 @@ CLI 自动标记 `skipped` + 更新 task-dir(task.json) + state.json + 找下一
 
 所有 task `completed`(或 `skipped`)时,controller **inline** 派一个 final reviewer subagent 做整 branch 终审(不再有独立终审阶段、无独立 review 中间态)。**这是进 `completed` 的唯一门**(HARD-GATE #4)。
 
-1. **构造 final reviewer prompt**:复用 [`prompts/reviewer.md`](prompts/reviewer.md) 的「末尾 final-review 形态」段(T6 补,与 per-task 同模板、同 output schema),由 `quality_review.js` 的 `createReviewerPrompt` 渲染(C-001:不引入新机制)。与 per-task 形态的差异:
+1. **构造 final reviewer prompt**:复用 [`prompts/reviewer.md`](prompts/reviewer.md) 的「末尾 final-review 形态」段(T6 补,与 per-task 同模板、同 output schema),由 controller 按该模板的占位映射自行装配(C-001:不引入新机制)。与 per-task 形态的差异:
    - **scope = 整 branch diff vs spec**:reviewer 自跑 `git diff <initial_head_commit>..HEAD` 全量,对照 spec §1 成功标准 + 全部 AC + 跨 task contract 一致性,不限于单个 task 的 `files_changed`。
    - **占位映射**(见 reviewer.md「Prompt 占位 → 数据来源映射」final-review 列):`<task-acceptance-criteria>` 注入 spec 级成功标准 + 全部 AC;`<task-critical-constraints>` 注入 spec 级跨 task 约束;`<commit-sha>` / diff base 用 `state.initial_head_commit`;`<implementer-output>` 段改为已完成 task 清单 + 执行阶段决策蒸馏。
    - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏 ≤20 行):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract),随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
 2. **controller 注入纪律**(同 per-task reviewer):
    - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`),reviewer 自跑 `git diff` 取整 branch diff,**不预读整文件正文**。
    - `<code-specs-context>` 按本 branch 触及的 pkg/layer 摘取适用段落;空则降级通用质量启发式。
-   - **Degraded 平台(无 subagent)**:opencode / antigravity / droid / gemini 等无 subagent 平台,controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),`createReviewerPrompt` 占位映射照样自渲染自执行。
+   - **Degraded 平台(无 subagent)**:opencode / antigravity / droid / gemini 等无 subagent 平台,controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),reviewer.md 占位映射照样自渲染自执行。
 3. **终审结论分流**(reviewer 返回严格 JSON,`decision: PASS | REVISE`,语义同 per-task,PASS 条件 `critical: []` 且 `important: []`):
    - **整体 PASS** → `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js advance` 推进到 `completed`(末尾终审通过是进 `completed` 的唯一门,HARD-GATE #4)。
    - **发现跨 task 集成问题**(contract 不一致 / 重复实现 / task 间接缝遗漏) → **不自动回退、不自动 revert、不擅改 state**;controller 把 issues 清单**展示给用户** + 走**用户决策**:`另起修复回合`(用户拍板后另开 task / `--retry` 路径修)或 `accept`(用户接受残留问题后继续推进 `completed`)。由用户拍板,controller 不替用户决策。
+   - **`accept` 分支落审计**(T8 偏离决策闭环):用户显式接受残留问题后,controller 把每条被接受的偏离调 CLI 写入 `deviation_log`,再 advance 到 `completed`:
+
+     ```bash
+     node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js accept-deviation \
+       --original-intent "<spec 原意图>" --accepted-impl "<实际接受的实现>" \
+       [--spec-section "<§x.x>"] --confirmed
+     ```
+
+     返回的 `next_action` 提示用 `/spec-update` 把 accepted_implementation 回写 spec 对应 section(不需要回写时传 `--no-spec-review`)。**不传 `--confirmed` CLI 会 hard-stop 拒绝**——确认动作必须来自用户拍板,controller 不得代答。
 
 > **末尾终审未过不得标记 `completed`**(HARD-GATE #4)。execute 跑完即 `completed`,无独立 review 中间态;branch 级独立单审走 `/diff-review`。
 
@@ -374,7 +382,7 @@ HARD-GATE 已覆盖的违规不在此重复。下列行为同样违规:
 
 ## CLI 参考
 
-- `workflow_cli.js triage --result <job-id> [--strict]` — Step 4.3
+- `workflow_cli.js triage --result <job-id> [--strict]` — 特殊模式 codex 回归 triage（仅 codex implementer 路径）
 - `workflow_cli.js verify-readiness` — TDD red 起不来前的预检(可选;项目 `workflow.readiness` 声明启用 check 时调)
 - `verification.js create ... --require-files <csv>` — Step 5 ① 强化
-- `workflow_cli.js advance <task-id> [--full]` — 默认 next_task 仅 `{id, name}`;完整 task 数据已由 Step 1 持全 task 切片提供,无需 per-task task-bundle
+- `workflow_cli.js advance <task-id> [--full]` — 默认 next_task 仅 `{id, name}`;完整 task 数据已由 Step 1 持全 task 切片提供,无需 per-task 回查

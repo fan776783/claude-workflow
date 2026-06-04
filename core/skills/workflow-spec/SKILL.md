@@ -184,14 +184,8 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 **宣告**:`📘 Phase 1: Spec 扩写`
 
-**健康检查**(扩写前):
-
-```bash
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
-  --project-root "$PWD" status
-```
-
-确认 `spec_file` 已就绪、`status=spec_review`。异常时回到 Step 1 调 `plan` 重建骨架。
+> 前向路径不做健康检查——Step 1 `plan` 的返回已确认 `spec_file` + `status=spec_review`,中间无状态变更。
+> **仅 revise 回环重入本 Step 时**(用户审批后改 Spec 再回来)跑一次 `workflow_cli.js status` 确认 `workflow_status` 仍为 `spec_review`;异常回 Step 1 调 `plan` 重建骨架。
 
 **扩写硬约束**:
 - 不得改动模板章节标题或锚点;只在正文内 Edit 扩展
@@ -328,7 +322,7 @@ PRD 覆盖率: <…>
 
 ### CLI 调用(approve / revise / split 时)
 
-**approve 前置 guard**(与 workflow-plan Step 1 隐式 approve 路径对称):若 Step 4 Self-Review 之后 spec.md 又被修改过(revise 回合 / 深化并入),approve 前重扫一遍模板占位(模板残留 token + 核心章节内容长度);任一核心章节仍是占位 → 不调 approve,回 Step 4 补全。CLI `spec-review` 只校验状态机,不查 spec 正文——占位防线在 skill 层。
+**approve 占位防线已 CLI 化**:`spec-review` approve 路径自带 spec 正文占位校验(`lintPlaceholder`:TBD/TODO/中文占位/未渲染 `{{}}`),命中返回 `reason: spec_placeholder` + hits 清单并拒绝 approve——skill 层无需重扫,按 hits 回 Step 4 补全后重调即可。核心章节内容质量(非占位但过简)仍由 Step 4 Self-Review 人工把关。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \

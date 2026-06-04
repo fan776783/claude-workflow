@@ -3,10 +3,6 @@
 const fs = require('fs')
 const path = require('path')
 const {
-  calculateMaxTasks,
-  detectComplexity,
-} = require('./context_budget')
-const {
   assertCanonicalWorkflowStatePath,
   getWorkflowStatePath,
   validateProjectId,
@@ -411,14 +407,6 @@ function resetRetryRuntime(statePath, taskId) {
   return { reset: true, task_id: taskId }
 }
 
-function summarizeExecutionUnit(task) {
-  const files = task.files || {}
-  const fileCount = [...(files.create || []), ...(files.modify || []), ...(files.test || [])].length
-  const actions = task.actions || []
-  const complexity = detectComplexity(actions.length, fileCount, Boolean(task.quality_gate), Boolean((task.steps || []).length))
-  return { task_id: task.id, phase: task.phase, complexity, max_consecutive_tasks: calculateMaxTasks(complexity, 0) }
-}
-
 function parseArgs(argv) {
   const args = [...argv]
   const command = args.shift()
@@ -507,7 +495,6 @@ module.exports = {
   markTaskSkipped,
   prepareRetry,
   resetRetryRuntime,
-  summarizeExecutionUnit,
 }
 
 if (require.main === module) main()

@@ -47,7 +47,8 @@ function setupSandboxState({ planContent, specContent }) {
   return { projectId, statePath, tmpDir }
 }
 
-// 干净 plan + 验证命令/期望齐备、无 placeholder、无 anchor → 仅 coverage 缺口存在。
+// 干净 legacy plan（无 task-dir 时走 LegacyPlanMdSource，requirement_ids 经 legacyTaskToRecord 透传）
+// + 验证命令/期望齐备、无 placeholder、无 anchor → 仅 coverage 缺口存在。
 const CLEAN_PLAN = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
 
 test('cmdPlanReview ready=true when spec has uncovered R-ID (coverage advisory, not blocking)', () => {
@@ -70,6 +71,32 @@ test('cmdPlanReview still returns coverage as an advisory field', () => {
     assert.ok(result.coverage, 'coverage field still present')
     assert.deepEqual(result.coverage.uncovered_ids, ['R-999'], 'uncovered_ids still computed for human review')
     assert.deepEqual(result.coverage.covered_ids, ['R-001'])
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('cmdPlanReview coverage + summary read task-dir requirement_ids (v2 source)', () => {
+  const spec = '### 2.1 In Scope\n- R-001: alpha\n- R-002: beta\n'
+  // narrative plan（v2 形态：无 ## Tn: 结构化 task block）——coverage/summary 必须来自 task-dir 记录
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: '# narrative plan\n- T1 ← R-001: alpha\n', specContent: spec })
+  const taskStore = require(path.join(workflowDir, 'task_store.js'))
+  try {
+    taskStore.createTask(projectId, {
+      id: 'T1',
+      name: 'alpha',
+      status: 'pending',
+      requirement_ids: ['R-001'],
+      verification: { commands: ['npm test'], expected_output: ['PASS'] },
+    })
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, true, `coverage gap must stay advisory on v2 source, got ${JSON.stringify(result)}`)
+    assert.deepEqual(result.coverage.covered_ids, ['R-001'], 'covered from task.json requirement_ids')
+    assert.deepEqual(result.coverage.uncovered_ids, ['R-002'])
+    assert.equal(result.summary.task_count, 1, 'summary task_count from task-dir, not plan.md parse')
+    assert.equal(result.summary.task_table[0].id, 'T1')
+    assert.equal(result.summary.req_stats.total_referenced, 1)
   } finally {
     fs.rmSync(statePath, { force: true })
     fs.rmSync(tmpDir, { recursive: true, force: true })

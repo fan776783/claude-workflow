@@ -8,7 +8,6 @@ const repoRoot = path.resolve(__dirname, '..')
 const workflowDir = path.join(repoRoot, 'core', 'utils', 'workflow')
 const {
   detectNextTask,
-  summarizeExecutionUnit,
   resetRetryRuntime,
 } = require(path.join(workflowDir, 'execution_sequencer.js'))
 const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.js'))
@@ -68,37 +67,6 @@ test('detectNextTask walks the task source based on progress', async (t) => {
   await t.test('returns null for empty task source', () => {
     assert.equal(detectNextTask([], { status: 'running' }), null)
     assert.equal(detectNextTask(null, { status: 'running' }), null)
-  })
-})
-
-test('summarizeExecutionUnit derives complexity and consecutive-task budget', async (t) => {
-  await t.test('summarizes a simple task', () => {
-    const summary = summarizeExecutionUnit({
-      id: 'T1',
-      phase: 'implement',
-      actions: ['edit_file'],
-      files: { create: [], modify: ['src/a.py'], test: [] },
-      steps: [{ id: 'A1' }],
-      quality_gate: false,
-    })
-    assert.equal(summary.task_id, 'T1')
-    assert.equal(summary.phase, 'implement')
-    assert.equal(typeof summary.complexity, 'string')
-    assert.equal(typeof summary.max_consecutive_tasks, 'number')
-    assert.ok(summary.max_consecutive_tasks >= 1)
-  })
-
-  await t.test('quality_gate task is summarized without throwing', () => {
-    const summary = summarizeExecutionUnit({
-      id: 'T9',
-      phase: 'implement',
-      actions: ['edit_file', 'run_tests', 'quality_review'],
-      files: { create: ['src/new.py'], modify: ['src/a.py', 'src/b.py'], test: ['tests/test_a.py'] },
-      steps: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }],
-      quality_gate: true,
-    })
-    assert.equal(summary.task_id, 'T9')
-    assert.ok(summary.max_consecutive_tasks >= 1)
   })
 })
 

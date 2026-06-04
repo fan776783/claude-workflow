@@ -2,13 +2,24 @@
 
 const fs = require('fs')
 const path = require('path')
-const { findPlaceholders } = require('./traceability')
+
+// （原 traceability.js 唯一存活函数，traceability 校验引擎随 v2 task-dir 迁移退役后内联至此）
+const PLACEHOLDER_REGEX = /\b(?:TBD|TODO|待补充|待确认|similar to Task)\b/gi
+
+/**
+ * 从文本中查找占位符标记（TBD、TODO、待补充等）
+ * @param {string} text - 待搜索的文本
+ * @returns {Array<string>} 去重排序后的占位符列表
+ */
+function findPlaceholders(text) {
+  return [...new Set((String(text || '').match(PLACEHOLDER_REGEX) || []).map((item) => item))].sort()
+}
 
 const CLI_COMMAND_REGEX = /(?:sub\.add_parser\(\s*"([a-z0-9_-]+)"|command === '([a-z0-9_-]+)')/gi
 const WORKFLOW_COMMAND_DOC_REGEX = /\/workflow\s+([a-z0-9_-]+)/gi
 const SCRIPT_REF_REGEX = /`(?:scripts\/)?([a-zA-Z0-9_./-]+\.(?:py|js))`/g
 
-const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '## Tasks', '<!-- WF:ANCHOR:file_structure:begin -->', '<!-- WF:ANCHOR:tasks:begin -->', '<!-- WF:ANCHOR:verification_summary:begin -->']
+const REQUIRED_PLAN_TEMPLATE_MARKERS = ['{{task_name}}', '{{spec_file}}', '{{tasks}}', '## Tasks', '<!-- WF:ANCHOR:file_structure:begin -->', '<!-- WF:ANCHOR:tasks:begin -->']
 const REQUIRED_SPEC_TEMPLATE_MARKERS = ['{{task_name}}', '{{critical_constraints}}', '{{scope_summary}}', '{{acceptance_criteria}}', '## 2. Scope', '## 3. Constraints', '## 7. Acceptance Criteria']
 const REQUIRED_TASK_FIELD_MARKERS = ['阶段', 'Spec 参考', 'Plan 参考', '需求 ID', 'actions', '步骤']
 const IGNORED_DOC_COMMANDS = new Set(['action'])

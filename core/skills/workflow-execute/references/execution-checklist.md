@@ -2,9 +2,9 @@
 
 > 每个 **已完成实现并准备声明 completed 的 task**，在进入下一个 task 之前，必须依次完成以下检查。
 >
-> ⚠️ 跳过 ①~④ 中的任意一项即为执行违规。⑤ Journal 为条件步骤，仅在列出的触发场景下执行。
+> ⚠️ 跳过 ①~③ 中的任意一项即为执行违规。④ Journal 为条件步骤，仅在列出的触发场景下执行。
 >
-> `completed` 是 workflow runtime 中的显式状态推进，不是“仓库里已经有代码”这一类现象判断；不得通过扫描源码、diff、测试文件存在与否来单独推断 task 已完成。
+> `completed` 是 workflow runtime 中的显式状态推进，不是"仓库里已经有代码"这一类现象判断；不得通过扫描源码、diff、测试文件存在与否来单独推断 task 已完成。
 
 ## ✅ 必做项（按顺序执行）
 
@@ -13,45 +13,25 @@
 - [ ] 运行 task 指定的验证命令（或项目默认 build/test/lint 命令）
 - [ ] **读取验证输出**，确认无错误
 - [ ] 验证失败 → 修复后重新验证，不得跳过
-- [ ] ⚠️ 验证必须在 plan/state 更新之前完成（Verification Iron Law）
+- [ ] ⚠️ 验证必须在 `advance` 之前完成（Verification Iron Law）
 
-### 2. 自review & 规格合规检查（强制输出）
+### 2. per-task reviewer 终判（reviewer PASS 后）
 
-- [ ] 对 `create_file` / `edit_file` 类型任务执行自review（建议性）
-- [ ] 对有 `acceptance_criteria` 的任务执行规格合规检查（只读）
-- [ ] 以上检查内容均为建议性，不阻塞后续步骤
-- [ ] **必须输出执行证据**（复制模板填充）：`自审查：X/Y 项通过` 或 `自审查：已跳过（{原因}）`。静默省略即为管线违规
+- [ ] Step 4.2 reviewer 终判 `PASS` → controller **内存确认放行**进入下一步（per-task gate 落盘已退役，不调 CLI 持久化、不回灌全文到 controller，只认 `decision: PASS`）
+- [ ] reviewer 终态 FAIL → 由 Step 4.2 loop 上限 halt 处理，本步不执行
 
-> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成workflow后用 `/spec-update` 捕获，由 execute 末尾终审（Step 7）兜底。
+> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成 workflow 后用 `/spec-update` 捕获，由 execute 末尾终审（Step 7）兜底。
 
-### 2.5 per-task reviewer 终判（reviewer PASS 后）
+### 3. Checkpoint（单条 `advance`，更新 task-dir + state.json）
 
-- [ ] Step 5.2 reviewer 终判 `PASS` → controller **内存确认放行**进入下一步（per-task gate 落盘已退役，不调 CLI 持久化、不回灌全文到 controller，只认 `decision: PASS`）
-- [ ] reviewer 终态 FAIL → 由 Step 5.2 loop 上限 halt 处理，本步不执行
+- [ ] 运行 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js advance {taskId}`
+- [ ] CLI 原子完成：task-dir(task.json) 状态更新 + `progress.completed` 追加 + `current_tasks` 重导 + `updated_at` 刷新
+- [ ] **必须输出 checkpoint 行**（`✅ {TaskId} checkpoint: completed=[...], current=[...]`）
+- [ ] ⚠️ 必须逐 task `advance`，禁止多 task 攒批回写
+- 💡 **状态转换自愈**：`advance` 在 `state.status === 'planned'` 时会自动升为 `running` 并在返回载荷里带 `status_transition: "planned->running"`；无需手动 patch state.json，也不要为此再写 `node -e`
+- 💡 plan.md 已退化为可选人类叙述，**不需要也不应该手动编辑 plan.md 的任务状态**（仅 legacy plan.md workflow 由 CLI 回写）
 
-### 3. Plan 更新（Plan Checkpoint）
-
-- [ ] 在 `plan.md` 中找到当前 task 对应块（canonical 格式为 `## Tn:` 的 WorkflowTaskV2 任务块）
-- [ ] 单次写入只改变一个 task block 的状态语义，禁止多 task 批量delta
-- [ ] 更新该 task 的进度标记为已完成（如状态字段、任务标题标记或convention的完成标识）
-- [ ] **保存文件**
-- [ ] ⚠️ 必须逐 task 更新，禁止最后批量回写
-
-### 4. 状态文件更新（State Update — HARD-GATE #4）
-
-- [ ] 读取 `~/.claude/workflows/{projectId}/workflow-state.json`
-- [ ] 将当前 task ID 添加到 `progress.completed` 数组
-- [ ] 更新 `current_tasks` 为下一个 task ID（或清空）
-- [ ] 更新 `updated_at` 为当前时间
-- [ ] **保存文件**
-- 💡 **状态转换自愈**：`workflow_cli.js advance` 在 `state.status === 'planned'` 时会自动升为 `running` 并在返回载荷里带 `status_transition: "planned->running"`；无需手动 patch state.json，也不要为此再写 `node -e`
-
-### 3→4. Checkpoint 输出（强制）
-
-- [ ] 步骤 3 和 4 完成后，必须输出 checkpoint 行（格式见 SKILL.md Step 6 ③ Checkpoint）
-- [ ] 步骤 3 成功但步骤 4 失败时：回滚 plan.md 中该 task 的状态标记
-
-### 5. Journal 记录（跨 Session 记忆 — 条件执行）
+### 4. Journal 记录（跨 Session 记忆 — 条件执行）
 
 满足以下**任一条件**时记录会话进展：
 
@@ -71,12 +51,11 @@
 
 - ❌ **批量回写 task-dir / state.json** — 必须逐 task advance（仅 legacy plan.md workflow 才回写 plan.md）
 - ❌ **跳过验证直接标记 completed** — 必须有验证证据
-- ❌ **先更新 plan/state 再验证** — 验证必须在状态更新之前（Iron Law）
-- ❌ **跳过状态文件更新** — 即使快速执行也必须更新
+- ❌ **先 advance 再验证** — 验证必须在状态更新之前（Iron Law）
+- ❌ **手动编辑 plan.md / state.json 推进任务状态** — 状态推进只走 `advance` CLI
 - ❌ **使用过时验证结果** — 必须使用本次运行的新鲜结果
-- ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + plan/state 更新管线
-- ❌ **覆盖其他workflow的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
-- ❌ **批量化管线** — 最后一个 task 后一次性更新所有 task 的 task-dir / state.json。每个 task 完成后必须立即输出 checkpoint 行
+- ❌ **通过仓库代码现状猜测 completed** — task 完成态必须经过验证 + advance 管线
+- ❌ **覆盖其他 workflow 的状态文件** — 发现 projectId 不匹配时，不得覆写其他 projectId 的 `workflow-state.json`
 - ❌ **跳过末尾终审标记 completed** — 所有 task 完成后必须先跑 inline final reviewer 终审（Step 7），PASS 后才 `advance` 到 `completed`（HARD-GATE #4，无独立 review 中间态）
 
 ---
@@ -84,7 +63,6 @@
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②自审查（输出证据） → ②.5 reviewer PASS 内存确认 → ③更新 task-dir(task.json) → ④更新 state.json → 输出 checkpoint 行 → ⑤Journal（条件） → 下一 Task
-所有 Task 完成 → inline final reviewer 末尾终审（Step 7）→ PASS → advance 到 completed
+Task 完成 → ①验证 → ②reviewer PASS 内存确认 → ③advance {taskId}（task-dir + state 原子更新）→ 输出 checkpoint 行 → ④Journal（条件） → 下一 Task
+所有 Task 完成 → inline final reviewer 末尾终审（Step 7）→ PASS → advance 到 completed（HARD-GATE #4）
 ```
-

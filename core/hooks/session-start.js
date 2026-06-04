@@ -97,12 +97,10 @@ function main() {
     parts.push(`状态: ${state.status || 'unknown'}`)
     const progress = state.progress || {}
     const completed = progress.completed || []
-    const tasksFile = state.plan_file || state.tasks_file || ''
+    const tasksFile = state.plan_file || ''
     parts.push(`已完成: ${completed.length} 任务${tasksFile ? ` (任务文件: ${tasksFile})` : ''}`)
     const current = state.current_tasks || []
     if (current.length) parts.push(`当前任务: ${current.join(', ')}`)
-    const usage = ((state.contextMetrics || {}).usagePercent) || 0
-    if (usage > 0) parts.push(`上下文使用率: ${usage}%`)
     parts.push('</active-workflow>')
   }
 

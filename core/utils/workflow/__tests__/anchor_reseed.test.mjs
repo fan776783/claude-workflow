@@ -87,7 +87,11 @@ afterEach(() => {
 })
 
 function approvePlan() {
-  const result = planComposer.cmdPlan('前端实现登录页\n后端实现登录接口', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
+  // 两步正路：cmdPlan 产 spec 骨架（spec_review）→ cmdSpecReview approve 落壳 + planned。
+  // （原 --spec-choice 一步式分支已删——无 skill 可达。）
+  const planResult = planComposer.cmdPlan('前端实现登录页\n后端实现登录接口', false, false, null, projectRoot)
+  assert.equal(planResult.workflow_status, 'spec_review')
+  const result = planComposer.cmdSpecReview('Spec 正确，生成 Plan', null, projectRoot)
   assert.equal(result.workflow_status, 'planned')
   assert.deepEqual(result.current_tasks, ['T1'], '前置：spec-approve 落锚 T1')
   return result

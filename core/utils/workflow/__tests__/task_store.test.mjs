@@ -59,6 +59,8 @@ test('createTask + readTask: round-trip 字段集对齐 §5.2', () => {
     patterns: [],
     mandatory_reading: [],
     task_text: '',
+    requirement_ids: [],
+    quality_gate: false,
   })
 })
 

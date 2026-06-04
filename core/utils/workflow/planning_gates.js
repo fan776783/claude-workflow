@@ -139,21 +139,6 @@ function shouldRunUxDesignGate(requirementText, analysisPatterns = [], discussio
 }
 
 /**
- * 从 Spec 文档中抽取 §2 / §3 / §7 作为审查摘要（含子节）
- * @param {string} specContent - Spec Markdown 内容
- * @returns {string}
- */
-function buildSpecReviewSummary(specContent) {
-  const text = String(specContent || '')
-  if (!text) return ''
-  const sections = text.split(/^(?=## \d)/m)
-  return sections
-    .filter((s) => ['## 2.', '## 3.', '## 7.'].some((prefix) => s.trimStart().startsWith(prefix)))
-    .map((s) => s.trim())
-    .join('\n\n')
-}
-
-/**
  * 判断是否需要执行 Codex Plan 审查（bounded-autofix）
  *
  * FR-6 降级：默认 return false；仅当 `options.reviewEnabled === true` 时走原 signal 判定。
@@ -218,7 +203,6 @@ module.exports = {
   shouldRunCodexPlanReview,
   shouldRunDiscussion,
   shouldRunUxDesignGate,
-  buildSpecReviewSummary,
   UI_KEYWORDS_REGEX,
   UI_BROAD_KEYWORDS_REGEX,
   FRONTEND_FRAMEWORK_REGEX,

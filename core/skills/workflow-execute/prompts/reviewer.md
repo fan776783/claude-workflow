@@ -175,4 +175,4 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **不自动回退**：final-review 发现跨 task 集成问题时 controller **不自动 revert / 不自动改回**，把问题清单展示给用户，由用户决策（另起修复回合 / accept）。terminal halt 仍走 review-loop 上限规则。
 - **no-subagent 平台兼容（C-004）**：opencode / antigravity / droid / gemini 等无 subagent 平台，controller 主会话扮 final reviewer 自跑终审（self-review），本形态与占位映射照样适用（自渲染自执行）。
 
-> reviewer prompt 构造在退化平台与 subagent 平台共用 `core/utils/workflow/quality_review.js` 的 `createReviewerPrompt`；该模块的 per-task gate `pass`/`fail` 持久化已退役，仅保留 prompt 构造 + 结果整形辅助供末尾终审复用。
+> reviewer prompt 在退化平台与 subagent 平台都由 controller 按本模板 +「Prompt 占位 → 数据来源映射」自行装配（无 CLI/JS 渲染器介入）；`quality_review.js` 的 per-task gate `pass`/`fail` 持久化已退役，模块仅作 prompt 形状参考，不在运行时路径上。

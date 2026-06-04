@@ -70,6 +70,9 @@ function legacyTaskToRecord(task) {
     interaction: task.interaction || 'AFK',
     // blocked_by 为 plan.md 时代字段，部分消费者（cmdDeps）仍读，保留以兼容。
     blocked_by: Array.isArray(task.blocked_by) ? [...task.blocked_by] : [],
+    // requirement_ids/quality_gate 透传 parseTasksV2 同名字段，legacy plan.md 的 coverage 比对继续可用。
+    requirement_ids: Array.isArray(task.requirement_ids) ? [...task.requirement_ids] : [],
+    quality_gate: Boolean(task.quality_gate),
   }
 }
 
@@ -120,7 +123,7 @@ class LegacyPlanMdSource {
 
 // 解析 state 的 legacy plan.md 物理路径 + 内容。缺失/不可读 → null。
 function resolveLegacyPlan(state, projectRoot = null) {
-  const planRef = (state && (state.plan_file || state.tasks_file)) || ''
+  const planRef = (state && state.plan_file) || ''
   if (!planRef) return null
   const { detectProjectRoot, resolvePlanArtifactPath } = tm()
   const resolvedRoot = detectProjectRoot(projectRoot || (state && state.project_root))

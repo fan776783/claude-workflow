@@ -21,12 +21,15 @@ const EVIDENCE_TEMPLATE = Object.freeze({
   unverified_items: ['未在浏览器手动验证 / 等待联调的功能点'],
 })
 
+// 单一契约：string summary 包装成 evidence 最小结构（与 advance --journal 路径同形），
+// `journal add --summary "string"` 与 `advance --journal "string"` 行为一致，不再 hard-reject。
+function wrapStringSummary(summary) {
+  if (typeof summary !== 'string' || summary === '') return summary
+  return { commands_run: [], diff_summary: summary, coverage_evidence: '', unverified_items: [] }
+}
+
 function validateEvidenceSummary(summary) {
   if (summary == null || summary === '') return { valid: false, errors: ['evidence summary is required'], reason: 'missing' }
-  if (typeof summary === 'string') {
-    // 旧 string summary 不再接受写入（archived state 加载时仍可读 — 见 cmdGet/cmdSearch）。
-    return { valid: false, errors: ['legacy string summary is no longer accepted; use structured evidence (4 fields)'], reason: 'legacy_string' }
-  }
   if (typeof summary !== 'object' || Array.isArray(summary)) {
     return { valid: false, errors: [`summary must be a JSON object, got ${Array.isArray(summary) ? 'array' : typeof summary}`], reason: 'wrong_type' }
   }
@@ -105,8 +108,10 @@ function writeSession(journalDir, sessionId, data) {
  * @param {string[]} nextSteps - 后续步骤列表
  * @returns {{added: boolean, session_id: number, file: string}} 添加结果
  */
-function cmdAdd(projectId, title, workflowId = null, tasksCompleted = [], summary = null, decisions = [], nextSteps = []) {
-  // T6 hard-reject：写入前校验 evidence summary 结构（4 字段），缺即 throw 并附模板。
+function cmdAdd(projectId, title, workflowId = null, tasksCompleted = [], rawSummary = null, decisions = [], nextSteps = []) {
+  // T6 校验：写入前校验 evidence summary 结构（4 字段）。string 先包装为最小 evidence 结构（单一契约），
+  // 对象输入仍须含齐 4 字段，缺即 throw 并附模板。
+  const summary = wrapStringSummary(rawSummary)
   const validation = validateEvidenceSummary(summary)
   if (!validation.valid) {
     const err = new Error(`evidence summary invalid: ${validation.errors.join('; ')}`)
@@ -171,7 +176,13 @@ function cmdSearch(projectId, keyword) {
     try {
       const data = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8'))
       if (JSON.stringify(data).toLowerCase().includes(keywordLower)) {
-        matches.push({ id: data.id, title: data.title, date: data.date, summary: String(data.summary || '').slice(0, 200) })
+        // summary 兼容两形态：evidence 对象（wrapStringSummary/advance --journal 落盘）取 diff_summary
+        // 摘要展示，legacy string 原样——直接 String() 会把对象渲染成 '[object Object]'。
+        const rawSummary = data.summary
+        const summaryText = typeof rawSummary === 'string'
+          ? rawSummary
+          : (rawSummary && typeof rawSummary === 'object') ? String(rawSummary.diff_summary || '') : ''
+        matches.push({ id: data.id, title: data.title, date: data.date, summary: summaryText.slice(0, 200) })
       }
     } catch {}
   }

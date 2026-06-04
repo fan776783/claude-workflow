@@ -32,9 +32,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js --project-root
 
 确认 `status=planned`、`plan_file` 已就绪、`current_tasks` 非空。状态异常处理:
 - `spec_review` → **隐式 approve 路径**(与 workflow-spec 归一化表对齐):
-  - **前置 guard**: Read spec.md,确认 §2 Scope / §3 Constraints / §4.1-4.3 / §5.1-5.5 / §6-§8 均非模板占位(grep 模板残留 token + 章节内容长度 < 50 字)。任一章节仍是占位 → 不要 approve,提示用户 "spec.md 仍含模板占位章节(列出哪些),请先回 /workflow-spec 完成扩写";
-  - guard 通过后,主会话打印一行 `状态=spec_review,按 /workflow-plan 调用视为通过 spec 审批`,调用 `workflow_cli.js spec-review --choice "Spec 正确，生成 Plan"` 将状态推到 `planned`,再继续 Step 2 扩写;
-  - **不要**回退到 `/workflow-spec`——用户已通过 skill 切换表达过 approve 意图
+  - 主会话打印一行 `状态=spec_review,按 /workflow-plan 调用视为通过 spec 审批`,调用 `workflow_cli.js spec-review --choice "Spec 正确，生成 Plan"` 将状态推到 `planned`,再继续 Step 2 扩写;
+  - **占位防线在 CLI**:`spec-review` approve 自带 spec 正文占位校验,spec 仍含模板占位时返回 `reason: spec_placeholder` + hits 并拒绝——此时提示用户 "spec.md 仍含模板占位(转述 hits),请先回 /workflow-spec 完成扩写",不要自行绕过;
+  - **不要**主动回退到 `/workflow-spec`——用户已通过 skill 切换表达过 approve 意图;仅 CLI 占位拒绝时才引导回去补全
 - `idle` → 先执行 `/workflow-spec` 启动规划(无 spec 可 approve)
 - `running` / `halted` → 用 `/workflow-execute` 恢复
 
@@ -62,6 +62,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 机器 task 源是 **task-dir**(`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`),不是 plan.md 物理解析。spec-approve 阶段**只落了 task 元数据壳,未锁死最终粒度**(松 Hard Gate #3)。本阶段按 implementation slice **现写最终 task 切分**(对齐"最后一刻定粒度"共识):
 
 - 按真实实现切片确定 task 数量、ID、阶段、依赖、验收项,**以及 execute 护栏所需 v2 rich 字段**(`files` 写作用域 / `constraints` 关键约束 / `patterns` Patterns to Mirror / `mandatory_reading` Mandatory Reading / `task_text` 执行正文),**组成 JSON 数组一次性 `task-write` 整集写入**(字段见 task-dir-schema.md v2;原子替换 + 自动清孤儿 + **自动从 task.json 渲染 `task.md`**,不手编 task.json/task.md、不写 `.cjs`)。spec-approve 落的壳可增删/合并/重排——不受预锁 task ID 约束。
+- **每 task 必填 `requirement_ids`**(承接 spec §2.1 R-ID;spec-approve 壳已按 1:1 预填,重切时把每个 R-ID 分配到新 task 集,一个 task 可承接多个 R-ID)。这是 `plan-review` coverage 比对与 confidence PRD 维度的数据源——缺失不挡 ready,但 coverage 会全量 uncovered。同 id 续写时省略该字段会自动承接旧值(返回 `requirement_ids_inherited`);重切的新 id 不承接,须显式填。写后仍缺的 task 经 `tasks_without_requirement_ids` 回报,逐个补填。
 
 ```bash
 CLI=~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js
@@ -136,7 +137,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 ```
 
 返回 JSON:
-- `ready: false` → 按 `lints.placeholder.hits` / `lints.task_schema.issues`(非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源 / `current_tasks_orphaned` 锚点孤儿 / `current_tasks_empty` 锚点缺失,后两者 repair-anchor 修锚 / task-write 重写均可)/ `coverage.uncovered_ids` / `lints.anchor_integrity`(Phase B 后)逐项修复 → 重跑直到 `ready: true`
+- `ready: false` → 按 `lints.placeholder.hits` / `lints.task_schema.issues`(非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源 / `current_tasks_orphaned` 锚点孤儿 / `current_tasks_empty` 锚点缺失,后两者 repair-anchor 修锚 / task-write 重写均可)/ `lints.anchor_integrity`(Phase B 后)逐项修复 → 重跑直到 `ready: true`(`coverage.uncovered_ids` 为 advisory,不挡 ready,但应人工确认未覆盖 R-ID 是否故意)
 - `ready: true` → 进入 Step 3
 
 详细 lint 项与 ready 矩阵见 [`references/plan-self-review.md`](references/plan-self-review.md)。
@@ -159,7 +160,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js write-handoff 
 3. `confidence`(score / level / breakdown)—— CLI 已按 rubric 算分,不再人工逐项自检
 4. `summary.task_table`(Task / 阶段 / 主要产出 / 依赖 / Interaction)
 5. `summary.interaction_legend`
-6. `lints` 摘要(warnings 非空时列出)
+6. `lints` 摘要(warnings 非空时列出;`task_schema.warnings` 含 `empty_name`/`empty_acceptance` = task 现写漏项,回 `task-write` 补全后重跑 `plan-review`,不得带 warnings 交付)
 
 **下一步**(回复编号继续,或 `/clear` 后敲对应命令):
 1. `/workflow-execute` — 实施(默认每 task 起 fresh implementer subagent + spec/quality 两段 review,task 间顺序执行)［上下文大时先 `/clear`:execute 从 state + task-dir 恢复 resume 三元组(`current_tasks[0]`+`status`+task 源),清理无损失］

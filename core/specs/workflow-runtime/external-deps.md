@@ -66,37 +66,4 @@ YApi 平台 ──▶ ytt.config.ts ──▶ pnpm ytt ──▶ autogen/*.ts
 
 ### 处理workflow
 
-```typescript
-async function unblockApiSpec(args: {
-  category?: number;
-  file?: string;
-}): Promise<UnblockResult> {
-  const projectRoot = process.cwd();
-
-  // Step 1: 检查 ytt.config.ts 是否存在
-  const yttConfigPath = path.join(projectRoot, 'ytt.config.ts');
-  if (!fileExists(yttConfigPath)) {
-    return { success: false, error: 'ytt.config.ts 不存在，无法执行 API 生成' };
-  }
-
-  // Step 2: 如果指定了文件，验证文件存在
-  if (args.file) {
-    const apiFile = path.join(projectRoot, args.file);
-    if (!fileExists(apiFile)) {
-      return { success: false, error: `API 文件不存在: ${args.file}` };
-    }
-  }
-
-  // Step 3: 构造执行命令
-  const command = args.file
-    ? `pnpm ytt ${args.file}`
-    : args.category
-    ? `pnpm ytt --category ${args.category}`
-    : 'pnpm ytt';
-
-  // Step 4: 执行同步
-  const result = await Bash({ command });
-
-  return parseYttResult(result);
-}
-```
+API 依赖的解阻入口是 `/workflow-delta`（内部走 `workflow_cli.js unblock` / `delta sync --dependency api_spec`，project-config 驱动），本文档不复写其实现 contract——见 `../../skills/workflow-delta/SKILL.md`。

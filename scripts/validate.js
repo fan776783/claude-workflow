@@ -238,7 +238,7 @@ async function validateWorkflowContracts(repoRoot, packageRoot, errors) {
   const hookScriptFiles = (await fs.pathExists(workflowHooksDir))
     ? (await fs.readdir(workflowHooksDir)).filter(file => file.endsWith('.js'))
     : [];
-  const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'task_runtime.js', 'workflow_types.js', 'traceability.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
+  const requiredWorkflowScripts = ['workflow_cli.js', 'task_parser.js', 'task_runtime.js', 'workflow_types.js', 'doc_contracts.js', 'lifecycle_cmds.js', 'quality_review.js', 'execution_sequencer.js'];
   const workflowDocSkills = ['workflow-plan', 'workflow-execute', 'workflow-delta'];
 
   for (const file of requiredWorkflowScripts) {

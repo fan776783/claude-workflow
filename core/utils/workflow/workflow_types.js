@@ -92,26 +92,6 @@ const TRIGGER_REASON = Object.freeze({
   USER_REQUESTED: 'user_requested',
 })
 
-const ATTEMPT_PHASE = Object.freeze({
-  STAGE1: 'stage1',
-  STAGE2: 'stage2',
-  CODEX_SPEC_REVIEW: 'codex_spec_review',
-  CODEX_PLAN_REVIEW: 'codex_plan_review',
-})
-
-const ATTEMPT_OUTCOME = Object.freeze({
-  PASS: 'pass',
-  REVISE: 'revise',
-  REJECTED: 'rejected',
-  PENDING: 'pending',
-})
-
-const FINDING_STATUS = Object.freeze({
-  NEW: 'new',
-  CARRIED: 'carried',
-  RESOLVED: 'resolved',
-})
-
 // T8：构建偏离审计 record。spec-update 触发前的二次确认由 CLI 层做，本函数只做 schema 归一化。
 function buildDeviationRecord({ originalIntent, acceptedImplementation, specSection, requiresSpecReview = true, decidedAt = null, decidedBy = 'user' } = {}) {
   return {
@@ -122,17 +102,6 @@ function buildDeviationRecord({ originalIntent, acceptedImplementation, specSect
     accepted_implementation: String(acceptedImplementation || ''),
     spec_section: specSection || null,
     requires_spec_review: Boolean(requiresSpecReview),
-  }
-}
-
-function buildAttemptRecord({ attemptId = null, phase, triggerReason = null, outcome, findingsRef = null, timestamp = null } = {}) {
-  return {
-    attempt_id: attemptId || `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    phase,
-    trigger_reason: triggerReason,
-    outcome,
-    findings_ref: findingsRef,
-    timestamp: timestamp || isoNow(),
   }
 }
 
@@ -186,7 +155,7 @@ function ensureStateDefaults(state) {
   if (!normalized.api_context) normalized.api_context = copyJson(MINIMUM_API_CONTEXT)
   if (!normalized.discussion) normalized.discussion = { completed: false, clarification_count: 0, unresolved_dependencies: [] }
 
-  if (!normalized.ux_design) normalized.ux_design = { completed: false, ux_gate_required: false, flowchart_scenarios: 0, page_count: 0, approved_at: null }
+  if (!normalized.ux_design) normalized.ux_design = { ux_gate_required: false }
   // C-1：user_spec_review 人工 gate 完整保留，默认实例化。
   if (!normalized.review_status.user_spec_review) normalized.review_status.user_spec_review = { status: 'pending', review_mode: 'human_gate', reviewed_at: null, reviewer: 'user', next_action: null }
   // FR-6（T7）：codex_spec_review / codex_plan_review / plan_review 不再默认实例化。
@@ -316,7 +285,7 @@ function assertTaskSourcePresent(state, projectId = null, projectRoot = null) {
   const status = source.status || 'idle'
   if (!TASK_SOURCE_REQUIRED_STATUSES.has(status)) return true
   const pid = projectId || source.project_id || source.projectId || null
-  const hasLegacyRef = Boolean(source.plan_file || source.tasks_file)
+  const hasLegacyRef = Boolean(source.plan_file)
   if (!pid && !projectRoot && !hasLegacyRef) {
     throwTaskSourceMissing(status, pid)
   }
@@ -488,16 +457,12 @@ module.exports = {
   MINIMUM_STATE_STATUSES,
   HALT_REASON,
   TRIGGER_REASON,
-  ATTEMPT_PHASE,
-  ATTEMPT_OUTCOME,
-  FINDING_STATUS,
   isoNow,
   copyJson,
   buildMinimumState,
   ensureStateDefaults,
   deriveEffectiveStatus,
   normalizeQualityGateRecord,
-  buildAttemptRecord,
   buildDeviationRecord,
   getReviewResult,
   summarizeProgress,

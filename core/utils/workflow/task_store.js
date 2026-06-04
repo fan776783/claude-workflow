@@ -86,7 +86,7 @@ function normalizeStringArray(value) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : []
 }
 
-// patterns[]（对齐 task_bundle.parsePatternBullet 形状）：{file, line?, note}。无 file 的条目丢弃。
+// patterns[]：{file, line?, note}（canonical 形状见 task-dir-schema.md）。无 file 的条目丢弃。
 function normalizePatterns(value) {
   if (!Array.isArray(value)) return []
   const out = []
@@ -102,7 +102,7 @@ function normalizePatterns(value) {
   return out
 }
 
-// mandatory_reading[]（对齐 task_bundle.parseMandatoryReadingBullet 形状）：{path, reason, symbols[], line_hint}。无 path 丢弃。
+// mandatory_reading[]：{path, reason, symbols[], line_hint}（canonical 形状见 task-dir-schema.md）。无 path 丢弃。
 function normalizeMandatoryReading(value) {
   if (!Array.isArray(value)) return []
   const out = []
@@ -126,6 +126,8 @@ function normalizeMandatoryReading(value) {
 // 解依赖。缺省时分别退化为 ''/null/[]，不破坏 shell 形态。
 // v2 rich 字段（files/constraints/patterns/mandatory_reading/task_text）供 execute 期 implementer 护栏
 // 与 plan-review lint 直读；v1 task.json 缺这些字段时全退化为空，schema_version 忠实回 1。
+// requirement_ids[]（spec §2.1 R-ID 引用）供 plan-review coverage 比对；quality_gate 为 commit 边界 marker。
+// 两者缺省退化为 []/false（legacy/存量 task-dir 无字段时 coverage 退化为 advisory-empty，不 hard-fail）。
 function normalizeTaskRecord(data = {}) {
   return {
     ...data,
@@ -146,6 +148,8 @@ function normalizeTaskRecord(data = {}) {
     patterns: normalizePatterns(data.patterns),
     mandatory_reading: normalizeMandatoryReading(data.mandatory_reading),
     task_text: data.task_text != null ? String(data.task_text) : '',
+    requirement_ids: normalizeStringArray(data.requirement_ids),
+    quality_gate: Boolean(data.quality_gate),
   }
 }
 

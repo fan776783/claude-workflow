@@ -9,7 +9,7 @@
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 ```
 
-返回 JSON:`{ ready, lints, coverage, confidence, summary, plan_file, spec_file }`。
+返回 JSON:`{ ready, lints, coverage, confidence, summary, plan_file, spec_file, spec_status, project_id }`。`spec_status`（`ok` 之外的值挡 ready）。
 
 `confidence` = `{ score, level, breakdown{prd_coverage,patterns,verification,test_task}, hints[] }`。**confidence 偏低时直接读 `hints`**——每个未达标/被封顶维度给一行可执行提升项(如 `patterns=0` → "需 ≥3 个 `### 标题` 各紧跟一行 `// SOURCE: <file>`")。`test_task=0` 的 hint 为中性提示,纯手动验证 plan 可忽略,**不要为凑分造测试任务**。
 
@@ -19,8 +19,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 
 | Lint | 硬 block ready? | 计入 confidence? |
 |------|-------------|------------------|
-| `lints.placeholder.hits`(`TBD` / `TODO` / 中文占位 / 模板残留) | ✅ 是 | — |
-| `coverage.uncovered_ids`(spec 有 plan 无) | ✅ 是 | — |
+| `lints.placeholder.hits`(plan.md 内 `TBD` / `TODO` / 中文占位 / 模板残留) | ✅ 是 | — |
+| `lints.spec_placeholder.hits`(spec.md approve 后复检,防 approve 与 plan-review 之间 spec 被编辑引入占位) | ✅ 是 | — |
+| `coverage.uncovered_ids`(spec 有 plan 无) | ❌ 否(advisory,T8/FR-7 降级) | ✅ PRD 维度计分 |
 | `coverage.partial_ids`(spec 多处提及 plan 仅 1 task) | ❌ 否 | ✅ PRD 维度扣 1 分 |
 | `lints.anchor_integrity`(v2 plan,orphans + missing,Phase B 后启用) | ✅ 是 | — |
 | `lints.anchor_integrity`(v1 plan 无锚点) | ❌ 否 | ❌ 不挡 |
@@ -28,10 +29,9 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 | `lints.mandatory_reading`(完全无该区块) | ❌ 否 | ❌ 不挡(小 plan 合法) |
 | `lints.command_syntax.issues`(Phase C) | ❌ 否 | ✅ verification 维度封顶,无加分 |
 | `lints.pattern_fidelity.unresolved`(Phase C) | ❌ 否 | ✅ patterns 维度封顶,无加分 |
-| `lints.type_consistency.pairs`(Phase C) | ❌ 否 | ❌ 完全不进 rubric(假阳性后患) |
 | `lints.atomicity.warnings` | ❌ 否 | ❌ 不扣 |
 | `lints.task_schema.issues`(task-dir:非法 id 目录 / task.json 不可解析 / status 越界 / `empty_task_source` 空源 / `current_tasks_orphaned` resume 锚点孤儿 / `current_tasks_empty` 锚点缺失而源有未终结 task(failed/blocked 算未终结;repair-anchor/task-write 重导会回退锚到 retry/unblock 目标)) | ✅ 是 | — |
-| `lints.task_schema.warnings`(`name` 空 / `acceptance` 空) | ❌ 否 | ❌ 不挡(提示补全) |
+| `lints.task_schema.warnings`(`name` 空 / `acceptance` 空) | ❌ 否 | ❌ 不挡(兼容 spec-approve 落壳未填态;**task-write 之后仍非空 = task 现写漏项,回 `task-write` 补全再重跑 plan-review,不得带 warnings 进入 Step 7**) |
 
 ## 各 lint 含义
 
@@ -41,7 +41,6 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js plan-review
 - **mandatory_reading** — 仅校验 Mandatory Reading 表行的 `Lines` 列格式（不查文件存在性，那是 `pattern_fidelity` 的事）。`file:lineStart-lineEnd` 行号**可选**（implementer 自读定位，planner 不必为补行号去读源码）：留空 = 合规，仅当 Lines 列填了非空值且格式不是 `N` / `N-M` 才算违规。缺行号不挡 ready
 - **command_syntax** — `验证命令` 字段语法校验(括号/管道闭合);路径在 Files to Change 表里
 - **pattern_fidelity** — `Patterns to Mirror` 区块的 `// SOURCE: file:lines` 引用存在性
-- **type_consistency** — 跨 task 类似命名符号(`clearLayers` vs `clearFullLayers`)。预过滤短符号 / 大小写等价 / 词序重排 / 数字结尾。
 - **atomicity** — Task N≥5 子项必拆 sub-task 规则
 
 ## 修复后

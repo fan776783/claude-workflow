@@ -89,15 +89,6 @@ function validateEvidence(evidence) {
   return { valid: violations.length === 0, missing_fields: [], violations }
 }
 
-function validateVerificationOrder(evidence, stateUpdated, planUpdated, qualityGatePassed = true) {
-  const result = evidence ? validateEvidence(evidence) : { valid: false, missing_fields: ['evidence'] }
-  const violations = []
-  if (!result.valid) violations.push('missing_or_invalid_evidence')
-  if ((stateUpdated || planUpdated) && !result.valid) violations.push('updated_before_verification')
-  if (!qualityGatePassed) violations.push('quality_gate_not_passed')
-  return { valid: violations.length === 0, violations }
-}
-
 function parseArgs(argv) {
   const args = [...argv]
   const positionals = []
@@ -147,7 +138,6 @@ module.exports = {
   getVerificationInfo,
   getVerificationCommands,
   validateEvidence,
-  validateVerificationOrder,
 }
 
 if (require.main === module) main()

@@ -65,10 +65,16 @@ function assertNoSkeleton(content, label) {
   assert.ok(!/WF:ANCHOR:task:T\d+:begin/.test(content), `${label} 不应含 per-task anchor`)
 }
 
-test('cmdPlan approve：生成 plan.md 无占位 body + task-dir 壳 + current_tasks[0]=firstTaskId', () => {
+test('cmdPlan + cmdSpecReview approve（两步正路）：plan.md 无占位 body + task-dir 壳 + current_tasks[0]=firstTaskId', () => {
+  // 原 --spec-choice 一步式分支已删（无 skill 可达），唯一路径 = cmdPlan 产骨架 → cmdSpecReview approve。
   const requirement = '前端实现登录页表单校验\n后端实现登录鉴权接口\n约束: 必须保留现有 session 逻辑'
-  const result = planComposer.cmdPlan(requirement, false, false, null, projectRoot, 'Spec 正确，生成 Plan')
-  assert.equal(result.started, true)
+  const planRes = planComposer.cmdPlan(requirement, false, false, null, projectRoot)
+  assert.equal(planRes.started, true)
+  assert.equal(planRes.workflow_status, 'spec_review')
+  assert.equal(planRes.plan_file, null, 'cmdPlan 不再生成 plan.md')
+  assert.equal(planRes.task_count, 0, 'cmdPlan 不再落 task 壳')
+
+  const result = planComposer.cmdSpecReview('Spec 正确，生成 Plan', null, projectRoot)
   assert.equal(result.workflow_status, 'planned')
   assert.ok(result.task_count >= 1, 'task_count 应 >= 1')
 
@@ -76,7 +82,7 @@ test('cmdPlan approve：生成 plan.md 无占位 body + task-dir 壳 + current_t
   const planContent = fs.readFileSync(result.plan_file, 'utf8')
   assertNoSkeleton(planContent, 'plan.md')
 
-  // task-dir 壳存在且为元数据 task.json（无 body）
+  // task-dir 壳存在且为元数据 task.json（无 body），并带 R-ID 链字段
   const tasks = taskStore.listTasks(PROJECT_ID)
   assert.ok(tasks.length >= 1, 'task-dir 应至少有 1 个壳')
   assert.equal(tasks.length, result.task_count, 'task-dir 数应等于 task_count')
@@ -85,18 +91,22 @@ test('cmdPlan approve：生成 plan.md 无占位 body + task-dir 壳 + current_t
     assert.equal(t.phase, 'implement')
     assert.equal(t.status, 'pending')
     assert.equal(t.interaction, 'AFK')
+    assert.ok(Array.isArray(t.requirement_ids) && t.requirement_ids.length >= 1, '壳应预填 requirement_ids')
   }
 
   // current_tasks[0] = TaskDirSource.firstTaskId（C-1 来源不断）
   const firstTaskId = new taskSource.TaskDirSource(PROJECT_ID).firstTaskId()
   assert.equal(firstTaskId, 'T1')
   assert.deepEqual(result.current_tasks, [firstTaskId])
+  // 正路：cmdPlan 已落盘 signals → approve 复用 persisted，不重派生、无漂移警告。
+  assert.equal(result.role_signals_source, 'persisted', 'cmdPlan→approve 正路应复用 persisted signals')
+  assert.equal(result.role_signals_warning, undefined, 'persisted 路径不应带漂移警告')
 })
 
 test('cmdSpecReview approve：去骨架落 task-dir 壳 + current_tasks[0]=firstTaskId', () => {
-  // 先 cmdPlan 以 revise_required 落到 spec_review 态（写 spec.md，无 plan、无 task-dir）。
+  // cmdPlan 落到 spec_review 态（写 spec.md，无 plan、无 task-dir）。
   const requirement = '前端实现搜索框\n后端实现搜索接口'
-  const planRes = planComposer.cmdPlan(requirement, false, false, null, projectRoot, '需要修改 Spec')
+  const planRes = planComposer.cmdPlan(requirement, false, false, null, projectRoot)
   assert.equal(planRes.workflow_status, 'spec_review')
   assert.equal(planRes.plan_file, null)
   assert.deepEqual(taskStore.listTasks(PROJECT_ID), [], 'spec_review 态不应落 task-dir 壳')
@@ -123,8 +133,28 @@ test('cmdSpecReview approve：去骨架落 task-dir 壳 + current_tasks[0]=first
   assertNoSkeleton(t1Raw, 'task.json')
 })
 
+test('cmdSpecReview approve 占位门：spec.md 含模板占位 → 拒绝 approve 并回 hits', () => {
+  const planRes = planComposer.cmdPlan('实现一个带占位的功能', false, false, null, projectRoot)
+  assert.equal(planRes.workflow_status, 'spec_review')
+  // 人为往 spec.md 注入占位 token，模拟扩写未完成就 approve
+  const specContent = fs.readFileSync(planRes.spec_file, 'utf8')
+  fs.writeFileSync(planRes.spec_file, `${specContent}\n- TODO 后续完善\n`)
+
+  const result = planComposer.cmdSpecReview('Spec 正确，生成 Plan', null, projectRoot)
+  assert.equal(result.reason, 'spec_placeholder', `占位 spec 应被拒绝，got ${JSON.stringify(result)}`)
+  assert.ok(Array.isArray(result.placeholder_hits) && result.placeholder_hits.length >= 1)
+  // 状态未被推进、未落壳
+  assert.deepEqual(taskStore.listTasks(PROJECT_ID), [], '拒绝 approve 后不应落 task 壳')
+
+  // 补全后重 approve 通过
+  fs.writeFileSync(planRes.spec_file, specContent)
+  const retry = planComposer.cmdSpecReview('Spec 正确，生成 Plan', null, projectRoot)
+  assert.equal(retry.workflow_status, 'planned')
+})
+
 test('plan.md 退化叙述含 tasks 锚点但不含 parseTasksV2 可解析的结构化 task block', () => {
-  const result = planComposer.cmdPlan('实现一个功能', false, false, null, projectRoot, 'Spec 正确，生成 Plan')
+  planComposer.cmdPlan('实现一个功能', false, false, null, projectRoot)
+  const result = planComposer.cmdSpecReview('Spec 正确，生成 Plan', null, projectRoot)
   const planContent = fs.readFileSync(result.plan_file, 'utf8')
   // 顶层 tasks 锚点保留（template 结构锚点不动）
   assert.ok(planContent.includes('<!-- WF:ANCHOR:tasks:begin -->'))

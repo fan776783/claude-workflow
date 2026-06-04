@@ -15,12 +15,11 @@ const {
   cmdPlanEdit,
   lintAnchorIntegrity,
   detectPlanVersion,
-  buildPlanTasks,
+  buildNarrativeTasksBody,
   renderTemplate,
   lintMandatoryReading,
   lintCommandSyntax,
   lintPatternFidelity,
-  lintTypeConsistency,
 } = require(path.join(workflowDir, 'plan_composer.js'))
 const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.js'))
 const { getWorkflowStatePath } = require(path.join(workflowDir, 'path_utils.js'))
@@ -103,28 +102,31 @@ test('lintPlaceholder on real plan-template.md produces no TBD/TODO hits (F-01 r
   assert.deepEqual(blockingHits, [], `template's Self-Review Checklist must not trigger placeholder hits, got ${JSON.stringify(blockingHits)}`)
 })
 
-// ---------- checkRequirementCoverage ----------
+// ---------- checkRequirementCoverage (v2: task-dir records as the plan side) ----------
 
 test('checkRequirementCoverage covered/uncovered split', () => {
   const spec = '- R-001 first\n- R-002 second\n- R-003 third (not in plan)\n'
-  const plan = '## T1: foo\n- **需求 ID**: R-001\n## T2: bar\n- **需求 ID**: R-002\n'
-  const result = checkRequirementCoverage(plan, spec)
+  const tasks = [
+    { id: 'T1', requirement_ids: ['R-001'] },
+    { id: 'T2', requirement_ids: ['R-002'] },
+  ]
+  const result = checkRequirementCoverage(tasks, spec)
   assert.deepEqual(result.uncovered_ids, ['R-003'])
   assert.deepEqual(result.covered_ids.sort(), ['R-001', 'R-002'])
   assert.deepEqual(result.partial_ids, [])
 })
 
-test('checkRequirementCoverage detects partial coverage (spec >=2 mentions, plan 1 task)', () => {
+test('checkRequirementCoverage detects partial coverage (spec >=2 mentions, single task)', () => {
   const spec = '## §2: R-001 first\n## §5: R-001 again referenced\n'
-  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
-  const result = checkRequirementCoverage(plan, spec)
+  const tasks = [{ id: 'T1', requirement_ids: ['R-001'] }]
+  const result = checkRequirementCoverage(tasks, spec)
   assert.deepEqual(result.partial_ids, ['R-001'])
   assert.deepEqual(result.covered_ids, ['R-001'])
   assert.deepEqual(result.uncovered_ids, [])
 })
 
 test('checkRequirementCoverage returns spec_missing note when spec empty', () => {
-  const result = checkRequirementCoverage('## T1: foo\n- **需求 ID**: R-001\n', '')
+  const result = checkRequirementCoverage([{ id: 'T1', requirement_ids: ['R-001'] }], '')
   assert.equal(result.note, 'spec_missing')
   assert.deepEqual(result.uncovered_ids, [])
 })
@@ -146,50 +148,78 @@ test('checkRequirementCoverage ignores R-IDs outside §2.1 In Scope section (F-0
     '## 3. Constraints',
     '- R-001 should respect transactions (referenced for context, not new req)',
   ].join('\n')
-  const plan = '## T1: covers in-scope\n- **需求 ID**: R-001\n'
-  const result = checkRequirementCoverage(plan, spec)
+  const tasks = [{ id: 'T1', requirement_ids: ['R-001'] }]
+  const result = checkRequirementCoverage(tasks, spec)
   assert.deepEqual(result.uncovered_ids, [], 'out-of-scope / blocked / constraints R-IDs must not be uncovered')
   assert.deepEqual(result.covered_ids, ['R-001'])
 })
 
 test('checkRequirementCoverage falls back to whole-doc scan when no §2.1 In Scope heading (back-compat)', () => {
   const spec = '## Some legacy spec\n- R-001 first\n- R-002 second'
-  const plan = '## T1: foo\n- **需求 ID**: R-001\n'
-  const result = checkRequirementCoverage(plan, spec)
+  const tasks = [{ id: 'T1', requirement_ids: ['R-001'] }]
+  const result = checkRequirementCoverage(tasks, spec)
   assert.deepEqual(result.uncovered_ids, ['R-002'], 'legacy specs without §2.1 should still trigger coverage')
 })
 
-// F-08 regression: backtick-wrapped requirement IDs in plan must be normalized.
-test('extractTaskRequirementRefs strips backticks (F-08 regression)', () => {
+test('checkRequirementCoverage ignores malformed / non R-NNN requirement_ids entries', () => {
   const spec = '### 2.1 In Scope\n- R-001 alpha\n- R-002 beta\n'
-  const plan = '## T1: foo\n- **需求 ID**: `R-001`, `R-002`\n'
-  const result = checkRequirementCoverage(plan, spec)
-  assert.deepEqual(result.uncovered_ids, [], 'backtick-wrapped IDs should be recognized')
+  const tasks = [{ id: 'T1', requirement_ids: [' R-001 ', 'R-002', 'not-an-id', ''] }]
+  const result = checkRequirementCoverage(tasks, spec)
+  assert.deepEqual(result.uncovered_ids, [], 'whitespace-wrapped IDs should be recognized, junk ignored')
   assert.deepEqual(result.covered_ids.sort(), ['R-001', 'R-002'])
 })
 
-// ---------- derivePlanSummary ----------
+// ---------- lintTaskAtomicity (v2: task-dir records) ----------
+
+test('lintTaskAtomicity fires when task declares N>=5 sub-items but acceptance has fewer bullets', () => {
+  const { lintTaskAtomicity } = require(path.join(workflowDir, 'plan_composer.js'))
+  const tasks = [
+    { id: 'T1', name: '实现 8 个筛选项', task_text: '为列表页实现 8 个筛选项。', acceptance: ['筛选生效'] },
+    { id: 'T2', name: '实现 2 个按钮', acceptance: ['按钮可点'] },
+  ]
+  const result = lintTaskAtomicity(tasks)
+  assert.equal(result.checked_tasks, 2)
+  assert.equal(result.warnings.length, 1)
+  assert.equal(result.warnings[0].task_id, 'T1')
+  assert.equal(result.warnings[0].declared_subitems, 8)
+})
+
+test('lintTaskAtomicity passes when acceptance bullets cover declared sub-items', () => {
+  const { lintTaskAtomicity } = require(path.join(workflowDir, 'plan_composer.js'))
+  const tasks = [
+    { id: 'T1', name: '实现 5 个字段', acceptance: ['a', 'b', 'c', 'd', 'e'] },
+  ]
+  const result = lintTaskAtomicity(tasks)
+  assert.deepEqual(result.warnings, [])
+})
+
+test('checkRequirementCoverage degrades to all-uncovered when tasks carry no requirement_ids (legacy/compat)', () => {
+  const spec = '### 2.1 In Scope\n- R-001 alpha\n'
+  const tasks = [{ id: 'T1' }]
+  const result = checkRequirementCoverage(tasks, spec)
+  assert.deepEqual(result.uncovered_ids, ['R-001'])
+  assert.deepEqual(result.covered_ids, [])
+})
+
+// ---------- derivePlanSummary (v2: task-dir records) ----------
 
 test('derivePlanSummary extracts paths + task table + interaction legend', () => {
-  const plan = [
-    '## T1: foo',
-    '- **阶段**: implement',
-    '- **需求 ID**: R-001',
-    '- **创建文件**: src/foo.ts',
-    '- **依赖**: 无',
-    '- **Interaction**: HITL',
-    '## T2: bar',
-    '- **阶段**: test',
-    '- **需求 ID**: R-002',
-  ].join('\n')
-  const summary = derivePlanSummary(plan, { spec_file: '/x/spec.md', plan_file: '/x/plan.md' })
+  const tasks = [
+    { id: 'T1', name: 'foo', phase: 'implement', files: ['src/foo.ts'], depends: [], interaction: 'HITL', requirement_ids: ['R-001'] },
+    { id: 'T2', name: 'bar', phase: 'test', depends: ['T1'], requirement_ids: ['R-002'] },
+  ]
+  const summary = derivePlanSummary(tasks, { spec_file: '/x/spec.md', plan_file: '/x/plan.md' })
   assert.equal(summary.paths.spec, '/x/spec.md')
   assert.equal(summary.paths.plan, '/x/plan.md')
   assert.equal(summary.task_count, 2)
   assert.equal(summary.task_table[0].id, 'T1')
   assert.equal(summary.task_table[0].phase, 'implement')
   assert.equal(summary.task_table[0].interaction, 'HITL')
+  assert.equal(summary.task_table[0].deliverable, 'src/foo.ts')
   assert.equal(summary.task_table[1].interaction, 'AFK')
+  assert.equal(summary.task_table[1].deps, 'T1')
+  assert.equal(summary.req_stats.total_referenced, 2)
+  assert.equal(summary.req_stats.tasks_with_refs, 2)
   assert.ok(summary.interaction_legend.includes('AFK'))
 })
 
@@ -312,6 +342,23 @@ test('cmdPlanReview ready=false when placeholder hit', () => {
     const result = cmdPlanReview(projectId, repoRoot)
     assert.equal(result.ready, false)
     assert.ok(result.lints.placeholder.hits.length > 0)
+  } finally {
+    fs.rmSync(statePath, { force: true })
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+// approve 后 spec.md 被人工编辑引入占位 → spec_placeholder 复检挡 ready（plan 侧干净，仅 spec 触发）。
+// 防带占位 spec 在 approve 与 plan-review 之间流入 execute。
+test('cmdPlanReview ready=false when spec.md gains placeholder post-approve (spec_placeholder gate)', () => {
+  const plan = '## T1: foo\n- **需求 ID**: R-001\n- **验证命令**: npm test\n- **验证期望**: PASS\n'
+  const spec = 'R-001 the requirement\n- TODO 后续补充约束\n'
+  const { projectId, statePath, tmpDir } = setupSandboxState({ planContent: plan, specContent: spec, currentTasks: ['T1'] })
+  try {
+    const result = cmdPlanReview(projectId, repoRoot)
+    assert.equal(result.ready, false, `spec placeholder must block ready, got ${JSON.stringify(result)}`)
+    assert.equal(result.lints.placeholder.hits.length, 0, 'plan side is clean — only spec triggers')
+    assert.ok(result.lints.spec_placeholder.hits.length > 0, 'spec_placeholder must carry hits')
   } finally {
     fs.rmSync(statePath, { force: true })
     fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -442,7 +489,7 @@ test('lintAnchorIntegrity reports missing top-level anchors on v1 plan', () => {
   // top-level + task:T1 all missing (caller decides whether to enforce based on plan_version)
   assert.ok(result.missing.includes('file_structure'))
   assert.ok(result.missing.includes('tasks'))
-  assert.ok(result.missing.includes('verification_summary'))
+  assert.ok(!result.missing.includes('verification_summary'), 'verification_summary anchor retired from expected set')
 })
 
 // F-12 regression: observed task:* anchor without matching `## Tn:` heading = stale.
@@ -939,76 +986,18 @@ test('lintPatternFidelity catches line out of range', () => {
   assert.equal(result.unresolved[0].reason, 'line_out_of_range')
 })
 
-// ---------- Phase C: lintTypeConsistency ----------
-
-test('lintTypeConsistency catches true positive clearLayers vs clearFullLayers', () => {
-  const plan = [
-    '## T1: a',
-    'function clearLayers() {}',
-    '## T2: b',
-    'function clearLayer() {}',  // distance 1 (drop s)
-  ].join('\n')
-  const result = lintTypeConsistency(plan)
-  assert.ok(result.pairs.length >= 1, `expected at least 1 pair, got ${JSON.stringify(result)}`)
-})
-
-test('lintTypeConsistency skips short symbols', () => {
-  const plan = [
-    '## T1: a',
-    'function foo() {}',
-    '## T2: b',
-    'function fop() {}',
-  ].join('\n')
-  const result = lintTypeConsistency(plan)
-  assert.deepEqual(result.pairs, [], 'short symbols (< 5 chars) should be filtered')
-})
-
-test('lintTypeConsistency skips case-insensitive equal', () => {
-  const plan = [
-    '## T1: a',
-    'class FooBar {}',
-    '## T2: b',
-    'class fooBar {}',
-  ].join('\n')
-  const result = lintTypeConsistency(plan)
-  assert.deepEqual(result.pairs, [], 'case-insensitive equal should be filtered')
-})
-
-test('lintTypeConsistency skips token-reorder camelCase', () => {
-  const plan = [
-    '## T1: a',
-    'function clearLayers() {}',
-    '## T2: b',
-    'function layersClear() {}',
-  ].join('\n')
-  const result = lintTypeConsistency(plan)
-  assert.deepEqual(result.pairs, [], 'token-reorder should be filtered')
-})
-
-test('lintTypeConsistency skips symbols ending with digit', () => {
-  const plan = [
-    '## T1: a',
-    'function tasksv1() {}',
-    '## T2: b',
-    'function tasksv2() {}',
-  ].join('\n')
-  const result = lintTypeConsistency(plan)
-  assert.deepEqual(result.pairs, [], 'digit-suffix should be filtered')
-})
-
-test('plan-template + buildPlanTasks render pipeline preserves anchors', () => {
+test('plan-template + buildNarrativeTasksBody render pipeline preserves anchors', () => {
   const templatePath = path.join(repoRoot, 'core', 'specs', 'workflow-templates', 'plan-template.md')
   const template = fs.readFileSync(templatePath, 'utf8')
   // Verify template itself has anchors around {{tasks}} and other sections
   assert.ok(template.includes('<!-- WF:ANCHOR:file_structure:begin -->'))
   assert.ok(template.includes('<!-- WF:ANCHOR:tasks:begin -->'))
-  assert.ok(template.includes('<!-- WF:ANCHOR:verification_summary:begin -->'))
 
-  // Render with minimal stub
-  const tasksBody = buildPlanTasks([
+  // Render with minimal stub（v2 渲染链：{{tasks}} 只装人类可读叙述，不再注入结构化 task block）
+  const tasksBody = buildNarrativeTasksBody([
     { id: 'R-001', summary: 'foo', spec_section: '§2', acceptance_signal: 'works' },
     { id: 'R-002', summary: 'bar', spec_section: '§3', acceptance_signal: 'ok' },
-  ], 'pkg', 'spec.md')
+  ])
   const stubValues = {
     requirement_source: 'inline',
     created_at: 'now',
@@ -1023,22 +1012,18 @@ test('plan-template + buildPlanTasks render pipeline preserves anchors', () => {
     files_create: '-',
     files_modify: '-',
     files_test: '-',
-    requirement_coverage: '|R-001|...|',
     tasks: tasksBody,
   }
   const rendered = renderTemplate(template, stubValues)
   // Top-level anchors survive
   assert.ok(rendered.includes('<!-- WF:ANCHOR:file_structure:begin -->'))
   assert.ok(rendered.includes('<!-- WF:ANCHOR:tasks:begin -->'))
-  // Task-level anchors injected
-  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T1:begin -->'))
-  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T1:end -->'))
-  assert.ok(rendered.includes('<!-- WF:ANCHOR:task:T2:begin -->'))
-  // Task anchors inside the tasks section
+  // Narrative body lands inside the tasks section, with no structured task-level anchors
   const tasksBeginIdx = rendered.indexOf('<!-- WF:ANCHOR:tasks:begin -->')
   const tasksEndIdx = rendered.indexOf('<!-- WF:ANCHOR:tasks:end -->')
-  const t1Idx = rendered.indexOf('<!-- WF:ANCHOR:task:T1:begin -->')
-  assert.ok(t1Idx > tasksBeginIdx && t1Idx < tasksEndIdx, 'task anchor inside tasks section')
+  const t1Idx = rendered.indexOf('R-001')
+  assert.ok(t1Idx > tasksBeginIdx && t1Idx < tasksEndIdx, 'narrative body inside tasks section')
+  assert.ok(!rendered.includes('<!-- WF:ANCHOR:task:T1:begin -->'), 'no structured task anchors in v2 narrative plan')
   // No unrendered placeholders
   assert.ok(!rendered.match(/\{\{tasks\}\}/), 'tasks placeholder rendered')
   // Integrity check

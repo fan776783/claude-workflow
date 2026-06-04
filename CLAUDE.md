@@ -31,7 +31,7 @@ npm run release:major     # Breaking: 1.0.0 -> 2.0.0
 ```
 
 Notes:
-- `prepublishOnly` = `scripts/validate.js` + 三段 `node --test` 套件（`test:codex-bridge` / `test:lib` / `test:workflow`，后者 glob `core/utils/workflow/__tests__/*.test.mjs`）；`npm test` 跑同三段。No linter.
+- `prepublishOnly` = `scripts/validate.js` + 三段 `node --test` 套件（`test:codex-bridge` / `test:lib` / `test:workflow`，后者 glob `core/utils/workflow/__tests__/*.test.mjs`）；`npm test` 跑同三段。**注意**：`scripts/validate.js` 还会自动发现并运行 repo-root `tests/test_*.js` 全量（validate.js:617+，发布门第四段）——`npm test` **不**覆盖这层，改动 core/utils 后必须同时跑 `node scripts/validate.js`。No linter.
 - `scripts/release.sh` is a bash script. On Windows, run the `release:*` scripts from Git Bash / WSL.
 
 ## Architecture

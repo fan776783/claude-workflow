@@ -7,7 +7,6 @@ const { readState, writeState, completeWorkflow } = require('./state_manager')
 const { getWorkflowStatePath, getWorkflowsDir, getHandoffPath } = require('./path_utils')
 const {
   cmdComplete,
-  cmdContextBudget,
   cmdFail,
   cmdList,
   cmdNext,
@@ -25,7 +24,6 @@ const taskStore = require('./task_store')
 const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
 const { buildMinimumState, buildUserSpecReview, ensureStateDefaults, finishedTaskIds, firstDispatchableTaskId, selectAnchorId, alignStatusWithAnchor } = require('./workflow_types')
 const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
-const { buildTaskBundle } = require('./task_bundle')
 const { renderTaskMd } = require('./task_md_render')
 const { runReadiness } = require('./readiness_checks')
 const { loadProjectConfig, resolveSpecDocsRoot } = require('./project_setup')
@@ -290,11 +288,8 @@ function advanceAfterComplete(completedTaskIds, journalSummary, decisions, proje
     if (pid) {
       const nextId = nextTask && typeof nextTask === 'object' ? nextTask.id : nextTask
       const label = Array.isArray(completedTaskIds) ? completedTaskIds.join(',') : completedTaskIds
-      // T6 兼容层：advance --journal "string" 上游 CLI 路径，把 string 包装成 evidence 最小结构。
-      // 直接调 `node journal.js add --summary "string"` 仍走 hard-reject。
-      const summaryForJournal = typeof journalSummary === 'string'
-        ? { commands_run: [], diff_summary: journalSummary, coverage_evidence: '', unverified_items: [] }
-        : journalSummary
+      // string summary 由 journal.cmdAdd 统一包装为 evidence 最小结构（单一契约，与 journal add 一致）。
+      const summaryForJournal = journalSummary
       journalResult = cmdAdd(
         pid,
         `完成 ${label}${nextId ? ` → ${nextId}` : ''}`,
@@ -398,7 +393,7 @@ function cmdReadHandoff({ from, projectId = null, projectRoot = null } = {}) {
   }
 }
 
-// advance 默认响应仅回 {id, name}，完整 task 数据走 task-bundle <id>（Step 5.1.0 流程）。
+// advance 默认响应仅回 {id, name}——execute Step 1 已一次性持全 task 切片，无需 per-task 回查。
 // 调用方需要全量 task 时显式传 --full（CLI）或 { full: true }（程序调用）。
 function slimNextTask(nextTask) {
   if (nextTask == null) return null
@@ -431,14 +426,6 @@ function cmdContext(projectId = null, projectRoot = null) {
   result.workflow = status
   const nextInfo = cmdNext(pid, projectRoot)
   result.next_task = nextInfo.next_task
-  const budget = cmdContextBudget(pid, projectRoot)
-  if (!budget.error) {
-    result.budget = {
-      level: budget.level,
-      current_usage: budget.current_usage,
-      max_consecutive_tasks: budget.max_consecutive_tasks,
-    }
-  }
 
   const journal = cmdJournalList(pid, 3)
   if (!journal.error) {
@@ -540,6 +527,20 @@ function cmdTaskWrite(fromFile, projectId, projectRoot) {
     if (seenIds.has(id)) return { error: `重复 task id: ${id}（task-write 要求整集内每个 id 唯一）` }
     seenIds.add(id)
   }
+  // R-ID 承接（防 silent clobber）：incoming 记录**省略** requirement_ids 字段（undefined）而旧同 id task
+  // 已带 R-ID 时自动承接——否则 normalizeTaskRecord 归一为 []，整集替换会静默丢 spec-approve 预填的
+  // R-ID 链，plan-review coverage 全量 uncovered 假阴性。显式传 []（planner 主动清空）尊重不承接；
+  // 重切产生的新 id 不在旧集 → 不承接（R-ID 重分配由 planner 负责，见 SKILL「每 task 必填 requirement_ids」）。
+  const existingById = new Map(taskStore.listTasks(resolved).map((task) => [task.id, task]))
+  const requirementIdsInherited = []
+  for (const record of records) {
+    if (record.requirement_ids !== undefined) continue
+    const prev = existingById.get(String(record.id))
+    if (prev && Array.isArray(prev.requirement_ids) && prev.requirement_ids.length) {
+      record.requirement_ids = [...prev.requirement_ids]
+      requirementIdsInherited.push(String(record.id))
+    }
+  }
   let written
   try {
     written = taskStore.replaceAllTasks(resolved, records)
@@ -548,9 +549,12 @@ function cmdTaskWrite(fromFile, projectId, projectRoot) {
   }
   // 渲染 task.md（v2 人读正文，execute 逐字注入）：读回规范化记录再渲染，确保渲染源 = 落盘真相。
   // task.md 非关键产物（可重生），单条渲染失败不阻断整集写入。
+  // 顺带收集写后仍无 requirement_ids 的 task（coverage 数据源缺口），回报给 planner 补填——不挡写入。
+  const tasksWithoutRequirementIds = []
   for (const id of written) {
     const rec = taskStore.readTask(resolved, id)
     if (!rec) continue
+    if (!Array.isArray(rec.requirement_ids) || rec.requirement_ids.length === 0) tasksWithoutRequirementIds.push(id)
     try {
       taskStore.writeTaskMd(resolved, id, renderTaskMd(rec))
     } catch { /* task.md 渲染/落盘失败不致命：execute 期 readTaskMd 容错回退 '' */ }
@@ -592,6 +596,8 @@ function cmdTaskWrite(fromFile, projectId, projectRoot) {
   if (currentTasksReseeded) result.current_tasks_reseeded = currentTasksReseeded
   if (staleProgressIds) result.stale_progress_ids = staleProgressIds
   if (reseedError) result.reseed_error = reseedError
+  if (requirementIdsInherited.length) result.requirement_ids_inherited = requirementIdsInherited
+  if (tasksWithoutRequirementIds.length) result.tasks_without_requirement_ids = tasksWithoutRequirementIds
   return result
 }
 
@@ -682,8 +688,7 @@ const SUBCOMMAND_HELP = {
   advance <task-id> [--journal STR] [--decisions a,b,c] [--full]
     标记单任务完成。planned 状态下自动升为 running（返回 status_transition）。
     默认 next_task 仅返回 {id, name}。--full 返回完整 task 对象。
-    v2 完整 task 切片来自 task-dir(task.json + task.md)；execute Step 1 持全量 task，无需 per-task task-bundle。
-    task-bundle 仅用于 legacy plan.md workflow。
+    v2 完整 task 切片来自 task-dir(task.json + task.md)；execute Step 1 持全量 task，无需 per-task 回查。
     末任务完成（无后续 task）→ 直接 completed（execute Step 7 inline 末尾终审通过后调用，无中间审查态）。
 `,
   fail: `fail - 标记任务失败并 halt workflow。
@@ -717,7 +722,7 @@ const SUBCOMMAND_HELP = {
 
 用法：
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change]
-    --anchor <id>         必填。锚点 ID：tasks / file_structure / verification_summary / task:T<n>
+    --anchor <id>         必填。锚点 ID：tasks / file_structure / task:T<n>
     --content-file <path> 必填。替换内容文件（避免 shell 参数注入与 $& 展开；先写临时文件再传路径）
     --mode replace_between 默认。仅替换 begin/end 之间内容，保留锚点行
     --mode replace_full    连锚点行整段替换；须配 --allow-anchor-change
@@ -787,9 +792,9 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|repair-anchor|execute|continue|init|spec-review|delta|archive|unblock|advance|fail|set-contract-digest-path|write-handoff|context|task-bundle|verify-readiness|status|list|progress|budget|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|repair-anchor|execute|continue|init|spec-review|delta|archive|unblock|accept-deviation|advance|fail|set-contract-digest-path|write-handoff|context|verify-readiness|status|list|progress|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
-  plan (alias: start) - 启动规划流程
+  plan - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
   plan-edit --anchor <id> --content-file <path> [--mode replace_between|replace_full] [--allow-legacy] [--allow-anchor-change] - v2 plan 锚点 section 级替换
   task-write --from-file <path.json|-> - 整集写 task-dir v2（含 files/constraints/patterns/mandatory_reading/task_text；自动渲染 task.md；原子替换 + 清孤儿；禁逆向 task_store.js）
@@ -802,7 +807,6 @@ const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--projec
   read-handoff --from <phase> - 读 handoff/{from-phase}.md，header 比对当前 state → {fresh,content} 或 {fresh:false,reason:stale|missing,fallback:read-full}（回退非错误，不置 exitCode）
   triage --result <jobId> [--strict] - 分诊 codex job 触达文件，--strict 时 out_of_scope 非空 → exit 1
   fail <task-id> --reason <msg> - 标记任务失败 → workflow 入 halted/failure（验证失败 / reviewer schema failure / review-loop 统一写入口）
-  task-bundle <taskId> [--state <path>] - 【legacy，仅 plan.md workflow】提取单 task 执行 bundle；v2 task-dir workflow 改从 task-dir(task.json+task.md)取，返回 legacy 提示不参与
   verify-readiness - 读 project-config workflow.readiness 声明式预检（未声明则 ready:true）
 `
 
@@ -894,6 +898,8 @@ function main() {
     }
 
     if (command === 'execute' || command === 'continue') {
+      // continue 与 execute 共享入口但语义不同（RESUME_ENTRY_STATUSES vs EXECUTE_ENTRY_STATUSES，
+      // planned 拒裸"继续"）——见 state-machine.md § 入口 resolver 不变量，分支判定在 buildExecuteEntry 内。
       // 子命令形式（execute retry|skip）与 flag 形式（--retry|--skip）皆接受，避免 flag 被静默忽略当普通 execute 跑。
       const flagIntent = args.includes('--retry') ? 'retry' : args.includes('--skip') ? 'skip' : null
       const intent = (args[0] && !args[0].startsWith('--') ? args[0] : null) || flagIntent
@@ -903,9 +909,9 @@ function main() {
       result = buildExecuteEntry(command, intent, normalizedMode, root, { force: args.includes('--force'), tdd: args.includes('--tdd') })
     } else if (command === 'next') {
       result = cmdNext(pid, projectRoot)
-    } else if (command === 'plan' || command === 'start') {
+    } else if (command === 'plan') {
       const requirement = args[0]
-      result = cmdPlan(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--spec-choice', null), option(args, '--task-name', null))
+      result = cmdPlan(requirement, args.includes('--force') || args.includes('-f'), args.includes('--no-discuss'), pid, projectRoot, option(args, '--task-name', null))
     } else if (command === 'plan-review') {
       result = cmdPlanReview(pid, projectRoot)
     } else if (command === 'plan-edit') {
@@ -919,7 +925,7 @@ function main() {
         projectRoot,
       })
     } else if (command === 'spec-review') {
-      result = cmdSpecReview(optionOrArg(args, '--choice', option(args, '--spec-choice', null)), pid, projectRoot)
+      result = cmdSpecReview(optionOrArg(args, '--choice', null), pid, projectRoot)
     } else if (command === 'delta') {
       const deltaSubcommand = args[0]
       if (deltaSubcommand === 'init') {
@@ -988,20 +994,6 @@ function main() {
     } else if (command === 'context-curate') {
       result = cmdContextCurate(option(args, '--id'), option(args, '--from-file'), pid, projectRoot)
       if (result && result.error) process.exitCode = 1
-    } else if (command === 'task-bundle') {
-      const taskId = args.find((arg) => !String(arg).startsWith('--'))
-      if (!taskId) {
-        result = { error: 'task_id 必填' }
-        process.exitCode = 1
-      } else {
-        const resolvedPid = pid || detectProjectId(projectRoot)
-        result = buildTaskBundle(taskId, {
-          projectId: resolvedPid,
-          projectRoot,
-          statePath: option(args, '--state'),
-        })
-        if (result && result.error) process.exitCode = 1
-      }
     } else if (command === 'verify-readiness') {
       const root = detectProjectRoot(projectRoot)
       const { loadProjectConfig } = require('./project_setup')
@@ -1027,8 +1019,6 @@ function main() {
       result = cmdList(pid, projectRoot)
     } else if (command === 'progress') {
       result = cmdProgress(pid, projectRoot)
-    } else if (command === 'budget') {
-      result = cmdContextBudget(pid, projectRoot)
     } else if (command === 'triage') {
       const jobId = option(args, '--result')
       const strict = args.includes('--strict')

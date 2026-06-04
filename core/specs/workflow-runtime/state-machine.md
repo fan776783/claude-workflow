@@ -67,6 +67,10 @@ completed → archived        workflow archive
 | continuous | 默认 | 质量关卡完成后暂停提示用户review |
 | phase | `--phase` | 每个 phase 完成后 + 质量关卡完成后 |
 
+> **入口 resolver 不变量**（共享 execute 入口 `execution_sequencer.buildExecuteEntry`，`/workflow-execute`、`/workflow-execute 继续` 与裸"继续"都必须先过它）：
+> 1. resolver 仅按 `EXECUTE_ENTRY_STATUSES = {planned, running, halted}` / `RESUME_ENTRY_STATUSES = {running, halted}` 决定可执行性，**不读 `halt_reason`**——`halt_reason` 分流提示（`failure` → `--retry`/`--skip`，`dependency` → `unblock <dep>`）由 skill 层完成（workflow-execute Step 2）。
+> 2. `SessionStart` / `PreToolUse(Task)` hooks 只能注入上下文或阻断非法继续，不得替代 shared resolver 决定恢复路径、写入主状态或另造第二套状态机。
+
 ---
 
 ## CLI 状态操作
@@ -79,7 +83,7 @@ completed → archived        workflow archive
 # 查看当前状态、进度、下一步建议
 node utils/workflow/workflow_cli.js status
 
-# 聚合上下文（状态 + 下一任务 + 预算 + git + journal）
+# 聚合上下文（状态 + 下一任务 + git + journal）
 node utils/workflow/workflow_cli.js context
 
 # 查询下一个待执行任务
@@ -87,17 +91,14 @@ node utils/workflow/workflow_cli.js next
 
 # 查看任务进度统计
 node utils/workflow/workflow_cli.js progress
-
-# 查看上下文预算
-node utils/workflow/workflow_cli.js budget
 ```
 
 ### 推进状态
 
 ```bash
 # 启动规划（idle → spec_review / planned）
-node utils/workflow/workflow_cli.js start "需求描述"
-node utils/workflow/workflow_cli.js start docs/prd.md
+node utils/workflow/workflow_cli.js plan "需求描述" --task-name "需求中文名"
+node utils/workflow/workflow_cli.js plan docs/prd.md --task-name "需求中文名"
 
 # 用户审批 Spec（spec_review → planned）
 node utils/workflow/workflow_cli.js spec-review --choice "Spec 正确，生成 Plan"
@@ -159,7 +160,7 @@ node utils/workflow/workflow_cli.js journal search "关键词"
 
 ## 最小必需状态
 
-CLI `start` 命令自动创建状态文件，包含以下 7 个必需字段：
+CLI `plan` 命令自动创建状态文件，包含以下 7 个必需字段：
 
 ```json
 {
