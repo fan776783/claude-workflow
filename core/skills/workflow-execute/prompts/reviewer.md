@@ -34,6 +34,7 @@ ${bundle.allowed_write_paths}
 status: { DONE | DONE_WITH_CONCERNS }
 summary: <implementer 一句话总结>
 files_changed: [<文件路径列表，相对项目根>]
+（以上仅作定位线索；一切判断以 diff 为准，不要把 implementer 的 summary/status 当作事实）
 </implementer-output>
 
 <diff-access>
@@ -53,6 +54,8 @@ Phase 1 决策为 REVISE → output schema 中 phase2 段写 `{ "skipped": true,
 </gate-rule>
 
 <your-mandate>
+
+**Refute-default**：默认假设实现有缺陷。每个 phase 给出 PASS 前，先尝试构造 ≥1 个使 AC / 约束失败的输入或状态（边界值 / 空值 / 异常路径 / 时序）；构造不出来才允许 PASS。从「什么输入能打穿它」出发，不要从「实现看起来覆盖了」出发。
 
 ### Phase 1 — Acceptance Compliance
 
@@ -84,8 +87,10 @@ Phase 1 决策为 REVISE → output schema 中 phase2 段写 `{ "skipped": true,
 3. **minor**（记录，不阻塞）
    - 风格 / 缩进 / 注释 / 可读性
 
+critical / important 每条必须带 `failure_scenario`（具体 trigger → 错误输出/崩溃）；构造不出失败场景的项降级 minor 或不报。
+
 PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
-只看 implementer 这次改的 files_changed，不发散到其他文件。
+只看 implementer 这次改的 files_changed，不发散到其他文件。**唯一例外**：diff 触及导出符号 / 跨模块 contract / 持久化状态字段时，grep ≥1 个直接调用方验证集成不变式（调用方对返回形态 / 状态组合的假设是否仍成立，必要时跑单文件测试），不止看定义处。
 
 </your-mandate>
 
@@ -95,9 +100,9 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 输出一行 JSON，schema 如下：
 
 {
-  "decision": "PASS" | "REVISE",
+  "decision": "REVISE" | "PASS",
   "phase1": {
-    "decision": "PASS" | "REVISE",
+    "decision": "REVISE" | "PASS",
     "ac_coverage": [
       { "ac_id": "AC-T1.1", "covered": true, "evidence": "file:line" },
       { "ac_id": "AC-T1.2", "covered": false, "gap": "<缺什么>" }
@@ -107,9 +112,9 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
   },
   "phase2": {
     "skipped": false,
-    "decision": "PASS" | "REVISE",
-    "critical": [{ "file": "path:line", "description": "..." }],
-    "important": [{ "file": "path:line", "description": "..." }],
+    "decision": "REVISE" | "PASS",
+    "critical": [{ "file": "path:line", "description": "...", "failure_scenario": "<trigger → 错误输出/崩溃>" }],
+    "important": [{ "file": "path:line", "description": "...", "failure_scenario": "<trigger → 错误输出/崩溃>" }],
     "minor": [{ "file": "path:line", "description": "..." }]
   },
   "revise_instructions": ["<如果 decision=REVISE，告诉 implementer 具体改什么；引用 file:line>"]
@@ -130,6 +135,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **code-specs context 注入**：把 `.claude/code-specs/{pkg}/{layer}/` 中适用本 task 的段落粘进 `<code-specs-context>`；不让 reviewer 自己读全部 code-specs。
 - **循环上限 3 轮**：implementer ↔ reviewer 第 3 轮重派（含 oracle 增强）仍 REVISE → halt + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
 - **JSON 解析失败 / 夹带散文 → 重派**：reviewer 返回非 strict JSON(首字符非 `{`,或 JSON 前后夹带散文 / markdown / 推理)时，controller 提示 "schema violation, output JSON only" 重派 1 次;**不做 loose-extract 容忍**——被夹带的散文会回灌 controller 上下文(实测 reviewer 散文使其返回体积达 implementer 2.2×);仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure），escalate user。
+- **file:line 形态校验**：`phase1.ac_coverage` 中 `covered: true` 的 `evidence`，以及 phase2 critical/important 的 `file` 字段，必须匹配 `\S+:\d+` 形态。不匹配（裸文件名 / "tests pass" / 占位符）→ 视同 schema violation，按上一条路径重派 1 次；仍失败 → halt（同 `failure_reason`: reviewer-schema-failure）。虚证据与散文一样不接受——'x' 级占位 evidence 是实测过的逃逸通道。minor 不影响 decision：`file` 给代表性行号即可，文件级 minor 允许裸文件名，形态不合**不触发重派 / halt**。
 - **REVISE 后**：把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review（**复用同一 reviewer prompt，不分 spec/质量两轮**）。
 
 ## Decision 处理
@@ -140,7 +146,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 | `REVISE` (phase1) | 把 `revise_instructions` 塞回 implementer → 重派 |
 | `REVISE` (phase2 critical/important 非空) | 同上；phase2.minor 记录入 task journal 不阻塞 |
 
-> per-task review 结果**不落盘**为 durable gate 记录（`quality_review pass`/`fail` 持久化已退役）；PASS/REVISE 只活在 controller 本会话内存里，审计链由末尾 final-review + git history 替代。
+> per-task review 结果**不落盘**为 durable gate 记录（`quality_review pass`/`fail` 持久化已退役）；REVISE/PASS 只活在 controller 本会话内存里，审计链由末尾 final-review + git history 替代。
 
 ## Prompt 占位 → 数据来源映射
 
@@ -155,7 +161,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 | `<spec-relative-path>` | `state.spec_file` | 相对路径 |
 | `<plan-relative-path>` | `state.plan_file` | 相对路径 |
 | `<commit-sha>` | per-task 用 implementer dispatch 前 `git rev-parse HEAD`；final-review 用 `state.initial_head_commit` | 7+ 位短 SHA 即可 |
-| `files_changed` | implementer JSON 输出的 `files_changed` 数组（final-review 改为已完成 task 清单 + 执行阶段决策蒸馏 Decisions/Rejected/Risks，controller 从本会话内存装配） | 注入 `<implementer-output>` 段 |
+| `files_changed` | implementer JSON 输出的 `files_changed` 数组（final-review 改为已完成 task 清单 + 执行阶段决策蒸馏 Decisions/Rejected/Risks + 已知问题排除清单（per-task review minors + concerns；仅存会话内存，journal 不落 review 结论，/clear 后 resume 时可能为空），controller 从本会话内存装配） | 注入 `<implementer-output>` 段 |
 | `${code_specs_context}` | controller 按 task 涉及的 `pkg/layer` 读 `.claude/code-specs/{pkg}/{layer}/` 摘要 | 适用段落原文；为空则写 `(none — generic quality heuristics)` 提示 reviewer 降级 |
 
 > Degraded 平台（无 subagent）：controller 主会话扮 reviewer，本映射照样适用（自渲染自执行）。
@@ -171,7 +177,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **scope = 整 branch diff vs spec**：`git diff <initial-head-commit>..HEAD` 全量，对照 spec 的成功标准 / 验收项，不限于单个 task 的 `files_changed`。
 - **`<task-acceptance-criteria>` 注入 spec 级成功标准 + 全部 AC**（不是单 task AC）；`<task-critical-constraints>` 注入 spec 级跨 task 约束。
 - **`<implementer-output>` 段省略 / 改为列已完成 task 清单**；diff base 用 `state.initial_head_commit`。
-- **输出整体 PASS / REVISE + 跨 task 集成问题清单**：复用同一 output schema，重点看跨 task 集成问题（contract 不一致、重复实现、task 间接缝处遗漏）。phase1/phase2 三档语义不变，PASS 条件仍是 `critical: []` 且 `important: []`。
+- **phase1 = spec 级 AC 对照**（终验职能不变）；**phase2 = fresh regression hunt**：以 fresh reviewer 视角对整 branch diff 用 refute 框架找**新引入的缺陷与跨 task 接缝问题**（contract 不一致、重复实现、task 间接缝处遗漏、集成不变式被破坏）——不是复核各 task 已 PASS 的结论，而是猎杀它们漏掉的东西。controller 注入**已知问题排除清单**（per-task review 已记录的 minor + concerns，随决策蒸馏并入 `<implementer-output>`），清单内条目**按原 severity 免重报**，只报清单外的新发现。**升级例外**：清单内条目在 branch 视角下构成 critical/important（如 per-task 记为 minor/concern 的改动实为跨 task contract break）→ 必须照常上报并在 description 标注 `known-issue 升级`——排除只防重复，不防升级。排除清单仅存会话内存，/clear 后 resume 场景下可能为空：此时 phase2 照常全量上报，已知项由 controller 在分流时识别去重，不视为 reviewer 违规。复用同一 output schema，三档语义不变，PASS 条件仍是 `critical: []` 且 `important: []`。
 - **不自动回退**：final-review 发现跨 task 集成问题时 controller **不自动 revert / 不自动改回**，把问题清单展示给用户，由用户决策（另起修复回合 / accept）。terminal halt 仍走 review-loop 上限规则。
 - **no-subagent 平台兼容（C-004）**：opencode / antigravity / droid 等无 subagent 平台，controller 主会话扮 final reviewer 自跑终审（self-review），本形态与占位映射照样适用（自渲染自执行）。
 

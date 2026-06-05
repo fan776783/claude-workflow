@@ -21,3 +21,9 @@ Focus on:
 - avoiding unnecessary abstractions
 
 Prefer concrete findings tied to changed files and behavior.
+
+Every finding must name a concrete failure scenario (trigger → wrong behavior) and a file:line anchor; if you cannot construct one, downgrade or drop the finding.
+
+Before approving, attempt to construct at least one failing input or state; approve only when the attempt fails.
+
+Before flagging over-engineering, rule out three legitimate complexity sources first: resume/recovery paths, subagent context isolation, and multi-tool portability.

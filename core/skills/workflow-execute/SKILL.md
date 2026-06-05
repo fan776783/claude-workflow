@@ -351,14 +351,14 @@ CLI 自动标记 `skipped` + 更新 task-dir(task.json) + state.json + 找下一
 所有 task `completed`(或 `skipped`)时,controller **inline** 派一个 final reviewer subagent 做整 branch 终审(不再有独立终审阶段、无独立 review 中间态)。**这是进 `completed` 的唯一门**(HARD-GATE #4)。
 
 1. **构造 final reviewer prompt**:复用 [`prompts/reviewer.md`](prompts/reviewer.md) 的「末尾 final-review 形态」段(T6 补,与 per-task 同模板、同 output schema),由 controller 按该模板的占位映射自行装配(C-001:不引入新机制)。与 per-task 形态的差异:
-   - **scope = 整 branch diff vs spec**:reviewer 自跑 `git diff <initial_head_commit>..HEAD` 全量,对照 spec §1 成功标准 + 全部 AC + 跨 task contract 一致性,不限于单个 task 的 `files_changed`。
-   - **占位映射**(见 reviewer.md「Prompt 占位 → 数据来源映射」final-review 列):`<task-acceptance-criteria>` 注入 spec 级成功标准 + 全部 AC;`<task-critical-constraints>` 注入 spec 级跨 task 约束;`<commit-sha>` / diff base 用 `state.initial_head_commit`;`<implementer-output>` 段改为已完成 task 清单 + 执行阶段决策蒸馏。
-   - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏 ≤20 行):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract),随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
+   - **scope = 整 branch diff vs spec**:reviewer 自跑 `git diff <initial_head_commit>..HEAD` 全量,不限于单个 task 的 `files_changed`。phase1 对照 spec §1 成功标准 + 全部 AC;phase2 = fresh regression hunt,猎杀 per-task review 漏掉的新引入缺陷与跨 task 接缝问题(refute 框架、排除清单与升级规则**以 reviewer.md「末尾 final-review 形态」段为唯一权威**,此处不复写)。
+   - **占位映射**(见 reviewer.md「Prompt 占位 → 数据来源映射」final-review 列):`<task-acceptance-criteria>` 注入 spec 级成功标准 + 全部 AC;`<task-critical-constraints>` 注入 spec 级跨 task 约束;`<commit-sha>` / diff base 用 `state.initial_head_commit`;`<implementer-output>` 段改为已完成 task 清单 + 执行阶段决策蒸馏 + 已知问题排除清单。
+   - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract)三段合计 ≤20 行;`## Known-issues`(per-task review 已记录的 minor + concerns,作 phase2 排除清单)**不占该预算,每条一行,不截断**——排除清单只有完整才有效,截断会让 final reviewer 把已知项当新发现重报。该清单仅存会话内存(journal 不落 per-task review 结论),/clear 后 resume 时为空属预期,phase2 全量上报由分流去重。四段随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
 2. **controller 注入纪律**(同 per-task reviewer):
    - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`),reviewer 自跑 `git diff` 取整 branch diff,**不预读整文件正文**。
    - `<code-specs-context>` 按本 branch 触及的 pkg/layer 摘取适用段落;空则降级通用质量启发式。
    - **Degraded 平台(无 subagent)**:opencode / antigravity / droid 等无 subagent 平台,controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),reviewer.md 占位映射照样自渲染自执行。
-3. **终审结论分流**(reviewer 返回严格 JSON,`decision: PASS | REVISE`,语义同 per-task,PASS 条件 `critical: []` 且 `important: []`):
+3. **终审结论分流**(reviewer 返回严格 JSON,`decision: REVISE | PASS`,语义同 per-task,PASS 条件 `critical: []` 且 `important: []`):
    - **整体 PASS** → `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js advance` 推进到 `completed`(末尾终审通过是进 `completed` 的唯一门,HARD-GATE #4)。
    - **发现跨 task 集成问题**(contract 不一致 / 重复实现 / task 间接缝遗漏) → **不自动回退、不自动 revert、不擅改 state**;controller 把 issues 清单**展示给用户** + 走**用户决策**:`另起修复回合`(用户拍板后另开 task / `--retry` 路径修)或 `accept`(用户接受残留问题后继续推进 `completed`)。由用户拍板,controller 不替用户决策。
    - **`accept` 分支落审计**(T8 偏离决策闭环):用户显式接受残留问题后,controller 把每条被接受的偏离调 CLI 写入 `deviation_log`,再 advance 到 `completed`:

@@ -19,3 +19,4 @@ Focus on:
 - identifying placeholders, missing mappings, and execution ambiguities
 
 Do not change requirement truth sources inside the review loop.
+Verify file references and patterns against the real files (Read them); do not trust the plan's own claims.

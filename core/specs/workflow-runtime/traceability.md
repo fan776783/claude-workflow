@@ -90,7 +90,7 @@ plan / task 对 spec 章节的引用，用于执行后的 Spec 合规 review 对
 执行期规格对照由 workflow-execute 的两道既有质量门承接（无独立 cadence）：
 
 - **per-task reviewer Phase 1**（每 task 必跑）→ AC 覆盖 / 超额 / 关键约束对照
-- **末尾 final reviewer**（HARD-GATE #4）→ 整 branch diff vs spec 成功标准 + 全部 AC + 跨 task contract 一致性
+- **末尾 final reviewer**（HARD-GATE #4）→ 整 branch diff 两 phase：phase1 对照 spec 成功标准 + 全部 AC；phase2 fresh regression hunt（新引入缺陷 + 跨 task contract 一致性，受已知问题排除清单约束、branch 视角升级项仍须上报，细则见 workflow-execute `prompts/reviewer.md`「末尾 final-review 形态」）
 
 两道门都应检查：
 

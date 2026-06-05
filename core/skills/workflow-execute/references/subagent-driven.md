@@ -15,7 +15,7 @@ controller (主会话)
    │     ↓
    ├─ Step 4.2  派发 reviewer subagent（单 subagent、单 context、AC→质量两 phase）
    │     ↓
-   │   PASS / REVISE  →（REVISE: 回 implementer 修，≤3 轮）
+   │   REVISE / PASS  →（REVISE: 回 implementer 修，≤3 轮）
    │     ↓
    ├─ Step 5      验证命令 + Checkpoint + Journal
    ├─ Step 6      取下一 task（controller 内联循环回 Step 3）

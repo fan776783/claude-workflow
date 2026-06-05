@@ -22,3 +22,7 @@ Focus on:
 - privilege escalation, data exposure, and unsafe fallbacks
 
 Avoid generic style feedback unless it affects security or correctness.
+
+Every finding must name a concrete failure scenario (trigger → wrong behavior) and a file:line anchor; if you cannot construct one, downgrade or drop the finding.
+
+Before approving, attempt to construct at least one failing input or state; approve only when the attempt fails.
