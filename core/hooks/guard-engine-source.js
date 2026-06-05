@@ -61,10 +61,12 @@ function isCjsIntoWorkflows(p) {
 }
 
 // 命中引擎源码路径：归一折叠 ../ 等 dot-segment 后再匹配，堵 `.agent-workflow/utils/../utils/workflow` 式绕过。
+// 用 path.posix.normalize（先把 \ 换成 /）而非 path.normalize：后者在 win32 会把分隔符翻成 \，
+// 令 / 写法的 deny pattern 漏匹配（dot-segment 绕过在 Windows 上逃逸）。统一归一到 / 让两平台行为一致。
 function hitsEnginePath(p) {
   const s = String(p || '')
   if (!s) return false
-  return ENGINE_PATH_RE.test(s) || ENGINE_PATH_RE.test(path.normalize(s))
+  return ENGINE_PATH_RE.test(s) || ENGINE_PATH_RE.test(path.posix.normalize(s.replace(/\\/g, '/')))
 }
 
 // Bash 间接读引擎源码：命令含读类工具 token，且剥掉 workflow_cli.js 调用路径后仍残留 engine marker。

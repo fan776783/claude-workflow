@@ -11,10 +11,20 @@ async function makeWorkspace(name) {
   return dir;
 }
 
-test("resolveBucketDir is stable across symlink + relative cwd", async () => {
+test("resolveBucketDir is stable across symlink + relative cwd", async (t) => {
   const ws = await makeWorkspace("stability");
   const link = path.join(os.tmpdir(), `cb-link-${Date.now()}`);
-  await fsp.symlink(ws, link, "dir");
+  try {
+    await fsp.symlink(ws, link, "dir");
+  } catch (err) {
+    // Windows 无 Developer Mode/管理员时 symlink 创建报 EPERM——能力缺失,跳过而非失败
+    if (err.code === "EPERM" || err.code === "EACCES") {
+      await fsp.rm(ws, { recursive: true, force: true });
+      t.skip("symlink creation unavailable (Windows requires Developer Mode/admin)");
+      return;
+    }
+    throw err;
+  }
   try {
     const a = resolveBucketDir(ws);
     const b = resolveBucketDir(link);

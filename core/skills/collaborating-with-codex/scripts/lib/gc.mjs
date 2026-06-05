@@ -9,12 +9,29 @@ export const DEFAULT_COUNT_CAP = 20;
 export const DEFAULT_AGE_DAYS = 14;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+async function fileGone(filePath) {
+  try {
+    await fs.access(filePath);
+    return false;
+  } catch (err) {
+    return err.code === "ENOENT";
+  }
+}
+
 async function safeUnlink(filePath) {
   try {
     await fs.unlink(filePath);
     return true;
   } catch (err) {
     if (err.code === "ENOENT") return false;
+    // Windows 并发 unlink 同一文件 → 第二个 caller 撞上 delete-pending,
+    // 返回 EPERM/EBUSY 而非 ENOENT。短暂重试后确认文件确实消失才吞掉,
+    // 否则(真实权限/占用错误)继续抛出。POSIX 并发 unlink 直接 ENOENT, 走不到这里。
+    if (err.code === "EPERM" || err.code === "EBUSY") {
+      if (await fileGone(filePath)) return false;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (await fileGone(filePath)) return false;
+    }
     throw err;
   }
 }

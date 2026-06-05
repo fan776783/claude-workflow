@@ -14,14 +14,29 @@ const { ensureStateDefaults } = require(path.join(workflowDir, 'workflow_types.j
 
 // resetRetryRuntime requires a canonical workflow state path (~/.claude/workflows/{id}/...). Build one
 // under a sandboxed HOME so the canonical-path assertion in path_utils passes.
+// path_utils 走 os.homedir()：win32 读 USERPROFILE（再 fallback HOMEDRIVE+HOMEPATH），POSIX 读 HOME。
+// 四个都设才能跨平台把 os.homedir() 钉到测试 home（与 test_workflow_helpers.js 的 withHome 一致）。
 function withHome(home, fn) {
-  const prev = process.env.HOME
+  const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
+  const previousHomeDrive = process.env.HOMEDRIVE
+  const previousHomePath = process.env.HOMEPATH
+  const parsedHome = path.parse(home)
   process.env.HOME = home
+  process.env.USERPROFILE = home
+  process.env.HOMEDRIVE = parsedHome.root.replace(/[\\\/]+$/, '') || parsedHome.root
+  process.env.HOMEPATH = home.slice(process.env.HOMEDRIVE.length) || path.sep
   try {
     return fn()
   } finally {
-    if (prev === undefined) delete process.env.HOME
-    else process.env.HOME = prev
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+    if (previousHomeDrive === undefined) delete process.env.HOMEDRIVE
+    else process.env.HOMEDRIVE = previousHomeDrive
+    if (previousHomePath === undefined) delete process.env.HOMEPATH
+    else process.env.HOMEPATH = previousHomePath
   }
 }
 

@@ -493,7 +493,8 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(planResult.started, true)
       const specPath = planResult.spec_file
       const userLevelPrefix = path.join(home, '.claude', 'workflows', 'proj-legacy', 'specs')
-      assert.ok(specPath.startsWith(userLevelPrefix), `expected ${specPath} under ${userLevelPrefix}`)
+      // spec_file 是正斜杠归一化路径,Windows 下 path.join 产反斜杠 → 比较前统一归一
+      assert.ok(specPath.replace(/\\/g, '/').startsWith(userLevelPrefix.replace(/\\/g, '/')), `expected ${specPath} under ${userLevelPrefix}`)
       assert.equal(fs.existsSync(specPath), true)
       const projectInternal = path.join(projectRoot, 'docs', 'workflows', 'specs')
       assert.equal(fs.existsSync(projectInternal), false, 'project-internal dir should not be created in legacy mode')
@@ -518,7 +519,8 @@ test('workflow helper migration coverage', async (t) => {
       assert.equal(planResult.started, true)
       const specPath = planResult.spec_file
       const expectedPrefix = path.join(projectRoot, 'custom', 'wf-specs')
-      assert.ok(specPath.startsWith(expectedPrefix), `expected ${specPath} under ${expectedPrefix}`)
+      // 同上:分隔符归一后再比较前缀
+      assert.ok(specPath.replace(/\\/g, '/').startsWith(expectedPrefix.replace(/\\/g, '/')), `expected ${specPath} under ${expectedPrefix}`)
       assert.equal(fs.existsSync(specPath), true)
     })
   })
