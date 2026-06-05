@@ -1,8 +1,6 @@
 # @justinfan/agent-workflow
 
-以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集。
-
-它提供一套可移植的 Skills 体系，用于把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，并支持 Claude Code、Qoder、Antigravity、Cursor、Codex、Droid 等多种 AI 编码工具。
+以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集：把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，支持 Claude Code、Qoder、Antigravity、Cursor、Codex、GitHub Copilot、OpenCode、Droid 共 8 个工具。
 
 ---
 
@@ -10,335 +8,102 @@
 
 - [1. 概览](#1-概览)
 - [2. 安装与同步](#2-安装与同步)
-- [3. Workflow](#3-workflow)
+- [3. Workflow 主线](#3-workflow-主线)
 - [4. Code Specs](#4-code-specs)
-- [5. 其他命令与 Skills](#5-其他命令与-skills)
-- [6. Hooks 流程控制](#6-hooks-流程控制)
+- [5. Skills 一览](#5-skills-一览)
+- [6. Hooks](#6-hooks)
 - [7. 支持的 AI 编码工具](#7-支持的-ai-编码工具)
-- [8. 更多文档与开发发布](#8-更多文档与开发发布)
+- [8. 开发与发布](#8-开发与发布)
 
 ---
 
 ## 1. 概览
 
-仓库提供两条主要能力：
+仓库提供两条主线能力 + 一批专项 skills：
 
-- **Workflow 主线**（6 个专项 skills，v6.5.0 起折叠：`/workflow-review` 已下线，末尾终审折叠进 execute Step 7 inline）：从需求推进到可执行任务，支持增量变更与归档；其中 `/workflow-spec` 是新需求入口，`/workflow-plan` 仅在已审批 Spec 上扩写 Plan
-- **Code Specs**（3 个专项 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"的具体约束
+- **Workflow 主线**（6 个 skills）：`/workflow-spec` → `/workflow-plan` → `/workflow-execute`，从需求到可执行任务，支持中断恢复、增量变更（`/workflow-delta`）与归档
+- **Code Specs**（3 个 skills + 项目级 `.claude/code-specs/`）：项目自己的"活文档"，承载"这个项目代码该怎么写"
+- **专项 skills**：单点问题直接走对应 skill，无需进入状态机（完整清单见 [§5](#5-skills-一览)）
 
-此外还有专项 skills（`/fix-bug`、`/diagnose`、`/grill`、`/zoom-out`、`/tdd`、`/write-a-skill`、`/diff-review`、`/bug-batch`、`/figma-ui`、`/figma-data`、`/ux-elaboration`、`/improve-architecture`、`/prototype`、`/handoff`、`/research`、`/quick-plan`、`/api-smoke`、`/alidocs`、`/design-plan`、`/plan-archive` 等）、`/team` 原生 Agent Teams 入口，以及辅助 commands（`/git-rollback`）。
+入口怎么选：
 
-**项目级三阶段研发流程**(独立于 workflow 状态机的两个手动 skill):
-
-- `/design-plan <需求>` — 阶段一,跨服务复杂需求的技术方案设计;skill 读项目级 docs/(架构 / 术语 / 接口契约 / 硬约束),起草 8 章节方案(接口 / 数据库 / 时序图 / 微服务变更清单 / 风险 / ADR 草稿),Hard Stop 等评审,落盘到 `docs/designs/{slug}-{YYYYMMDD}.md`
-- `/plan-archive --design <path> --since <commit>` — 阶段三,实施完成后回写;skill 跨服务跑 git log/diff,对照 `AGENTS.md § Project Doc Update Triggers` 表生成回写计划,Hard Stop 后写入 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / 项目总架构文档,必要时新建 ADR
-
-适用场景:跨 ≥ 2 服务 / 含 DDL / 涉及对外接口或 Agent / 写权威翻转的需求。简单需求继续走 `/workflow-spec`。
-
-优先使用 `workflow` 的场景：
-
-- 新功能开发
-- 多阶段交付
-- 复杂重构
-- 长 PRD 或高约束需求
-- 需要显式用户确认 Spec 的任务
-- 需要中断恢复、增量变更、子 Agent 执行隔离或只读 fan-out 的任务
-
-如果只是单点问题，也可以直接使用专项 skill：
-
-- 需求对齐（先别写代码）：`/grill`
-- 快速理解陌生模块：`/zoom-out`
-- 疑难 Bug 根因证伪：`/diagnose`（先建反馈循环 → 多假设排序 → 产出根因,不改代码）
-- 单 Bug 端到端修复：`/fix-bug`（内部可触发 `/diagnose`）
-- 单次审查：`/diff-review`（会先做 finding verification，再对 material findings 做 impact analysis；workflow 结束后的整 branch 复核也走这里）
-- 当前会话审查：`/diff-review --session`（只审本模型在本会话里改过的文件，avoid 扫入上游或他人改动；合并自旧 `/session-review`）
-- 前端 UX 设计深化（§4.4）：`/ux-elaboration`
-- Figma 设计稿读取 / 提取：`/figma-data`
-- Figma 设计稿到代码：`/figma-ui`
-- 钉钉文档 / AI 表格读写：`/alidocs`
-- 接口冒烟脚本（前端视角）：`/api-smoke`
-- 批量缺陷：`/bug-batch`
-- TDD 纪律（红绿重构）：`/tdd`
-- 抛弃式原型（TUI / 多版本 UI 对比）：`/prototype`
-- 架构深化机会扫描：`/improve-architecture`
-- 会话交接（压缩当前 context 给下一段）：`/handoff`
-- 技术调研 / 找现成库：`/research`（合并自 `/search-first` + `/deep-research`）
-- 轻量规划：`/quick-plan`（从 command 迁 skill；复杂场景仍用 `/workflow-spec`）
-- 沉淀规范：`/spec-update` / `/spec-review`
-- 新建 / 审查 skill：`/write-a-skill`
-- 项目级技术方案设计(三阶段流程·阶段一)：`/design-plan`
-- 项目级架构文档回写(三阶段流程·阶段三)：`/plan-archive`
-
-优先使用 `/team` 的场景（Claude Code 原生 Agent Teams）：
-
-- 多角度并行审查 / 研究（安全 / 性能 / 测试覆盖三路并进后综合）
-- 独立模块的并行实现（各自拥有不同文件集）
-- 竞争假设的 debug（队友互相反驳直到收敛）
-- 跨层改动（前端 / 后端 / 测试分工同步推进）
-
-需要先在 settings.json / 环境变量里打开 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 且 Claude Code ≥ v2.1.32；`/team` 仅在用户显式输入时生效，不会被 `/workflow-*` / `/quick-plan` / 宽泛请求自动触发。
+| 需求形态 | 入口 |
+|------|------|
+| 新功能 / 复杂重构 / 长 PRD / 需要显式 Spec 确认与中断恢复 | `/workflow-spec` |
+| 简单到中等、一次性规划可完成 | `/quick-plan` |
+| 跨 ≥2 服务 / 含 DDL / 对外接口的技术方案（三阶段研发流程） | `/design-plan`（实施后 `/plan-archive` 回写） |
+| 单 Bug 修复 | `/fix-bug`（批量走 `/bug-batch`，根因定位走 `/diagnose`） |
+| 代码审查 | `/diff-review`（staged / `--branch` / `--session` 三模式） |
+| 需求模糊、先对齐再动手 | `/grill` |
+| 多个互相独立的并行边界 | `/team`（Claude Code 原生 Agent Teams，需 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，仅用户显式输入时生效） |
 
 ---
 
 ## 2. 安装与同步
 
-### 2.1 安装（全局安装，覆盖全部 8 个工具）
-
-统一走全局安装：一条 `npm i -g` + 一次 `sync` 覆盖所有已检测到的 AI 编码工具（Claude Code / Qoder / Antigravity 走各自原生 Plugin，其余 5 个走 installer 逐 skill mount）。
+### 2.1 安装（全局，覆盖全部 8 个工具）
 
 ```bash
 npm i -g --registry <private-registry-url> @justinfan/agent-workflow
 agent-workflow sync -y
 ```
 
-- `npm i -g` 会**记住这个 registry**（供后续 `update` 复用），并为 installer-mount 类工具（Cursor / Codex / GitHub Copilot / OpenCode / Droid）复制模板。
-- `agent-workflow sync -y` 装上 Claude Code / Qoder / Antigravity 的原生 Plugin、补齐其余工具、并清理 v5.x 残留。`claude` CLI 不在 PATH 时，sync 会降级为直接写 Plugin 配置安装，仍找不到才打印手动指引。
+- `npm i -g` 会**记住 registry**（供 `update` 复用），并为 installer-mount 类工具复制模板
+- `sync -y` 安装 Claude Code / Qoder / Antigravity 的原生 Plugin、补齐其余 5 个工具、清理旧版残留；`claude` CLI 不在 PATH 时降级为直接写 Plugin 配置
 
-### 2.2 更新
-
-```bash
-agent-workflow update
-```
-
-= `npm i -g <pkg>@latest` + 重新 `sync -y`。registry 已记住，无需重复 `--registry`；换源用 `agent-workflow update --registry <url>`（传一次即记住）。`--dry-run` 先预览要执行的命令，`--project` 走项目级作用域。
-
-### 2.3 验证
+### 2.2 更新与验证
 
 ```bash
-agent-workflow status     # 各工具安装状态（含 Claude Code / Qoder Plugin）
+agent-workflow update     # = npm i -g @latest + 重新 sync -y；--registry <url> 换源（传一次即记住）
+agent-workflow status     # 各工具安装状态
 agent-workflow doctor     # 诊断配置问题
 ```
 
-### 2.4 其他方式（可选）
-
-项目级安装（写到当前仓库 `.agents/` 而非 `~/.agents/`）：
+### 2.3 其他方式（可选）
 
 ```bash
-agent-workflow sync --project -y
+agent-workflow sync --project -y     # 项目级安装（写当前仓库 .agents/ 而非 ~/.agents/）
 ```
 
-仅需 Claude Code 时，也可直接用其原生 Plugin（git marketplace，不经 npm）：
+仅需 Claude Code 时可直接用原生 Plugin（不经 npm）：
 
 ```
 /plugin marketplace add fan776783/claude-workflow
 /plugin install agent-workflow@agent-workflow-marketplace
 ```
 
-开发调试（克隆仓库本地同步，sync 会自动同步全部已检测工具，不再支持 `-a` 选择子集）：
+开发调试：`git clone … && npm install && npm run sync`；链接调试 `npm run link`（claude-code 用 `claude --plugin-dir <repo>/core`）。
+
+### 2.4 快速上手
 
 ```bash
-git clone https://github.com/fan776783/claude-workflow claude-workflow
-cd claude-workflow && npm install && npm run sync
-# 链接调试：npm run link（claude-code 不支持 link，用 claude --plugin-dir <repo>/core）
-```
-
-同步完成后，建议先执行：
-
-```bash
-/scan
-/workflow-spec "需求描述"
+/scan                                              # 首次：生成项目配置
+/workflow-spec "需求描述"                           # 生成 spec.md，停在 spec_review 等确认
 /workflow-spec spec-review --choice "Spec 正确，生成 Plan"
-/workflow-plan                 # 可选：在已生成的 plan 骨架上做精细扩写
-/workflow-execute              # 末尾自动 inline final reviewer，通过即 completed
+/workflow-plan                                     # 现写 task 拆分（task-dir）
+/workflow-execute                                  # 逐 task 执行，末尾终审通过即 completed
 ```
-
-v6.5.0 起末尾终审已折叠进 `/workflow-execute` Step 7 的 inline final reviewer，不再需要单独的 `/workflow-review` 命令；如需独立的整 branch 复核，可走 `/diff-review --branch <base>`。
-
-如果要并行推进多个独立边界，可显式用 `/team`（Claude Code 原生 Agent Teams）：
-
-```bash
-/team 并行实现三个独立模块：auth / billing / notification
-```
-
-需要先打开 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 才能生效。
 
 ---
 
-## 3. Workflow
+## 3. Workflow 主线
 
-本章收敛 workflow 主线的全部内容：命令入口、系统模型、状态机、流程图、数据流、并行批次。
-
-### 3.1 命令入口
-
-Workflow 主线由 6 个专项 skills 直接驱动（v6.5.0 起 `/workflow-review` 折叠进 execute Step 7 inline 终审，已下线）：
+### 3.1 命令
 
 | 命令 | 说明 |
 |------|------|
-| `/workflow-spec` | 新需求入口：代码分析、需求讨论、UX 设计深化路由、Spec 生成，停在 `spec_review`；spec-review 通过后生成 Plan 骨架进入 `planned` |
-| `/workflow-plan` | 在已审批 Spec 基础上对 Plan 骨架做扩写（只在 `planned` 状态下，不改变状态机） |
-| `/workflow-execute` | 任务执行、验证与状态推进；最后一个 task 完成后 controller **inline 派 final reviewer** 跑整 branch diff vs spec，终审通过即推进 `completed`（HARD-GATE：终审未过不得标记 `completed`） |
+| `/workflow-spec` | 新需求入口：代码分析 → 需求讨论 → UX 审批（条件）→ 生成 `spec.md`，停在 `spec_review`；`spec-review` 通过后 CLI 落 task-dir 元数据壳，进入 `planned` |
+| `/workflow-plan` | `planned` 状态下**现写最终 task 拆分**：按 implementation slice 经 `task-write` 整集写 task-dir + `context-curate` 写背包，`plan-review` lint 到 `ready:true`；可选扩写叙述 plan.md |
+| `/workflow-execute` | 逐 task 执行：fresh implementer subagent + 单 reviewer subagent；所有 task 完成后 inline final reviewer 跑整 branch diff vs spec，**终审通过是进 `completed` 的唯一门** |
 | `/workflow-delta` | 需求 / PRD / API 增量变更的影响分析与同步 |
-| `/workflow-status` | 查看当前进度、阻塞点与下一步建议 |
+| `/workflow-status` | 查看进度、阻塞点与下一步建议（只读） |
 | `/workflow-archive` | 归档已完成工作流 |
 
-各命令的详细调用方式：
+> 独立的 `/workflow-review` 已下线，终审折叠进 execute Step 7；需要独立整 branch 复核走 `/diff-review --branch <base>`。
 
-#### `workflow-spec`（Spec 入口 Skill）
+### 3.2 状态机
 
-```bash
-/workflow-spec "需求描述"
-/workflow-spec docs/prd.md
-/workflow-spec --no-discuss docs/prd.md
-/workflow-spec spec-review --choice "Spec 正确，生成 Plan"
-```
-
-- 启动规划流程，生成 `spec.md` 并停在 `spec_review`
-- `spec-review`：记录用户审查结论，通过后由 CLI 生成 `plan.md` 骨架，状态转 `planned`
-- Step 1 读取 `.claude/code-specs/` 作为 advisory constraints；Spec 模板新增 `3.x Project Code Specs Constraints` 小节承载
-- Step 5 评估是否需要委托 `/ux-elaboration`（§4.4 Layout Anchors）做前端设计深化
-- Codex Spec Review（条件，advisory）在 Spec 生成后可选触发
-- v6.4.9+ approve 分支末尾写 **阶段交接 handoff**：`write-handoff --from spec --to plan` 把本阶段 `Decisions` / `Rejected` / `Risks` + contract-digest 指针蒸馏成 `handoff/spec.md`（详见 §3.7.1）
-
-#### `workflow-plan`（Plan 扩写 Skill）
-
-```bash
-/workflow-plan        # 在 planned 状态下对 plan.md 骨架做精细扩写
-```
-
-- 仅在 `status=planned` 时生效，**不创建骨架**、**不改变状态机**
-- v6.4.9+ 上下文加载前先 `read-handoff --from spec` 读 spec 阶段决策摘要定向扩写：`fresh:true` 用 handoff 里的 Decisions/Rejected/Risks + contract-digest 指针，`fresh:false`（stale/missing）不阻断、回退读全文 spec.md
-- 用 Edit 增量扩写 CLI 已生成的 plan 骨架，HARD-GATE 禁止 Write 全量覆盖、禁止改首个 task ID
-- Codex Plan Review（条件，bounded-autofix）在 Plan 扩写完成后可选触发
-- 扩写完成后写 `write-handoff --from plan --to execute`，把 task 拆分理由 / 排序约束 / low-confidence task 蒸馏给 execute 阶段
-
-#### `workflow-execute`（执行 Skill，v6.5.0 lean 折叠）
-
-```bash
-/workflow-execute
-/workflow-execute --retry
-/workflow-execute --skip
-/workflow-execute --tdd        # v6.4.2+ 显式启用 TDD 路径
-```
-
-- v6.5.0 起折叠为单一 lean 路径：删 governor 决策、删 per-task `quality_gates` 持久化、删 `review_pending` 中间态。每 task 模型面 CLI 往返 ~7 → ~2；落盘 `workflow-state.json` 从 ~22KB 瘦到 ~3KB
-- controller 进入 execute 后**一次性** Read 整篇 plan.md 持全 task 切片，后续 per-task implementer / reviewer prompt 从内存切片构造，不每 task 重读 plan（controller 一次性持全 plan 范式）
-- 每 task 起 fresh implementer subagent + 单 reviewer subagent（合并 AC + 质量两 phase）。reviewer PASS 仅内存确认，不写 state
-- write-scope **软化**：implementer prompt prose 写明该 task 预期改动文件（取自 plan task `files`），越界自报 `DONE_WITH_CONCERNS` + reviewer 复核；不再做机器 hard-block
-- 所有 task `completed`/`skipped` 后 controller **inline 派 final reviewer subagent** 跑整 branch diff vs spec，整体 PASS → `advance` 推进 `completed`（HARD-GATE #4：末尾终审未过不得标记 `completed`）；发现跨 task 集成问题不自动回退 / 不擅改 state，issues 清单展示给用户后由用户决策 `另起修复回合` 或 `accept`
-- TDD 默认不开启，仅在传入 `--tdd` 且任务形态满足条件（phase 为 `implement`/`ui-*`、存在测试命令、actions 含 `create_file`/`edit_file`、文件类型非豁免）时进入红绿重构循环
-- v6.4.4+ Step 5 review loop 第 2 次仍 REVISE → controller 程序化标 `stuck_or_looping`，调 `collaborating-with-codex` `--oracle-review` 作为**第 3 次重派的 `revise_instructions` 增强输入**，不接管实现、不消耗 loop 预算；codex 不可用 → journal 写 `codex-status: codex_degraded` 跳过回灌
-
-#### `workflow-delta`（增量变更 Skill）
-
-```bash
-/workflow-delta
-/workflow-delta docs/prd-v2.md
-/workflow-delta "新增导出功能，支持 CSV"
-```
-
-- 处理 PRD / API / 需求增量变更
-
-#### `workflow-status`（状态查看 Skill）
-
-```bash
-/workflow-status
-/workflow-status --detail
-```
-
-- 查看当前状态、进度与下一步建议
-
-#### `workflow-archive`（归档 Skill）
-
-```bash
-/workflow-archive
-/workflow-archive --summary
-```
-
-- 归档已完成工作流
-
-> **v6.5.0 起 `/workflow-review` 已下线**：原 Stage 1（Spec 合规 + Code Specs Check + 跨层 A/B/C/D advisory + Probe E）+ Stage 2（终态卫生 + `codex_enhanced`）整体折叠成 `/workflow-execute` Step 7 的 **inline final reviewer subagent**（整 branch diff vs spec）。需要独立整 branch 复核请走 `/diff-review --branch <base>`。原 `workflow-review/references/` 下的 `stage1-code-specs-check.md` / `cross-layer-checklist.md` 等参考随 skill 一并删除。
-
-### 3.2 系统分层架构
-
-当前 `workflow` 采用"**6 个专项 workflow skills + 共享运行时**"的模块化结构，整个系统分为 **4 层**，从上到下依次是：
-
-```
-+-----------------------------------------------------------------+
-|                          用户层                                   |
-|  /workflow-spec | /workflow-plan | /workflow-execute              |
-|  /workflow-delta | /workflow-status | /workflow-archive           |
-+-----------------------------------------------------------------+
-|                  Skill 层 (行动指南)                               |
-|  workflow-spec | workflow-plan | workflow-execute                 |
-|  workflow-delta | workflow-status | workflow-archive              |
-|  自然语言 SKILL.md, 不含可执行代码                                 |
-+-----------------------------------------------------------------+
-|                 Runtime 层 (CLI 工具链, v6.5.0 lean)               |
-|  workflow_cli.js        统一命令入口                              |
-|  execution_sequencer.js Plan 解析 + skip/retry（governor 决策已退役）|
-|  state_manager.js       状态读写（quality_gates 字段读时丢弃）    |
-|  task_parser.js         Plan 解析（execute 主路径不再 per-task 调）|
-|  verification.js        验证证据                                  |
-|  journal.js             会话日志                                  |
-|  plan_composer.js       Plan 骨架生成 / 锚点编辑 / self-review     |
-|  spec_bootstrap.js      Code-specs 骨架生成（{pkg}/{layer}/）     |
-+-----------------------------------------------------------------+
-|                  Hooks 层 (运行时守门)                             |
-|  session-start.js       会话启动上下文注入 + guardrail             |
-|  pre-execute-inject.js  Task 派发前门控 + 任务上下文注入           |
-+-----------------------------------------------------------------+
-                            | 读写
-+-----------------------------------------------------------------+
-|                        数据层                                     |
-|  项目目录:                        用户目录:                        |
-|  .claude/specs/*.md               ~/.claude/workflows/{id}/       |
-|  .claude/plans/*.md                 workflow-state.json            |
-|  .claude/config/project-config.json                               |
-+-----------------------------------------------------------------+
-```
-
-**职责分离**：
-- **Skill 层**：自然语言行动指南，AI 的操作手册，不含可执行代码；用户直接调用 skill
-- **CLI 层**：确定性状态管理，所有状态读写通过 CLI，AI 不直接操作 JSON
-- **Hook 层**：运行时守门人，上下文注入 + 治理检查，不写主状态
-
-### 3.3 目录结构
-
-```text
-core/
-+-- commands/team.md              # 独立 /team command 入口
-+-- skills/
-|   +-- workflow-spec/            # /workflow-spec + spec-review（新需求入口）
-|   +-- workflow-plan/            # /workflow-plan（planned 状态下 Plan 骨架扩写）
-|   +-- workflow-execute/         # /workflow-execute（含 Step 7 inline final reviewer 末尾终审）
-|   +-- workflow-delta/           # /workflow-delta
-|   +-- workflow-status/          # /workflow-status
-|   +-- workflow-archive/         # /workflow-archive
-+-- commands/
-|   +-- team.md                   # /team 命令（原生 Agent Teams 入口）
-+-- specs/
-|   +-- workflow-runtime/         # 状态机、共享工具、外部依赖语义
-|   +-- workflow-templates/       # spec / plan 模板
-+-- hooks/                        # workflow / team 运行时 hook 脚本
-+-- utils/
-    +-- workflow/                  # workflow_cli.js、execution_sequencer.js、plan_composer.js、spec_* 等
-```
-
-### 3.4 声明式 Skill 架构
-
-每个 workflow skill 采用统一的声明式架构：
-
-- **HARD-GATE**：不可违反的铁律规则
-- **Checklist**：必须按序完成的行动清单
-- **CLI 接管**：所有状态变更通过 CLI 完成，不直接读写 JSON
-
-在此结构下，工作流仍保持三层工件模型：
-- `spec.md`：统一承载范围、架构、约束、验收标准与实施切片
-- `plan.md`：可直接执行的原子步骤、文件清单与验证命令
-- 执行层：按计划产出代码，并经过验证、per-task reviewer 审查与末尾 inline 终审
-
-核心设计原则：
-
-- 单一 `spec.md` 作为规划阶段的权威规范
-- `plan.md` 必须可直接执行，禁止占位式描述
-- `execute` 采用 lean controller 路径（v6.5.0 起，ADR 0004）：controller 一次性读 plan 持全 task 切片，per-task 顺序执行；不再有 ContextGovernor 决策 / per-task gate 持久化 / `review_pending` 中间态
-- 支持 subagent 的平台默认每 task 起 fresh implementer subagent，再起单 reviewer subagent 合并检查 acceptance criteria 与代码质量；reviewer PASS 仅内存确认，不写 state
-- 末尾终审折叠进 execute Step 7：所有 task 完成后 controller **inline 派 final reviewer** 跑整 branch diff vs spec，**终审通过是进 `completed` 的唯一门**
-- 所有状态变更通过 CLI 完成，不直接读写 `workflow-state.json`
-
-### 3.5 状态机全景
-
-工作流有 **7 个状态** `{idle, spec_review, planned, running, halted, completed, archived}`（v6.5.0 收敛 `review_pending`、`planning` 并入 `spec_review`；v6.6.0 引入 `halted` 中断态，旧 `paused` / `blocked` / `failed` 统一为 `halted` + `halt_reason`），每个状态都有对应的 Hook 护栏规则：
+7 个状态，所有状态变更通过 CLI 完成（AI 不直接读写 `workflow-state.json`）：
 
 ```mermaid
 stateDiagram-v2
@@ -346,408 +111,137 @@ stateDiagram-v2
     idle --> spec_review : /workflow-spec（Spec 生成完成）
     spec_review --> spec_review : 用户要求修改 Spec
     spec_review --> idle : 用户拒绝/拆分范围
-    spec_review --> planned : spec-review 通过（CLI 生成 Plan 骨架）
-    planned --> planned : /workflow-plan 扩写骨架
+    spec_review --> planned : spec-review 通过（CLI 落 task-dir 壳）
+    planned --> planned : /workflow-plan 现写 task 拆分
     planned --> running : /workflow-execute
     running --> halted : 任务失败 / 依赖阻塞（halt_reason 区分）
-    running --> completed : 所有任务完成且 Step 7 inline 终审通过
+    running --> completed : 所有任务完成且末尾终审通过
     halted --> running : retry / skip（failure）、unblock（dependency）
     completed --> archived : /workflow-archive
     archived --> [*]
 ```
 
-### 3.6 当前核心流程图
+### 3.3 核心机制
 
-```mermaid
-flowchart TD
-    A["准备项目"] --> B["/scan 生成项目配置"]
-    B --> C["/workflow-spec 输入需求"]
-    C --> D["代码分析 + Git 检查"]
-    D --> E{"是否需要澄清需求"}
-    E -->|是| F["需求讨论"]
-    E -->|否| G{"是否有 UI 需求"}
-    F --> G
-    G -->|是| H["UX 设计审批（HARD-GATE）"]
-    G -->|否| I["Spec 生成 + Self-Review"]
-    H --> I
-    I --> J["🛑 spec_review 等待用户确认"]
-    J --> K["/workflow-spec spec-review"]
-    K --> L["Plan 骨架生成（CLI 自动）"]
-    L --> L2{"是否调用 /workflow-plan 扩写"}
-    L2 -->|是| L3["plan.md Edit 扩写 + Self-Review"]
-    L2 -->|否| M["🛑 planned 等待执行"]
-    L3 --> M
+- **Spec-first**：`spec.md` 是唯一权威规范，落在项目内 `docs/workflows/specs/{slug}-MMDD.md`（可入 git）；生成后必须经用户 `spec-review` 确认
+- **机器 task 源 = task-dir**：`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`，由 `/workflow-plan` 现写、execute 经 `createTaskSource(state)` 读取；`plan.md` 退化为可选人类叙述（legacy plan.md-only workflow 由 `LegacyPlanMdSource` 兜底）
+- **Lean execute**：controller 一次性从 task 源读全部 task 持内存，per-task 顺序派 fresh implementer subagent + 单 reviewer subagent（合并 AC + 质量两 phase）；reviewer PASS 仅内存确认，不落盘 quality gate
+- **Review loop 护栏**：implementer ↔ reviewer 上限 3 次；第 2 次仍 REVISE 时 controller 调 codex `--oracle-review` 拿只读第二意见回灌第 3 次重派（codex 不可用则降级跳过）；超限 → `halted`
+- **末尾终审（HARD-GATE）**：所有 task 完成后 inline final reviewer 跑整 branch diff vs spec；发现跨 task 集成问题不自动回退，issues 展示给用户决策（修复 / accept）
+- **可恢复**：resume 三元组 = `current_tasks[0]` + `status` + task 源；`/clear` 后从磁盘等价重建
+- **阶段交接**：spec→plan→execute 相邻阶段经 `handoff/{from}.md` 传递决策蒸馏（≤20 行 + freshness header），stale/missing 不阻断、回退读全文
+- **并行边界**：plan task 一律顺序执行（有依赖 / 共享文件）；并行只走 `/dispatching-parallel-agents` 的只读 fan-out 与 writable fan-out（文件不重叠 + 无共享状态，回收后 conflict check + 全量验证 + 统一 commit），见 ADR 0003
 
-    M --> N["/workflow-execute (lean controller)"]
-    N --> N1["一次性读 plan 持全 task 切片"]
-    N1 --> P["每 task：fresh implementer + 单 reviewer"]
-    P --> Q["Post-Execution（验证 → checkpoint → journal）"]
-    Q --> R{"还有 task?"}
-    R -->|是| P
-    R -->|否| U["所有 task 完成 → inline final reviewer"]
-    U --> W{"末尾终审"}
-    W -->|整体 PASS| X["advance → completed"]
-    W -->|集成问题| Y["展示 issues → 用户决策（修复 / accept）"]
-    X --> Z["/workflow-archive"]
-```
-
-### 3.7 数据流拓扑
-
-工作流产物按**是否可提交 Git** 分为两个位置：
+### 3.4 产物落点
 
 ```text
-项目目录（可提交 Git）                   用户目录（运行时状态，不污染项目）
-.claude/                                 ~/.claude/workflows/{projectId}/
-+-- config/                              +-- workflow-state.json
-|   +-- project-config.json              +-- analysis-result.json
-+-- specs/                               +-- discussion-artifact.json
-|   +-- {name}.md          <- Spec       +-- ux-design-artifact.json
-+-- plans/                               +-- prd-spec-coverage.json
-|   +-- {name}.md          <- Plan       +-- changes/CHG-XXX/
-+-- reports/                             |   +-- delta.json
-    +-- {name}-report.md   <- 实施报告   |   +-- intent.md
-                                         |   +-- review-status.json
-                                         +-- handoff/          <- v6.4.9 阶段交接
-                                         |   +-- spec.md
-                                         |   +-- plan.md
-                                         |   +-- execute.md
-                                         +-- archive/
-                                         +-- journal/
+项目目录（可入 git）                      用户目录（运行时状态）
+docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
+.claude/config/project-config.json       ├── workflow-state.json（~3KB）
+.claude/code-specs/                      ├── tasks/{taskId}/        ← 机器 task 源
+                                         ├── plans/{name}.md        ← 可选人类叙述
+                                         ├── handoff/{spec,plan,execute}.md
+                                         ├── changes/CHG-XXX/
+                                         └── archive/ journal/
 ```
-
-#### 3.7.1 阶段交接（phase handoff，v6.4.9+）
-
-`spec→plan→execute` 相邻阶段之间通过 `handoff/{from-phase}.md` 传递**本阶段决策蒸馏**，避免下一阶段整篇重读上一阶段产物。文件不入 state schema、覆盖式写，结构为 **5 行 freshness header + ≤20 行正文**。
-
-```bash
-# 写侧：把本阶段决策蒸馏成 handoff（CLI 自动拼 freshness header）
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \
-  write-handoff --from spec --to plan --content-file <handoff 正文 .md 绝对路径>
-
-# 读侧：读 handoff 并比对 header 与当前 state
-node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff --from spec
-```
-
-- **正文结构**（建议）：`## Decisions`（关键技术选型 / task 拆分理由 / 范围裁决）、`## Rejected`（被拒方案 + 原因）、`## Risks`（未解决依赖 / low-confidence task）+ 一行 contract-digest 指针。
-- **读侧返回** JSON `{fresh, content?, reason?, fallback?}`：`fresh:true` → 用 handoff 定向；`fresh:false`（`reason:stale|missing`）→ **不阻断、不置 exitCode**，回退读全文（`fallback:read-full`）。
-- **语义边界**（三者不重复）：`contract`（既有代码复用面，落 `contract-digest.md`）/ `spec`（需求 behavior/scope/AC，落 `spec.md`）/ `code-specs`（项目规范，`.claude/code-specs/`）；handoff 只装本阶段决策与取舍**指针**，不复写上述任一正文。
-- 与 `/handoff` skill 区分：`/handoff`（§5.3）把**整段会话**压缩成交接文档给下一个 session，本机制是**工作流相邻阶段**之间的决策蒸馏，用途不同。
-
-### 3.8 执行隔离与 fan-out
-
-`workflow-execute` 当前采用 **fresh-subagent-per-task**：每个 task 串行启动一个全新 implementer subagent，完成后紧跟一个单 reviewer subagent，在同一 reviewer 中依次检查 acceptance criteria 与代码质量。**plan task 默认有依赖 / 共享文件，一律顺序执行**。
-
-并行交给 `dispatching-parallel-agents`，分两类（v6.5.0 / ADR 0003）：
-
-- **只读 fan-out**：同阶段存在 2+ 可证明独立的问题域（独立 bug 调查、多个失败测试文件、独立子系统 trace / diagnose / research / analysis）时，并行调查，结论回主会话整合
-- **writable fan-out**：多个**文件不重叠 + 无共享状态**的独立写任务，每 agent 改自己 scope 内文件；主会话回收后**必须** ① 用各 agent `files_changed` 做 conflict check（交集 = 误判 → 回退顺序重做）② 跑全量验证 ③ 统一 commit（subagent 不自行 commit，守代码主权）。隔离机制是「同工作目录 + 文件不重叠」，**零运行时基建、不开 worktree**
-
-仍**不支持**的是 ADR 0002 删除的重型可写并行基建：worktree-per-task、集成 worktree 合流、`batch_orchestrator.js` / `merge_strategist.js` 批次编排、自动依赖图推断。writable fan-out 是轻量手动判定。详见 `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`。
 
 ---
 
 ## 4. Code Specs
 
-`.claude/code-specs/` 是项目自己的"活文档"，按 `{pkg}/{layer}/` + 共享 `guides/` 分层。
-
-### 4.1 定位
-
-1. **code-spec**（`{pkg}/{layer}/*.md`）— 具体该怎么写代码，采用 7 段合约：Scope / Trigger · Signatures · Contracts · Validation & Error Matrix · Good-Base-Bad Cases · Tests Required · Wrong vs Correct
-2. **guides**（`guides/*.md`）— 写代码前该想什么：思考清单、常见陷阱、决策思路，不重复 code-spec 的具体规则
-3. **layer index**（`{pkg}/{layer}/index.md`）— 四段入口：Overview · Guidelines Index · Pre-Development Checklist · Quality Check
-
-项目侧的目录结构：
-
-```text
-.claude/code-specs/
-+-- index.md                       # 根索引 + 更新记录
-+-- local.md                       # 本项目模板基线 + Changelog
-+-- {pkg}/
-|   +-- frontend/                  # 前端 7 段 code-spec
-|   +-- backend/                   # 后端 7 段 code-spec
-+-- guides/                        # 跨 package / 跨 layer 共享的 thinking 清单
-```
-
-### 4.2 三个命令的分工
+`.claude/code-specs/` 按 `{pkg}/{layer}/` + 共享 `guides/` 分层。CLAUDE.md 说"AI 该知道的项目背景"，code-specs 说"这个项目代码该怎么写"。
 
 | 命令 | 什么时候用 |
 |------|-----------|
-| `/spec-bootstrap` | 项目首次启用 code-specs 时，或 `/scan` 提示未初始化时。按 `project-config.json.monorepo.packages × tech.frameworks` 生成 `{pkg}/{layer}/` 骨架；`--reset` 清空重建 |
-| `/spec-update` | 完成一次有沉淀价值的实现、修完一个 bug、做完一个设计决策之后。交互式按 7 段 code-spec 或 thinking guide 形态写入 |
-| `/spec-review` | 定期维护（例如每周 / 每次大版本前）。只读扫描 7 段合约完整性、过期、冲突、canonical / manifest 对账，生成报告让人决定后续动作 |
+| `/spec-bootstrap` | 首次启用：按 `project-config.json` 的 `packages × frameworks` 生成 `{pkg}/{layer}/` 骨架 |
+| `/spec-update` | 沉淀：完成实现 / 修完 bug / 设计决策后，按 7 段 code-spec 或 thinking guide 形态写入 |
+| `/spec-review` | 维护：只读扫描 7 段完整性、过期、冲突、canonical 对账 |
 
-动手写代码前的预读不再作为独立命令：`core/CLAUDE.md` 的 "Code Specs 切换 package/layer" 声明会驱动 AI 在即将落代码到具体 `{pkg}/{layer}` 时主动读对应 index + Pre-Development Checklist。
+与 workflow 的协同（全部 advisory，不硬阻塞）：`/workflow-spec` Step 1 读入作 Spec constraints；execute 按 task 的 `target_layer` 注入 scoped context；末尾终审按 diff 文件反查 code-spec；`/fix-bug` / `/bug-batch` 修复后定档 `code_specs_impact` 反哺 `/spec-update`。
 
-### 4.3 与 workflow 主线的协同点
-
-- `/scan` Part 5 首次扫描时引导初始化；已有 code-specs 时汇总 filled/draft 状态
-- `/workflow-spec` Step 1 作为 advisory constraints 供 Spec 生成参考
-- `/workflow-execute` 以 advisory 形式注入项目 code-specs；`plan-template.md` 新增可选字段 `Target Layer`，按任务 `target_layer` 与变更文件 hint 做二次裁剪，`<project-code-specs>` 段会带 `layer` / `hints` 属性。Step 7 inline final reviewer 也读项目 code-specs 做整 branch 终审（v6.5.0 起替代原 `/workflow-review` Stage 1）
-- SessionStart hook 注入 overview digest / paths-only 清单；无活跃 workflow 时 AI 按 `core/CLAUDE.md` 的 "Code Specs 切换 package/layer" 规则在动手前主动读对应 `{pkg}/{layer}/index.md` 及 Pre-Development Checklist
-- `/fix-bug` Phase 4.1 强制定档 `code_specs_impact`（四档：`spec_violation` / `spec_gap` / `contract_misread` / `spec_unrelated`），判定 `spec_gap` 时附 Bad/Good 草案 + `/spec-update` 提示；`.claude/code-specs/` 不存在时统一判 `spec_unrelated` 避免虚假 advisory
-- `/bug-batch` 单元级定档 + Phase 8 跨单元归纳：同一文件被 2+ FixUnit 标 `spec_gap` → 输出强信号 advisory 建议 `/spec-update`，同一段落被 2+ FixUnit 标 `spec_violation` → 建议审视执行机制
-
-完整闭环流程图见 `docs/internal/Claude-Code-工作流体系指南.md § 4.6` 的"Code Specs 闭环流程图"。
-
-### 4.4 典型使用链路
-
-以"第一次接入 + 沉淀一条 API 契约"为例：
-
-```bash
-# 1. 首次扫描项目，/scan 会提示 code-specs 未初始化
-/scan
-
-# 2. 按提示初始化骨架（或直接 /spec-bootstrap）
-/spec-bootstrap
-# → 生成 .claude/code-specs/{index.md, local.md, {pkg}/{layer}/index.md, guides/index.md}
-
-# 3. 正常跑 workflow，完成实现（execute 末尾 inline 终审，无需独立 /workflow-review）
-/workflow-spec "xxx 需求"
-/workflow-spec spec-review --choice "Spec 正确，生成 Plan"
-/workflow-execute
-
-# 4. 实现中稳定下来一条新 API，沉淀为 code-spec
-/spec-update
-# → 交互式选 {pkg}/backend/auth-api.md → 逐段填写 7 段合约
-# → 含具体 file path / API name / payload 字段 / 错误矩阵 / 测试断言 / wrong vs correct
-
-# 5. 跑一次完整性检查
-/spec-review
-# → 若 7 段仍有占位符或抽象描述，报告会列出待补齐项
-```
+7 段合约与闭环流程图详见 `docs/internal/Claude-Code-工作流体系指南.md § 4`。
 
 ---
 
-## 5. 其他命令与 Skills
+## 5. Skills 一览
 
-### 5.1 Public Commands
+共 33 个 skill（权威清单以 `core/skills/` 为准），另有 2 个原生 command：`/team`（Agent Teams 入口）、`/git-rollback`（交互式回滚，默认 dry-run）。
 
-除了 skill 外，仓库还会安装两个原生 command 入口（`core/commands/`）：
+| 类别 | Skill | 一句话 |
+|------|-------|--------|
+| **Workflow 主线** | `workflow-spec` / `workflow-plan` / `workflow-execute` / `workflow-delta` / `workflow-status` / `workflow-archive` | 见 §3 |
+| **规划与对齐** | `quick-plan` | 轻量规划，简单到中等任务 |
+| | `grill` | 质询模糊需求到共享理解 |
+| | `zoom-out` | 抬升抽象层，画 module / caller 地图 |
+| | `ux-elaboration` | 前端 UX 设计深化 → spec §4.4 Layout Anchors |
+| | `prototype` | 抛弃式原型（TUI 验证 / 多版本 UI 对比） |
+| **缺陷与审查** | `fix-bug` | 单 Bug 端到端修复（6 Phase + 两段 Hard Stop） |
+| | `bug-batch` | 批量缺陷：全量分析找共因再成组修 |
+| | `diagnose` | 根因证伪，不改代码，产出给 fix-bug 消费 |
+| | `diff-review` | staged / branch / session 三模式代码审查 |
+| | `tdd` | 红绿重构 vertical slice 纪律 |
+| **设计与前端** | `figma-data` | Figma MCP 数据获取 + 资源分诊 → Design Package |
+| | `figma-ui` | 消费 Design Package → Web 代码还原与验证 |
+| | `api-smoke` | 前端视角从 Spec + YApi 生成后端接口冒烟脚本 |
+| **研究与协作** | `research` | 代码库 / 生态 / 外部引文统一研究入口 |
+| | `collaborating-with-codex` | Codex 委派编码 / 调试 / `--oracle-review` 只读第二意见 |
+| | `dispatching-parallel-agents` | 同阶段 2+ 独立问题域的并行 subagent 分派 |
+| | `handoff` | 把当前会话压缩成交接文档给下一 session |
+| | `improve-architecture` | 架构深化机会扫描 |
+| **Code Specs** | `spec-bootstrap` / `spec-update` / `spec-review` | 见 §4 |
+| **项目级三阶段** | `design-plan` | 阶段一：跨服务技术方案 → `docs/designs/`（Hard Stop 评审） |
+| | `plan-archive` | 阶段三：实施后 git log/diff 回写架构文档 |
+| **MCP 桥接** | `bk` | 蓝鲸 CTeam / vTeam：待办 / Issue / 流转 / 评论 |
+| | `alidocs` | 钉钉文档 / 表格 / AI 表格读写（mcp-gw） |
+| **其他** | `scan` | 扫描项目生成 `project-config.json` |
+| | `write-a-skill` | meta-skill：新建 / 审查 SKILL.md |
 
-| 命令 | 类型 | 说明 |
-|------|------|------|
-| `/team` | command | Claude Code 原生 Agent Teams 入口；仅在用户显式输入时使用，不自动触发 |
-| `/git-rollback` | command | 交互式 Git 回滚入口，默认 dry-run 预览 |
-
-其他所有能力（含 `/quick-plan`、`/spec-bootstrap`、`/spec-update`、`/spec-review` 及 workflow 主线）均以 skill 形态分发，详见 5.3。
-
-### 5.2 `/team` 命令
-
-`/team` 是 Claude Code 原生 Agent Teams 的快捷入口。用一句自然语言描述任务，当前会话充当负责人，生成若干独立队友并行工作，每位队友拥有自己的 context window，彼此通过共享任务板和 mailbox 协作。
-
-```bash
-/team 并行审查 PR #142 的安全、性能、测试覆盖
-/team 用 4 个 Sonnet 队友并行重构这几个模块
-```
-
-要点：
-- 需要在 settings.json 或环境变量中打开 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，版本 ≥ v2.1.32
-- `/team` 仅在用户**显式输入**时生效；`/workflow-*`、`/quick-plan`、自然语言宽泛请求和 Broad Request Detection 都不会自动进入 team
-- 收尾由 `TeammateIdle` hook 与负责人分工：任务板清空时 hook 让队友给负责人发一条 message 后正常 idle，负责人收到后按需 shutdown 剩余队友再执行 `clean up team`；若 cleanup 失败再通过 `AskUserQuestion` 弹出"重试 / 强制 / 保留"三个快捷选项
-- `TaskCreated` / `TaskCompleted` hook 守门任务粒度和完成条件，缺 owner/deliverable 或遗留 TODO 时退码 2 拒绝
-- 以上 hook 脚本在安装时自动写入 `~/.claude/settings.json`，脚本落在 `~/.claude/.agent-workflow/hooks/team-idle.js` 与 `team-task-guard.js`
-- `dispatching-parallel-agents` 和 subagent 继续解决单会话内的并行分派问题，与 `/team` 互不替代
-
-### 5.3 专项 Skills
-
-| Skill | 功能 |
-|-------|------|
-| `scan` | 扫描项目技术栈并生成项目配置 |
-| `grill` | 对齐澄清 - 质询模糊需求到共享理解（合并自旧 `/enhance` + `quick-plan` Ambiguity Gate） |
-| `zoom-out` | 抬升抽象层,画相关 module 和 caller 的地图(7 行级轻量 skill) |
-| `diagnose` | 疑难 Bug 反馈循环 + 假设证伪(不改代码,给 fix-bug / workflow-execute 消费)；v6.4.4+ Phase 3 证伪迭代第 2 轮仍不收敛 → 标 `stuck_or_looping` 调 oracle 拿 alternative POV |
-| `fix-bug` | 结构化定位与修复单点问题 |
-| `bug-batch` | 批量缺陷分析、去重与修复编排；v6.4.4+ 每个 issue 输出 `risk_signals`，FixUnit 聚合 signals 后单元级 review 按 risk-signal 路由 |
-| `tdd` | 红绿重构 vertical slice TDD 纪律；v6.4.4+ 同一 RED 经 3 次 GREEN 尝试未通过或回归 2 个绿 test 后 2 次修正未恢复 → 标 `stuck_or_looping`，**implementer 不得自起 codex**，由 controller 统一调 `--oracle-review` 回灌 |
-| `prototype` | 抛弃式原型 — TUI 验证状态/数据 + 多版本 UI 并排对比 |
-| `improve-architecture` | 架构深化机会扫描（删除测试 / 依赖归类 / 并行接口设计探索） |
-| `handoff` | 把当前会话压缩成交接文档，给下一个 agent / session 接力 |
-| `diff-review` | Impact-aware Quick / Deep 模式代码审查;支持 `--session` 覆盖当前会话改动（合并自旧 `session-review`） |
-| `ux-elaboration` | 前端 UX 设计深化 — User Flow + Page Hierarchy + Layout Anchors → spec §4.4 |
-| `figma-data` | Figma MCP 数据获取 + 资源分诊 → Design Package（不写代码） |
-| `figma-ui` | 消费 Design Package → Web 代码还原与验证 |
-| `research` | 统一研究入口 - 代码库 / 生态 / 外部引文（合并自 `search-first` + `deep-research`） |
-| `quick-plan` | 轻量快速规划 skill |
-| `api-smoke` | 前端视角从 Spec + YApi autogen 生成后端接口冒烟脚本 |
-| `alidocs` | 钉钉文档 / 在线表格 / AI 表格读写（通过 mcp-gw，不走 WebFetch） |
-| `dispatching-parallel-agents` | 对同阶段 2+ 独立任务做并行子 Agent 分派 |
-| `spec-bootstrap` | 初始化 `.claude/code-specs/` 骨架 |
-| `spec-update` | 按 7 段 code-spec 合约或 thinking guide 形态写入 |
-| `spec-review` | 审查 7 段完整性、过期、冲突、canonical / manifest 对账 |
-| `write-a-skill` | Meta-skill - 新建 / 审查 SKILL.md 尺寸与描述 |
-| `collaborating-with-codex` | Codex App Server 运行时委派编码 / 调试 / 审查；v6.3.0 起支持 `--model` / `--effort` Code Tasks 模式、per-job log（`Monitor "tail -F"` push 观察）、`--result <id>` 终态聚合（含 touchedFiles[] / fileChanges[] / commandExecutions[]）；v6.4.3 起新增 `--oracle-review` 高风险只读 oracle 模式，配合 risk-signal 路由（详见 `core/specs/shared/codex-routing.md`）；v6.4.4 起被 `workflow-execute` / `diagnose` / `tdd` / `bug-batch` 在 `stuck_or_looping` 信号触发时 controller 统一调用，read-only POV 回灌实现者 |
-| `bk` | 蓝鲸项目管理 CLI（看待办、查 issue、流转状态、评论） |
-| `design-plan` | 项目级三阶段研发流程·阶段一:跨服务复杂需求 → 8 章节技术方案文档(接口 / 数据库 / 时序图 / 微服务变更清单 / Hard Coding Rules 自检 / ADR 草稿),Hard Stop 评审后落盘到 `docs/designs/{slug}-{YYYYMMDD}.md`。手动触发,典型用户技术主管 / 资深研发,**不进入** workflow 状态机 |
-| `plan-archive` | 项目级三阶段研发流程·阶段三:实施完成后跨服务跑 git log/diff,对照触发表把改动事实回写到 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / 项目总架构文档,必要时新建 ADR;Hard Stop 预览每文件 diff + budget 自检后逐一落盘。手动触发,**不进入** workflow 状态机 |
-
-### 5.4 MCP 替代 Skills（CLI / MCP-gw 桥接）
-
-下面三个 skill 都是为了**替代直连 MCP 服务**而存在——它们把 MCP 调用封装成本地 CLI 或 mcp-gw 网关桥接，让 AI 不必持有 MCP 长连接、可控错误处理、可在 CI / sandbox 中执行：
-
-| Skill | 替代的 MCP | 桥接方式 | 触发场景 |
-|-------|-----------|----------|---------|
-| `alidocs` | 钉钉文档 / 表格 / AI 表格 MCP | `mcp-gw.dingtalk.com/server/<hash>?key=<key>` 网关 + `doc` / `sheet` / `aitable` CLI | 用户给出 alidocs 链接 / nodeId / dentryUuid / sheetId / A1:D10 等，需要读写文档或表格 |
-| `figma-data` | Figma Dev MCP | Figma MCP + 本地资源分诊 → Design Package（不写代码） | 用户给出 Figma URL 但只是要读取 / 提取 / 导出资源；也被 `figma-ui` 委托执行 Phase A 数据获取 |
-
-**通用约束**：
-
-- **禁止 WebFetch 兜底**：`figma.com` / `alidocs.dingtalk.com` 直连 WebFetch 必返 403；命中域名时 `skill-routing.js` 的 `UserPromptSubmit` + `PreToolUse(ToolSearch)` 会主动注入路由 hint 把请求拽回对应 skill
-- **凭据管理**：`bk` token 落盘到 `~/.config/bk-mcp/token`（0600）；`alidocs` 通过 mcp-gw URL 中的 `key` 鉴权；`figma-data` 依赖 Figma MCP 的本地登录态
-- **错误码契约（三桶归一化）**：CLI 退出码 `0` 成功 / `1` 本地错（缺 token / 参数错 / 网络不通）/ `2` auth 错 / `5` `tool_not_found`（上游 MCP 改名/下线）/ `6` `enum_invalid`（动态枚举漂移），stderr 输出 `{kind, hint, originalMessage}` 结构化对象供调用方解析
-- **由 AI 引导初始化**：缺凭据 / 缺 project_id / 缺 mcp-gw URL 时由 AI 引导用户粘贴 token，AI 自己调 `bk auth` / `alidocs config set` 落盘，不要让用户手敲 CLI
-
-**Drift-resilience 机制（ADR-0001）**：
-
-三个 wrapper skill 通过 `core/skills/_shared/mcp-baseline.mjs` 共享 tool snapshot / shape 解析 / 错误归一化逻辑（`_*/` 下划线前缀目录约定 = 跨 skill 私有共享模块，不会被 mount 为 skill）。每个 wrapper 携带 checkin 权威 baseline（`baseline-schema.json`） + 本地 cache 双层结构，可通过 `<cli> diff-tools` 主动检测上游 MCP 漂移；`spec-review` 第 7 类规则按 `<!-- snapshot YYYY-MM-DD -->` 注释做周巡检查（>90d warn / >180d advisory）。`bk` 新增 `--shape issue-record` 输出 9 字段稳定 IssueRecord，`figma-data` Design Package 携带 `schemaVersion: "1.0"`，`figma-ui` Phase A Gate 0 强制 assert。详见 `.claude/code-specs/adr/0001-mcp-wrapper-skill-drift-resilience.md`。
-
-**为什么不直接连 MCP？**：
-
-1. MCP 长连接和会话状态会被 Claude Code 切会话 / 重启打断；CLI / mcp-gw 桥接是无状态的
-2. 桥接层可以做参数校验、dry-run、分页、错误归一化，比裸 MCP 调用稳
-
-详见各 skill 的 `SKILL.md` 与 `references/`。
+**MCP 桥接共性**（`bk` / `alidocs` / `figma-data`）：把 MCP 调用封装成本地 CLI / mcp-gw 桥接——无状态、可控错误处理（退出码三桶归一化 `2` auth / `5` tool_not_found / `6` enum_invalid）、CI/sandbox 可跑、禁止 WebFetch 兜底（403）；共享 `core/skills/_shared/mcp-baseline.mjs`，经 checkin baseline + `<cli> diff-tools` 检测上游漂移（ADR 0001）。
 
 ---
 
-## 6. Hooks 流程控制
+## 6. Hooks
 
-工作流体系通过 Claude Code 的 hooks 机制实现 **runtime guardrails**。hooks 不替代 command + skill 驱动的状态机，而是在其外围提供自动化的上下文注入和执行门控。
+5 个 hook 脚本随 `sync` 自动注入，提供 runtime guardrails（注入上下文 + 守门，不替代状态机）：
 
-当前共 **5 个 hook 脚本**，按职责分为三类：
+| Hook 事件 | 脚本 | 职责 |
+|-----------|------|------|
+| `SessionStart` | `session-start.js` | 注入 workflow 上下文、next action 与 guardrail |
+| `PreToolUse(Task)` | `pre-execute-inject.js` | Task 派发前 5 重门控 + 注入当前 task 的 task.md 正文 |
+| `UserPromptSubmit` / `PreToolUse(ToolSearch)` | `skill-routing.js` | 命中 Figma / 钉钉 URL 时注入 skill 路由 hint |
+| `TeammateIdle` | `team-idle.js` | Agent Teams 任务板未清空时留住队友 |
+| `TaskCreated` / `TaskCompleted` | `team-task-guard.js` | 任务粒度守门：缺交付物 / 遗留 TODO 退码 2 拒绝 |
 
-| 分类 | Hook 事件 | 脚本 | 默认启用 | 职责 |
-|------|-----------|------|----------|------|
-| **Workflow Hooks** | `SessionStart` | `session-start.js` | ✅ 随 `sync` 自动注入 | 注入会话级 workflow 上下文、next action 与 guardrail |
-| | `PreToolUse` (matcher: `Task`) | `pre-execute-inject.js` | ✅ 随 `sync` 自动注入 | Task 派发前检查 workflow 状态并注入任务上下文 |
-| **Routing Hooks** | `UserPromptSubmit` + `PreToolUse` (matcher: `ToolSearch`) | `skill-routing.js` | ✅ 随 `sync` 自动注入 | 用户输入命中 Figma / 钉钉 URL 时注入 skill routing hint；阻止 ToolSearch 误把 skill 名当工具名搜 |
-| **Team Hooks** | `TeammateIdle` | `team-idle.js` | ✅ 随 `sync` 自动注入 | 任务板仍有未完成任务时阻止队友 idle；任务板清空时提示队友给 Lead 发 message 后退出 |
-| | `TaskCreated` / `TaskCompleted` | `team-task-guard.js` | ✅ 随 `sync` 自动注入 | 任务粒度守门：缺 owner / deliverable 或遗留 TODO / FIXME 时退码 2 拒绝 |
-
-### 6.1 各 Hook 运行时行为
-
-- **`SessionStart`**：会话启动时读取项目配置和 workflow 状态，注入当前进度、next action 提示、guardrail 规则和 team 隔离边界
-- **`PreToolUse(Task)`**：在 Task 派发前做 5 重检查（workflow 存在 → spec_review 门控 → status 合法 → active task → 文件齐全），通过后将当前 task block、verification commands、spec context 注入到 Task description 前缀
-- **`UserPromptSubmit` / `PreToolUse(ToolSearch)`**：扫描用户文本与 ToolSearch 查询，命中 `core/hooks/skill-routing-table.json` 中的 URL 规则（Figma / 钉钉 / mcp-gw）或 skill 名误用模式时注入路由 hint
-- **`TeammateIdle`**：仅在 payload 带 `team_name` 时生效；任务板仍有未完成任务 → 退码 2 留住队友；任务板清空 → 通过 stderr 指示队友给 Lead 发 message 后放行 idle（Lead 侧收到后自行执行 `clean up team`）
-- **`TaskCreated` / `TaskCompleted`**：任务粒度守门，缺 `task_subject` / 交付物或遗留 TODO / 待验证 类字眼时退码 2 拒绝
-
-#### Hook env 开关
-
-| 变量 | 默认 | 作用 |
-|------|------|------|
-| `WORKFLOW_HOOKS=0` / `AGENT_WORKFLOW_DISABLE_HOOKS=1` / `CLAUDE_NON_INTERACTIVE=1` | 未设 | 跳过所有 hook 的 context 注入（治理 gate 仍运行） |
-| `AGENT_WORKFLOW_FIRST_REPLY_NOTICE=1` | 未设 | SessionStart 输出末尾追加 `<first-reply-notice>` 块，要求首轮回复用中文一句话宣告 hook 已注入。默认 OFF：strict-output 场景（首轮 JSON / patch / commit message）下避免污染输出 |
-
-### 6.2 启用方式
-
-```bash
-# 默认注入所有 hooks
-npm run sync -- -y
-```
-
-Plugin 安装走 `core/hooks/hooks.json`（`${CLAUDE_PLUGIN_ROOT}` 由 Claude Code 解析），无需手动改 settings。非 Plugin 工具（Codex / Copilot / Cursor）由 installer 渲染 `core/hooks/agent-templates/{codex,copilot,cursor}.hooks.json`，把 `{{HOOKS_DIR}}` 替换为各工具 `.agent-workflow/hooks/` 绝对路径，并按工具原生事件名（`userPromptSubmitted` / `sessionStart` / `preToolUse` / `beforeShellExecution`）落地。轻量入口 `inject-workflow-state.js`（Codex / Copilot 的 UserPromptSubmit）与 `inject-shell-session-context.js`（Cursor 的 beforeShellExecution）专为这些平台拆分，复用 Plugin 侧同一份 task context 构造逻辑。
-
-如果是非 Plugin 工具或需要手动配置，参考 `core/hooks/hooks.json` 写入对应工具的 hook 配置文件（路径必须用 `$HOME`，不能用 `~`），核心 5 个条目：
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/session-start.js\"" }] }
-    ],
-    "PreToolUse": [
-      { "matcher": "Task", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/pre-execute-inject.js\"" }] },
-      { "matcher": "ToolSearch", "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/skill-routing.js\"" }] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/skill-routing.js\"" }] }
-    ],
-    "TeammateIdle": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-idle.js\"" }] }
-    ],
-    "TaskCreated": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-task-guard.js\" created" }] }
-    ],
-    "TaskCompleted": [
-      { "hooks": [{ "type": "command", "command": "node \"$HOME/.claude/.agent-workflow/hooks/team-task-guard.js\" completed" }] }
-    ]
-  }
-}
-```
-
-### 6.3 职责边界
-
-hooks **负责**：注入 workflow 上下文、在状态非法 / 上下文缺失时阻断  
-hooks **不负责**：决定 planning / execute / delta / archive 的阶段流转、替代 `/workflow-execute` 的 shared resolver、创建第二套状态机
-
-### 6.4 故障排查
-
-```bash
-cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
-```
+环境开关：`WORKFLOW_HOOKS=0` / `AGENT_WORKFLOW_DISABLE_HOOKS=1` / `CLAUDE_NON_INTERACTIVE=1` 任一命中即跳过 context 注入。Plugin 安装走 `core/hooks/hooks.json`；非 Plugin 工具由 installer 渲染 `core/hooks/agent-templates/` 模板。手动配置与故障排查见指南 § 6。
 
 ---
 
 ## 7. 支持的 AI 编码工具
 
-当前支持 8 个 AI 编码工具，包括：
+当前支持 **8 个**：
 
-- Claude Code（Plugin-managed）
-- Qoder（Plugin-managed，`qodercli plugins install`）
-- Antigravity（Plugin-managed，`agy plugin install`；Gemini CLI 后继者）
-- Cursor
-- Codex
-- GitHub Copilot
-- OpenCode
-- Droid
+| 分发方式 | 工具 |
+|----------|------|
+| 原生 Plugin | Claude Code、Qoder（`qodercli plugins install`）、Antigravity（`agy plugin install`） |
+| installer 逐 skill mount | Cursor、Codex、GitHub Copilot、OpenCode、Droid |
 
-> **分发方式**：Claude Code、Qoder、Antigravity 走各自工具的原生 Plugin 机制；其余 5 个工具由 installer 逐 skill mount。
->
-> **Gemini CLI 已于 2026-06-18 停服**，合并进 Antigravity CLI（`agy`）。原 Gemini CLI 支持已移除，迁移到 Antigravity Plugin。
+> Gemini CLI 已于 2026-06-18 停服并入 Antigravity CLI（`agy`），原支持已移除。
 
 ---
 
-## 8. 更多文档与开发发布
-
-### 8.1 更多文档
-
-如需查看更完整说明，可参考：
-
-- `docs/internal/Claude-Code-工作流体系指南.md`
-- `core/commands/team.md`（/team 命令，Claude Code 原生 Agent Teams 入口）
-- `core/commands/git-rollback.md`
-- `core/skills/workflow-spec/SKILL.md`（新需求入口，含代码分析 / 讨论 / UX 审批 / Spec 生成 / spec-review）
-- `core/skills/workflow-plan/SKILL.md`（planned 状态下 Plan 骨架扩写）
-- `core/skills/workflow-execute/SKILL.md`（含 Step 7 inline final reviewer 末尾终审）
-- `core/skills/workflow-delta/SKILL.md`
-- `core/skills/workflow-status/SKILL.md`
-- `core/skills/workflow-archive/SKILL.md`
-- `core/skills/quick-plan/SKILL.md`（从 command 迁 skill）
-- `core/skills/research/SKILL.md`（合并自 search-first + deep-research）
-- `core/skills/grill/SKILL.md`、`core/skills/zoom-out/SKILL.md`、`core/skills/diagnose/SKILL.md`、`core/skills/tdd/SKILL.md`、`core/skills/write-a-skill/SKILL.md`（mattpocock/skills 哲学借鉴）
-- `core/specs/shared/architecture-language.md`（Module / Interface / Depth / Seam / Adapter / Leverage / Locality）
-- `core/specs/shared/codex-routing.md`（v6.4.3 重写为 6 个 risk-signal 决策表，配合 `--oracle-review` Invocation Contract） / `impact-analysis-template.md` / `subagent-worker-contract.md`（跨 skill 共享协议）
-- `core/skills/fix-bug/references/status-readiness.md` / `manual-intervention-reasons.md`（fix-bug/bug-batch 专用）
-- `core/skills/spec-bootstrap/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
-- `core/specs/platform-parity.md`（multi-tool 分发 parity 契约，由 `scripts/validate.js` 在 prepublish 时校验）
-- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义，7 状态 + `halted` 中断态 + 末尾终审）
-- `core/specs/spec-templates/`（code-specs 模板源）
-- `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
-- `core/skills/_shared/mcp-baseline.mjs`（MCP wrapper skill 跨 skill 共享模块：tool snapshot / shape 解析 / 错误归一化）
-- `.claude/code-specs/adr/0001-mcp-wrapper-skill-drift-resilience.md`（MCP wrapper drift-resilience ADR）
-- `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`（dispatching-parallel-agents 放宽 writable fan-out，v6.5.0）
-- `.claude/code-specs/adr/0004-collapse-execute-lean.md`（execute lean 折叠 + 删 governor + 末尾终审 inline + 废 `/workflow-review`，v6.5.0）
-- `core/skills/design-plan/SKILL.md` + `references/design-plan-template.md` + `references/hard-coding-rules-checklist.md`(三阶段研发流程·阶段一)
-- `core/skills/plan-archive/SKILL.md` + `references/archive-checklist.md`(三阶段研发流程·阶段三)
-
-### 8.2 开发与发布
+## 8. 开发与发布
 
 ```bash
-# 校验发布内容
-npm run prepublishOnly
-
-# 发布
-npm run release:patch
-npm run release:minor
-npm run release:major
+npm run prepublishOnly    # 校验：scripts/validate.js + 三段 node --test 套件
+npm run release:patch     # 1.0.0 -> 1.0.1（自动 version bump + publish + tag + push）
+npm run release:minor     # 1.0.0 -> 1.1.0
+npm run release:major     # 1.0.0 -> 2.0.0
 ```
+
+更多文档：
+
+- `docs/internal/Claude-Code-工作流体系指南.md` — 完整深度参考（流程详解 / 状态机 / Hooks / FAQ）
+- `core/specs/workflow-runtime/state-machine.md` — 唯一权威状态机定义
+- `core/specs/platform-parity.md` — multi-tool 分发 parity 契约
+- `core/skills/*/SKILL.md` — 各 skill 权威行为定义
+- `.claude/code-specs/adr/` — 架构决策记录（0001 MCP drift-resilience / 0003 writable fan-out / 0004 lean execute）
