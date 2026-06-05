@@ -1,23 +1,22 @@
 ---
 name: grill
-description: "Use when 用户说「帮我理清」「先别写」「grill me」「我想想怎么做」「需求不清楚」, or 用户给出「写登录 / 加字段 / 加 API」之类模糊描述需要澄清。替代 quick-plan Step 1 Ambiguity Gate。"
+description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me' / 「帮我理清」「先别写」「我想想怎么做」「需求不清楚」。替代 quick-plan Step 1 Ambiguity Gate。"
 ---
 
 <CONTEXT>
-质询涉及代码库术语时 Read `core/specs/shared/glossary.md`。
+纯访谈 skill,不强制读 code-specs / glossary。术语挑战 / 文档落盘纪律归 `/workflow-spec` Step 3。
 </CONTEXT>
 
 # Grill
 
-质询用户到共享理解为止。走决策树每个分支,逐个解决依赖。每个问题给出你的推荐答案,一次只问一个,拿到反馈再进下一个。
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
-**每个问题之前先检查**——能查到的不要问用户:
-- 能在 `core/specs/shared/glossary.md` 里查到? → 查
-- 能在代码里查到? → 用 `mcp__auggie-mcp__codebase-retrieval` 查
-- 真的需要用户回答? → 问
+Ask the questions one at a time.
 
-质询中两个不放过的点:
-- **glossary 是 canonical 权威** —— 用户术语和 `core/specs/shared/glossary.md` 冲突,或用模糊 / 过载词时当场戳出来,要求精确化
-- **读代码抓矛盾** —— 用户陈述某处行为时读代码比对,口述与实现矛盾立即指出,别默认信任用户说法
+If a question can be answered by exploring the codebase, explore the codebase instead.
 
-产出:对齐后的任务描述(结构化 markdown,≤ 30 行),只读不写,交给用户。
+## 协同
+
+- 产出:对齐后的任务描述(结构化 markdown,≤ 30 行),只读不写,交给用户——可直接作 `/quick-plan` 输入
+- 质询中需要外部证据 → `/research`
+- 问题要"跑起来才知道" → `/prototype`

@@ -165,7 +165,7 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 
 ## 5. Skills 一览
 
-共 33 个 skill（权威清单以 `core/skills/` 为准），另有 2 个原生 command：`/team`（Agent Teams 入口）、`/git-rollback`（交互式回滚，默认 dry-run）。
+共 34 个 skill（权威清单以 `core/skills/` 为准），另有 2 个原生 command：`/team`（Agent Teams 入口）、`/git-rollback`（交互式回滚，默认 dry-run）。
 
 | 类别 | Skill | 一句话 |
 |------|-------|--------|
@@ -194,6 +194,7 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 | **MCP 桥接** | `bk` | 蓝鲸 CTeam / vTeam：待办 / Issue / 流转 / 评论 |
 | | `alidocs` | 钉钉文档 / 表格 / AI 表格读写（mcp-gw） |
 | **其他** | `scan` | 扫描项目生成 `project-config.json` |
+| | `teach` | 多 session 教学 workspace（Knowledge / Skills / Wisdom + ZPD，仅用户显式触发） |
 | | `write-a-skill` | meta-skill：新建 / 审查 SKILL.md |
 
 **MCP 桥接共性**（`bk` / `alidocs` / `figma-data`）：把 MCP 调用封装成本地 CLI / mcp-gw 桥接——无状态、可控错误处理（退出码三桶归一化 `2` auth / `5` tool_not_found / `6` enum_invalid）、CI/sandbox 可跑、禁止 WebFetch 兜底（403）；共享 `core/skills/_shared/mcp-baseline.mjs`，经 checkin baseline + `<cli> diff-tools` 检测上游漂移（ADR 0001）。

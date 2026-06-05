@@ -1,6 +1,6 @@
 ---
 name: quick-plan
-description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」「整理成需求」「出个 PRD」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)请用 /workflow-spec。"
+description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)或需要正式需求文档 / PRD 请用 /workflow-spec。"
 argument-hint: <需求描述 | path/to/requirement.md>
 ---
 
@@ -10,18 +10,11 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 
 # quick-plan
 
-从对话上下文和代码库中合成一份可执行文档。不走状态机,不质询(需要质询先走 `/grill`)。
+从对话上下文和代码库中合成一份可执行 plan。不走状态机,不质询(需要质询先走 `/grill`)。
 
 ## 产出
 
-写到 `~/.claude/workflows/{pid}/plans/{kebab-case-name}-{MMDD}.plan.md`。
-
-**两种格式,自动路由**:
-
-| 信号 | 产出格式 |
-|------|----------|
-| 输入来自 `/grill` 产出,或用户说"整理成需求/PRD/spec/需求文档" | [spec-lite](references/spec-lite-template.md) |
-| 其他(默认) | [plan](references/plan-template.md) |
+写到 `~/.claude/workflows/{pid}/plans/{kebab-case-name}-{MMDD}.plan.md`,格式见 [plan-template](references/plan-template.md)。
 
 ## 规则
 
@@ -39,7 +32,7 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 
 ## 与其他 skill 的关系
 
-- 需求模糊 → 先 `/grill` 对齐再回本 skill
+- 需求模糊 → 先 `/grill` 对齐再回本 skill,grill 产出直接作输入
 - 需要调研外部方案 → 先 `/research`
 - plan 后要沉淀规范 → `/spec-update`
-- `/grill` 产出可直接作为本 skill 的输入(自动路由到 spec-lite 格式)
+- 需要正式需求文档 / PRD,或跨 module 追溯 → `/workflow-spec`

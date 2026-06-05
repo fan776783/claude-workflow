@@ -138,6 +138,10 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 走决策树每个分支,一次一个问题,每问带推荐答案。能在代码/已有工件中查到的不问用户。
 
+**读代码抓矛盾**:用户陈述某处行为时读代码比对,口述与实现矛盾当场指出,不默认信任用户说法。
+
+**场景压力测试**:讨论领域关系/概念边界时,编造戳边界的具体场景(异常/极端 case)逼用户精确化,不停留在抽象定义。
+
 **单通道**:澄清问题走 `AskUserQuestion` 时就不再用 text 复述问题原文(选项 label 已承载问题),避免同一内容双份输出。
 
 **选项构造规则**:
@@ -170,7 +174,7 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 ### 术语挑战
 
-用户用的术语和 glossary 冲突时当场指出。新术语确认后按 `core/specs/shared/glossary.md § 术语更新路由` inline 更新。
+用户用的术语和 glossary 冲突时当场指出。词模糊/过载但 glossary 未收录 → 当场提议 canonical 词("你说 account——指 Customer 还是 User?这是两个概念")。新术语确认后按 `core/specs/shared/glossary.md § 术语更新路由` inline 更新。
 
 ### 方案探索(条件)
 
@@ -179,6 +183,8 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 ### 持久化
 
 讨论结果写入 spec.md § 9(§ 9.1 需求澄清记录、§ 9.2 方案选择、§ 9.3 未解决依赖)。不得仅依赖对话上下文记忆。
+
+§ 9.2 中的决策命中三重门槛(hard to reverse + surprising without context + real trade-off)→ 建议落 ADR,不自动创建。协议见 `core/specs/shared/adr-protocol.md`。
 
 ## Step 4: Spec 文本扩写 + Self-Review(核心章节)
 
