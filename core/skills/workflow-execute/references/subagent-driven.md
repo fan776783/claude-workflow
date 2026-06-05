@@ -50,7 +50,7 @@ controller (主会话)
 单 reviewer subagent 在一个 context 内顺序执行两 phase：
 
 - **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。
-- **Phase 2 — Code Quality**：critical / important / minor 三档。`critical: []` 且 `important: []` 才 PASS。
+- **Phase 2 — Code Quality**：三档语义与 PASS 条件以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。
 
 `decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review。循环上限 **3 轮**（合并 phase1+phase2 共享）：第 3 轮重派仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
 

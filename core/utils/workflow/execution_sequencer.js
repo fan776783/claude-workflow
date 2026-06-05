@@ -431,9 +431,9 @@ function main() {
       return
     }
     if (command === 'skip') {
-      // CLI 契约保持 `skip <state-path> <plan-path> <task-id>`；plan-path 已退役（task 源 = task-dir），仅占位兼容。
+      // CLI 契约：`skip <state-path> <task-id>`（旧三参形式的 plan-path 占位参数已随 task-dir 化退役并移除）。
       // 先剥离 value-taking flag（及其值），按真正的位置参数定位 state / task-id——
-      // 否则 `skip <state> <task> --project-id X` 会把 `--project-id` 误当 task-id（args.length>=3 命中）。
+      // 否则 `skip <state> <task> --project-id X` 会把 `--project-id` 误当 task-id。
       const VALUE_FLAGS = new Set(['--project-id', '--project-root'])
       const positionals = []
       for (let i = 0; i < args.length; i += 1) {
@@ -447,8 +447,7 @@ function main() {
         process.exitCode = 1
         return
       }
-      // task-id 取最后一个位置参数：兼容旧三参（state plan task）与新两参（state task）调用。
-      const taskId = positionals.length >= 3 ? positionals[2] : positionals[1]
+      const taskId = positionals[1]
       process.stdout.write(`${JSON.stringify(markTaskSkipped(statePath, taskId, option('--project-id'), option('--project-root')))}\n`)
       return
     }

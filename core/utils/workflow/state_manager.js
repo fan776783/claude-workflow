@@ -291,16 +291,6 @@ function handleTaskError(state, statePath, taskId, taskName, errorMessage) {
   writeState(statePath, state)
 }
 
-function incrementConsecutiveCount(state) {
-  const count = Number(state.consecutive_count || 0) + 1
-  state.consecutive_count = count
-  return count
-}
-
-function resetConsecutiveCount(state) {
-  state.consecutive_count = 0
-}
-
 function calculateProgress(totalTasks, completed, skipped, failed) {
   if (totalTasks === 0) return 0
   const finished = (completed || []).length + (skipped || []).length + (failed || []).length
@@ -463,8 +453,6 @@ module.exports = {
   updateCodexPlanReview,
   completeWorkflow,
   handleTaskError,
-  incrementConsecutiveCount,
-  resetConsecutiveCount,
   calculateProgress,
   generateProgressBar,
   resolveCliProjectId,

@@ -133,7 +133,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **prompt 不含整文件正文**：注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **task acceptance + constraints 完整粘进 prompt**：不让 reviewer 读 plan.md。
 - **code-specs context 注入**：把 `.claude/code-specs/{pkg}/{layer}/` 中适用本 task 的段落粘进 `<code-specs-context>`；不让 reviewer 自己读全部 code-specs。
-- **循环上限 3 轮**：implementer ↔ reviewer 第 3 轮重派（含 oracle 增强）仍 REVISE → halt + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
+- **循环上限**：以 [`../references/subagent-driven.md`](../references/subagent-driven.md) § Reviewer 状态分流为准（超限 → halt + `halt_reason: 'failure'`，`failure_reason`: review-loop，等用户介入）。
 - **JSON 解析失败 / 夹带散文 → 重派**：reviewer 返回非 strict JSON(首字符非 `{`,或 JSON 前后夹带散文 / markdown / 推理)时，controller 提示 "schema violation, output JSON only" 重派 1 次;**不做 loose-extract 容忍**——被夹带的散文会回灌 controller 上下文(实测 reviewer 散文使其返回体积达 implementer 2.2×);仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure），escalate user。
 - **file:line 形态校验**：`phase1.ac_coverage` 中 `covered: true` 的 `evidence`，以及 phase2 critical/important 的 `file` 字段，必须匹配 `\S+:\d+` 形态。不匹配（裸文件名 / "tests pass" / 占位符）→ 视同 schema violation，按上一条路径重派 1 次；仍失败 → halt（同 `failure_reason`: reviewer-schema-failure）。虚证据与散文一样不接受——'x' 级占位 evidence 是实测过的逃逸通道。minor 不影响 decision：`file` 给代表性行号即可，文件级 minor 允许裸文件名，形态不合**不触发重派 / halt**。
 - **REVISE 后**：把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review（**复用同一 reviewer prompt，不分 spec/质量两轮**）。

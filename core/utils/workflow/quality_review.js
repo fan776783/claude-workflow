@@ -9,6 +9,7 @@ const { buildInjectedContext, buildAgentPrompt, classifyRoleSignals, resolveRole
 // per-task gate 持久化 + governor budget 已退役（R-002）。
 // 末尾终审复用的 buildPass/FailGateResult 仍需 review loop 上限来整形结果，
 // 保留为不导出的内部常量，不再承担 budget 决策。
+// 4 = 1 次首审 + 3 轮重派，对应 SKILL Step 4.2 / subagent-driven.md 的「循环上限 3 轮」（attempts 计数，非轮数）。
 const MAX_REVIEW_LOOPS = 4
 
 function normalizeStage2ReviewMode(value, fallback = 'single_reviewer') {

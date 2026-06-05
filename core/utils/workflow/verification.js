@@ -18,45 +18,6 @@ function createEvidence(command, exitCode, outputSummary, passed, artifactRef, r
   return evidence
 }
 
-const ACTION_VERIFICATION_MAP = {
-  create_file: {
-    description: '运行相关测试 或 语法检查',
-    pass_condition: '测试通过 或 无语法错误',
-  },
-  edit_file: {
-    description: '运行相关测试 或 语法检查',
-    pass_condition: '测试通过 或 无语法错误',
-  },
-  run_tests: {
-    description: '读取测试输出',
-    pass_condition: '全部通过，exit_code = 0',
-  },
-  quality_review: {
-    description: '读取两阶段审查结果',
-    pass_condition: 'reviewer PASS（内存确认，不持久化）',
-  },
-  git_commit: {
-    description: 'git log -1 --format="%H %s"',
-    pass_condition: 'commit hash 存在且消息匹配',
-  },
-}
-
-function getVerificationInfo(action) {
-  return ACTION_VERIFICATION_MAP[action] || null
-}
-
-function getVerificationCommands(actions) {
-  const result = []
-  const seen = new Set()
-  for (const action of actions || []) {
-    const info = getVerificationInfo(action)
-    if (!info || seen.has(info.description)) continue
-    result.push({ action, ...info })
-    seen.add(info.description)
-  }
-  return result
-}
-
 function validateEvidence(evidence) {
   const required = ['command', 'exit_code', 'output_summary', 'timestamp', 'passed']
   const missingFields = required.filter((field) => !(field in (evidence || {})))
@@ -125,18 +86,12 @@ function main() {
     if (!validation.valid) process.exitCode = 1
     return
   }
-  if (command === 'info') {
-    process.stdout.write(`${JSON.stringify(getVerificationCommands(args), null, 2)}\n`)
-    return
-  }
-  process.stderr.write('Usage: node verification.js <create|info> ...\n')
+  process.stderr.write('Usage: node verification.js create --cmd <cmd> --exit-code <n> --output <summary> [--passed] [--artifact-ref <ref>] [--require-files <csv>]\n')
   process.exitCode = 1
 }
 
 module.exports = {
   createEvidence,
-  getVerificationInfo,
-  getVerificationCommands,
   validateEvidence,
 }
 

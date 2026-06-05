@@ -80,11 +80,6 @@ ${expected_files}
 
 ## 4 种返回状态处理
 
-| 状态 | controller 动作 |
-|------|---------|
-| `DONE` | 进入 Step 4.2 reviewer 派发（合并 AC+质量，见 `reviewer.md`） |
-| `DONE_WITH_CONCERNS` | 读取结构化 `concerns[]`;`type=correctness/scope/verification` 或 `severity=blocking` → implementer 修 / 补 context 后再 review;`type=observation` 且 `severity=non_blocking` → 记录 journal 后进 4.2(与 `references/subagent-driven.md § Implementer 状态分流` 保持一致) |
-| `NEEDS_CONTEXT` | 调 `AskUserQuestion` 收集用户回答 → 把答案塞回 prompt `<your-mandate>` 末尾 → 重派 |
-| `BLOCKED` | 评估根因:context 缺失 → 补 context 重派;reasoning 不足 → 升级 model;task 过大 → 拆 task;plan 错 → escalate user |
+DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED → controller 动作分流以 [`../references/subagent-driven.md`](../references/subagent-driven.md) § Implementer 状态分流为**唯一权威**,此处不复表。NEEDS_CONTEXT 的答案塞回 prompt `<your-mandate>` 末尾后重派。
 
-**Never** 让 implementer 自己读 plan.md / spec.md(task 正文经 hook `<current-task>` 到达)，**Never** 把整个 codebase 塞给 implementer(只靠 `<current-task>` 里的 mandatory-reading 路径)，**Never** controller 为补 patterns/mandatory 行号去 Read 源码文件(行号可选,让 implementer 自读定位)。
+禁止项（implementer 读 plan/spec、controller 自读源码补行号、整 codebase 塞 prompt 等）见同文件「不允许的行为」。

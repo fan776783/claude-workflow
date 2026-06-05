@@ -310,7 +310,10 @@ const PLACEHOLDER_TOKENS_ZH = [
 ]
 // F-16: 裸 `占位` 故意不进 token 列表。前端 plan 里 `占位图` / `占位符` / `占位 icon` / `展示占位` / `英文占位`
 // 是高频业务名词,30 个历史 plan 实测 43/43 命中全为误报、0 真·未填残留。真填空标记由
-// `【占位】`(显式括号) + TBD/TODO/待补充/待确认/[待定]/{{name}} 兜住,裸 `占位` 纯噪声。
+// `【占位】`(显式括号) + TBD/TODO/待补充/[待定]/{{name}} 兜住,裸 `占位` 纯噪声。
+// 注意:`待确认` 故意不进本 token 集——spec §9(澄清记录/未解决依赖)合法使用它标记 open question
+// (见下方 §9 分类逻辑对 `待确认` 的 unresolved 判定),硬 block 会误杀含 open question 的合法 spec。
+// doc_contracts.PLACEHOLDER_REGEX 含 `待确认` 是另一套面向仓库文档的校验面,两者集合差异是刻意的。
 
 // 元描述 / 指令性短语：含任一 hint 的行 = 在"描述占位符 / 解释扫描规则"而非"使用占位符",
 // 跳过整行 placeholder 扫描。修复 plan-template.md 自带 Self-Review Checklist 行被误判的 F-01。

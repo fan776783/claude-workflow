@@ -45,7 +45,7 @@ node utils/workflow/workflow_cli.js <command>    # 统一 CLI 入口（推荐）
 | `status_utils.js` | Emoji / 状态工具 | `node utils/workflow/status_utils.js emoji completed` |
 | `dependency_checker.js` | 依赖检查 | `node utils/workflow/dependency_checker.js classify --name <n> --files <f>` |
 | `journal.js` | 会话日志管理 | `node utils/workflow/workflow_cli.js journal add --title "..." --summary "..."` |
-| `verification.js` | 验证辅助 | `node utils/workflow/verification.js info edit_file` |
+| `verification.js` | 验证证据生成 + 校验 | `node utils/workflow/verification.js create --cmd "npm test" --exit-code 0 --output "..." --passed` |
 
 ---
 
