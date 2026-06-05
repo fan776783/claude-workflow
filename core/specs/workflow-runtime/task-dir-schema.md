@@ -47,7 +47,7 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 | `blocked_by` | string[] | — | `[]` | 外部阻塞原因，如 `["backend:subtree-check"]`。reconcileBlockedTasks 消费 |
 | `status` | string | — | `pending` | 枚举：`pending` `blocked` `in_progress` `completed` `failed` `skipped`。越界 → plan-review 挡 ready |
 | `acceptance` | string[] | — | `[]` | 验收信号。空 → plan-review warning |
-| `verification` | object | — | `null` | `{commands:string[], expected_output?, notes?}`。execute 注 `<verification-commands>` |
+| `verification` | object | — | `null` | `{commands:string[], expected_output?:string[], notes?:string}`。**`expected_output` 须为 string[]**——写 string 会被 normalize 静默丢为 `[]`，confidence verification 维度（+3，最大维度）随之 0 分。execute 注 `<verification-commands>` |
 | `interaction` | string | — | `AFK` | 交互模式 |
 | `files` | string[] | — | `[]` | **v2** task 写作用域（implementer `allowed_write_paths` 来源） |
 | `constraints` | string[] | — | `[]` | **v2** 关键约束（implementer 护栏文本） |

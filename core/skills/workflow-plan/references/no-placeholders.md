@@ -33,7 +33,7 @@ Plan 中出现以下任一 token 即为 plan failure。`plan-review` CLI 的 `li
 
 下列不进 lint(语法上无法识别),但 Self-Review 摘要应人工确认:
 
-- 仅描述"做什么"不展示"怎么做"的步骤(代码步骤必须有代码块)
+- 仅描述"做什么"不展示"怎么做"的步骤(非显然模式——复杂正则/算法/配置结构——须给代码块;显然改动不要求,对齐 SKILL.md「Actionable Steps」)
 - 引用未在任何 task 定义的类型或函数
 
 ## ready 影响
