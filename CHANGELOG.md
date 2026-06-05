@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`workflow-execute` 收敛 lean + review 加固**（commit 17ca8c1）：task 源统一到 task-dir，`plan.md` 降为可选人类叙述；退役 `ContextGovernor`（`context_budget.js`）、`task_bundle.js`、`traceability.js` 及死引用，净 -1900+ 行。随收敛修 review 链路若干问题：plan-review 加 `spec_placeholder` 复检（approve 后 spec 被编辑引入占位时挡 ready）、`cmdSpecReview` 在 `firstTaskId` 为 null 时 fail-fast（不带空锚点推进 `planned`）、`task-write` 同 id 续写承接 `requirement_ids`（防整集替换静默丢 R-ID 链）、journal search 经 `diff_summary` 渲染 evidence summary（不再 `[object Object]`）。新增 6 回归用例。
+
+### Fixed
+
+- **release commit 纳入 `core/plugin.json`**（commit 3b59aea）：`sync-plugin-version.js` 同时写 `core/.claude-plugin/plugin.json` 与 `core/plugin.json`，但 `release.sh` 此前只 stage 前者，导致 `core/plugin.json` 的版本号漏提交。
+
+## [6.6.5] - 2026-06-04
+
+### Changed
+
+- **`halt_reason` 收敛为单一 `failure`**（commit 1e7e4f7）：review-loop 上限、reviewer schema 非法等失败场景统一落 `halt_reason: 'failure'`，具体成因写入 `failure_reason`，不再单列独立 `halt_reason` 值；`state-machine.md` / `reviewer.md` / SKILL.md 同步，CLI 命令描述澄清 task 执行与恢复路径。
+- **orphaned / completed task 锚点防护**（commit 2a5adc5）：`pre-execute-inject` 处理孤儿与已完成 task 锚点，避免 task 执行期静默失败；plan-review 增加 orphaned anchor 与空 `current_tasks` 检查，提升工作流管理鲁棒性。`CLAUDE.md` 补齐 prepublish 多测试套件说明。
+
+## [6.6.4] - 2026-06-03
+
+### Removed
+
+- **移除 Gemini CLI 支持（支持工具数 9 → 8）**（commit 5b06707）：Gemini CLI 于 2026-06-18 停服并入 Antigravity CLI（`agy`），原 `gemini-cli` agent 移除。
+
+### Changed
+
+- **Antigravity 改为 Plugin-managed**（commit 5b06707）：走 `agy plugin install` 原生 Plugin 机制，与 Claude Code / Qoder 同属 **Plugin-managed**；installer-mount 类工具收缩为 5 个（Cursor / Codex / GitHub Copilot / OpenCode / Droid）。agent memory 分发同时落 `AGENTS.md` 与 `GEMINI.md`（后者作 Antigravity 的 memory 文件）。
+
+### Added
+
+- **执行前 task 源存在性校验**（commit 4244253）：新增 `assertExecutableTaskSourcePresent`，执行前校验 task 源存在，task-dir 缺失 / 非法时给出明确错误；pre-execute hook 阻断 v1 task-dir 并提示全量重 plan；`buildTaskContext` 的 task block 上限 3000 → 6000 字符以容纳更大 task 描述。
+
+## [6.6.3] - 2026-06-03
+
+### Added
+
+- **`guard-engine-source.js` hook + task schema lint**（commit 28ba914）：新增 command hook 强化 task 执行控制；plan-review 增加 task schema 完整性 lint（校验合法 task ID、禁止空 task 源）；CLI 补齐写 task 与 curate context 的子命令。
+
+### Changed
+
+- **controller 禁止整篇读 `plan.md` / `spec.md`**（commit 28ba914）：SKILL.md 与 subagent-driven 文档明确 controller 不得 full-read `plan.md` / `spec.md`（改从 task-dir 读 task 切片），收紧 controller 对源码的访问约束。
+
+## [6.6.2] - 2026-06-02
+
+### Changed
+
+- **`project-config.json` 位置契约**（commit 3964195）：明确项目配置文件必须位于 `<project-root>/.claude/config/project-config.json`（而非仓库根）；配置缺失 / 非法时 pre-check 给出正确引导，并提供一条 Bash 命令供用户一次性自检项目配置。
+
+## [6.6.1] - 2026-06-02
+
+### Added
+
+- **`agent-workflow update` 命令**（commit 5142430）：全局安装场景一键 `npm i -g <pkg>@latest` + 重新 `sync` 重新分发到全部已检测工具；安装过程记住 npm registry 供后续 `update` 复用，免重复 `--registry`，并补齐安装 / 同步的错误处理。
+
+## [6.6.0] - 2026-06-02
+
+### Changed
+
+- **机器 task 源迁移到 task-dir**（commit fcf9c5d）：机器可读 task 源由 `plan.md` 改为 **task-dir**（`tasks/{taskId}/` 下 `task.json` + `context.jsonl`），execute 期直接从 task-dir 读 task，不再解析 `plan.md` 抠 task block，提升性能并降低对 `plan.md` 的解析依赖；`plan.md` 退化为可选的人类可读叙述。
+
+### Added
+
+- **`halted` 状态 + `halt_reason`**（commit fcf9c5d）：状态机新增 `halted` 中断态，由 `halt_reason` 区分任务失败与依赖阻塞，旧的 `paused` / `blocked` / `failed` 收敛于此，简化错误处理与恢复流程。
+
 ## [6.5.1] - 2026-06-01
 
 ### Added

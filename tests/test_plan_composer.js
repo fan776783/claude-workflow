@@ -916,7 +916,7 @@ test('lintMandatoryReading malformed line_hint → violation', () => {
   assert.equal(result.violations.length, 1)
 })
 
-// 行号可选(superpowers 式)：line_hint 留空 = 合规,implementer 自读定位。
+// 行号可选：line_hint 留空 = 合规,implementer 自读定位。
 test('lintMandatoryReading empty line_hint → no violation (line numbers optional)', () => {
   const tasks = [{
     id: 'T1',

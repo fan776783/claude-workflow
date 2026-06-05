@@ -20,7 +20,7 @@
 ## 并行与 Team
 
 - workflow-execute 的 **plan task 实现一律顺序执行**（有依赖 / 共享文件）；默认每 task 起 fresh implementer subagent + 串行两段 review（spec → code-quality）。详见 `core/skills/workflow-execute/references/subagent-driven.md`。
-- `/dispatching-parallel-agents` 接两类 fan-out：**只读**（独立 bug 调研 / 多失败测试 / multi-package 分析）与 **writable**（文件不重叠 + 无共享状态的独立写任务，对齐 superpowers，主会话回收后 conflict check + 全量验证）。**绝不让多 agent 编辑同一文件，也不在此并行有依赖的 plan task**。详见 ADR 0003。
+- `/dispatching-parallel-agents` 接两类 fan-out：**只读**（独立 bug 调研 / 多失败测试 / multi-package 分析）与 **writable**（文件不重叠 + 无共享状态的独立写任务，主会话回收后 conflict check + 全量验证）。**绝不让多 agent 编辑同一文件，也不在此并行有依赖的 plan task**。详见 ADR 0003。
 - `/team` 的准入条件、preflight、权限继承和 cleanup 协议由 `core/commands/team.md` 定义。不要因为检测到"多任务 / broad request / `/workflow-execute` / `/quick-plan`"就自动切 team。
 
 ## Code Specs 切换 package/layer

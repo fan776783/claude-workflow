@@ -82,9 +82,9 @@
 
 ## 2. 安装与同步
 
-### 2.1 安装（全局安装，覆盖全部 9 个工具）
+### 2.1 安装（全局安装，覆盖全部 8 个工具）
 
-统一走全局安装：一条 `npm i -g` + 一次 `sync` 覆盖所有已检测到的 AI 编码工具（Claude Code / Qoder 走各自原生 Plugin，其余 7 个走 installer 逐 skill mount）。
+统一走全局安装：一条 `npm i -g` + 一次 `sync` 覆盖所有已检测到的 AI 编码工具（Claude Code / Qoder / Antigravity 走各自原生 Plugin，其余 5 个走 installer 逐 skill mount）。
 
 ```bash
 npm i -g --registry <private-registry-url> @justinfan/agent-workflow
@@ -211,7 +211,7 @@ Workflow 主线由 6 个专项 skills 直接驱动（v6.5.0 起 `/workflow-revie
 ```
 
 - v6.5.0 起折叠为单一 lean 路径：删 governor 决策、删 per-task `quality_gates` 持久化、删 `review_pending` 中间态。每 task 模型面 CLI 往返 ~7 → ~2；落盘 `workflow-state.json` 从 ~22KB 瘦到 ~3KB
-- controller 进入 execute 后**一次性** Read 整篇 plan.md 持全 task 切片，后续 per-task implementer / reviewer prompt 从内存切片构造，不每 task 重读 plan（对齐 superpowers controller-持全-plan 范式）
+- controller 进入 execute 后**一次性** Read 整篇 plan.md 持全 task 切片，后续 per-task implementer / reviewer prompt 从内存切片构造，不每 task 重读 plan（controller 一次性持全 plan 范式）
 - 每 task 起 fresh implementer subagent + 单 reviewer subagent（合并 AC + 质量两 phase）。reviewer PASS 仅内存确认，不写 state
 - write-scope **软化**：implementer prompt prose 写明该 task 预期改动文件（取自 plan task `files`），越界自报 `DONE_WITH_CONCERNS` + reviewer 复核；不再做机器 hard-block
 - 所有 task `completed`/`skipped` 后 controller **inline 派 final reviewer subagent** 跑整 branch diff vs spec，整体 PASS → `advance` 推进 `completed`（HARD-GATE #4：末尾终审未过不得标记 `completed`）；发现跨 task 集成问题不自动回退 / 不擅改 state，issues 清单展示给用户后由用户决策 `另起修复回合` 或 `accept`
@@ -250,7 +250,7 @@ Workflow 主线由 6 个专项 skills 直接驱动（v6.5.0 起 `/workflow-revie
 
 ### 3.2 系统分层架构
 
-当前 `workflow` 采用"**7 个专项 workflow skills + 共享运行时**"的模块化结构，整个系统分为 **4 层**，从上到下依次是：
+当前 `workflow` 采用"**6 个专项 workflow skills + 共享运行时**"的模块化结构，整个系统分为 **4 层**，从上到下依次是：
 
 ```
 +-----------------------------------------------------------------+
@@ -338,25 +338,20 @@ core/
 
 ### 3.5 状态机全景
 
-工作流有 **10 个状态**（v6.5.0 起 `review_pending` 退役），每个状态都有对应的 Hook 护栏规则：
+工作流有 **7 个状态** `{idle, spec_review, planned, running, halted, completed, archived}`（v6.5.0 收敛 `review_pending`、`planning` 并入 `spec_review`；v6.6.0 引入 `halted` 中断态，旧 `paused` / `blocked` / `failed` 统一为 `halted` + `halt_reason`），每个状态都有对应的 Hook 护栏规则：
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> spec_review : /workflow-spec
+    idle --> spec_review : /workflow-spec（Spec 生成完成）
     spec_review --> spec_review : 用户要求修改 Spec
     spec_review --> idle : 用户拒绝/拆分范围
-    spec_review --> planning : spec-review 通过
-    planning --> planned : Plan 骨架生成完成
+    spec_review --> planned : spec-review 通过（CLI 生成 Plan 骨架）
     planned --> planned : /workflow-plan 扩写骨架
     planned --> running : /workflow-execute
-    running --> paused : 暂停
-    running --> blocked : 遇到阻塞任务
-    running --> failed : 任务失败
+    running --> halted : 任务失败 / 依赖阻塞（halt_reason 区分）
     running --> completed : 所有任务完成且 Step 7 inline 终审通过
-    paused --> running : /workflow-execute
-    blocked --> running : unblock
-    failed --> running : --retry / --skip
+    halted --> running : retry / skip（failure）、unblock（dependency）
     completed --> archived : /workflow-archive
     archived --> [*]
 ```
@@ -442,12 +437,12 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 `workflow-execute` 当前采用 **fresh-subagent-per-task**：每个 task 串行启动一个全新 implementer subagent，完成后紧跟一个单 reviewer subagent，在同一 reviewer 中依次检查 acceptance criteria 与代码质量。**plan task 默认有依赖 / 共享文件，一律顺序执行**。
 
-并行交给 `dispatching-parallel-agents`，分两类（v6.5.0 / ADR 0003 对齐 superpowers）：
+并行交给 `dispatching-parallel-agents`，分两类（v6.5.0 / ADR 0003）：
 
 - **只读 fan-out**：同阶段存在 2+ 可证明独立的问题域（独立 bug 调查、多个失败测试文件、独立子系统 trace / diagnose / research / analysis）时，并行调查，结论回主会话整合
 - **writable fan-out**：多个**文件不重叠 + 无共享状态**的独立写任务，每 agent 改自己 scope 内文件；主会话回收后**必须** ① 用各 agent `files_changed` 做 conflict check（交集 = 误判 → 回退顺序重做）② 跑全量验证 ③ 统一 commit（subagent 不自行 commit，守代码主权）。隔离机制是「同工作目录 + 文件不重叠」，**零运行时基建、不开 worktree**
 
-仍**不支持**的是 ADR 0002 删除的重型可写并行基建：worktree-per-task、集成 worktree 合流、`batch_orchestrator.js` / `merge_strategist.js` 批次编排、自动依赖图推断。writable fan-out 是 superpowers 式轻量手动判定。详见 `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`。
+仍**不支持**的是 ADR 0002 删除的重型可写并行基建：worktree-per-task、集成 worktree 合流、`batch_orchestrator.js` / `merge_strategist.js` 批次编排、自动依赖图推断。writable fan-out 是轻量手动判定。详见 `.claude/code-specs/adr/0003-relax-dispatching-to-writable-fan-out.md`。
 
 ---
 
@@ -735,7 +730,7 @@ cat ~/.claude/settings.json | jq '.hooks'           # 检查 hook 注册
 - `core/skills/fix-bug/references/status-readiness.md` / `manual-intervention-reasons.md`（fix-bug/bug-batch 专用）
 - `core/skills/spec-bootstrap/SKILL.md` / `spec-update/SKILL.md` / `spec-review/SKILL.md`
 - `core/specs/platform-parity.md`（multi-tool 分发 parity 契约，由 `scripts/validate.js` 在 prepublish 时校验）
-- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义，v6.5.0 lean 折叠后 10 状态 + 末尾终审）
+- `core/specs/workflow-runtime/state-machine.md`（唯一权威状态机定义，7 状态 + `halted` 中断态 + 末尾终审）
 - `core/specs/spec-templates/`（code-specs 模板源）
 - `core/hooks/team-idle.js` / `core/hooks/team-task-guard.js`（原生 Agent Teams 任务板守门与 cleanup 协调）
 - `core/skills/_shared/mcp-baseline.mjs`（MCP wrapper skill 跨 skill 共享模块：tool snapshot / shape 解析 / 错误归一化）

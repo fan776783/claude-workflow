@@ -1229,7 +1229,7 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
 }
 
 // T16 lintMandatoryReading：抽 Mandatory Reading 表行,校验 lines 字段格式。
-// 行号可选(superpowers 式：controller/planner 不读源码补行号,implementer 自读定位);
+// 行号可选(controller/planner 不读源码补行号,implementer 自读定位);
 // 仅当 lines 列填了非空值且格式错时才算违规。区分 declared=false(无该区块,不挡)/declared=true 且有违规(hard block)。
 function lintMandatoryReading(tasks) {
   const taskList = Array.isArray(tasks) ? tasks : []

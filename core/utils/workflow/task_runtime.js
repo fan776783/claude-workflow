@@ -196,7 +196,7 @@ function getContractDigest(runtime, maxChars = 3000) {
 }
 
 // JSONL 背包展开（S4 / FR-3）：读 task-dir 的 context.jsonl 每行 {file,reason}，
-// 仅放行 spec/research 路径，命中 code 源码扩展名 → 跳过 + stderr warn（对齐 §4.2 Trellis seed 跳过语义）；
+// 仅放行 spec/research 路径，命中 code 源码扩展名 → 跳过 + stderr warn（§4.2 seed 跳过语义）；
 // 缺失文件同样 stderr warn 不阻断。命中文件按 getContractDigest 的 read + sanitize + 截断风格拼块。
 // 复用 task_store.readContext（JSONL 容错解析，坏行跳过）+ sanitizeContractBody（与 <task-contract> 对等）。
 //

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Task Store —— B-full 重基的 per-task 目录 CRUD（Trellis `task.py` 类比）。
+// Task Store —— B-full 重基的 per-task 目录 CRUD。
 // 布局（user 级，复用 path_utils.getWorkflowsDir）：
 //   ~/.claude/workflows/{pid}/tasks/{taskId}/
 //     ├── task.json      task 元数据 + v2 rich 字段

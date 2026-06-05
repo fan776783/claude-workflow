@@ -58,7 +58,7 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 
 ### 一次性持全 task 切片(必须)
 
-**task 源 = task-dir**(`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`),非 plan.md 物理解析。每个 task 的 rich 执行切片(task_text + acceptance + constraints + patterns/mandatory-reading + files + 验证)存于 **task.json v2 结构化字段**,并渲染为人读 **task.md**。确认 state(下方 Step 2)后,controller **一次性**从 task 源(`TaskSource(state).listTasks()`)读全部 task 元数据持于内存。派发 implementer 时,`pre-execute-inject` hook **自动把当前 task 的 task.md 渲染正文注入 `<current-task>`**(源自 task-dir,**非 plan.md**)——guardrails(constraints/patterns/mandatory)随之到达 implementer。**不每 task 重读盘**(对齐 superpowers controller-持全 范式,见 [`references/subagent-driven.md`](references/subagent-driven.md))。
+**task 源 = task-dir**(`~/.claude/workflows/{pid}/tasks/{taskId}/{task.json,task.md,context.jsonl}`),非 plan.md 物理解析。每个 task 的 rich 执行切片(task_text + acceptance + constraints + patterns/mandatory-reading + files + 验证)存于 **task.json v2 结构化字段**,并渲染为人读 **task.md**。确认 state(下方 Step 2)后,controller **一次性**从 task 源(`TaskSource(state).listTasks()`)读全部 task 元数据持于内存。派发 implementer 时,`pre-execute-inject` hook **自动把当前 task 的 task.md 渲染正文注入 `<current-task>`**(源自 task-dir,**非 plan.md**)——guardrails(constraints/patterns/mandatory)随之到达 implementer。**不每 task 重读盘**(controller 一次性持全 范式,见 [`references/subagent-driven.md`](references/subagent-driven.md))。
 
 - 后续每个 task 的 implementer / reviewer prompt **从这份内存切片构造**(衔接 `prompts/implementer.md` / `prompts/reviewer.md`),不回头读盘。
 - plan.md 在新模型下退化为**可选人类可读叙述**(front matter + 锚点),非机器 task 源——execute 不依赖它解析 task。
