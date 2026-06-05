@@ -128,7 +128,7 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **prompt 不含整文件正文**：注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **task acceptance + constraints 完整粘进 prompt**：不让 reviewer 读 plan.md。
 - **code-specs context 注入**：把 `.claude/code-specs/{pkg}/{layer}/` 中适用本 task 的段落粘进 `<code-specs-context>`；不让 reviewer 自己读全部 code-specs。
-- **循环上限 3 次**：implementer ↔ reviewer 来回 ≥3 次后，halt + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
+- **循环上限 3 轮**：implementer ↔ reviewer 第 3 轮重派（含 oracle 增强）仍 REVISE → halt + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
 - **JSON 解析失败 / 夹带散文 → 重派**：reviewer 返回非 strict JSON(首字符非 `{`,或 JSON 前后夹带散文 / markdown / 推理)时，controller 提示 "schema violation, output JSON only" 重派 1 次;**不做 loose-extract 容忍**——被夹带的散文会回灌 controller 上下文(实测 reviewer 散文使其返回体积达 implementer 2.2×);仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure），escalate user。
 - **REVISE 后**：把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review（**复用同一 reviewer prompt，不分 spec/质量两轮**）。
 
@@ -173,6 +173,6 @@ PASS 条件：`critical: []` 且 `important: []`；只剩 `minor` 也 PASS。
 - **`<implementer-output>` 段省略 / 改为列已完成 task 清单**；diff base 用 `state.initial_head_commit`。
 - **输出整体 PASS / REVISE + 跨 task 集成问题清单**：复用同一 output schema，重点看跨 task 集成问题（contract 不一致、重复实现、task 间接缝处遗漏）。phase1/phase2 三档语义不变，PASS 条件仍是 `critical: []` 且 `important: []`。
 - **不自动回退**：final-review 发现跨 task 集成问题时 controller **不自动 revert / 不自动改回**，把问题清单展示给用户，由用户决策（另起修复回合 / accept）。terminal halt 仍走 review-loop 上限规则。
-- **no-subagent 平台兼容（C-004）**：opencode / antigravity / droid / gemini 等无 subagent 平台，controller 主会话扮 final reviewer 自跑终审（self-review），本形态与占位映射照样适用（自渲染自执行）。
+- **no-subagent 平台兼容（C-004）**：opencode / antigravity / droid 等无 subagent 平台，controller 主会话扮 final reviewer 自跑终审（self-review），本形态与占位映射照样适用（自渲染自执行）。
 
 > reviewer prompt 在退化平台与 subagent 平台都由 controller 按本模板 +「Prompt 占位 → 数据来源映射」自行装配（无 CLI/JS 渲染器介入）；`quality_review.js` 的 per-task gate `pass`/`fail` 持久化已退役，模块仅作 prompt 形状参考，不在运行时路径上。

@@ -2,11 +2,18 @@
 
 > 每个 **已完成实现并准备声明 completed 的 task**，在进入下一个 task 之前，必须依次完成以下检查。
 >
-> ⚠️ 跳过 ①~③ 中的任意一项即为执行违规。④ Journal 为条件步骤，仅在列出的触发场景下执行。
+> ⚠️ 跳过前置项或 ①② 中的任意一项即为执行违规。③ Journal 为条件步骤，仅在列出的触发场景下执行。
 >
 > `completed` 是 workflow runtime 中的显式状态推进，不是"仓库里已经有代码"这一类现象判断；不得通过扫描源码、diff、测试文件存在与否来单独推断 task 已完成。
 
 ## ✅ 必做项（按顺序执行）
+
+### 前置：per-task reviewer 终判 PASS（Step 4.2）
+
+- [ ] Step 4.2 reviewer 终判 `PASS` → controller **内存确认放行**进入下方 ①（per-task gate 落盘已退役，不调 CLI 持久化、不回灌全文到 controller，只认 `decision: PASS`）
+- [ ] reviewer 终态 FAIL → 由 Step 4.2 loop 上限 halt 处理，本清单不执行
+
+> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成 workflow 后用 `/spec-update` 捕获，由 execute 末尾终审（Step 7）兜底。
 
 ### 1. 验证（Verification）
 
@@ -15,14 +22,7 @@
 - [ ] 验证失败 → 修复后重新验证，不得跳过
 - [ ] ⚠️ 验证必须在 `advance` 之前完成（Verification Iron Law）
 
-### 2. per-task reviewer 终判（reviewer PASS 后）
-
-- [ ] Step 4.2 reviewer 终判 `PASS` → controller **内存确认放行**进入下一步（per-task gate 落盘已退役，不调 CLI 持久化、不回灌全文到 controller，只认 `decision: PASS`）
-- [ ] reviewer 终态 FAIL → 由 Step 4.2 loop 上限 halt 处理，本步不执行
-
-> Code-specs 沉淀不在本步骤内执行。发现值得沉淀的内容，完成 workflow 后用 `/spec-update` 捕获，由 execute 末尾终审（Step 7）兜底。
-
-### 3. Checkpoint（单条 `advance`，更新 task-dir + state.json）
+### 2. Checkpoint（单条 `advance`，更新 task-dir + state.json）
 
 - [ ] 运行 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js advance {taskId}`
 - [ ] CLI 原子完成：task-dir(task.json) 状态更新 + `progress.completed` 追加 + `current_tasks` 重导 + `updated_at` 刷新
@@ -31,7 +31,7 @@
 - 💡 **状态转换自愈**：`advance` 在 `state.status === 'planned'` 时会自动升为 `running` 并在返回载荷里带 `status_transition: "planned->running"`；无需手动 patch state.json，也不要为此再写 `node -e`
 - 💡 plan.md 已退化为可选人类叙述，**不需要也不应该手动编辑 plan.md 的任务状态**（仅 legacy plan.md workflow 由 CLI 回写）
 
-### 4. Journal 记录（跨 Session 记忆 — 条件执行）
+### 3. Journal 记录（跨 Session 记忆 — 条件执行）
 
 满足以下**任一条件**时记录会话进展：
 
@@ -63,6 +63,6 @@
 ## 📝 快速参考
 
 ```
-Task 完成 → ①验证 → ②reviewer PASS 内存确认 → ③advance {taskId}（task-dir + state 原子更新）→ 输出 checkpoint 行 → ④Journal（条件） → 下一 Task
+Task 实现完成 → reviewer PASS（Step 4.2，内存确认）→ ①验证 → ②advance {taskId}（task-dir + state 原子更新，输出 checkpoint 行）→ ③Journal（条件） → 下一 Task
 所有 Task 完成 → inline final reviewer 末尾终审（Step 7）→ PASS → advance 到 completed（HARD-GATE #4）
 ```
