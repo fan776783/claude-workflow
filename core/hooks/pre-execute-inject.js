@@ -76,6 +76,33 @@ function classifySubagentRole(role) {
   return 'implement'
 }
 
+/**
+ * 派发路由：判定该工具调用是否本 hook 应处理的 workflow 执行派发，并解析正文字段 + kind/role。
+ * - `Task`（legacy 执行工具）：一律处理；task 正文在 `tool_input.description`。
+ * - `Agent`（新 harness 通用 subagent 派发工具）：仅当正文首行是 `Active task:`（dispatch 契约头，见
+ *   implementer/reviewer 模板）才处理，正文在 `tool_input.prompt`；否则视为无关 subagent（research/Explore）
+ *   放行，避免把 workflow 上下文注入污染无关派发，也不施加状态治理。
+ * - 其它工具：不处理。
+ * 角色细化：subagent_type 实测常为泛型 `general-purpose`（implementer/reviewer 都用它，无法区分）→ 用首行
+ *   `(review)` 标记把 `implement` 细化为 `check`（reviewer 拿 full-layer code-specs digest）。
+ * @param {string} toolName - hookInput.tool_name
+ * @param {object} toolInput - hookInput.tool_input
+ * @returns {{handled: boolean, reason?: string, bodyField?: string, rawBody?: string, kind?: string|null, role?: string|null, origin?: string}}
+ */
+function classifyDispatch(toolName, toolInput) {
+  if (toolName !== 'Task' && toolName !== 'Agent') return { handled: false, reason: 'other-tool' }
+  const bodyField = toolName === 'Agent' ? 'prompt' : 'description'
+  const rawBody = toolInput && typeof toolInput[bodyField] === 'string' ? toolInput[bodyField] : ''
+  const firstLine = (rawBody.split('\n').find((l) => l.trim() !== '') || '').trim()
+  const hasHeader = /^Active task:\s*\S/.test(firstLine)
+  // Agent 是通用派发工具 → 无 workflow dispatch 头的一律放行（不注入 / 不治理）。Task 为 legacy，不加此门。
+  if (toolName === 'Agent' && !hasHeader) return { handled: false, reason: 'agent-non-workflow' }
+  const { origin, role } = classifyTaskOrigin(toolInput)
+  let kind = origin === 'subagent' ? (classifySubagentRole(role) || 'implement') : null
+  if (kind === 'implement' && /\(review\)/.test(firstLine)) kind = 'check'
+  return { handled: true, bodyField, rawBody, kind, role, origin }
+}
+
 function renderCodeSpecsBlock({ projectRoot, scope, kind, role }) {
   // scopeDenied 一律降级 paths-only，与 kind 无关
   if (scope && scope.scopeDenied) {
@@ -248,12 +275,20 @@ function main() {
     return
   }
 
-  if (hookInput.tool_name !== 'Task') {
-    process.stdout.write(JSON.stringify(buildAllowResult()))
+  const toolInput = typeof hookInput.tool_input === 'object' && hookInput.tool_input ? hookInput.tool_input : {}
+
+  // 派发工具路由：旧 harness 用 `Task`，新 harness 用 `Agent`。Agent 是通用 subagent 派发工具，
+  // 仅对带 `Active task:` 头的 workflow 执行派发生效（非 workflow 的 research/Explore 放行，不注入不治理）。
+  const dispatch = classifyDispatch(hookInput.tool_name, toolInput)
+  if (!dispatch.handled) {
+    const msg = dispatch.reason === 'agent-non-workflow'
+      ? '[workflow-hook] 非 workflow 执行派发（Agent 无 Active task 头），跳过注入与治理。'
+      : null
+    process.stdout.write(JSON.stringify(buildAllowResult(msg)))
     return
   }
+  const { bodyField, kind, role, origin } = dispatch
 
-  const toolInput = typeof hookInput.tool_input === 'object' && hookInput.tool_input ? hookInput.tool_input : {}
   const runtime = findWorkflowState()
   const state = runtime?.state
   if (!state) {
@@ -332,10 +367,8 @@ function main() {
     return
   }
 
-  const taskDescription = toolInput.description || ''
-  const { origin, role } = classifyTaskOrigin(toolInput)
-  // subagent context 一律走非 null kind；role 缺失时默认 implement（与旧 buildSubagentContext 的 fallthrough 一致）
-  const kind = origin === 'subagent' ? (classifySubagentRole(role) || 'implement') : null
+  const taskDescription = dispatch.rawBody
+  // kind/role/origin 已由 classifyDispatch 解析（含 `(review)` 头把泛型 general-purpose 细化为 check）。
   const context = buildTaskContext(runtime, kind, role)
 
   if (!context) {
@@ -375,7 +408,7 @@ function main() {
   const bodyTail = body ? `\n\n---\n\n${body}` : ''
   const newDescription = `${header}\n\n${context}${bodyTail}`
 
-  const patchedToolInput = { ...toolInput, description: newDescription }
+  const patchedToolInput = { ...toolInput, [bodyField]: newDescription }
   const headerNote = dispatcherHeaderEnd > 0 ? 'header preserved' : 'header injected'
   const result = buildAllowResult(`[workflow-hook] 已注入任务上下文 (${context.length} 字符, ${originLabel}, ${headerNote})`, patchedToolInput)
   process.stdout.write(JSON.stringify(result))
@@ -391,4 +424,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { buildTaskContext, classifyTaskOrigin, classifySubagentRole }
+module.exports = { buildTaskContext, classifyTaskOrigin, classifySubagentRole, classifyDispatch }

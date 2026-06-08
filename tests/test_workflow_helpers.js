@@ -946,13 +946,14 @@ test('workflow helper migration coverage', async (t) => {
     })
   })
 
-  await t.test('workflow hook manifest exposes SessionStart + PreToolUse(Task) via plugin manifest', () => {
+  await t.test('workflow hook manifest exposes SessionStart + PreToolUse(Task|Agent) via plugin manifest', () => {
     // Hooks are registered via Claude Code Plugin manifest (core/hooks/hooks.json), not
     // settings.json injection. Verify the manifest still declares the core events.
+    // PreToolUse 同时匹配 Task（legacy 执行工具）与 Agent（新 harness 通用 subagent 派发工具）。
     const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'core', 'hooks', 'hooks.json'), 'utf8'))
     assert.ok(Array.isArray(manifest.hooks.SessionStart))
     assert.ok(Array.isArray(manifest.hooks.PreToolUse))
-    assert.equal(manifest.hooks.PreToolUse[0].matcher, 'Task')
+    assert.equal(manifest.hooks.PreToolUse[0].matcher, 'Task|Agent')
     assert.equal(manifest.hooks.PostToolUse, undefined)
     // SessionStart points at session-start.js
     const sessionStartCmd = manifest.hooks.SessionStart[0].hooks[0].command

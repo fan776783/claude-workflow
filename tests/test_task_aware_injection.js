@@ -367,6 +367,76 @@ test('task-aware code-specs injection', async (t) => {
     assert.match(missingFileCtx, /<spec-context>/, '<spec-context> must remain when digest file is missing')
   })
 
+  await t.test('classifyDispatch routes Task/Agent tools, gates non-workflow Agents, refines review kind', () => {
+    const hookPath = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
+    delete require.cache[require.resolve(hookPath)]
+    const { classifyDispatch } = require(hookPath)
+
+    // 非 Task/Agent 工具 → 不处理
+    assert.deepEqual(classifyDispatch('Read', {}), { handled: false, reason: 'other-tool' })
+    assert.equal(classifyDispatch('Bash', { command: 'ls' }).handled, false)
+
+    // Agent：正文在 prompt。带 review 头 → handled, bodyField=prompt, kind=check（即使 subagent_type 是泛型 general-purpose）
+    const agentReview = classifyDispatch('Agent', {
+      prompt: 'Active task: T1 (review)\nSpec: x\n\n<your-role>...',
+      subagent_type: 'general-purpose',
+    })
+    assert.equal(agentReview.handled, true)
+    assert.equal(agentReview.bodyField, 'prompt')
+    assert.equal(agentReview.kind, 'check', 'general-purpose + (review) 头 → check kind（full-layer code-specs）')
+    assert.equal(agentReview.origin, 'subagent')
+
+    // Agent：implement 头（无 (review)）→ kind=implement
+    const agentImpl = classifyDispatch('Agent', {
+      prompt: 'Active task: T1\nSpec: x\n\n实现…',
+      subagent_type: 'general-purpose',
+    })
+    assert.equal(agentImpl.handled, true)
+    assert.equal(agentImpl.bodyField, 'prompt')
+    assert.equal(agentImpl.kind, 'implement')
+
+    // Agent：无 Active task 头（无关 research/Explore 派发）→ 放行不处理（避免污染）
+    const agentUnrelated = classifyDispatch('Agent', {
+      prompt: '帮我调研一下 X 的最佳实践',
+      subagent_type: 'general-purpose',
+    })
+    assert.deepEqual(agentUnrelated, { handled: false, reason: 'agent-non-workflow' })
+    // Agent：空 prompt → 同样放行
+    assert.equal(classifyDispatch('Agent', { prompt: '', subagent_type: 'general-purpose' }).handled, false)
+    assert.equal(classifyDispatch('Agent', {}).handled, false)
+
+    // Agent：显式 reviewer subagent_type + review 头 → check（两路信号一致）
+    const agentExplicitReviewer = classifyDispatch('Agent', {
+      prompt: 'Active task: T2 (review)\n…',
+      subagent_type: 'reviewer',
+    })
+    assert.equal(agentExplicitReviewer.kind, 'check')
+
+    // Task（legacy）：正文在 description；无 Active task 头也照常处理（不加 Agent 那道门，向后兼容）
+    const taskLegacyNoHeader = classifyDispatch('Task', {
+      description: '没有 Active task 头的旧式派发',
+      subagent_type: 'general-purpose',
+    })
+    assert.equal(taskLegacyNoHeader.handled, true)
+    assert.equal(taskLegacyNoHeader.bodyField, 'description')
+    assert.equal(taskLegacyNoHeader.kind, 'implement')
+
+    // Task + review 头 → check（description 通道）
+    const taskReview = classifyDispatch('Task', {
+      description: 'Active task: T3 (review)\n…',
+      subagent_type: 'general-purpose',
+    })
+    assert.equal(taskReview.bodyField, 'description')
+    assert.equal(taskReview.kind, 'check')
+
+    // Agent：research/explore 类型 + 偶然带 Active task 头 → research kind（不被 (review) 误升级）
+    const agentResearch = classifyDispatch('Agent', {
+      prompt: 'Active task: T4\n…',
+      subagent_type: 'Explore',
+    })
+    assert.equal(agentResearch.kind, 'research')
+  })
+
   await t.test('buildTaskContext truncates oversized <current-task> with self-rescue pointer (prompt-tail channel)', (t) => {
     const hookPath = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
     delete require.cache[require.resolve(hookPath)]
