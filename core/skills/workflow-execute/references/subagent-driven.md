@@ -47,12 +47,14 @@ controller (主会话)
 
 ### Reviewer 状态分流（合并后）
 
+> reviewer dispatch 的 `subagent_type` 名须含 `review`/`reviewer`/`check`,`pre-execute-inject` hook 才路由 `kind='check'`（full-layer code-specs digest）;否则 fall-through `implement`（`<current-task>` 仍注入、AC/constraints 不丢,仅 code-specs 退 scoped digest）。
+
 单 reviewer subagent 在一个 context 内顺序执行两 phase：
 
-- **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。
+- **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。clean PASS 用 `ac_ids_covered`（AC ID 枚举,不回 evidence 长串）;REVISE/gap 才回完整 `ac_coverage`+evidence（O2a,schema 以 reviewer.md 为权威）。
 - **Phase 2 — Code Quality**：三档语义与 PASS 条件以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。
 
-`decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → 重派 → 重 review。循环上限 **3 轮**（合并 phase1+phase2 共享）：第 3 轮重派仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
+`decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → **fresh 重派 implementer + fresh reviewer subagent**（O4,禁 SendMessage/transcript-resume）→ 重 review。trivial 无逻辑机械修复走 controller 自验例外,不重派 reviewer。循环上限 **3 轮**（合并 phase1+phase2 共享）：第 3 轮重派仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
 
 ### HITL × subagent
 
@@ -73,6 +75,9 @@ controller (主会话)
 - ❌ controller 自读业务源码回灌上下文——**不限 Read 工具,`cat/sed/head/tail/grep/rg/awk` 等 bash 通道同禁**。补 patterns-to-mirror / mandatory-reading 时只给路径 + 意图让 implementer 自读定位(行号可选);源码/diff 读取一律 subagent 侧。实测违反此条(Read + bash-cat 双通道 controller 自读 ~129k)是单会话上下文膨胀主因
 - ❌ controller 读 plan.md / spec.md **全文**回灌上下文(只持 contract-digest + Step 1 task 源切片;plan/spec 全文交 subagent 按路径自读)
 - ❌ 让 controller 把整文件正文粘进 reviewer prompt（reviewer 自跑 `git diff <base>..HEAD`）
+- ❌ controller 为 per-task reviewer 重复粘贴 AC / constraints / code-specs（hook `kind='check'` 已注入 `<current-task>` + `<project-code-specs>`；仅 hook 不可用平台兜底；O1）
+- ❌ REVISE recheck 用 `SendMessage` / transcript-resume 复用既有 implementer/reviewer subagent（应 fresh 重派——resume 重放整段历史 ≈2× input；O4）
+- ❌ per-task reviewer 用 `state.initial_head_commit` 作 diff base（应取 implementer 派发前捕获的 prior-commit；`initial_head_commit` 仅 final-review；O5）
 - ❌ controller 全量 dump 诊断输出回灌上下文(`workflow_cli status/context`、`git diff/log/status` 一律 `jq`/`grep`/`--stat` 取字段;原始 diff 验证交 reviewer subagent,不在 controller 跑)
 - ❌ reviewer / implementer 返回散文报告,或 **JSON 前后夹带散文/markdown/推理**(strict JSON-only:首字符即 `{`;controller 不做 loose-extract 容忍,夹带散文 = schema 违规,重派 1 次后 halt)
 - ❌ 在 plan 执行路径里同时派发多个 implementer subagent（plan task 有依赖 / 共享文件，写动作顺序执行）。文件不重叠的独立写任务走 `dispatching-parallel-agents` 的 writable fan-out，不在本主路径并行
