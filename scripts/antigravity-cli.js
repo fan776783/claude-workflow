@@ -1,7 +1,7 @@
 /**
  * 封装 Antigravity CLI (`agy`) 的 plugin 子命令。
  *
- * 设计与 scripts/qoder-cli.js 对齐：统一用 execFile（不用 exec，避免 shell 注入），
+ * 设计与 scripts/claude-cli.js 对齐：统一用 execFile（不用 exec，避免 shell 注入），
  * 带 timeout；失败不抛异常，返回 { success: false, stderr } 形态让调用方处理。
  *
  * Antigravity CLI 是 Gemini CLI 的后继者（Gemini CLI 2026-06-18 停服）。它支持
@@ -12,7 +12,7 @@
  *   agy plugin list                  默认输出 JSON：{ "imports": [ { name, source, ... } ] }
  *                                    —— 空时输出纯文本 "No imported plugins."（需兜底解析）
  *
- * 注意：install 没有 --scope 参数（与 qodercli 不同），且是快照复制 —— core/ 更新后
+ * 注意：install 没有 --scope 参数（与 claude plugin install 不同），且是快照复制 —— core/ 更新后
  * 需要重新 install 才能刷新，sync 每次重跑即可（幂等覆盖）。
  */
 
@@ -35,7 +35,7 @@ let cachedBinary = null;
  * 解析 agy 可执行文件路径。
  *
  * 走 scripts/cli-resolve.js 的多级解析（PATH → 已知安装目录如 ~/.local/bin → 登录 shell /
- * where），与 claude-cli / qoder-cli 共用同一套逻辑。agy 安装器默认落 ~/.local/bin/agy，
+ * where），与 claude-cli 共用同一套逻辑。agy 安装器默认落 ~/.local/bin/agy，
  * 正好在 cli-resolve 的已知目录里。
  */
 function resolveAntigravityBinary() {

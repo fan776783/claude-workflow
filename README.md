@@ -49,7 +49,7 @@ agent-workflow sync -y
 ```
 
 - `npm i -g` 会**记住 registry**（供 `update` 复用），并为 installer-mount 类工具复制模板
-- `sync -y` 安装 Claude Code / Qoder / Antigravity 的原生 Plugin、补齐其余 5 个工具、清理旧版残留；`claude` CLI 不在 PATH 时降级为直接写 Plugin 配置
+- `sync -y` 安装 Claude Code / Antigravity 的原生 Plugin、按目录 mount 其余 6 个工具（含 Qoder）、清理旧版残留；`claude` CLI 不在 PATH 时降级为直接写 Plugin 配置
 
 ### 2.2 更新与验证
 
@@ -223,8 +223,8 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 
 | 分发方式 | 工具 |
 |----------|------|
-| 原生 Plugin | Claude Code、Qoder（`qodercli plugins install`）、Antigravity（`agy plugin install`） |
-| installer 逐 skill mount | Cursor、Codex、GitHub Copilot、OpenCode、Droid |
+| 原生 Plugin | Claude Code、Antigravity（`agy plugin install`） |
+| installer 逐 skill mount | Qoder、Cursor、Codex、GitHub Copilot、OpenCode、Droid |
 
 > Gemini CLI 已于 2026-06-18 停服并入 Antigravity CLI（`agy`），原支持已移除。
 

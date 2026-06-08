@@ -1,7 +1,7 @@
 /**
  * 跨 CLI 共享的可执行文件解析器。
  *
- * 背景：原先 claude-cli / qoder-cli 只扫 `process.env.PATH` 里的文件。但"终端能跑
+ * 背景：原先 claude-cli 只扫 `process.env.PATH` 里的文件。但"终端能跑
  * `claude` 却检测不到"很常见——PATH 由 shell profile（.zshrc/.zprofile/PowerShell
  * $PROFILE）注入、或 claude 装在 `~/.local/bin` 这种 npm/node 子进程 PATH 没收录的
  * 目录时，纯 `process.env.PATH` 扫描就漏检。

@@ -5,8 +5,11 @@
  * 与 package.json 版本一致。
  *
  * 同步两份清单：
- *   - core/.claude-plugin/plugin.json  —— Claude Code / Qoder 原生 Plugin 读这份
+ *   - core/.claude-plugin/plugin.json  —— Claude Code 原生 Plugin 读这份
  *   - core/plugin.json                 —— Antigravity CLI（agy plugin install）读根级这份
+ *
+ * 注：Qoder 走 installer-mount（~/.qoder/{skills,commands,agents} + settings.json hooks），
+ * 不读任何 plugin manifest，故不在此同步。
  *
  * 用法：node scripts/sync-plugin-version.js <new-version>
  */
