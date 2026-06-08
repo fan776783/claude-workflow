@@ -158,6 +158,32 @@ function getTaskBlock(runtime, taskId = null) {
   return ''
 }
 
+// <current-task> 截断自救：返回当前 task 的 task.md 绝对路径（落在 ~/.claude/workflows/{pid}/tasks/{id}/，
+// subagent 可用绝对路径 Read）。仅文件确实落盘时返回；legacy / 未渲染 → null。
+function getTaskMdPath(runtime, taskId = null) {
+  const resolvedTaskId = taskId || getCurrentTaskId(runtime)
+  if (!resolvedTaskId || !runtime?.projectId) return null
+  try {
+    const mdPath = taskStore.getTaskMdPath(runtime.projectId, resolvedTaskId)
+    return mdPath && fs.existsSync(mdPath) ? mdPath : null
+  } catch {
+    return null
+  }
+}
+
+// <current-task> 截断自救退化档：task.md 未落盘但 task-dir 有 task.json（v2 记录存在、md 未渲染）时，
+// 给 subagent 一个仍可 Read 的绝对路径。纯 legacy（无 task-dir）→ null。
+function getTaskJsonPath(runtime, taskId = null) {
+  const resolvedTaskId = taskId || getCurrentTaskId(runtime)
+  if (!resolvedTaskId || !runtime?.projectId) return null
+  try {
+    const jsonPath = taskStore.getTaskJsonPath(runtime.projectId, resolvedTaskId)
+    return jsonPath && fs.existsSync(jsonPath) ? jsonPath : null
+  } catch {
+    return null
+  }
+}
+
 function getTaskActions(task) {
   return [...(task?.actions || [])].filter(Boolean)
 }
@@ -170,6 +196,15 @@ function getTaskVerificationCommands(task) {
   return [...(getTaskVerification(task)?.commands || [])].filter(Boolean)
 }
 
+// 命中"整体内容上限"时截断 + 一行 stderr 告警（异常事件，便于发现注入被裁）。
+// 注意：每文件 digest 预算（rootIndexBudget/layerIndexBudget/PER_FILE_BUDGET）的常规切片不走这里——
+// 那是正常操作，逐文件告警会刷屏淹没真信号（见 safeReadCodeSpecs 静默切片）。
+function truncateWithWarning(content, maxLen, label, suffix = '') {
+  if (!maxLen || content.length <= maxLen) return content
+  process.stderr.write(`[workflow-hook] ${label} truncated at ${maxLen} (full ${content.length})${suffix}\n`)
+  return content.slice(0, maxLen)
+}
+
 function getSpecContent(projectRoot, state, maxChars = 2000) {
   const specFile = state?.spec_file || ''
   if (!specFile) return ''
@@ -177,7 +212,7 @@ function getSpecContent(projectRoot, state, maxChars = 2000) {
   const specPath = path.isAbsolute(specFile) ? specFile : path.join(path.resolve(projectRoot || process.cwd()), specFile)
   const specContent = readFile(specPath)
   if (!specContent) return ''
-  return specContent.length > maxChars ? specContent.slice(0, maxChars) : specContent
+  return truncateWithWarning(specContent, maxChars, 'spec-context')
 }
 
 // digest 落 ~/.claude/workflows/{pid}/ = workflowDir；相对路径用 resolveRuntimeRelativePath 守卫，绝对路径直接用。
@@ -191,8 +226,7 @@ function getContractDigest(runtime, maxChars = 3000) {
   if (!resolved) return ''
   const content = readFile(resolved)
   if (!content) return ''
-  const truncated = content.length > maxChars ? content.slice(0, maxChars) : content
-  return sanitizeContractBody(truncated)
+  return sanitizeContractBody(truncateWithWarning(content, maxChars, 'task-contract'))
 }
 
 // JSONL 背包展开（S4 / FR-3）：读 task-dir 的 context.jsonl 每行 {file,reason}，
@@ -277,7 +311,7 @@ function expandContextPack(runtime, { maxCharsPerFile = 3000, maxFiles = 12 } = 
       process.stderr.write(`[workflow-hook] context-pack missing file: ${fileRef}\n`)
       continue
     }
-    const truncated = content.length > maxCharsPerFile ? content.slice(0, maxCharsPerFile) : content
+    const truncated = truncateWithWarning(content, maxCharsPerFile, 'context-pack', `: ${fileRef}`)
     const body = sanitizeContextPackBody(truncated)
     // reason 进 attribute 前剥换行 + 转义引号/尖括号，防伪造 </context-pack> 或额外 `### ` 文件头。
     const reasonText = typeof entry.reason === 'string' ? entry.reason.replace(/[\r\n]+/g, ' ').trim() : ''
@@ -331,6 +365,7 @@ function safeReadCodeSpecs(filePath, allowedPrefix, maxLen) {
   if (!isPathUnderRoot(filePath, allowedPrefix)) return null
   try {
     const content = fs.readFileSync(filePath, 'utf8')
+    // 这里的 maxLen 是每文件 digest 预算（routine 切片），不是异常上限 → 静默切片，不告警。
     return maxLen ? content.slice(0, maxLen) : content
   } catch {
     return null
@@ -765,15 +800,17 @@ function getCodeSpecsContext(projectRoot = process.cwd(), maxChars = 2000, optio
 // 支持三种 mode：
 //   'digest'     — 每文件最多 ~600 字，总预算裁剪（等价历史 getCodeSpecsContext* 行为）
 //   'paths-only' — 只输出路径清单 + 一行引导，不读正文
-//   'full'       — 每文件不做小预算截断，但仍受总 maxChars 限制
 //
 // files 条目结构：{ path, relativePath, section: 'root-index' | 'layer-index' | 'guide-index' | 'spec', priority }
 // priority 越小越先读取；paths-only 模式下 priority 只影响列表顺序。
+// 每文件正文预算（digest 模式 spec 文件切片上限）。无 caller 覆盖过 → 模块级常量而非可传选项
+//（rootIndexBudget/layerIndexBudget 仍是选项，session-start 会下调它们）。
+const PER_FILE_BUDGET = 600
+
 const COLLECTOR_DEFAULTS = Object.freeze({
   maxChars: 2000,
   rootIndexBudget: 300,
   layerIndexBudget: 150,
-  perFileBudget: 600,
   mode: 'digest',
   pathsOnlyHint: '按 package/layer 用 Read 读取对应 index.md 展开 Pre-Development Checklist',
 })
@@ -783,7 +820,6 @@ function resolveCollectorOptions(options = {}) {
     maxChars: options.maxChars || COLLECTOR_DEFAULTS.maxChars,
     rootIndexBudget: options.rootIndexBudget || COLLECTOR_DEFAULTS.rootIndexBudget,
     layerIndexBudget: options.layerIndexBudget || COLLECTOR_DEFAULTS.layerIndexBudget,
-    perFileBudget: options.perFileBudget || COLLECTOR_DEFAULTS.perFileBudget,
     mode: options.mode || COLLECTOR_DEFAULTS.mode,
     pathsOnlyHint: options.pathsOnlyHint || COLLECTOR_DEFAULTS.pathsOnlyHint,
   }
@@ -925,8 +961,7 @@ function renderSpecFiles(collection, options = {}) {
     let sliceLen
     if (file.section === 'root-index') sliceLen = Math.min(opts.rootIndexBudget, remaining)
     else if (file.section === 'layer-index' || file.section === 'guide-index') sliceLen = Math.min(opts.layerIndexBudget, remaining)
-    else if (opts.mode === 'full') sliceLen = remaining - 32
-    else sliceLen = Math.min(opts.perFileBudget, remaining - 32)
+    else sliceLen = Math.min(PER_FILE_BUDGET, remaining - 32)
     const snippet = safeReadCodeSpecs(file.path, allowedPrefix, sliceLen)
     if (!snippet) continue
     if (file.section === 'root-index') {
@@ -965,6 +1000,8 @@ module.exports = {
   getCurrentTask,
   getCurrentTaskId,
   getTaskBlock,
+  getTaskMdPath,
+  getTaskJsonPath,
   getTaskActions,
   getTaskVerification,
   getTaskVerificationCommands,

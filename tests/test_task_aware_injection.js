@@ -366,4 +366,84 @@ test('task-aware code-specs injection', async (t) => {
     assert.match(missingFileCtx, /<current-task/, '<current-task> must remain when digest file is missing')
     assert.match(missingFileCtx, /<spec-context>/, '<spec-context> must remain when digest file is missing')
   })
+
+  await t.test('buildTaskContext truncates oversized <current-task> with self-rescue pointer (prompt-tail channel)', (t) => {
+    const hookPath = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
+    delete require.cache[require.resolve(hookPath)]
+    const hook = require(hookPath)
+    const taskStore = require(path.join(workflowDir, 'task_store.js'))
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-trunc-'))
+    const wfDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-trunc-wf-'))
+    const specPath = path.join(root, 'spec.md')
+    fs.writeFileSync(specPath, '# Spec\nspec body\n')
+
+    // task-dir 落在 os.homedir() 下（getTaskMdPath/getTaskJsonPath call-time 解析）。同时覆盖 HOME(POSIX)
+    // 与 USERPROFILE(Windows)，把真实 task.md/task.json 隔离到临时 HOME，不污染开发者真实 ~/.claude/workflows，
+    // 且跨平台一致。t.after 还原 env + 清理所有临时目录（含临时 HOME 下落盘的 task-dir）。
+    const oldHome = process.env.HOME
+    const oldUserProfile = process.env.USERPROFILE
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-trunc-home-'))
+    process.env.HOME = tmpHome
+    process.env.USERPROFILE = tmpHome
+    t.after(() => {
+      if (oldHome === undefined) delete process.env.HOME
+      else process.env.HOME = oldHome
+      if (oldUserProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = oldUserProfile
+      for (const dir of [root, wfDir, tmpHome]) {
+        try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      }
+    })
+
+    // v2 record（schema_version ≥ CURRENT）→ getTaskBlock 走 v2 路径：先 readTaskMd(落盘 task.md)，缺失则
+    // renderTaskMd(record) 即时重渲染。注入 block 与指针指向的 task.md/task.json 同源，杜绝解耦（生产真实）。
+    const mkRecord = (over) => ({ id: 'T1', name: 'big', schema_version: taskStore.CURRENT_SCHEMA_VERSION, ...over })
+    const mkRuntime = (projectId, record) => ({
+      projectRoot: root,
+      projectId,
+      workflowDir: wfDir,
+      state: { spec_file: specPath, current_tasks: ['T1'] },
+      currentTaskId: 'T1',
+      currentTask: record,
+    })
+    const BIG = 'x'.repeat(7000)
+
+    // Case A：v2 + 小 task.md 落盘（<6000）→ 不追加 truncation 指针（回归守门：小块不应被打标记）
+    taskStore.writeTaskMd('truncpidA', 'T1', '# T1: small\nbody\n')
+    const small = hook.buildTaskContext(mkRuntime('truncpidA', mkRecord()), 'implement', 'general-purpose')
+    assert.doesNotMatch(small, /\[truncated /, '小于 cap 的块不应追加 truncation 指针')
+
+    // Case B：v2 record（task_text 超长 → renderTaskMd >6000）但 task.md 未落盘、task.json 已落盘
+    //         → 退化为可 Read 的 task.json 绝对路径（不再谎报不存在的文件）
+    taskStore.createTask('truncpidB', mkRecord({ task_text: BIG }))
+    const jsonDegraded = hook.buildTaskContext(mkRuntime('truncpidB', mkRecord({ task_text: BIG })), 'implement', 'general-purpose')
+    assert.match(jsonDegraded, /\[truncated 6000\/\d+ chars/, '超 cap 必须带截断信号（消费者是 subagent，prompt 尾行通道）')
+    assert.match(jsonDegraded, /全文 task\.json: /, 'task.md 缺失但 task.json 在 → 退化给 task.json 路径')
+    assert.ok(jsonDegraded.includes(taskStore.getTaskJsonPath('truncpidB', 'T1')), '退化指针应内联可 Read 的 task.json 绝对路径')
+    assert.doesNotMatch(jsonDegraded, /x{6001,}/, '6000 之后的原始正文必须被丢弃（指针不占正文预算）')
+    assert.match(jsonDegraded, /<\/current-task>/, '<current-task> 必须正常闭合')
+
+    // Case C：v2 + 大 task.md 落盘（>6000）→ 指针给出 task.md 绝对路径，block 与该文件同源
+    const mdPath = taskStore.writeTaskMd('truncpidC', 'T1', `# T1: big\n${BIG}\n`)
+    const withPath = hook.buildTaskContext(mkRuntime('truncpidC', mkRecord()), 'implement', 'general-purpose')
+    assert.match(withPath, /全文 task\.md: /, 'task.md 落盘时指针应给出 task.md 路径')
+    assert.ok(withPath.includes(mdPath), `指针应内联可 Read 的 task.md 绝对路径 ${mdPath}`)
+
+    // Case D：纯 legacy（无 task-dir；currentTask 无 schema_version → getTaskBlock 走 tasksContent）
+    //         → 既无 task.md 也无 task.json → 中性截断信号，不谎报 task.json
+    const legacyBlock = ['## T1: legacy', '- **Package**: my-pkg', BIG, ''].join('\n')
+    const legacy = hook.buildTaskContext({
+      projectRoot: root,
+      projectId: 'truncpidD',
+      workflowDir: wfDir,
+      state: { spec_file: specPath, current_tasks: ['T1'] },
+      tasksContent: legacyBlock,
+      currentTaskId: 'T1',
+      currentTask: { id: 'T1' },
+    }, 'implement', 'general-purpose')
+    assert.match(legacy, /\[truncated 6000\/\d+ chars/, 'legacy 超 cap 也要带截断信号')
+    assert.match(legacy, /无 task-dir/, '纯 legacy 无 task-dir → 中性信号')
+    assert.doesNotMatch(legacy, /task\.json:/, '无 task-dir 时不得谎报 task.json 路径')
+  })
 })

@@ -9,6 +9,8 @@ const {
   getWorkflowRuntime,
   getCurrentTaskId,
   getTaskBlock,
+  getTaskMdPath,
+  getTaskJsonPath,
   getCurrentTask,
   getTaskVerificationCommands,
   getSpecContent,
@@ -23,21 +25,6 @@ const {
 const { assertExecutableTaskSourcePresent, deriveEffectiveStatus, finishedTaskIds, getSpecReviewGateViolation } = require('../utils/workflow/workflow_types')
 const { shouldSkipInjection } = require('./_skip')
 const { normalizeWindowsShellPath } = require('../utils/workflow/path_utils')
-
-/**
- * 从 Markdown 内容中提取指定标题下的段落
- * @param {string} content - Markdown 文本
- * @param {string} heading - 要提取的标题文本
- * @param {number} [maxChars=2000] - 最大返回字符数
- * @returns {string} 提取的段落内容
- */
-function extractSection(content, heading, maxChars = 2000) {
-  const pattern = new RegExp(`^(#{1,4})\\s+${heading.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b[^\\n]*\\n([\\s\\S]*?)(?=\\n\\1\\s|$)`, 'm')
-  const match = String(content || '').match(pattern)
-  if (!match) return ''
-  const section = match[2].trim()
-  return section.length > maxChars ? section.slice(0, maxChars) : section
-}
 
 /**
  * 获取当前 workflow 运行时信息
@@ -141,7 +128,30 @@ function buildTaskContext(runtime, kind, role) {
     // kind 非 null 代表 subagent dispatch；role 缺失保留 'unknown' 标记，与旧行为一致
     const header = kind ? `<current-task subagent_role="${role || 'unknown'}">` : '<current-task>'
     // v2 task.md 切片含 task_text + patterns/mandatory/constraints/files/验证，比旧 plan.md block 大 → 放宽截断上限。
-    parts.push(`${header}\n${taskBlock.slice(0, 6000)}\n</current-task>`)
+    const CURRENT_TASK_CAP = 6000
+    let taskBody = taskBlock
+    if (taskBlock.length > CURRENT_TASK_CAP) {
+      // 消费者是被派发的 subagent，hook stderr 它看不见 → 把截断信号 + 全文路径追加到块尾
+      //（slice 之后，不挤占 task 正文预算），让 implementer/reviewer 自行 Read 补回被丢掉的尾段。
+      // 按 renderTaskMd 顺序，head 保留 task_text/验收项/约束，tail 先丢 Patterns/Mandatory Reading/写作用域；
+      // 验证命令另由下方 <verification-commands> 注入，不依赖此处恢复。指针为固定串 + 受控路径
+      //（projectId/taskId 已校验），非注入面。三档：task.md 落盘 → md 路径；仅 task.json（v2 未渲染 md）
+      // → json 路径；纯 legacy（无 task-dir）→ 中性截断信号（不谎报 task.json）。
+      const head = `\n\n[truncated ${CURRENT_TASK_CAP}/${taskBlock.length} chars — `
+      const readHint = '，需要 验收项/constraints/verification 请自行 Read 补齐]'
+      const mdPath = getTaskMdPath(runtime, taskId)
+      let pointer
+      if (mdPath) {
+        pointer = `${head}全文 task.md: ${mdPath}${readHint}`
+      } else {
+        const jsonPath = getTaskJsonPath(runtime, taskId)
+        pointer = jsonPath
+          ? `${head}全文 task.json: ${jsonPath}${readHint}`
+          : `${head}无 task-dir（legacy plan.md 流），余下内容已截断]`
+      }
+      taskBody = taskBlock.slice(0, CURRENT_TASK_CAP) + pointer
+    }
+    parts.push(`${header}\n${taskBody}\n</current-task>`)
     if (kind !== 'research') {
       const verificationCommands = getTaskVerificationCommands(task)
       if (verificationCommands.length) {

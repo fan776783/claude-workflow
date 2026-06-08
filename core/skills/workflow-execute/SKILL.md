@@ -282,7 +282,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --
 
 ### context 压力提示（启发式，无 CLI、无落盘）
 
-删 governor 后无可靠 in-session token 计数,不做计数判断(实测单会话上限约 5–7 task)。长 run 后感知 context 偏满时,打一行 banner 建议用户本批结束后 `/clear` 开新会话续跑——resume 三元组从 state + task-dir 重建(见 Step 2),清理无损失。**不阻塞、不写盘**,用户可忽略。
+删 governor 后无可靠 in-session token 计数,不做计数判断(实测单会话上限约 5–7 task)。长 run 后感知 context 偏满时,打一行 banner 建议用户本批结束后 `/clear` 开新会话续跑——resume 三元组(state + task-dir)重建无损失(见 Step 2);唯一例外:per-task Known-issues 排除清单只存会话内存,`/clear` 后为空属预期(见 Step 7,phase2 全量上报由分流去重兜底)。**不阻塞、不写盘**,用户可忽略。
 
 ## 特殊模式（条件路径——默认 fresh-subagent 主路径不触发，按命中场景查阅）
 
@@ -332,7 +332,7 @@ CLI 自动标记 `skipped` + 更新 task-dir(task.json) + state.json + 找下一
 所有 task `completed`(或 `skipped`)时,controller **inline** 派一个 final reviewer subagent 做整 branch 终审(不再有独立终审阶段、无独立 review 中间态)。**这是进 `completed` 的唯一门**(HARD-GATE #4)。
 
 1. **构造 final reviewer prompt**:复用 [`prompts/reviewer.md`](prompts/reviewer.md) 的「末尾 final-review 形态」段(与 per-task 同模板、同 output schema),由 controller 按该模板的「Prompt 占位 → 数据来源映射」final-review 列自行装配(C-001:不引入新机制)。scope / phase 语义、占位映射、refute 框架、排除清单与升级规则**均以 reviewer.md 该段为唯一权威,此处不复写**。execute 侧唯一自有职责:
-   - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract)三段合计 ≤20 行;`## Known-issues`(per-task review 已记录的 minor + concerns,作 phase2 排除清单)**不占该预算,每条一行,不截断**——排除清单只有完整才有效,截断会让 final reviewer 把已知项当新发现重报。该清单仅存会话内存(journal 不落 per-task review 结论),/clear 后 resume 时为空属预期,phase2 全量上报由分流去重。四段随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
+   - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract)三段合计 ≤20 行(超出时按重要性裁剪:优先保留影响跨 task contract 的条目,丢低优先 Rejected 路径;与 Known-issues 不同,这三段可安全截断,不影响 phase2 排除逻辑);`## Known-issues`(per-task review 已记录的 minor + concerns,作 phase2 排除清单)**不占该预算,每条一行,不截断**——排除清单只有完整才有效,截断会让 final reviewer 把已知项当新发现重报。该清单仅存会话内存(journal 不落 per-task review 结论),/clear 后 resume 时为空属预期,phase2 全量上报由分流去重。四段随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
 2. **controller 注入纪律**(同 per-task reviewer):
    - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`),reviewer 自跑 `git diff` 取整 branch diff,**不预读整文件正文**。
    - `<code-specs-context>` 按本 branch 触及的 pkg/layer 摘取适用段落;空则降级通用质量启发式。
