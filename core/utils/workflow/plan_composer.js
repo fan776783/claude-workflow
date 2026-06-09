@@ -288,6 +288,80 @@ function lintTaskAtomicity(tasks, thresholdN = 5) {
   return { warnings, checked_tasks: checked }
 }
 
+// T-SF Shared File Analysis lint：扫 task 源的 files[]×depends[] 图，产出两类 advisory 信号。
+//   merge_candidates：同 file ∩ 直接 depends 边 ∩ 同 phase ∩ 同 quality_gate 的 task 对 → 建议合并
+//     （④同功能域=语义判断，机器判不了，故只报候选、人确认后合，引擎绝不自动合并）。
+//   fan_out：同一 file 被 ≥fanOutThreshold 个 task 触及 → 提示无序写入 / 生成物收敛单一物化 task。
+// 纯 advisory：不进 ready 门、不进 scoreConfidence rubric（与 lintTaskAtomicity 同层，仅记录供消费者展示）。
+// 入参防御：LegacyPlanMdSource 的 legacyTaskToRecord 不产出 files 字段（task.files=undefined），
+// 字段一律 Array.isArray 兜底——缺 files 的 legacy 工作流信号恒空（不抛、不误报）。
+function lintSharedFiles(tasks, { fanOutThreshold = 3 } = {}) {
+  const taskList = Array.isArray(tasks) ? tasks : []
+  const records = []
+  for (const task of taskList) {
+    if (!task || !task.id) continue
+    records.push({
+      id: String(task.id),
+      files: Array.isArray(task.files) ? task.files.filter((f) => typeof f === 'string' && f) : [],
+      depends: Array.isArray(task.depends) ? task.depends.map(String) : [],
+      phase: task.phase || 'implement',
+      quality_gate: Boolean(task.quality_gate),
+    })
+  }
+  const checked = records.length
+  const byId = new Map(records.map((r) => [r.id, r]))
+  // file → 有序去重 taskId 列表（保插入序，稳定输出）
+  const fileMap = new Map()
+  for (const r of records) {
+    for (const f of new Set(r.files)) {
+      if (!fileMap.has(f)) fileMap.set(f, [])
+      fileMap.get(f).push(r.id)
+    }
+  }
+  // pair(sorted key) → 共享 file 集合；fan_out 同遍累计
+  const pairFiles = new Map()
+  const fan_out = []
+  for (const [file, ids] of fileMap) {
+    if (ids.length < 2) continue
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = [ids[i], ids[j]].sort().join('|')
+        if (!pairFiles.has(key)) pairFiles.set(key, new Set())
+        pairFiles.get(key).add(file)
+      }
+    }
+    if (ids.length >= fanOutThreshold) {
+      fan_out.push({
+        shared_file: file,
+        task_ids: [...ids],
+        task_count: ids.length,
+        message: `${file} 被 ${ids.length} 个 task 触及（${ids.join(', ')}）；确认写入顺序/归属，若为生成物（如下游 i18n locale / autogen）应收敛到单一物化 task、feature task 只碰源`,
+      })
+    }
+  }
+  const hasDirectEdge = (a, b) => a.depends.includes(b.id) || b.depends.includes(a.id)
+  const merge_candidates = []
+  for (const [key, files] of pairFiles) {
+    const [idA, idB] = key.split('|')
+    const a = byId.get(idA)
+    const b = byId.get(idB)
+    if (!a || !b) continue
+    if (!hasDirectEdge(a, b)) continue // ① 直接依赖边（双向任一）—— 挡住并列兄弟，不吃 atomicity
+    if (a.phase !== b.phase) continue // ③ 同 phase
+    if (a.quality_gate !== b.quality_gate) continue // ⑤ 不跨 quality_gate/commit 边界
+    const sharedFiles = [...files].sort()
+    merge_candidates.push({
+      task_ids: [idA, idB],
+      shared_files: sharedFiles,
+      phase: a.phase,
+      message: `${idA} + ${idB} 有直接依赖边且同改 ${sharedFiles.join(', ')}、同 phase/quality_gate；考虑合并为一个 task（④同功能域需人确认；合并时逐半 acceptance 挂回原 R-id/CHG-id 留可追溯）`,
+    })
+  }
+  merge_candidates.sort((x, y) => x.task_ids.join().localeCompare(y.task_ids.join()))
+  fan_out.sort((x, y) => x.shared_file.localeCompare(y.shared_file))
+  return { merge_candidates, fan_out, checked_tasks: checked }
+}
+
 // T1 lintPlaceholder：扫 plan markdown 寻找 TBD/TODO/中文占位/模板残留。
 // 命中即 push 一条 {line, token, context}。不阻断本函数,由 cmdPlanReview 聚合时 hard-block ready。
 const PLACEHOLDER_TOKENS_EN = [
@@ -1157,6 +1231,7 @@ function cmdPlanReview(projectId = null, projectRoot = null) {
     // specStatus ≠ ok 时 specOk 已挡 ready，无内容可扫，hits 置空。
     spec_placeholder: specStatus === 'ok' ? lintPlaceholder(specMd) : { hits: [] },
     atomicity: lintTaskAtomicity(reviewTasks),
+    shared_file: lintSharedFiles(reviewTasks),
     anchor_integrity: { ...anchorIntegrity, plan_version: planVersion, enforced: isV2Plan },
     mandatory_reading: lintMandatoryReading(reviewTasks),
     command_syntax: lintCommandSyntax(reviewTasks),
@@ -1449,6 +1524,7 @@ module.exports = {
   createTaskShellsFromCoverage,
   buildNarrativeTasksBody,
   lintTaskAtomicity,
+  lintSharedFiles,
   lintPlaceholder,
   checkRequirementCoverage,
   derivePlanSummary,
