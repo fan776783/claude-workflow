@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.9] - 2026-06-09
+
+### Added
+
+- **`plan-review` 新增共享文件信号 `lints.shared_file`（merge / fan-out）**（commit 41c0c10）：扫 task 源的 `files[]`×`depends[]` 图，产出两类 advisory 信号——`merge_candidates`（两 task 满足直接 `depends` 边 ∩ `files[]` 有交集 ∩ 同 `phase` ∩ 同 `quality_gate` → 建议合并为一个 task，"同功能域"机器判不了故**只报候选、人确认后合，引擎绝不自动合并**）与 `fan_out`（同一 file 被 ≥3 个 task 触及 → 确认写入顺序/归属，生成物收敛到单一物化 task）。纯 advisory：不进 ready 门、不进 `scoreConfidence` rubric，与 `lintTaskAtomicity` 同层。与 Task Atomicity 正交——atomicity 看广度（一 task N≥5 并列子项 → 拆）、merge 看深度（两 task 同产物 + 依赖边 → 合），数据源不同不双报。`LegacyPlanMdSource` 无 `files` 字段时信号恒空（`Array.isArray` 兜底，不抛不误报）。
+
+### Changed
+
+- **`grill` 明确用户交互语言要求**（commit 1644185）：SKILL.md 补充说明——面向用户的提问与结论用中文，对齐全局协议的用户输出语言约定。
+
 ## [6.6.8] - 2026-06-08
 
 ### Added
