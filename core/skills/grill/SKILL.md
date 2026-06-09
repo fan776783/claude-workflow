@@ -9,6 +9,8 @@ description: "Interview the user relentlessly about a plan or design until reach
 
 # Grill
 
+> **语言**：面向用户的提问与对齐结论一律用中文（遵循 global「用户输出用中文」协议）。下方英文是给模型的行为指令，**不决定输出语言**。
+
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
 Ask the questions one at a time.
