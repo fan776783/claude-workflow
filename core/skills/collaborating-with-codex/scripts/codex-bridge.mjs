@@ -317,13 +317,24 @@ class AppServerClient {
 
   async start() {
     const isWin = process.platform === "win32";
-    const codexArgs = [
-      "-c", "features.multi_agent_v2.enabled=true",
-      "-c", "features.multi_agent_v2.min_wait_timeout_ms=480000",
-      "-c", "features.multi_agent_v2.default_wait_timeout_ms=480000",
-      "app-server",
-    ];
-    process.stderr.write(`[codex-bridge] effective wait timeout: 8min (480000ms)\n`);
+    // multi_agent_v2 注册 `spawn_agent` 工具，它声明加密参数（encrypted tool use），
+    // 仅 OpenAI 官方 Responses API 支持。经第三方中转（如 new-api / OpenRouter）的模型会在请求校验阶段直接报
+    // `Invalid Value: 'tools'. Function 'functions.spawn_agent' ... not configured for encrypted tool use`，
+    // 即便 review/oracle 这类单评审线程根本不会调用 spawn_agent，工具出现在 tools 数组里就会被拒。
+    // 默认关闭以兼容中转 provider；用 OpenAI 官方且需要多 agent 并行时设 CODEX_BRIDGE_MULTI_AGENT=1 显式开启。
+    const enableMultiAgent = process.env.CODEX_BRIDGE_MULTI_AGENT === "1";
+    const codexArgs = enableMultiAgent
+      ? [
+          "-c", "features.multi_agent_v2.enabled=true",
+          "-c", "features.multi_agent_v2.min_wait_timeout_ms=480000",
+          "-c", "features.multi_agent_v2.default_wait_timeout_ms=480000",
+          "app-server",
+        ]
+      : [
+          "-c", "features.multi_agent_v2.enabled=false",
+          "app-server",
+        ];
+    process.stderr.write(`[codex-bridge] multi_agent_v2: ${enableMultiAgent ? "on (wait timeout 8min)" : "off (encrypted-tool incompatible providers)"}\n`);
 
     this.proc = spawn(
       isWin ? "cmd" : "codex",
