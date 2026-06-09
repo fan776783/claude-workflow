@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.8] - 2026-06-08
+
+### Added
+
+- **新增 `teach` 教学 skill（skill 数 33 → 34）**（commit 16cff59）：多 session 教学 workspace——MISSION / GLOSSARY / RESOURCES / learning-records 四件套，Knowledge-Skills-Wisdom 三要素 + zone of proximal development；`disable-model-invocation` 仅用户显式触发。同时清理废弃的 `spec-lite-template.md`。
+- **task context 截断 + self-rescue 指针**（commit 9122bd3）：`buildTaskContext` 对超大 task block 截断并追加 `getTaskMdPath` / `getTaskJsonPath` 绝对路径指针，subagent 在内容被截断时可据指针取回完整 task.md / task.json。
+
+### Changed
+
+- **Qoder 改为 installer-mount（Plugin-managed 工具 3 → 2，installer-mount 5 → 6）**（commit e88f127）：移除 `qoder-plugin.js` / `qoder-cli.js`，Qoder 不再走 Plugin 分发，改由 installer 逐项 mount（skills→`~/.qoder/skills`、commands、subagents、hooks→`settings.json` merge-safe 注入）；仅 Claude Code / Antigravity 保留原生 Plugin。
+- **reviewer 上下文 / token 优化**（commit 526f1dd）：clean PASS 返回压成 `ac_ids_covered` 枚举（丢 evidence 长串，完整 `ac_coverage` + evidence 仅 REVISE / gap 返回）；per-task reviewer 的 AC / constraints / code-specs 改走 `pre-execute-inject` 单通道（controller 不再重复粘贴）；REVISE recheck 钉死 fresh re-dispatch（禁 SendMessage / transcript-resume）；per-task diff base 锁 implementer 派发前 prior-commit。
+- **收敛 plan / execute 文档冗余 + 删死机器**（commit 3a55b73）：多 agent 过度设计审计 52 findings 逐条对抗验证后落地——删 Step 7 死命令裸 advance、`execution-checklist.md` 压成 tombstone、`skip` 迁 2 参签名（`skip <state-path> <task-id>`）、删全仓零调用的 `consecutive_count`、Mode 表收敛为 continuous / phase。
+- **团队 AI 编程描述微调**（commit b642e3a）：`design-plan` / `workflow-plan` SKILL.md 团队协作相关描述小幅调整。
+
+### Fixed
+
+- **`pre-execute-inject` 兼容 `Agent` 工具，复活 workflow 上下文注入**（commit 1800994）：harness 改用 `Agent` 工具派发 subagent 后，原 hook 守 `tool_name !== 'Task'` + matcher `'Task'` 导致 PreToolUse hook 从不触发，implementer / reviewer 的 `<current-task>` 与 code-specs 注入全程失效；新增 `classifyDispatch()` 同时路由 Task + Agent（Agent 正文在 `input.prompt`，仅对带 `Active task:` 头的 workflow 派发生效，不污染 research / Explore），`hooks.json` 与 `qoder.hooks.json` matcher `Task` → `Task|Agent`。
+- **Windows 预存测试失败 + guard hook 跨平台 deny 逃逸**（commit abc92df）：`guard-engine-source` 的 `hitsEnginePath` 改 `path.posix.normalize`（原 `path.normalize` 在 win32 把分隔符翻成反斜杠 → `/` 写法 deny pattern 漏匹配，`../` dot-segment 可绕过引擎源码读取守卫；POSIX 行为不变）；codex gc `safeUnlink` 对 Windows 并发 unlink 的 EPERM / EBUSY 确认文件确已消失才吞，真实权限错误照抛。
+
+## [6.6.7] - 2026-06-05
+
+### Changed
+
+- **reviewer 准则加固**（commit 1d3d241）：每条 finding 必须给出具体失败场景 + `file:line` 锚点；approve 前要求至少构造一个失败输入 / 状态；标记 over-engineering 前先排除正当复杂度来源；final reviewer prompt 增 known-issues 排除清单，并强制核对 file 引用对应真实文件。
+
+## [6.6.6] - 2026-06-05
+
 ### Changed
 
 - **`workflow-execute` 收敛 lean + review 加固**（commit 17ca8c1）：task 源统一到 task-dir，`plan.md` 降为可选人类叙述；退役 `ContextGovernor`（`context_budget.js`）、`task_bundle.js`、`traceability.js` 及死引用，净 -1900+ 行。随收敛修 review 链路若干问题：plan-review 加 `spec_placeholder` 复检（approve 后 spec 被编辑引入占位时挡 ready）、`cmdSpecReview` 在 `firstTaskId` 为 null 时 fail-fast（不带空锚点推进 `planned`）、`task-write` 同 id 续写承接 `requirement_ids`（防整集替换静默丢 R-ID 链）、journal search 经 `diff_summary` 渲染 evidence summary（不再 `[object Object]`）。新增 6 回归用例。
