@@ -8,7 +8,6 @@
 - **代码主权**：外部模型输出一律视为"脏原型"，交付代码必须由当前模型重构后落盘。
 - **针对性改动**：只改任务要求的部分，严禁影响现有功能。
 - **判断依据**：以代码和工具搜索结果为准，不猜测。
-- **上下文检索**：优先 `mcp__auggie-mcp__codebase-retrieval`，减少 search/find/grep。
 - **外部文档链接**：优先走对应 skill（如 `alidocs`）或 MCP 读取，WebFetch 仅兜底。
 - **Codex 调用**：sandbox、session 复用、后台执行、review 模式等一切 contract 以 `collaborating-with-codex` skill 和桥接脚本为准，本文件不重复约定。
 - **被拒需求检查**：需求分析阶段扫描项目 `.out-of-scope/` 目录，命中则告知用户曾被拒绝及原因，由用户决定是否重新评估。协议见 `core/specs/shared/out-of-scope-protocol.md`。

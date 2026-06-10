@@ -43,7 +43,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 
 **目的**:拿到请求函数签名 + 入参 / 响应 TS 类型,用于生成断言。
 
-**查找方式**(用 `mcp__auggie-mcp__codebase-retrieval`,不用 grep):
+**查找方式**:
 
 - 关键词:`autogen`、spec 里提到的接口名、`request(`、`http.get(`、`axios.`
 - 典型文件:`**/autogen/*.ts`、`**/*Api.ts`、`**/api/*.ts`、`**/.api.ts`
@@ -118,7 +118,7 @@ autogen 类型只描述**签名**:字段名 / 类型 / 必选-可选。但后端
 
 ### 查找路径
 
-`mcp__auggie-mcp__codebase-retrieval` 按接口名 / autogen 导出函数名反查:
+按接口名 / autogen 导出函数名反查:
 
 | 关键词 | 命中点 | 能拿到什么 |
 |---|---|---|
@@ -191,7 +191,7 @@ const MAX_PAGE_SIZE = 200;
 
 ### 查找入口
 
-`mcp__auggie-mcp__codebase-retrieval` 关键词(挑 3-5 个试):
+关键词(挑 3-5 个试):
 
 - `axios.create` / `interceptors.request.use` / `axios.defaults.headers`
 - `defFetch` / `defaultHeaders` / `defaultOptions`

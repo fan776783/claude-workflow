@@ -163,13 +163,11 @@ mkdir -p .claude/config
 
 收到用户输入后调用 `bk` skill 的 `project set` workflow（见 `core/skills/bk/SKILL.md § 场景 B`），不在 scan 里复写交互。
 
-## Part 2: 语义代码检索
+## Part 2: 代码结构检索
 
-使用 `mcp__auggie-mcp__codebase-retrieval` 深度分析。详见 [references/semantic-queries.md](references/semantic-queries.md)。
+按维度深度分析。详见 [references/semantic-queries.md](references/semantic-queries.md)。
 
 **维度**：项目入口 / API 路由 / 数据模型 / 前端组件 / 核心业务逻辑 / 测试覆盖。
-
-**降级**：MCP 不可用时仅执行 Part 1。
 
 ## Part 3: 生成报告
 

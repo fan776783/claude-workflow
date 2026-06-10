@@ -96,7 +96,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 
 **目的**:项目的 axios instance / 自定义 `defFetch` / request interceptor 通常会注入 `X-Prod-Id` / `X-Client-Sn` / `X-Space-Id` / `X-Lang` 等基建 header;裸请求会 401/403。**这一步决定了冒烟脚本能不能跑通**。
 
-**查找方式**(`mcp__auggie-mcp__codebase-retrieval`):
+**查找方式**:
 
 - 关键词:`axios.create`、`interceptors.request.use`、`defFetch`、`request interceptor`、`defaultHeaders`、`setRequestHeader`、`beforeRequest`
 - 典型文件:`src/**/http.{ts,js}`、`src/**/request.{ts,js}`、`src/**/api/index.{ts,js}`、`packages/**/http/*.ts`
@@ -131,7 +131,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js context
 
 **关键步骤**。autogen 类型只写了 `category_id?: string`,但后端实际要求"必须子类目 id,根节点 id 不认"——这类语义约束藏在 **前端调用点代码** + YApi 备注里,不看会导致冒烟脚本"参数合法但业务失败"。
 
-**查找方式**(`mcp__auggie-mcp__codebase-retrieval`):
+**查找方式**:
 
 - 搜接口名 / autogen 导出的请求函数名 → 命中 `src/pages/**/*.{vue,tsx,ts}` / `src/composables/*` 里的真实调用点
 - 看调用点的**参数来源**:`const categoryId = tree.list[0].children[0].id`(不是 `list[0].id`)→ 约束是"子类目 id"

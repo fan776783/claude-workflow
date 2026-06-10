@@ -42,7 +42,7 @@ Read `core/specs/shared/glossary.md`（产出引文和结论用 canonical 术语
 
 | 来源 | 方法 |
 |------|------|
-| 代码库 | `mcp__auggie-mcp__codebase-retrieval` |
+| 代码库 | 本地代码检索 |
 | npm / PyPI | Web 搜索 |
 | GitHub | Web 搜索 |
 | MCP 工具 | 检查已安装 MCP server |
