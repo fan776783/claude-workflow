@@ -1,14 +1,14 @@
 import http from 'node:http';
 import https from 'node:https';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './env.mjs';
 import { runnerContext } from './assertions.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const traceLogPath = resolve(here, '..', 'trace.log');
-const ndjsonPath = env.logFile ? resolve(process.cwd(), env.logFile) : '';
+const ndjsonPath = env.logFile ? (isAbsolute(env.logFile) ? env.logFile : resolve(here, '..', env.logFile)) : '';
 if (ndjsonPath) mkdirSync(dirname(ndjsonPath), { recursive: true });
 
 function truncate(s, max = 800) {
@@ -18,7 +18,12 @@ function truncate(s, max = 800) {
 
 function redactHeaders(h) {
   const c = { ...h };
-  if (c.Cookie) c.Cookie = `<redacted ${c.Cookie.length}B>`;
+  const sensitive = new Set(['cookie', 'authorization', ...(env.sensitiveHeaders || []).map(s => s.toLowerCase())]);
+  for (const key of Object.keys(c)) {
+    if (!sensitive.has(key.toLowerCase())) continue;
+    const value = c[key] == null ? '' : String(c[key]);
+    c[key] = `<redacted ${value.length}B>`;
+  }
   return c;
 }
 
@@ -37,13 +42,6 @@ function appendNdjson(entry) {
 function buildOptions(method, path, opts) {
   const cookie = opts.cookie !== undefined ? opts.cookie : env.cookie;
   const origin = `${env.protocol}://${env.host}`;
-  const defFetchHeaders = {};
-  if (env.modelVer) defFetchHeaders['X-Model-Ver'] = env.modelVer;
-  if (env.lang) defFetchHeaders['X-Lang'] = env.lang;
-  if (env.prodId) defFetchHeaders['X-Prod-Id'] = env.prodId;
-  if (env.prodVer) defFetchHeaders['X-Prod-Ver'] = env.prodVer;
-  if (env.spaceId) defFetchHeaders['X-Space-Id'] = env.spaceId;
-  if (env.clientSn) defFetchHeaders['X-Client-Sn'] = env.clientSn;
 
   return {
     method,
@@ -60,7 +58,7 @@ function buildOptions(method, path, opts) {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       Origin: origin,
       Referer: `${origin}/`,
-      ...defFetchHeaders,
+      ...env.extraHeaders,
       ...(cookie ? { Cookie: cookie } : {}),
       ...(opts.headers || {}),
     },

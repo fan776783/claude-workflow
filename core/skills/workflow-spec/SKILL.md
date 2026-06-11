@@ -291,7 +291,7 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 |---|---|
 | "OK" / "通过" / "生成 Plan" | approve 分支,canonical `Spec 正确，生成 Plan` |
 | "改 §X" / "再扩一下" / "Spec 要改" | revise 分支,canonical `需要修改 Spec`(细节缺失走 `缺少需求细节`) |
-| "页面分层不对" / "页面层级要调整" / "§4.4 重排" | revise 分支,canonical `页面分层需要调整` |
+| "页面结构不对" / "页面层级要调整" / "§4.4 重排" | revise 分支,canonical `页面 layer 需要调整` |
 | "缺用户流程" / "没有 user flow" / "补流程图" | revise 分支,canonical `缺少用户流程` |
 | "拆" / "范围太大" / "拆开" | split 分支,canonical `需要拆分范围` |
 | "先做前端深化" | elaborate-then-approve,委托 `/ux-elaboration` 后回到 Step 6 |

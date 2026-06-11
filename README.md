@@ -182,7 +182,7 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 | | `tdd` | 红绿重构 vertical slice 纪律 |
 | **设计与前端** | `figma-data` | Figma MCP 数据获取 + 资源分诊 → Design Package |
 | | `figma-ui` | 消费 Design Package → Web 代码还原与验证 |
-| | `api-smoke` | 前端视角从 Spec + YApi 生成后端接口冒烟脚本 |
+| | `api-smoke` | 多源接口 inventory，支持 quick 现场探测与 suite 持久脚本 |
 | **研究与协作** | `research` | 代码库 / 生态 / 外部引文统一研究入口 |
 | | `collaborating-with-codex` | Codex 委派编码 / 调试 / `--oracle-review` 只读第二意见 |
 | | `dispatching-parallel-agents` | 同阶段 2+ 独立问题域的并行 subagent 分派 |
