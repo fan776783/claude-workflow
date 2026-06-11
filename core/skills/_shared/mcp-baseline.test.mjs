@@ -12,6 +12,7 @@ import {
   redact,
   coerce,
   parseToolArgs,
+  validateArgKeys,
   serverFingerprint,
   McpToolsCache,
   dangerClass,
@@ -116,6 +117,54 @@ test("parseToolArgs positional → rest", () => {
 
 test("parseToolArgs --key without value throws", () => {
   assert.throws(() => parseToolArgs(["--missing"]));
+});
+
+// ── validateArgKeys (typo guard) ───────────────────────────────────────────
+
+const CLOSED = (props) => ({ type: "object", additionalProperties: false, properties: props });
+
+test("validateArgKeys flags unknown key on closed schema + suggests via shared token", () => {
+  const schema = CLOSED({ target_state: { type: "string" }, issue_number: { type: "string" } });
+  const out = validateArgKeys({ to_state: "待验证", issue_number: "p1" }, schema);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].key, "to_state");
+  assert.equal(out[0].suggestion, "target_state");
+});
+
+test("validateArgKeys passes all known keys", () => {
+  const schema = CLOSED({ target_state: {}, issue_number: {}, comment: {} });
+  assert.deepEqual(
+    validateArgKeys({ target_state: "处理中", issue_number: "p1", comment: "x" }, schema),
+    [],
+  );
+});
+
+test("validateArgKeys passes through when schema is not closed", () => {
+  const absent = { type: "object", properties: { a: {} } }; // additionalProperties undefined
+  assert.deepEqual(validateArgKeys({ zzz: 1 }, absent), []);
+  const open = { type: "object", additionalProperties: true, properties: { a: {} } };
+  assert.deepEqual(validateArgKeys({ zzz: 1 }, open), []);
+});
+
+test("validateArgKeys passes through on missing schema / properties", () => {
+  assert.deepEqual(validateArgKeys({ a: 1 }, null), []);
+  assert.deepEqual(validateArgKeys({ a: 1 }, undefined), []);
+  assert.deepEqual(validateArgKeys({ a: 1 }, { additionalProperties: false }), []);
+});
+
+test("validateArgKeys respects ignore list (CLI-synthetic args)", () => {
+  const schema = CLOSED({ issue_number: {} });
+  assert.deepEqual(
+    validateArgKeys({ shape: "issue-record", issue_number: "p1" }, schema, { ignore: ["shape"] }),
+    [],
+  );
+});
+
+test("validateArgKeys suggestion null when nothing is close", () => {
+  const schema = CLOSED({ issue_number: {}, comment: {} });
+  const out = validateArgKeys({ xyzzy: 1 }, schema);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].suggestion, null);
 });
 
 // ── serverFingerprint ────────────────────────────────────────────────────

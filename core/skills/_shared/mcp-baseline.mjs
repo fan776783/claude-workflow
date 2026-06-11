@@ -167,6 +167,75 @@ export function parseToolArgs(argv) {
   return { args: out, yes, rest };
 }
 
+// ── arg validation (typo guard) ──────────────────────────────────────────
+
+// validateArgKeys — flag CLI arg keys not declared in a tool's input schema
+// (catches `--to_state` for `--target_state`). Conservative by design: only a
+// schema that *explicitly closes* (additionalProperties === false) authorizes
+// rejection. Absent or `true` → the server tolerates extras (or we can't tell)
+// → pass through. This keeps the guard safe to share across CLIs — a tool whose
+// schema doesn't close stays unaffected, so adopting it can't break callers.
+//
+// Returns [{ key, suggestion }] per unknown key (suggestion may be null). Only
+// top-level keys are checked; nested object values pass through untouched.
+export function validateArgKeys(args, inputSchema, { ignore = [] } = {}) {
+  if (!inputSchema || typeof inputSchema !== "object") return [];
+  if (inputSchema.additionalProperties !== false) return [];
+  const props = inputSchema.properties;
+  if (!props || typeof props !== "object") return [];
+  const known = Object.keys(props);
+  const knownSet = new Set(known);
+  const ignoreSet = new Set(ignore);
+  const unknown = [];
+  for (const key of Object.keys(args || {})) {
+    if (ignoreSet.has(key) || knownSet.has(key)) continue;
+    unknown.push({ key, suggestion: suggestKey(key, known) });
+  }
+  return unknown;
+}
+
+// suggestKey — best "did you mean" for an unknown key: prefer the known key
+// sharing the most `_`/`-`-separated tokens (so `to_state` → `target_state` via
+// the shared "state" token), fall back to nearest edit distance within a small
+// threshold, else null.
+function suggestKey(unknown, known) {
+  const tokens = (s) => String(s).split(/[_-]/).filter(Boolean);
+  const ut = new Set(tokens(unknown));
+  let best = null;
+  let bestShared = 0;
+  for (const k of known) {
+    let shared = 0;
+    for (const t of tokens(k)) if (ut.has(t)) shared++;
+    if (shared > bestShared) { bestShared = shared; best = k; }
+  }
+  if (best) return best;
+  let bestK = null;
+  let bestD = Infinity;
+  for (const k of known) {
+    const d = levenshtein(unknown, k);
+    if (d < bestD) { bestD = d; bestK = k; }
+  }
+  return bestK && bestD <= Math.max(2, Math.ceil(unknown.length * 0.4)) ? bestK : null;
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
 // ── MCP RPC ──────────────────────────────────────────────────────────────
 
 let rpcIdSeq = 1;
