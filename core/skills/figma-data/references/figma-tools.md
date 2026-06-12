@@ -31,7 +31,7 @@ CLI `design` 命令已封装 `nodeId` + `dirForAssetWrites`，以下为进阶参
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `artifactType` | string | `WEB_PAGE_OR_APP_SCREEN` / `COMPONENT_WITHIN_A_WEB_PAGE_OR_APP_SCREEN` / `REUSABLE_COMPONENT` / `DESIGN_SYSTEM` |
-| `taskType` | string | `CREATE_ARTIFACT` / `CHANGE_ARTIFACT` / `DELETE_ARTIFACT` |
+| `taskType` | string | `CREATE_ARTIFACT` / `CHANGE_ARTIFACT` / `DELETE_ARTIFACT`。Design Package contract 只认前两个（`design` 命令对其他值 exit 6 拒绝，ADR-0005）；`DELETE_ARTIFACT` 是 server 接受但不产 Design Package 的进阶值，需要时走 `raw get_design_context` |
 | `clientFrameworks` | string | 逗号分隔，如 `vue,tailwindcss` — 影响生成代码风格 |
 | `clientLanguages` | string | 逗号分隔，如 `typescript,css` |
 | `forceCode` | boolean | 节点过大时强制返回代码（慎用，可能截断） |

@@ -109,6 +109,17 @@ font-size: 1.25rem;  /* 可能不是 20px */
 | 复合图形 | 错把父图形拆成多个子资源 | 可通过父节点重导出改善 |
 | 资源引用 | 使用错误图层或残留 hash 文件名 | 命名不语义化 |
 
+### 漏改 (Missed Edit，仅 CHANGE_ARTIFACT)
+
+对账输入来自 `change-playbook.md` 的 ChangeManifest 与证据文件，全部机械判定，不依赖截图目测：
+
+| 检查点 | P0 问题 | P1 问题 |
+|--------|---------|---------|
+| Delta 覆盖（C.1Δ） | manifest entry 终态为 `unresolved` 或无终态 | - |
+| 残值清零（C.2a） | residue afterCount 不归零且无逐条 justify | justify 存在但理由含糊 |
+| Diff 双射（C.2b） | git diff hunk 未映射到 entry / 传播决策 / AssetPlan（scope creep） | - |
+| 传播完整性 | `propagate-all` entry 的页外消费者未全部进入验证行 | - |
+
 ---
 
 ## 可访问性
