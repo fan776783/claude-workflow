@@ -22,7 +22,7 @@ node <skill-root>/figma-data/cli/figma.mjs <subcommand> [args...]
 
 CLI 封装 Figma Desktop MCP Server（`http://127.0.0.1:3845/mcp`）全部工具，替代原生 MCP tool 调用，并自动管理资产临时目录和差集计算。
 
-**Design Package** 输出含 `schemaVersion: "1.0"`（ADR-0001 Decision 6）；下游 `figma-ui` Phase A Gate 0 必须 assert。`get_design_context` 不可用时自动降级到 `screenshot + get_metadata` 只读模式，输出 `mode: "read-only-fallback"`。
+**Design Package** 输出含 `schemaVersion: "1.1"` 与 `taskType`（ADR-0001 Decision 6 + ADR-0005）；下游 `figma-ui` Phase A Gate 0 必须 assert。修改已有页面时调用方传 `--taskType CHANGE_ARTIFACT`（透传给 `get_design_context` 并 echo 到输出）。`get_design_context` 不可用时自动降级到 `screenshot + get_metadata` 只读模式，输出 `mode: "read-only-fallback"`。
 
 ### 高频命令
 
@@ -106,12 +106,13 @@ node cli/figma.mjs doctor
 
 | 字段 | 说明 |
 |------|------|
+| `taskType` | `CREATE_ARTIFACT` / `CHANGE_ARTIFACT`（CLI echo；figma-ui Gate 0 据此 assert DesignInventory） |
 | `taskId` | 任务标识 |
 | `taskDir` | 临时工作目录路径 |
 | `screenshot` | 设计截图路径 |
 | `designContext` | MCP 返回的原始设计上下文 |
 | `ElementManifest` | P0/P1/P2 元素分类 checklist |
-| `DesignAnchors` | 根容器数值属性（仅 CHANGE_ARTIFACT） |
+| `DesignInventory` | 元素级 7 维设计值清单 + state variants（仅 CHANGE_ARTIFACT，纯设计侧） |
 | `AssetPlan` | 每个资源的 decision + targetName + targetDir |
 
 下游 skill 从 Design Package 开始工作，不需要直接调用 MCP。
@@ -146,9 +147,11 @@ node cli/figma.mjs doctor
 
 ```bash
 node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
+# 修改已有页面（figma-ui 委托 CHANGE_ARTIFACT）时必须显式声明：
+node cli/figma.mjs design --url "<figma-url>" --taskId <taskId> --taskType CHANGE_ARTIFACT
 ```
 
-返回 JSON 含 `taskDir`、`newlyDownloadedFiles`、`designContext`、`screenshot`。
+返回 JSON 含 `taskType`、`taskDir`、`newlyDownloadedFiles`、`designContext`、`screenshot`。
 
 **始终单条标准调用**保持上面的形式（单条、不拆分、不重定向）。`design` 依赖本地 Figma MCP（`127.0.0.1:3845`），响应慢时 harness 会把这条命令自动转后台，返回 `Command running in background with ID: … Output is being written to: …/<id>.output`。这**不是空结果**：被转后台的 `design` 要等 MCP 返回 + 3s 资产写入才把 JSON 落到 `.output`。正确做法 —— **等完成通知后再 `Read` 那个 `.output`**，或一开始就显式 `run_in_background: true` 再等通知。**后台命令在完成前 `.output` 必为空 / 非 JSON，这是 pending，不算"确实为空"，不得据此进下面的 fallback。**
 
@@ -173,18 +176,26 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 | 图片/图标 | P1 | 视觉元素 |
 | 装饰图形/分隔线 | P2 | 可选元素 |
 
-### Step 5: 提取 Design Anchors（CHANGE_ARTIFACT 必做）
+### Step 5: 提取 DesignInventory（CHANGE_ARTIFACT 必做）
 
-修改已有组件时，从设计数据中提取根容器及关键子容器的数值属性：
+`taskType=CHANGE_ARTIFACT` 时，遍历 ElementManifest 的 P0/P1 元素，逐元素记录 7 个维度的设计值（维度对齐 figma-ui `visual-review.md`），落盘 `taskDir/design-inventory.md`：
 
-| 属性 | 示例 |
+| 维度 | 示例 |
 |------|------|
-| width / height | `900px` / `720px` |
-| padding | `32px 24px 24px` |
-| border-radius | `16px` |
-| 主要 gap | `16px` |
+| geometry / spacing | width `900px`、padding `32px 24px 24px`、gap `16px` |
+| color | fill `rgba(194,204,241,0.08)`、文字色、border-color |
+| typography | font-size `20px` / weight `700` / line-height `28px` |
+| border | radius `16px`、宽度、样式 |
+| shadow | 参数全量 |
+| asset identity | 引用的资源（对应 AssetPlan 条目） |
+| text content | 设计稿原文 |
 
-同时读取现有代码中对应的 CSS 值，一并记录为 `DesignAnchors`。
+补充两类设计侧信息：
+
+- **state variants** — 节点为 component set 时，`get_metadata` 枚举 variant 子节点（hover/disabled/active）及各自设计值；无 variant 时记 `stateVariants: none + 原因`，**不编造**
+- **变量绑定** — `get_variable_defs` 标记值是否绑定 Figma 变量（下游 token 路由信号）
+
+DesignInventory 是**纯设计侧清单**——本 skill 不读项目代码（ADR-0005 Decision 2）。设计值 vs 代码值的 delta 对比与编辑点枚举由 figma-ui Phase B.0 完成（见 figma-ui `references/change-playbook.md`）。
 
 ### Step 6: Asset Triage
 
@@ -251,6 +262,8 @@ node cli/figma.mjs design --url "<figma-url>" --taskId <taskId>
 | 念头 | 修正 |
 |------|------|
 | "先把 Design Package 交出去，AssetPlan 后面补" | 回 Step 6 |
+| "改已有页面但 design 调用没传 `--taskType CHANGE_ARTIFACT`" | 回 Step 3，CHANGE 必须显式声明，否则下游 Gate 0 拦不住缺失的 DesignInventory |
+| "顺手把现有代码的 CSS 值也记进 DesignInventory" | 不读项目代码（ADR-0005 Decision 2），delta 对比归 figma-ui B.0 |
 | "复合图形先标 promote，让下游自己处理" | 回 Step 7，执行 `refetch-parent` |
 | "先用 hash 文件名，最后统一改" | 回 Step 8 资源命名 |
 | "design 返回 286b/空，赶紧拆 node 重试" | 先看是不是 `Command running in background` 提示，是就 `Read` 那个 `.output` |

@@ -39,7 +39,7 @@ node cli/figma.mjs diff-tools --promote-initial   # 仅首次建立 baseline 用
 2. **再看 `changed`**：required / 静态 enum 变了 → 同步更新 SKILL.md `<!-- snapshot YYYY-MM-DD -->` + Design Package 字段映射 → 必要时 bump `schemaVersion` → promote
 3. **最后看 `added`**：上游新增 tool → 评估是否暴露给 figma-ui → promote
 
-**`schemaVersion` 升版规则**：Design Package 的 `schemaVersion` 是 figma-data 与 figma-ui 之间的 contract。新增字段（向后兼容）可保持 `"1.0"`；字段语义变化 / 移除必填字段时 bump 到 `"1.1"` 或 `"2.0"`，同步更新 figma-ui Phase A Gate 0 的 assert。
+**`schemaVersion` 升版规则**：Design Package 的 `schemaVersion` 是 figma-data 与 figma-ui 之间的 contract，当前权威值见 `cli/figma.mjs` 的 `DESIGN_PACKAGE_SCHEMA_VERSION`（单一事实源，本文不写死字面量）。新增字段（向后兼容）保持当前版本不变；字段语义变化 / 移除必填字段时在当前版本上 bump（minor 如 1.1→1.2，breaking 如 →2.0），同步更新 figma-ui Phase A Gate 0 的 assert。先例：1.0→1.1 移除 DesignAnchors、新增 taskType/DesignInventory（ADR-0005）。
 
 ### `spec-review` 第 7 类周巡
 

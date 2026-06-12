@@ -5,8 +5,10 @@
 // 共享基础设施（RPC / cache / fingerprint / arg parsing / danger / 错误归一化 /
 // baseline diff）来自 ../../_shared/mcp-baseline.mjs，见 ADR-0001。
 //
-// Design Package 输出 schemaVersion="1.0"（T9）。`design` 内部检测 get_design_context
+// Design Package 输出 schemaVersion="1.1"（ADR-0005：新增 taskType echo，契约移除
+// DesignAnchors → DesignInventory）。`design` 内部检测 get_design_context
 // tool_not_found 时降级到 screenshot + get_metadata 只读路径。
+// --taskType CREATE_ARTIFACT|CHANGE_ARTIFACT 透传给 get_design_context 并 echo 到输出。
 
 import {
   readFileSync,
@@ -48,7 +50,11 @@ const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const INVOCATION = `node ${SCRIPT_PATH}`;
 const BASELINE_PATH = resolve(SCRIPT_DIR, "..", "baseline-schema.json");
 
-const DESIGN_PACKAGE_SCHEMA_VERSION = "1.0";
+const DESIGN_PACKAGE_SCHEMA_VERSION = "1.1";
+const DEFAULT_TASK_TYPE = "CREATE_ARTIFACT";
+// Design Package contract enum (ADR-0005). The MCP server additionally accepts
+// DELETE_ARTIFACT, but that never yields a Design Package — use `raw` for it.
+const VALID_TASK_TYPES = new Set(["CREATE_ARTIFACT", "CHANGE_ARTIFACT"]);
 
 // Figma MCP tools are read-only today; prefix fallback handles future destructive
 // additions. Listed registry intentionally empty.
@@ -257,9 +263,11 @@ async function invokeRaw(toolName, args, { onToolNotFound } = {}) {
 
 async function fallbackReadOnly({ args, taskId, taskDir, reason }) {
   // Degrade to get_screenshot + get_metadata. Used when get_design_context is
-  // unavailable (tool_not_found) or its dirForAssetWrites is rejected.
+  // unavailable (tool_not_found). Dir rejection takes the separate
+  // {error: "dir_not_allowed"} exit-4 path in cmdDesign, not this fallback.
   const output = {
     schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
+    taskType: args.taskType || DEFAULT_TASK_TYPE,
     mode: "read-only-fallback",
     reason,
     taskId,
@@ -308,6 +316,14 @@ async function cmdDesign(rest) {
   const args = parsed.args;
 
   applyUrlConvenience(args);
+
+  if (args.taskType !== undefined && !VALID_TASK_TYPES.has(args.taskType)) {
+    die(
+      `invalid --taskType "${args.taskType}" (expected CREATE_ARTIFACT|CHANGE_ARTIFACT); ` +
+        `a typo here would silently disable the downstream CHANGE gates`,
+      EXIT_CODES.ENUM_INVALID,
+    );
+  }
 
   const assetsDir = args.assetsDir || getAssetsDir();
   delete args.assetsDir;
@@ -366,6 +382,7 @@ async function cmdDesign(rest) {
         JSON.stringify(
           {
             schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
+            taskType: args.taskType || DEFAULT_TASK_TYPE,
             error: "dir_not_allowed",
             message: errorText,
             fallback: "screenshot_and_metadata",
@@ -408,6 +425,8 @@ async function cmdDesign(rest) {
 
   const output = {
     schemaVersion: DESIGN_PACKAGE_SCHEMA_VERSION,
+    // echo only; when user-supplied it stays in args and forwards to get_design_context
+    taskType: args.taskType || DEFAULT_TASK_TYPE,
     taskId,
     taskDir,
     newlyDownloadedFiles: newFiles,
@@ -766,6 +785,7 @@ commands:
 usage examples:
   ${INVOCATION} design --url "https://figma.com/design/xxx/Name?node-id=42-15"
   ${INVOCATION} design --nodeId 42:15 --taskId my-task
+  ${INVOCATION} design --nodeId 42:15 --taskType CHANGE_ARTIFACT   # modifying an existing page
   ${INVOCATION} screenshot --url "..."
   ${INVOCATION} get_metadata --nodeId 0:1
   ${INVOCATION} raw new_tool_name --json '{...}'      # for tools not in whitelist
@@ -774,6 +794,9 @@ usage examples:
 
 Design Package output: schemaVersion="${DESIGN_PACKAGE_SCHEMA_VERSION}".
   Downstream (figma-ui) asserts schemaVersion before consuming.
+  taskType (default ${DEFAULT_TASK_TYPE}) is echoed in output; pass
+  --taskType CHANGE_ARTIFACT when modifying an existing page — it is forwarded
+  to get_design_context and gates the DesignInventory requirement downstream.
   On get_design_context tool_not_found → degrades to {mode:"read-only-fallback",
   screenshot, metadata}; figma-ui Phase B Gate will not satisfy (user action needed).
 
