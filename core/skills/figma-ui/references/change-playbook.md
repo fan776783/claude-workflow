@@ -13,7 +13,7 @@
 
 ## Phase B.0: 构建 ChangeManifest（编码前必经，Gate 强制）
 
-产出 `taskDir/change-manifest.md`，三步构建：
+ChangeManifest 可 inline（在 context 内维护）或落 `taskDir/change-manifest.md`，二选一——账本内容（entries / sites / residue / searchLog / status）必须完整，载体不限。三步构建：
 
 ### B.0.1 Delta sweep（设计 vs 代码，抓"未提及 delta"）
 
@@ -142,11 +142,13 @@ preCount（编码前） → afterCount（编码后）
 不归零且无逐条 justify → P0
 ```
 
-结果落 `taskDir/_residue.md`。巧合命中（无关代码恰好同值）逐条 justify，禁止批量豁免。
+对账结果记录在案——inline 或落 `taskDir/_residue.md`，二选一。巧合命中（无关代码恰好同值）逐条 justify，禁止批量豁免。
 
-**C.2b Diff 双射**：`git diff` 的每个 hunk 必须映射到 ChangeManifest entry / propagation 决策 / AssetPlan action 之一。未映射 hunk = **scope creep，P0** 直到 justify。覆盖结果落 `taskDir/_coverage.md`。
+**C.2b Diff 双射**：`git diff` 的每个 hunk 必须映射到 ChangeManifest entry / propagation 决策 / AssetPlan action 之一。未映射 hunk = **scope creep，P0** 直到 justify。覆盖结果记录在案——inline 或落 `taskDir/_coverage.md`，二选一。
 
-**C.5 交付摘要**：必须引用 `_coverage.md` 与 `_residue.md` 的实际内容（entry 终态统计 + 残值对账数字）。证据文件不存在 = 摘要填不出 = 不可交付。
+> ⚠️ **清 scope creep 只能定向 re-edit，绝不用破坏性 git 命令。** 工作树常带本任务之外的未提交存量改动（session 起始就 `M` 的文件）；对整个文件 `git checkout <file>` / `git restore <file>` / `git stash` 会**连存量一起抹掉**。撤销多余 hunk（典型来源：whole-file formatter 重排）靠针对性 Edit 还原那几行，或从编辑前已读到的原始内容重写目标文件再 `diff` 自校验。延伸防线：不对"本就不符合 formatter 风格"的文件做整文件格式化——只动你改的那几行，避免一开始就制造 scope creep。
+
+**C.5 交付摘要**：必须报告对账的实际结果——entry 终态统计 + 残值对账数字 + diff 双射结论。这些数字来自 C.1Δ / C.2a / C.2b 实跑，inline 或落盘均可；**对账没真跑 = 数字填不出 = 不可交付**。落盘文件可选，跑过对账不可选。
 
 其余（Visual Review、修复循环 ≤3 轮、交付决策）沿用 `playbook.md` Phase C。
 
@@ -159,7 +161,8 @@ preCount（编码前） → afterCount（编码后）
 | "用户就让改 header，footer 的 delta 不用管" | 回 B.0.1，未提及 delta 标 `mentionedByUser: false` 进 Hard Stop，由用户决定 |
 | "先改了再说，manifest 后补" | 回 B.0，编码前 manifest 必须 `confirmed` |
 | "R1 查到 4 个引用，先改眼前这个" | 同 entry sites 全改或全不改；其余实例进传播决策 |
-| "residue 还剩 2 个命中，应该是巧合" | 逐条 justify 进 `_residue.md`，禁止批量豁免 |
+| "residue 还剩 2 个命中，应该是巧合" | 逐条 justify（inline 或 `_residue.md`），禁止批量豁免 |
 | "这个 hunk 是顺手优化的，不用进 manifest" | C.2b 未映射 hunk = scope creep P0 |
+| "diff 混进 formatter 整文件重排，`git checkout` 撤掉就行" | 脏树上 checkout/restore/stash 会抹未提交存量；定向 re-edit 还原那几行，整文件格式化只在文件本就 formatter-conformant 时做 |
 | "@media 里的值设计稿没给，按比例缩一个" | 不编造，向用户索要 mobile frame node-id 补取 |
 | "16px 全仓 grep 三千个结果，全列进 sites" | 违反 scope tiers，裸数字禁全仓；按 tier-1/tier-2 收窄 |
