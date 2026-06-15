@@ -45,7 +45,8 @@ Codex 协作review。不是把 Codex 意见直接展示给用户，而是将 Cod
 
 ### Deep 模式额外要求
 
-- 若桥接脚本实际执行后返回错误（即 Codex 调用失败），但当前模型未发现 P0，可输出 `CORRECT (degraded)`，并在 Summary 中明确说明失败原因。未尝试调用就声称"不可用"不属于此降级路径
+- Codex 候选发现按 `core/specs/shared/codex-routing.md § Invocation Contract` 选择宿主感知路由：Codex 内必须用 read-only reviewer subagent，其他宿主才用桥接脚本
+- 若当前宿主对应路由实际执行后返回错误（Codex 内为 `spawn_agent` / `wait` / `close_agent` 失败；其他宿主为桥接脚本失败），但当前模型未发现 P0，可输出 `CORRECT (degraded)`，并在 Summary 中明确说明失败原因。空结果按 `core/specs/shared/codex-routing.md § Degradation` 重试 1 次，连续 2 次空响应后才允许降级。未尝试调用就声称"不可用"不属于此降级路径
 - 若某个高优先级候选问题无法完成验证，不得直接进入最终 findings
 - `partially_verified` 不能单独阻断 Verdict，也不能作为最终 P0/P1
 - Source 归属不能替代 verification；`Source = Both` 只说明双方都发现了它，不说明它一定成立

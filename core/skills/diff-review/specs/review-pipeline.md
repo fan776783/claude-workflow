@@ -30,9 +30,22 @@
 
 #### Codex 候选问题发现
 
-按 `collaborating-with-codex` skill 实际执行桥接脚本调用 Codex，使用 `run_in_background: true`（**不设置** timeout）。
+按 `core/specs/shared/codex-routing.md § Invocation Contract` 实际执行宿主感知 Codex 调用：
 
-**禁止预判降级**：不得在未实际执行桥接脚本的情况下，以"当前环境 Codex 不可用"、"未检测到 Codex"、"Codex 环境缺失"等理由跳过此步骤。是否可用只能由脚本执行结果决定——先调用，失败了再走降级路径。
+- **Codex 宿主内**：若 `spawn_agent` / `wait` / `close_agent` 可用，必须通过 `spawn_agent` 派发 1 个 read-only reviewer subagent 获取 Codex 候选问题；不得为了 review 再调用 `collaborating-with-codex` 桥接脚本启动嵌套 Codex。
+- **其他宿主**：按 `collaborating-with-codex` skill 实际执行桥接脚本调用 Codex，使用 `run_in_background: true`（**不设置** timeout）。
+
+**禁止预判降级**：不得在未实际执行当前宿主对应路由的情况下，以"当前环境 Codex 不可用"、"未检测到 Codex"、"Codex 环境缺失"、"subagent 不方便"等理由跳过此步骤。是否可用只能由 `spawn_agent` 路径或桥接脚本路径的实际执行结果决定——先调用，失败了再走降级路径。
+
+Codex-native subagent prompt 必须遵循：
+
+- 第一行写 `Active task: <caller-specific-review-id>`；`diff-review` 调用本管线时使用 `Active task: diff-review-codex-review`
+- 角色为 `reviewer` / `read_only_worker`
+- 只输出候选问题，不输出最终 verdict
+- Allowed actions 明确为 read-only；不得编辑、格式化、commit、安装依赖、修改外部状态
+- Scope 显式限定到本次变更集文件；若 scope 不足，返回 `NEEDS_CONTEXT`，不得自行扩大到其它 working-tree 文件
+- Final output 包含候选 finding、file:line evidence、impact hypothesis、confidence、是否需要 parent 验证
+- 空响应处理遵循 `core/specs/shared/codex-routing.md § Degradation`：同一路由空响应重试 1 次，连续 2 次空响应后才允许降级；真实执行失败可直接走降级路径
 
 Codex prompt 必须明确：
 
@@ -63,7 +76,7 @@ Codex prompt 必须明确：
 
 ### Layer D: Candidate Normalization + Deduplication
 
-使用 `TaskOutput` 获取 Codex 结果后，当前模型统一处理：
+使用当前宿主对应机制获取 Codex 结果后（Codex-native 为 `wait` 结果；Claude Code / Cursor 为 `TaskOutput`；bridge route 为 job result），当前模型统一处理：
 
 1. 将 Codex / Claude 两侧输出归一化为同一 finding 结构
 2. 去重合并相同问题（同 file + 近似 line range + 同 issue category）

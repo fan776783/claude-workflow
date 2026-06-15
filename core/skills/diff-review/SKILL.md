@@ -14,7 +14,7 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 ## 执行铁律
 
 - 未完成review范围解析和共享规范加载前，不得输出 findings 或 verdict。
-- 必须实际执行 `collaborating-with-codex` 桥接脚本调用 Codex，不能以任何理由（包括"环境不可用""Codex 未安装""未检测到 Codex"）在未尝试调用的情况下降级为当前模型自审。
+- 必须按 `core/specs/shared/codex-routing.md § Invocation Contract` 实际执行 Codex 候选问题发现：在 Codex 宿主内且可用 `spawn_agent` / `wait` / `close_agent` 时，必须用 Codex-native read-only reviewer subagent；其他宿主才用 `collaborating-with-codex` 桥接脚本。不能以任何理由（包括"环境不可用""Codex 未安装""未检测到 Codex""subagent 不方便"）在未尝试当前宿主对应路由的情况下，降级为当前模型自审。
 - 未完成 verification 与 impact analysis 前，不得给出最终 P0/P1，也不得输出 `INCORRECT`。
 - 报告输出后默认停止；只有用户明确确认要修复并输入 `fix`，才允许进入 Review Loop。
 
@@ -56,6 +56,7 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 
 - [specs/impact-analysis.md](specs/impact-analysis.md) — 评审专用影响维度
 - [specs/report-schema.md](specs/report-schema.md) — 报告结构
+- `core/specs/shared/codex-routing.md` — Codex 候选问题发现的宿主感知路由（Codex 内用 `spawn_agent`，其他宿主用 bridge）
 - `core/specs/shared/impact-analysis-template.md` — 跨 skill 通用 6 维骨架
 - `core/specs/shared/architecture-language.md` — 架构 finding 必须用 Module / Interface / Seam / Depth / Adapter 词汇
 
