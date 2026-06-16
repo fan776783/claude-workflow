@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.14] - 2026-06-15
+
+### Changed
+
+- **`figma-ui` ChangeManifest 构造 + residue 处理收口**（commit 43ae904）：ChangeManifest 允许两种载体——inline 维护或外置 `taskDir/change-manifest.md`，交付 summary 据此可 inline 记录或落指定文件。residue（残留/未还原项）必须逐条给出理由，**禁批量豁免**；同时文档新增警告——scope creep 管理时严禁破坏性 git 命令，防止未提交改动丢失。
+
+## [6.6.13] - 2026-06-15
+
+### Changed
+
+- **`diff-review` Codex 路由升级为 host-aware 调用契约**（commit be99807）：按执行环境选择调用路径——native subagent 路线 vs bridge script 路线，`codex-routing.md` 协议补 host 感知分流；明确失败调用与空响应的降级处理（要求显式报错 + 重试，禁止"premature degradation"假设），review-pipeline 规格对候选 findings 的处理表述同步收紧。
+- **Design Package 结构升级 schemaVersion `1.1`**（commit 3a85274）：引入 `taskType` 字段支持 `CREATE_ARTIFACT` / `CHANGE_ARTIFACT` 两类任务；输出移除 `DesignAnchors`、新增 `DesignInventory`（确保 `CHANGE_ARTIFACT` 时必带设计值清单）；CLI 命令与文档同步约束任务类型用法，无效 `taskType` 直接提示用户修正避免下游脏数据。新增 ADR `0005-figma-change-artifact-contract.md`，`figma-data` / `figma-ui` 与 `change-playbook.md` 同步。
+
+### Removed
+
+- **删除过时文档 `aipe-cargo-cult-coding.md`**（commit 231c9aa）：原 AIPE 与替代工具的对比分析已不反映当前工具与实践，移除以收敛 `docs/internal/`。
+
+## [6.6.12] - 2026-06-11
+
+### Added
+
+- **MCP CLI 新增 `validateArgKeys` 参数键校验**（commit bfe8110）：`_shared/mcp-baseline.mjs` 新增 `validateArgKeys`，按 input schema 标记未知 CLI 参数键并对拼写错误给出建议；`bk.mjs` 在执行 tool 命令前接入校验，提升对用户误输入的健壮性。`prepublishOnly` / `test` 脚本纳入新增 `_shared` 测试。
+
+### Changed
+
+- **`api-smoke` skill 文档与环境处理重构**（commit 3123952）：SKILL.md 精简（301→~130 行级），明确环境变量用法——`SMOKE_HEADER_*` 注入与敏感数据 redact 处理统一走 `env.mjs` / `client.mjs`；删除一批过时 references（`dependency-graph` / `extraction-protocol` / `flow-template` / `scenario-matrix` / `script-templates` / `report-template`），新增 `interface-sources.md`（端点 inventory 构建来源）/ `scenarios-and-failures.md` / `suite-mode.md`。
+
+## [6.6.11] - 2026-06-10
+
+### Changed
+
+- **多 SKILL / 协议文档去具体检索工具耦合**（commit 43fa9c8）：移除对 `mcp__auggie-mcp__codebase-retrieval` 的硬编码引用，改为通用「code retrieval / 代码检索」表述，覆盖 `api-smoke` / `design-plan` / `fix-bug` / `research` / `scan` 等 SKILL 与 `core/AGENTS.md` / `CLAUDE.md` / `GEMINI.md`，统一术语避免与特定 MCP 工具绑定。
+
+## [6.6.10] - 2026-06-09
+
+### Changed
+
+- **`codex-bridge` 多 agent 支持改为环境变量门控**（commit 985553e）：`codex-bridge.mjs` 按 `CODEX_BRIDGE_MULTI_AGENT` 环境变量条件启用多 agent 能力，默认 **disabled**——仅显式开启时生效，提升对第三方 provider 的兼容性；日志补充多 agent 状态与对应 timeout 设置提示。
+
 ## [6.6.9] - 2026-06-09
 
 ### Added
