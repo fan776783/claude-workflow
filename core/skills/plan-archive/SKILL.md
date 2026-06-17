@@ -10,7 +10,7 @@ Read 项目级文档(以 reelmate-workspace 为例):
 - `AGENTS.md` § Documentation Budget(行数预算 — 落盘前自检)
 - `docs/assets/万兴剧厂概要设计.md`(项目总架构文档 — 主要回写目标)
 - `docs/architecture/README.md` / `glossary.md` / `adr/template.md`
-- `docs/contracts/*` / `docs/engineering/rules.md` / `docs/runbooks/README.md`
+- `docs/contracts.md` / `docs/engineering/rules.md` / `docs/runbooks/README.md`
 
 若上述任一文件不存在,记录"无项目级 X,跳过对应回写",不阻断流程。
 </CONTEXT>
@@ -105,9 +105,9 @@ git diff <since>..HEAD -- \
 
 | 改动类型 | 触发判定 | 写入目标 | 写入要点 |
 | --- | --- | --- | --- |
-| 新增 / 改 HTTP 路由 | 路由前缀或 Method 语义变化 | `docs/contracts/routing.md` | 加一行/改一行,不重写全文 |
-| 异步回调 / Agent 链路 | callbacks 约定变化 | `docs/contracts/callbacks.md` | 同上 |
-| 错误返回格式 | 新错误类型 / 字段 | `docs/contracts/error-handling.md` | 同上 |
+| 新增 / 改 HTTP 路由 | 路由前缀或 Method 语义变化 | `docs/contracts.md` | 加一行/改一行,不重写全文 |
+| 异步回调 / Agent 链路 | callbacks 约定变化 | `docs/contracts.md` | 同上 |
+| 错误返回格式 | 新错误类型 / 字段 | `docs/contracts.md` | 同上 |
 | 服务边界 / 写权威翻转 / 主链路改 / Deprecated 新增 / 缩写表前缀变 | architecture 表更新 | `docs/architecture/README.md` + `docs/assets/万兴剧厂概要设计.md` | architecture 改表格行,概要设计同步段落 |
 | 新增领域术语 / 数据键 / 状态枚举 | 新概念出现 | `docs/architecture/glossary.md` | 加术语条目 |
 | 新增分区 / 配置 / Agent / 任务积分硬约束 | rules 变更 | `docs/engineering/rules.md` | 加一条或改一条 |
@@ -138,7 +138,7 @@ git diff <since>..HEAD -- \
 ### 2. 项目级文档回写计划
 | 文件 | 操作 | 行数变化 | 是否超 budget |
 | --- | --- | --- | --- |
-| docs/contracts/routing.md | 加 2 行 | +2 | 否(47→49,limit 80) |
+| docs/contracts.md | 加 2 行 | +2 | 否(47→49,limit 80) |
 | docs/architecture/README.md | 改 1 行(写权威表) | ±0 | 否 |
 | docs/architecture/glossary.md | 加术语 1 条 | +3 | 否 |
 | docs/assets/万兴剧厂概要设计.md | 改 § 二 1 段 | +5 | 无 budget,可写 |
@@ -192,9 +192,10 @@ git diff <since>..HEAD -- \
 ### 5.1 写入顺序
 
 1. 先写 `docs/designs/{slug}-{YYYYMMDD}.md` § 9(主索引)
-2. 再写 `docs/architecture/*` / `docs/contracts/*` / `docs/engineering/rules.md` / `docs/runbooks/README.md`(单条 Edit)
+2. 再写 `docs/architecture/*` / `docs/contracts.md` / `docs/engineering/rules.md` / `docs/runbooks/README.md`(单条 Edit)
 3. 最后 `docs/assets/万兴剧厂概要设计.md`(总览,影响最大)
 4. 若新建 ADR,最后做(用 `docs/architecture/adr/template.md` 沿袭格式)
+5. **估时校准回流**:若主 design § 5 有估时且能取到实际工时,append 一行到 `docs/designs/_estimation-log.md`(详见 [`references/archive-checklist.md`](references/archive-checklist.md) § 6);取不到实际工时则跳过
 
 ### 5.2 每文件落盘后自检
 
@@ -216,7 +217,7 @@ git diff <since>..HEAD -- \
 | 文件 | 操作 | 行数变化 |
 | --- | --- | --- |
 | docs/designs/<slug>-<date>.md § 9 | 回写实施 | +30 |
-| docs/contracts/routing.md | +2 行 | 47→49 |
+| docs/contracts.md | +2 行 | 47→49 |
 | ...
 
 ### 新建 ADR

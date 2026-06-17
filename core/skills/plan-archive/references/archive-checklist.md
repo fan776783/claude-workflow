@@ -6,7 +6,7 @@
 
 每条按"触发判定问题"过滤实际改动,命中则写对应文件。同一改动可能命中多条(例:新增写权威服务 → architecture + 概要设计)。
 
-### 1.1 `docs/contracts/routing.md`
+### 1.1 `docs/contracts.md` § HTTP Routing
 
 **触发问题**:
 - 新增 / 修改 / 删除了 HTTP 路由?
@@ -18,7 +18,7 @@
 
 **不写**:具体 endpoint 列表(让代码 init.go 承担);单 PR 的临时变更。
 
-### 1.2 `docs/contracts/callbacks.md`
+### 1.2 `docs/contracts.md` § Callbacks & Async
 
 **触发问题**:
 - 新增异步回调路径?
@@ -28,9 +28,9 @@
 
 **写哪段**:链路图 / 选择策略表对应行。
 
-**不写**:单条 callback 的 payload 细节(让 contracts 各服务 swagger 承担)。
+**不写**:单条 callback 的 payload 细节(让各服务 swagger 承担)。
 
-### 1.3 `docs/contracts/error-handling.md`
+### 1.3 `docs/contracts.md` § Error Handling
 
 **触发问题**:
 - 引入了新错误类型 / 新 fail_type 枚举?
@@ -81,7 +81,7 @@
 
 **不写**:服务本地约定(走服务级 CLAUDE.md / AGENTS.md);ADR 级决策。
 
-**budget**:≤ 80 行。超出 → 拆 ADR。
+**budget**:≤ 100 行。超出 → 拆 ADR。
 
 ### 1.7 `docs/runbooks/README.md`
 
@@ -125,10 +125,10 @@
 | --- | --- |
 | `docs/README.md` | ≤ 20 |
 | `docs/architecture/README.md` | ≤ 130 |
-| `docs/engineering/rules.md` | ≤ 80 |
+| `docs/engineering/rules.md` | ≤ 100 |
 | `docs/runbooks/README.md` | ≤ 120 |
 | `docs/architecture/adr/README.md` | ≤ 80 |
-| `docs/contracts/*.md` each | ≤ 80 |
+| `docs/contracts.md` | ≤ 170 |
 | `docs/architecture/glossary.md` | (无强 limit,保持紧凑) |
 | `docs/assets/万兴剧厂概要设计.md` | (无强 limit) |
 | `docs/designs/*.md` | (无强 limit,但建议 ≤ 400) |
@@ -176,3 +176,15 @@
 4. § 10 各自追加 `Superseded` 标记行
 
 模型拿不准是否需要 supersede 时,Hard Stop 询问用户,不要自动决定。
+
+## 6. 估时校准回流(reference-class forecasting)
+
+回写 § 9 时,若主 design 文档 § 5 有估时、且本次能取到实际工时(git log 时间跨度 / 用户告知),**append 一行到 `docs/designs/_estimation-log.md`**(无则首次创建,带表头):
+
+| 日期 | slug | 需求类型 | 估时(人日) | 实际(人日) | 系数 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+
+- `需求类型`:粗分类(跨服务 CRUD / Agent 链路 / DDL 迁移 / 纯接入层 等),供 design-plan 起草同类需求时取系数
+- `系数` = 实际 / 估时
+- 该 log **不进 budget 约束**,append-only,是 design-plan Step 3 / § 5 估时的校准源 —— 闭环:plan-archive 产出 → design-plan 消费,取代凭空拍脑袋
+- 取不到实际工时(无明确起止 / 用户未告知)→ 跳过,不编造

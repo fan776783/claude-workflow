@@ -38,12 +38,14 @@
 
 ## 2. 接口设计
 
-> 对齐 `docs/contracts/routing.md` 前缀约定:`/v{ver}/{service-short-name}/{business}`。Method 语义:GET 查询 / POST 创建写入 / PUT 全量更新 / DELETE 删除。Header 必带 `X-User-Id`(wsid) / `X-Prod-Id`(pid) / `X-Space-Id`(space_id)。
+> 对齐 `docs/contracts.md` 前缀约定:`/v{ver}/{service-short-name}/{business}`。Method 语义:GET 查询 / POST 创建写入 / PUT 全量更新 / DELETE 删除。Header 必带 `X-User-Id`(wsid) / `X-Prod-Id`(pid) / `X-Space-Id`(space_id)。
 
-| # | 路径 | Method | 服务 | 业务说明 | 鉴权 | 幂等性 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | `/v1/df/asset/batch-upload` | POST | rmdfsrv | 批量上传素材 | wsid | 否 |
-| 2 | ... | ... | ... | ... | ... | ... |
+| # | 路径 | Method | 服务 | 业务说明 | 鉴权 | 幂等性 | 兼容性 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `/v1/df/asset/batch-upload` | POST | rmdfsrv | 批量上传素材 | wsid | 否 | 新增 |
+| 2 | ... | ... | ... | ... | ... | ... | ... |
+
+> **兼容性**填 `新增` / `破坏性` / `灰度`。破坏性变更(改 Method 语义 / 删改字段 / 改鉴权)必须列**下游 consumer + 迁移窗口**。关键路径选择(路由风格 / 同步 vs 异步 / 鉴权方式)附一句 `备选 → 否决理由`,非不可逆决策也留取舍痕迹。
 
 **关键接口请求 / 响应**(逐个列):
 
@@ -66,11 +68,11 @@
 }
 ```
 
-错误码:对齐各服务错误构造器(见 `docs/contracts/error-handling.md`),fail_type / fail_msg 必填。
+错误码:对齐各服务错误构造器(见 `docs/contracts.md`),fail_type / fail_msg 必填。
 
 ## 3. 数据库设计
 
-> 大表查询必须带 wsid 分区键;`task` 表加 rm_task_id;`episode_parse_*` 加 ep_parse_id。新建表必须标注写权威服务(对齐 `docs/architecture/README.md § 数据归属`)和读服务清单。
+> 大表查询必须带 wsid 分区键;`task` 表加 rm_task_id;`episode_parse_*` 加 ep_parse_id。新建表必须标注写权威服务(对齐 `docs/architecture/README.md § 数据归属`)和读服务清单。关键建模选择(存储选型 / 索引 / 分区数 / 是否独立建表)附一句 `备选 → 否决理由`。
 
 ### 3.1 新增 / 变更表清单
 
@@ -164,7 +166,7 @@ sequenceDiagram
 - HITL 节点:
 - 重试节点 + 上限:
 - 超时阈值:
-- 异步回调路径(对齐 `docs/contracts/callbacks.md`):
+- 异步回调路径(对齐 `docs/contracts.md`):
 
 ### 4.1 组件视图(C4 component-level)
 
@@ -204,7 +206,7 @@ flowchart LR
 | `rmaisrv` | `conf/settings.yml` | Apollo 加新 topic | 0.25d | TBD |
 | ... | ... | ... | ... | ... |
 
-**总工时估算**:`{N} 人日`,关键路径:`{瓶颈仓库}` → `{瓶颈仓库}`。
+**总工时估算**:`{N} 人日`,关键路径:`{瓶颈仓库}` → `{瓶颈仓库}`。(估时前扫 `docs/designs/_estimation-log.md` 同类需求"估时 vs 实际"系数校准,不凭空拍)
 
 **阶段二调用提示**(各研发只做自己负责的行,用 inline 字符串 + `范围:` 限定):
 
@@ -259,6 +261,10 @@ cd rmaisrv
 - DB:回滚 SQL(见 § 3.3)
 - 流量:切回旧路径
 
+**验收口径**(上线判定标准,承接阶段二 E2E):
+- 关键链路 E2E 场景:`bash docker.sh {需求编号} {服务列表}` 覆盖的跨服务场景清单
+- 上线后观测指标 + 判定:`<指标达标 = 成功 / 触发回滚阈值>`
+
 ## 8. 关联 ADR
 
 > 若本次有 hard-to-reverse 决策(服务拆分 / DB 选型 / 写权威翻转 / 协议变更 / 跨域改造),起草 ADR 草稿。沿用 `docs/architecture/adr/template.md` 五段(Context / Decision / Consequences / Alternatives / References)。是否独立成文,由 `/plan-archive` 阶段判定。
@@ -296,7 +302,7 @@ cd rmaisrv
 ### 9.4 项目级文档回写
 - `docs/architecture/README.md`:`<已更新章节 / 无变化>`
 - `docs/architecture/glossary.md`:
-- `docs/contracts/*`:
+- `docs/contracts.md`:
 - `docs/engineering/rules.md`:
 - `docs/runbooks/README.md`:
 - `docs/assets/万兴剧厂概要设计.md`:
