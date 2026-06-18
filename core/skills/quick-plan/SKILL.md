@@ -2,6 +2,7 @@
 name: quick-plan
 description: "Use when 用户说「快速规划」「轻规划」「不走 workflow」「plan 一下」「quick plan」, or 需求清晰、作用域明确、可一次性规划完成的简单到中等任务。复杂项目(跨 module / 新子系统 / 需追溯)或需要正式需求文档 / PRD 请用 /workflow-spec。"
 argument-hint: <需求描述 | path/to/requirement.md>
+disable-model-invocation: true
 ---
 
 <CONTEXT>

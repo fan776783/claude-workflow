@@ -1,6 +1,7 @@
 ---
 name: workflow-execute
-description: "Use when 用户调用 /workflow-execute, or workflow-state.json 处于 planned/running/halted 需要继续推进任务, or 用户说「继续/接着跑/继续执行/下一个 task/resume workflow/把剩下的任务跑完」要恢复已有 workflow 执行。"
+description: "Use when 用户调用 /workflow-execute, or 已有 workflow 需要继续推进任务, or 用户说「继续/接着跑/继续执行/下一个 task/resume workflow/把剩下的任务跑完」要恢复已有 workflow 执行。"
+disable-model-invocation: true
 ---
 
 > 路径 convention + CLI 写入 contract 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。

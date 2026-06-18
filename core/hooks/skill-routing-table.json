@@ -24,6 +24,7 @@
   "project_skill_names": [
     "alidocs",
     "api-smoke",
+    "ask-workflow",
     "collaborating-with-codex",
     "design-plan",
     "diagnose",
@@ -38,6 +39,7 @@
     "prototype",
     "quick-plan",
     "research",
+    "resolve-merge-conflicts",
     "scan",
     "spec-bootstrap",
     "spec-review",
@@ -51,7 +53,6 @@
     "workflow-plan",
     "workflow-spec",
     "workflow-status",
-    "write-a-skill",
-    "zoom-out"
+    "write-a-skill"
   ]
 }

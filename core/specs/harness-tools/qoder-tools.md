@@ -23,7 +23,7 @@
 
 ## 备注
 
-- `.qoder-plugin`/`installed_plugins` **插件分发**机制仅 Quest agents-window 生效，故 skills/commands 走 installer-mount 而非 Plugin 分发；但 **custom agent/subagent 调用**在 Chat panel + Quest 均可用（与分发机制无关）
+- `.qoder-plugin`/`installed_plugins` **Plugin 分发**机制仅 Quest agents-window 生效，故 skills/commands 走 installer-mount 而非 Plugin 分发；但 **custom agent/subagent 调用**在 Chat panel + Quest 均可用（与分发机制无关）
 - 不走 `qodercli plugins install`（v6 早期曾误用，该命令不存在）
 
 ## Instructions File

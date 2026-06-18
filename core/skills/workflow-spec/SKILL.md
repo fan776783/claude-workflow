@@ -1,6 +1,7 @@
 ---
 name: workflow-spec
-description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute workflow 并需要状态机管理, or 用户描述\"完整需求规格 / spec → plan → execute / 跨 module 新需求\"等场景。简单任务请用 /quick-plan。"
+description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute workflow, or 用户描述\"完整需求规格 / spec → plan → execute / 跨 module 新需求\"等场景。简单任务请用 /quick-plan。"
+disable-model-invocation: true
 ---
 
 > 路径 convention + CLI 写入 contract 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)（完整 canonical key 以 `core/utils/workflow/planning_gates.js` `mapSpecReviewChoice` 为准）。
@@ -174,7 +175,7 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 ### 术语挑战
 
-用户用的术语和 glossary 冲突时当场指出。词模糊/过载但 glossary 未收录 → 当场提议 canonical 词("你说 account——指 Customer 还是 User?这是两个概念")。新术语确认后按 `core/specs/shared/glossary.md § 术语更新路由` inline 更新。
+走 `core/specs/shared/domain-modeling-protocol.md` 统一协议——术语冲突当场指出 / 模糊词提议 canonical / glossary inline 更新 / ADR 三重门槛判定。
 
 ### 方案探索(条件)
 
@@ -184,7 +185,7 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 讨论结果写入 spec.md § 9(§ 9.1 需求澄清记录、§ 9.2 方案选择、§ 9.3 未解决依赖)。不得仅依赖对话上下文记忆。
 
-§ 9.2 中的决策命中三重门槛(hard to reverse + surprising without context + real trade-off)→ 建议落 ADR,不自动创建。协议见 `core/specs/shared/adr-protocol.md`。
+§ 9.2 中的决策命中三重门槛 → 建议落 ADR,不自动创建。判定 + 落盘走 `core/specs/shared/domain-modeling-protocol.md § ADR 提议`。
 
 ## Step 4: Spec 文本扩写 + Self-Review(核心章节)
 

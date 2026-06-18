@@ -57,7 +57,7 @@ node "$CLI" context-curate --id T1 --from-file <ctx.jsonl>   # 或 -
 | `requirement_ids` | string[] | ✅(实务) | `[]` | 本 task 承接的 spec §2.1 R-ID（`R-NNN`）。plan-review coverage 比对 + confidence PRD 维度数据源；spec-approve 壳已按 1:1 预填，task-write 重切时**必须承接**（缺失 → coverage 全 uncovered、PRD 维度 0 分，advisory 不挡 ready） |
 | `quality_gate` | boolean | — | `false` | commit 边界 marker（spec-approve 由需求 `must_preserve` 预填）。代码质量 review 由 per-task reviewer 默认覆盖，与本字段解耦 |
 | `constraints_global` | string[] | — | `[]` | **v2 可选** workflow 级全局约束（参照 superpowers 6.0 Global Constraints）。约束每个 task 的规则——版本下限、依赖限制、命名和文案、精确值。execute 期 `pre-execute-inject` hook 逐字注入每个 implementer/reviewer 的 `<global-constraints>` 段。**逐字复制到下游**，不摘要、不转述 |
-| `interfaces` | object | — | `null` | **v2 可选** per-task 接口声明（参照 superpowers 6.0 Per-Task Interfaces）。`{consumes: [{name, from_task, contract}], produces: [{name, contract}]}`。让只看自己 task 的 implementer 知道邻居的契约。空时 reviewer 不校验接口一致性 |
+| `interfaces` | object | — | `null` | **v2 可选** per-task 接口声明（参照 superpowers 6.0 Per-Task Interfaces）。`{consumes: [{name, from_task, contract}], produces: [{name, contract}]}`。让只看自己 task 的 implementer 知道邻居的 contract。空时 reviewer 不校验接口一致性 |
 
 未知扩展字段必须在读写 / status 更新中透传保留，避免 planner、delta 或未来 runtime 写入的 metadata 被 normalization 意外丢弃。写侧仍必须覆盖 `schema_version=2`；手写旧文件缺省才视为 v1。
 

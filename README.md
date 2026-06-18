@@ -165,14 +165,14 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 
 ## 5. Skills 一览
 
-共 34 个 skill（权威清单以 `core/skills/` 为准），另有 2 个原生 command：`/team`（Agent Teams 入口）、`/git-rollback`（交互式回滚，默认 dry-run）。
+共 35 个 skill（权威清单以 `core/skills/` 为准），另有 2 个原生 command：`/team`（Agent Teams 入口）、`/git-rollback`（交互式回滚，默认 dry-run）。
 
 | 类别 | Skill | 一句话 |
 |------|-------|--------|
 | **Workflow 主线** | `workflow-spec` / `workflow-plan` / `workflow-execute` / `workflow-delta` / `workflow-status` / `workflow-archive` | 见 §3 |
-| **规划与对齐** | `quick-plan` | 轻量规划，简单到中等任务 |
+| **规划与对齐** | `ask-workflow` | skill 路由地图，不知道用哪个时看 |
+| | `quick-plan` | 轻量规划，简单到中等任务 |
 | | `grill` | 质询模糊需求到共享理解 |
-| | `zoom-out` | 抬升抽象层，画 module / caller 地图 |
 | | `ux-elaboration` | 前端 UX 设计深化 → spec §4.4 Layout Anchors |
 | | `prototype` | 抛弃式原型（TUI 验证 / 多版本 UI 对比） |
 | **缺陷与审查** | `fix-bug` | 单 Bug 端到端修复（6 Phase + 两段 Hard Stop） |
@@ -196,6 +196,7 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 | **其他** | `scan` | 扫描项目生成 `project-config.json` |
 | | `teach` | 多 session 教学 workspace（Knowledge / Skills / Wisdom + ZPD，仅用户显式触发） |
 | | `write-a-skill` | meta-skill：新建 / 审查 SKILL.md |
+| | `resolve-merge-conflicts` | 逐 hunk 解决 git 合并冲突，保留双方意图 |
 
 **MCP 桥接共性**（`bk` / `alidocs` / `figma-data`）：把 MCP 调用封装成本地 CLI / mcp-gw 桥接——无状态、可控错误处理（退出码三桶归一化 `2` auth / `5` tool_not_found / `6` enum_invalid）、CI/sandbox 可跑、禁止 WebFetch 兜底（403）；共享 `core/skills/_shared/mcp-baseline.mjs`，经 checkin baseline + `<cli> diff-tools` 检测上游漂移（ADR 0001）。
 

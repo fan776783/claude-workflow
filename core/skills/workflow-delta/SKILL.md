@@ -1,6 +1,7 @@
 ---
 name: workflow-delta
 description: "Use when 用户调用 /workflow-delta, or 已有 workflow 出现需求/PRD/API 变化需要影响分析与并入。"
+disable-model-invocation: true
 ---
 
 > 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。当 delta 跨到新 `{pkg}/{layer}` 时,Read 新涉及 layer 的 `.claude/code-specs/{pkg}/{layer}/index.md`。

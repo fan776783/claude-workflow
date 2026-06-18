@@ -21,6 +21,15 @@ disable-model-invocation: true
 - `GLOSSARY.md` — 主题 glossary。workspace 所有文件遵守其术语。格式见 [references/GLOSSARY-FORMAT.md](references/GLOSSARY-FORMAT.md)。
 - `RESOURCES.md` — 可信资源清单,explainer 的知识来源,wisdom 的社区来源。格式见 [references/RESOURCES-FORMAT.md](references/RESOURCES-FORMAT.md)。
 - `learning-records/*.md` — 学习记录,教学版 ADR:记录非显然的 lesson 和关键 insight,用于推算 zone of proximal development。编号 `0001-<dash-case-name>.md` 递增。格式见 [references/LEARNING-RECORD-FORMAT.md](references/LEARNING-RECORD-FORMAT.md)。
+- `./assets/*` — 可复用组件库(样式表 / quiz 组件 / 模拟器 / 图表助手等)。跨多节课复用,见下方 ## Assets。
+
+## Assets
+
+课程从 `./assets/` 里的可复用**组件**构建,不是每节课各自内联。
+
+- **复用是默认** — 写课前先读 `./assets/`,从已有组件搭。遇到新的可复用东西,抽成组件放回 `./assets/` 而不是内联进单节课
+- **共享样式表是第一个该有的组件** — 让多节课看起来像一门课,不是一堆散页
+- **随 workspace 增长** — 组件库也要增长。每节课产出的可复用部分回流到 `./assets/`
 
 ## 哲学
 

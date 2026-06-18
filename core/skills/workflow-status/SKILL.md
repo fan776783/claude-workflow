@@ -1,6 +1,7 @@
 ---
 name: workflow-status
 description: "Use when 用户调用 /workflow-status, or 需要查看当前 workflow 的状态/进度/下一步建议。只读操作,不修改任何文件。"
+disable-model-invocation: true
 ---
 
 > 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。

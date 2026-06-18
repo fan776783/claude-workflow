@@ -1,6 +1,7 @@
 ---
 name: workflow-archive
 description: "Use when 用户调用 /workflow-archive, or workflow 状态为 completed 需要 archive。"
+disable-model-invocation: true
 ---
 
 > 路径 convention 见 [`../../specs/shared/workflow-cli.md`](../../specs/shared/workflow-cli.md)。archive summary 用 canonical 术语（Read `core/specs/shared/glossary.md`）。

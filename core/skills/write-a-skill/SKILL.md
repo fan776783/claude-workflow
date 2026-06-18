@@ -4,7 +4,7 @@ description: "Use when user wants to create / write / draft / build a new skill 
 ---
 
 <CONTEXT>
-Read `core/specs/shared/glossary.md` + 目标 skill 的已有 SKILL.md（如有）。只改 description 字段（1 行改动）可跳过。
+Read `core/specs/shared/glossary.md` + `core/specs/shared/skill-craft.md`（skill 元理论词汇 + failure modes 诊断清单，审计 skill 时用作镜头）+ 目标 skill 的已有 SKILL.md（如有）。只改 description 字段（1 行改动）可跳过 skill-craft.md。
 </CONTEXT>
 
 # Write a Skill
@@ -117,6 +117,17 @@ Helps with documents.
 - [ ] references / scripts 只拆一级深度
 - [ ] 没有和其他 skill 重复的协议模板(Hard Stop / Manual Intervention / Codex 路由等走 `core/specs/shared/`)
 - [ ] 有 `<CONTEXT>` 块声明需要读什么（glossary / code-specs），不引用已废弃的 pre-flight 协议
+
+## 元理论审计（对照 `core/specs/shared/skill-craft.md`）
+
+起草后用 failure modes 诊断清单逐条过一遍：
+
+- [ ] description 无 no-op（砍了身份说明 / 消费链 / 交叉引用，只留触发短语 + 行为边界）
+- [ ] 入口 / 编排类 skill 标了 `disable-model-invocation: true`（避免 context load 失控 + 误触发）
+- [ ] step 标题用 leading word（预训练动词，非"处理 / 搞定"）
+- [ ] 无 sediment（退役协议残留步骤已删，不是"以防万一"保留）
+- [ ] 无 duplication（共享词汇 / 协议走 `core/specs/shared/`，不 inline）
+- [ ] 无 sprawl（一个 skill 不覆盖 3+ 不相关领域；超出则拆）
 
 ## 架构原则(借鉴 mattpocock/skills)
 

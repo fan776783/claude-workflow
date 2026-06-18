@@ -1,10 +1,10 @@
 ---
 name: grill
-description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me' / 「帮我理清」「先别写」「我想想怎么做」「需求不清楚」。替代 quick-plan Step 1 Ambiguity Gate。"
+description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me' / 「帮我理清」「先别写」「我想想怎么做」「需求不清楚」。"
 ---
 
 <CONTEXT>
-纯访谈 skill,不强制读 code-specs / glossary。术语挑战 / 文档落盘纪律归 `/workflow-spec` Step 3。
+纯访谈 skill,不强制读 code-specs / glossary。术语挑战 / glossary 更新 / ADR 提议走 `core/specs/shared/domain-modeling-protocol.md` 统一协议。
 </CONTEXT>
 
 # Grill

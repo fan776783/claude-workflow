@@ -89,7 +89,7 @@ controller (主会话)
 
 ### 审阅器只读 + 控制器权力约束（参照 superpowers 6.0 纪律门）
 
-- ❌ **reviewer 触碰工作树**：reviewer 是只读审查员，禁止运行 `git checkout` / `git reset` / `git stash` / 任何写操作 / 修改文件。验证需求改用 grep/Read 在调用方定位，不动代码。reviewer 越权改码会导致后续提交孤立
+- ❌ **reviewer 触碰工作树**：reviewer 是只读审阅员，禁止运行 `git checkout` / `git reset` / `git stash` / 任何写操作 / 修改文件。验证需求改用 grep/Read 在调用方定位，不动代码。reviewer 越权改码会导致后续提交孤立
 - ❌ **controller 告诉 reviewer 忽略某项发现**："don't flag X" / "skip the Y check"——reviewer 的发现由其专业判断决定，controller 不得事前指示不报。误报由 controller 在 reviewer 返回后裁决
 - ❌ **controller 预判严重度**："Minor at most" / "just a nit"——严重度由缺陷的 failure_scenario 决定，事前降级 = 剥夺 reviewer 定级权
 - ❌ **controller 粘贴累积历史摘要进 reviewer prompt**：前几轮发现 / implementer excuses / controller 分析不得整段粘贴（实测案例：dispatch 达 42k 字符，99% 是粘贴历史）。历史通过 `cannot_verify` / `revise_instructions` 结构化传递

@@ -55,9 +55,7 @@ Read `core/specs/shared/architecture-language.md` + `core/specs/shared/glossary.
 
 用户选了候选后,进入质询对话:约束、依赖、deepened module 形状、seam 后面放什么、哪些测试存活。
 
-副作用 inline 发生:
-- 命名了 glossary 里没有的概念 → inline 更新 glossary,路由见 `core/specs/shared/glossary.md § 术语更新路由`
-- 用户给出 load-bearing 拒绝理由 → 提议写 ADR,三重门槛见 `core/specs/shared/adr-protocol.md`
+术语挑战 / glossary inline 更新 / ADR 提议走 `core/specs/shared/domain-modeling-protocol.md` 统一协议。
 
 ### 5. Interface Design 探索(可选)
 

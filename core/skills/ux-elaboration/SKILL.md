@@ -1,6 +1,7 @@
 ---
 name: ux-elaboration
-description: "Use when 用户说「补充前端设计」「UX 深化」「页面 flowchart」「布局提取」「补 §4.4」, or workflow-spec Step 5 确认需要前端设计深化, or 已有 Spec 需要补充 User Flow / Page Hierarchy / Layout Anchors。与 figma-ui 的区别：本 skill 产出布局级锚点写入 Spec §4.4，figma-ui 负责执行阶段像素级还原。"
+description: "Use when 用户说「补充前端设计」「UX 深化」「页面 flowchart」「布局提取」「补 §4.4」, or workflow-spec Step 5 确认需要前端设计深化, or 已有 Spec 需要补充 User Flow / Page Hierarchy / Layout Anchors。"
+disable-model-invocation: true
 ---
 
 <CONTEXT>
