@@ -10,7 +10,7 @@ Risk-signal based Codex routing shared by fix-bug, bug-batch, diff-review, and t
 | `data_safety` | migration, irreversible state change, deletion, persistence schema, data corruption | Codex read-only oracle review | Data loss and migration hazards are costly and often non-obvious. |
 | `concurrency_ordering` | race, retry, idempotency, transaction, queue, stale state | Codex read-only oracle analysis/review | Requires tracing ordering assumptions and reachable interleavings. |
 | `cross_task_contract` | API/schema/signature/config key consistency across tasks or layers | Codex read-only oracle review | Contract drift often spans files and is hard to catch in a local diff pass. |
-| `stuck_or_looping` | parent failed twice, implementer/reviewer loop >= 2, unresolved root cause | Codex read-only oracle analysis | Use Codex as a second opinion before more implementation attempts. |
+| `stuck_or_looping` | parent failed twice, implementer/reviewer loop >= 2, unresolved root cause, **fix keeps regressing in same region** | Codex read-only oracle analysis | Use Codex as a second opinion before more implementation attempts. Known root cause does NOT justify skipping — see Routing Workflow step 5. |
 | `direct_verification` | simple CRUD, enum/string tweak, typo, pure UI check, grep/read/search, screenshot-verifiable change | Current model, no Codex | Direct evidence is cheaper and clearer than spawning an oracle review. |
 
 ## Routing Workflow
@@ -19,6 +19,7 @@ Risk-signal based Codex routing shared by fix-bug, bug-batch, diff-review, and t
 2. If any high-risk signal (`security_boundary`, `data_safety`, `concurrency_ordering`, `cross_task_contract`, `stuck_or_looping`) is present, use Codex as a read-only oracle through the host-aware `Invocation Contract` below. The bridge route is implemented by the `collaborating-with-codex` skill; the Codex-host route uses native subagents.
 3. If only `direct_verification` signals are present, review directly with the current model and record why Codex was skipped.
 4. When signals conflict, prefer the higher-risk route. For example, a UI change touching auth/session behavior still uses Codex oracle review.
+5. **`stuck_or_looping` skip 判据**：不得仅因「根因已知」跳过 oracle——**根因已知 ≠ 修复在收敛**。当症状是 thrashing（连续修复在同区域引入新回归）时，oracle 的价值是 **alternative-design POV**（很可能建议缩小 scope / 换设计），正是所需，不得跳过；或直接走设计简化升级（见 workflow-execute `references/subagent-driven.md` § Thrashing 早升级）。仅当 stuck 是 **localized 单根因 correctness 补丁、且根因 + 修复路径都已锁定**时，才可标 `degraded_review: skipped_known_root_cause` 跳过并记理由。
 
 ## Invocation Contract
 
