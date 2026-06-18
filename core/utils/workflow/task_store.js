@@ -120,6 +120,30 @@ function normalizeMandatoryReading(value) {
   return out
 }
 
+// interfaces（v2 可选）：per-task 接口声明。{consumes:[{name,from_task,contract}], produces:[{name,contract}]}
+// 参照 superpowers 6.0 Per-Task Interfaces——让只看自己 task 的 implementer 知道邻居契约。
+function normalizeInterfaces(value) {
+  if (!value || typeof value !== 'object') return null
+  const normalizeEntry = (item) => {
+    if (!item || typeof item !== 'object') return null
+    const name = item.name ? String(item.name).trim() : ''
+    if (!name) return null
+    return {
+      name,
+      from_task: item.from_task ? String(item.from_task).trim() : '',
+      contract: item.contract ? String(item.contract).trim() : '',
+    }
+  }
+  const consumes = Array.isArray(value.consumes)
+    ? value.consumes.map(normalizeEntry).filter(Boolean)
+    : []
+  const produces = Array.isArray(value.produces)
+    ? value.produces.map(normalizeEntry).filter(Boolean)
+    : []
+  if (!consumes.length && !produces.length) return null
+  return { consumes, produces }
+}
+
 // task.json schema 归一化。字段集对齐 spec §5.2 + createWorkflowTaskV2 输出。
 // name / verification / blocked_by 为 workflow-plan 现写阶段细化字段：name 供 status 展示，
 // verification 供 pre-execute-inject 注入 <verification-commands>，blocked_by 供 reconcileBlockedTasks
@@ -145,6 +169,8 @@ function normalizeTaskRecord(data = {}) {
     interaction: normalizeInteraction(data.interaction),
     files: normalizeStringArray(data.files),
     constraints: normalizeStringArray(data.constraints),
+    constraints_global: normalizeStringArray(data.constraints_global),
+    interfaces: normalizeInterfaces(data.interfaces),
     patterns: normalizePatterns(data.patterns),
     mandatory_reading: normalizeMandatoryReading(data.mandatory_reading),
     task_text: data.task_text != null ? String(data.task_text) : '',

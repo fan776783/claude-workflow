@@ -55,7 +55,7 @@ Canonical 源的枚举规则：
 
 ## 维护注意
 
-- 新增支持的 AI 工具：同时更新 `lib/agents.js` 的 agents map、本文件的"必须存在的 agents"清单、README 的工具列表。
+- 新增支持的 AI 工具：同时更新 `lib/agents.js` 的 agents map、本文件的"必须存在的 agents"清单、README 的工具列表、`core/specs/harness-tools/<agent>-tools.md` 工具映射文件。完整 onboarding 清单见 [`docs/porting-to-a-new-harness.md`](../../docs/porting-to-a-new-harness.md)。
 - 新增 canonical 一级目录：同时更新 `TEMPLATE_DIRS`（以及 `MANAGED_DIRS` 如适用）。
 - 新增 skill：确保 `core/skills/<skill>/SKILL.md` 存在；validator 会自动发现。
 - 新增 command：确保是 `core/commands/<name>.md`，且 `<name>` 与目标 skill 名称匹配。

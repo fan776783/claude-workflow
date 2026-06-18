@@ -196,6 +196,22 @@ function getTaskVerificationCommands(task) {
   return [...(getTaskVerification(task)?.commands || [])].filter(Boolean)
 }
 
+// constraints_global（v2）：workflow 级全局约束，逐字注入所有 implementer/reviewer 的 <global-constraints>。
+function getTaskGlobalConstraints(task) {
+  return [...(task?.constraints_global || [])].filter(Boolean)
+}
+
+// interfaces（v2）：per-task 接口声明 {consumes:[{name,from_task,contract}], produces:[{name,contract}]}。
+// 注入 <task-interfaces>，让只看自己 task 的 implementer 知道邻居契约、reviewer 校验一致性。空段返回 null。
+function getTaskInterfaces(task) {
+  const ifaces = task?.interfaces
+  if (!ifaces || typeof ifaces !== 'object') return null
+  const consumes = Array.isArray(ifaces.consumes) ? ifaces.consumes.filter((e) => e && e.name) : []
+  const produces = Array.isArray(ifaces.produces) ? ifaces.produces.filter((e) => e && e.name) : []
+  if (!consumes.length && !produces.length) return null
+  return { consumes, produces }
+}
+
 // 命中"整体内容上限"时截断 + 一行 stderr 告警（异常事件，便于发现注入被裁）。
 // 注意：每文件 digest 预算（rootIndexBudget/layerIndexBudget/PER_FILE_BUDGET）的常规切片不走这里——
 // 那是正常操作，逐文件告警会刷屏淹没真信号（见 safeReadCodeSpecs 静默切片）。
@@ -1005,6 +1021,8 @@ module.exports = {
   getTaskActions,
   getTaskVerification,
   getTaskVerificationCommands,
+  getTaskGlobalConstraints,
+  getTaskInterfaces,
   getSpecContent,
   getContractDigest,
   expandContextPack,

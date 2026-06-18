@@ -516,4 +516,52 @@ test('task-aware code-specs injection', async (t) => {
     assert.match(legacy, /无 task-dir/, '纯 legacy 无 task-dir → 中性信号')
     assert.doesNotMatch(legacy, /task\.json:/, '无 task-dir 时不得谎报 task.json 路径')
   })
+
+  await t.test('buildTaskContext injects <global-constraints> + <task-interfaces> (v2 fields)', () => {
+    const hookPath = path.join(repoRoot, 'core', 'hooks', 'pre-execute-inject.js')
+    delete require.cache[require.resolve(hookPath)]
+    const hook = require(hookPath)
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-gc-'))
+    const wfDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-aware-gc-wf-'))
+    const runtime = {
+      projectRoot: root,
+      projectId: 'gcpid01',
+      workflowDir: wfDir,
+      state: { current_tasks: ['T1'] },
+      currentTaskId: 'T1',
+      currentTask: {
+        id: 'T1',
+        schema_version: 2,
+        task_text: 'implement X',
+        constraints_global: ['lib>=2.0', 'no-eval'],
+        interfaces: {
+          consumes: [{ name: 'UserService.list', from_task: 'T0', contract: 'Promise<User[]>' }],
+          produces: [{ name: 'renderList', from_task: '', contract: '(u)=>JSX' }],
+        },
+      },
+    }
+
+    const implementCtx = hook.buildTaskContext(runtime, 'implement', 'general-purpose')
+    assert.match(implementCtx, /<global-constraints>/, 'implementer must receive <global-constraints>')
+    assert.match(implementCtx, /lib>=2\.0/)
+    assert.match(implementCtx, /<task-interfaces>/, 'implementer must receive <task-interfaces>')
+    assert.match(implementCtx, /UserService\.list/)
+    assert.match(implementCtx, /from T0/, 'consumes 应标注 from_task')
+    assert.match(implementCtx, /renderList/)
+
+    const checkCtx = hook.buildTaskContext(runtime, 'check', 'reviewer')
+    assert.match(checkCtx, /<global-constraints>/, 'reviewer must receive <global-constraints>')
+    assert.match(checkCtx, /<task-interfaces>/, 'reviewer must receive <task-interfaces>')
+
+    const researchCtx = hook.buildTaskContext(runtime, 'research', 'Explore')
+    assert.doesNotMatch(researchCtx, /<global-constraints>/, 'research must NOT receive <global-constraints>')
+    assert.doesNotMatch(researchCtx, /<task-interfaces>/)
+
+    // 空字段不注入空段（向后兼容：旧 task 无这俩字段）
+    const bareRuntime = { ...runtime, currentTask: { id: 'T1', schema_version: 2, task_text: 'x' } }
+    const bareCtx = hook.buildTaskContext(bareRuntime, 'implement', 'general-purpose')
+    assert.doesNotMatch(bareCtx, /<global-constraints>/, '无 constraints_global 不注入空段')
+    assert.doesNotMatch(bareCtx, /<task-interfaces>/, '无 interfaces 不注入空段')
+  })
 })

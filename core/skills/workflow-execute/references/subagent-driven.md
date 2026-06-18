@@ -28,11 +28,16 @@ controller (主会话)
 |---|---|---|---|---|
 | claude-code / cursor | `Task` | ✅ | ✅ | 默认全套（fresh implementer + 单 reviewer） |
 | codex | `spawn_agent` | ✅ | ✅ | 默认全套 |
-| 其他（opencode / antigravity / droid） | 主会话 direct | ❌ | ❌ | degraded：主会话扮 implementer + 单段 self-review（按 reviewer.md 两 phase 顺序自检） |
+| opencode / droid | `Task`（`subagent_type`） | ✅ | ✅ | 默认全套（Task tool 派发，与 claude-code 同族） |
+| antigravity | orchestrator 自动派发 / async subagent | ✅ | ✅ | 默认全套（2.0 自动编排 + CLI async subagent；精确 tool 名 + 自动编排语义见 harness-tools） |
+| qoder | subagent（`~/.qoder/agents`） | ✅ | ✅ | 默认全套（Chat panel + Quest，`/agent-name` 或自动） |
+| 不支持 subagent 的平台 | 主会话 direct | ❌ | ❌ | degraded：主会话扮 implementer + 单段 self-review（按 reviewer.md 两 phase 顺序自检） |
 
 不支持 subagent 的平台**自动**降级；不需要 config flag 开关。
 
 > 本表是 fresh-subagent-per-task 平台支持的 single source。`workflow-execute/SKILL.md` 和 `dispatching-parallel-agents/SKILL.md` 都指向此处。
+>
+> 各 harness 的详细工具映射（dispatch tool、hook 机制、instructions file 等）见 [`../../../specs/harness-tools/`](../../../specs/harness-tools/) 下每平台一个映射文件。
 
 ## 决策点
 
@@ -51,8 +56,8 @@ controller (主会话)
 
 单 reviewer subagent 在一个 context 内顺序执行两 phase：
 
-- **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。clean PASS 用 `ac_ids_covered`（AC ID 枚举,不回 evidence 长串）;REVISE/gap 才回完整 `ac_coverage`+evidence（O2a,schema 以 reviewer.md 为权威）。
-- **Phase 2 — Code Quality**：三档语义与 PASS 条件以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。
+- **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。clean PASS 用 `ac_ids_covered`（AC ID 枚举,不回 evidence 长串）;REVISE/gap 才回完整 `ac_coverage`+evidence（O2a,schema 以 reviewer.md 为权威）。**cannot_verify**：AC 要求的行为在 diff 未触碰代码中时，reviewer 标注 `cannot_verify[]`（不等于 REVISE），controller 收到后必须自行核实或回派 implementer 补实现，不得忽略。
+- **Phase 2 — Code Quality**：三档语义与 PASS 条件以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。**Calibration 纪律**：plan-mandated 的缺陷也必须按实际严重度报告（critical/important），不得因"plan 要求这么写"放行。
 
 `decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → **fresh 重派 implementer + fresh reviewer subagent**（O4,禁 SendMessage/transcript-resume）→ 重 review。trivial 无逻辑机械修复走 controller 自验例外,不重派 reviewer。循环上限 **3 轮**（合并 phase1+phase2 共享）：第 3 轮重派仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
 
@@ -81,6 +86,14 @@ controller (主会话)
 - ❌ controller 全量 dump 诊断输出回灌上下文(`workflow_cli status/context`、`git diff/log/status` 一律 `jq`/`grep`/`--stat` 取字段;原始 diff 验证交 reviewer subagent,不在 controller 跑)
 - ❌ reviewer / implementer 返回散文报告,或 **JSON 前后夹带散文/markdown/推理**(strict JSON-only:首字符即 `{`;controller 不做 loose-extract 容忍,夹带散文 = schema 违规,重派 1 次后 halt)
 - ❌ 在 plan 执行路径里同时派发多个 implementer subagent（plan task 有依赖 / 共享文件，写动作顺序执行）。文件不重叠的独立写任务走 `dispatching-parallel-agents` 的 writable fan-out，不在本主路径并行
+
+### 审阅器只读 + 控制器权力约束（参照 superpowers 6.0 纪律门）
+
+- ❌ **reviewer 触碰工作树**：reviewer 是只读审查员，禁止运行 `git checkout` / `git reset` / `git stash` / 任何写操作 / 修改文件。验证需求改用 grep/Read 在调用方定位，不动代码。reviewer 越权改码会导致后续提交孤立
+- ❌ **controller 告诉 reviewer 忽略某项发现**："don't flag X" / "skip the Y check"——reviewer 的发现由其专业判断决定，controller 不得事前指示不报。误报由 controller 在 reviewer 返回后裁决
+- ❌ **controller 预判严重度**："Minor at most" / "just a nit"——严重度由缺陷的 failure_scenario 决定，事前降级 = 剥夺 reviewer 定级权
+- ❌ **controller 粘贴累积历史摘要进 reviewer prompt**：前几轮发现 / implementer excuses / controller 分析不得整段粘贴（实测案例：dispatch 达 42k 字符，99% 是粘贴历史）。历史通过 `cannot_verify` / `revise_instructions` 结构化传递
+- ❌ **controller 自行放行 plan-mandated 缺陷**：reviewer 报告 plan 描述本身的缺陷时，controller 不得自行放行——展示给用户决定改 plan 还是改实现
 
 ## 与其它 skill 的边界
 

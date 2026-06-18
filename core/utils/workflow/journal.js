@@ -266,6 +266,52 @@ function main() {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
+// === Progress Ledger（参照 superpowers 6.0）===
+// 轻量追加文件，每 task 审阅通过后追加一行。
+// /clear 后 controller 读此文件恢复 per-task review 结论与已知问题（known-issues 排除清单）。
+// 不替代 resume 三元组，补充其缺失的 per-task review 上下文。
+
+function getProgressLedgerPath(projectId) {
+  const workflowsDir = getWorkflowsDir(projectId)
+  if (!workflowsDir) return null
+  return path.join(workflowsDir, 'progress.md')
+}
+
+// 追加一行 progress ledger。entry 格式：JSON object（单行），含 taskId / status / commits / review / known_issues。
+function appendProgressLedger(projectId, entry) {
+  const ledgerPath = getProgressLedgerPath(projectId)
+  if (!ledgerPath) return { error: `invalid project id: ${projectId}` }
+  const line = JSON.stringify({
+    task_id: entry.task_id || '',
+    status: entry.status || 'completed',
+    commits: entry.commits || '',
+    review: entry.review || 'clean',
+    known_issues: Array.isArray(entry.known_issues) ? entry.known_issues : [],
+    appended_at: new Date().toISOString(),
+  })
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true })
+  fs.appendFileSync(ledgerPath, `${line}\n`)
+  return { ok: true, task_id: entry.task_id, ledger_path: ledgerPath }
+}
+
+// 读 progress ledger，返回 entry 数组（每行一个 JSON）。文件不存在返回空数组。
+function readProgressLedger(projectId) {
+  const ledgerPath = getProgressLedgerPath(projectId)
+  if (!ledgerPath || !fs.existsSync(ledgerPath)) return []
+  const content = fs.readFileSync(ledgerPath, 'utf8')
+  const entries = []
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      entries.push(JSON.parse(trimmed))
+    } catch {
+      // 跳过损坏行（不阻断 resume）
+    }
+  }
+  return entries
+}
+
 module.exports = {
   MAX_SESSIONS_PER_INDEX,
   EVIDENCE_FIELDS,
@@ -280,6 +326,9 @@ module.exports = {
   cmdSearch,
   cmdGet,
   detectProjectId,
+  getProgressLedgerPath,
+  appendProgressLedger,
+  readProgressLedger,
 }
 
 if (require.main === module) main()

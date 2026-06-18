@@ -56,12 +56,39 @@ test('createTask + readTask: round-trip 字段集对齐 §5.2', () => {
     interaction: 'AFK',
     files: [],
     constraints: [],
+    constraints_global: [],
+    interfaces: null,
     patterns: [],
     mandatory_reading: [],
     task_text: '',
     requirement_ids: [],
     quality_gate: false,
   })
+})
+
+test('createTask + readTask: constraints_global + interfaces round-trip（v2 可选）', () => {
+  taskStore.createTask(PID, {
+    id: 'T9',
+    phase: 'implement',
+    constraints_global: ['lib>=2.0', 'no eval', ''],
+    interfaces: {
+      consumes: [{ name: 'UserService.list', from_task: 'T1', contract: 'Promise<User[]>' }, { contract: 'no-name dropped' }],
+      produces: [{ name: 'renderList', contract: '(u)=>JSX' }],
+    },
+  })
+  const read = taskStore.readTask(PID, 'T9')
+  // 空串被 normalizeStringArray 过滤
+  assert.deepEqual(read.constraints_global, ['lib>=2.0', 'no eval'])
+  // 无 name 的 consume 项被 normalizeInterfaces 丢弃；produces 项补 from_task:''
+  assert.deepEqual(read.interfaces, {
+    consumes: [{ name: 'UserService.list', from_task: 'T1', contract: 'Promise<User[]>' }],
+    produces: [{ name: 'renderList', from_task: '', contract: '(u)=>JSX' }],
+  })
+})
+
+test('createTask + readTask: 空 interfaces 归一为 null（向后兼容）', () => {
+  taskStore.createTask(PID, { id: 'T10', interfaces: { consumes: [], produces: [] } })
+  assert.equal(taskStore.readTask(PID, 'T10').interfaces, null)
 })
 
 test('createTask + readTask: 保留 name / verification / blocked_by 现写字段', () => {

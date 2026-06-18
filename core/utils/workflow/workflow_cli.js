@@ -21,7 +21,7 @@ const { buildExecuteEntry } = require('./execution_sequencer')
 const { countTasks, parseTasksV2, summarizeTaskProgress } = require('./task_parser')
 const { createTaskSource } = require('./task_source')
 const taskStore = require('./task_store')
-const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch } = require('./journal')
+const { cmdAdd, cmdGet, cmdList: cmdJournalList, cmdSearch, appendProgressLedger, readProgressLedger } = require('./journal')
 const { buildMinimumState, buildUserSpecReview, ensureStateDefaults, finishedTaskIds, firstDispatchableTaskId, selectAnchorId, alignStatusWithAnchor } = require('./workflow_types')
 const { evaluateTriage, loadCodexJobResult } = require('./triage_rules')
 const { renderTaskMd } = require('./task_md_render')
@@ -718,6 +718,15 @@ const SUBCOMMAND_HELP = {
   journal search <query>
   journal get <id>
 `,
+  'progress-ledger': `progress-ledger - per-task review 结论与已知问题的轻量追加台账（Step 5 ④ / Step 2 compaction 恢复）。
+
+用法：
+  progress-ledger append --task-id <id> --status <status> --commits <range> --review <clean|issues> --known-issues <csv>
+    每 task reviewer PASS + 验证通过后追加一行（JSON）到 ~/.claude/workflows/{pid}/progress.md。
+    --known-issues：逗号分隔的 minor + concerns（单项描述内勿含逗号，会被误切）。
+  progress-ledger read
+    读回全部 entries（每行一个 JSON），/clear 后恢复 known-issues 排除清单。文件不存在返回空数组。
+`,
   'plan-edit': `plan-edit - v2 plan 锚点 section 级替换（唯一写入口，保护 <!-- WF:ANCHOR --> 配对）。
 
 用法：
@@ -792,7 +801,7 @@ const SUBCOMMAND_HELP = {
 `,
 }
 
-const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|repair-anchor|execute|continue|init|spec-review|delta|archive|unblock|accept-deviation|advance|fail|set-contract-digest-path|write-handoff|context|verify-readiness|status|list|progress|triage|journal|help> ...
+const TOP_LEVEL_USAGE = `Usage: node workflow_cli.js [--project-id ID] [--project-root DIR] <plan|plan-review|plan-edit|task-write|context-curate|repair-anchor|execute|continue|init|spec-review|delta|archive|unblock|accept-deviation|advance|fail|set-contract-digest-path|write-handoff|context|verify-readiness|status|list|progress|progress-ledger|triage|journal|help> ...
   任意子命令加 --help / -h 打印该命令用法（如 plan-edit --help）。
   plan - 启动规划流程
   plan-review - 跑 lint + 算 confidence + 输出 ready 矩阵 JSON
@@ -1049,6 +1058,28 @@ function main() {
         result = cmdGet(resolvedPid, Number(args[0]))
       } else {
         process.stderr.write('Usage: node workflow_cli.js journal <add|list|search|get> ...\n')
+        process.exitCode = 1
+        return
+      }
+    } else if (command === 'progress-ledger') {
+      const ledgerCommand = args.shift()
+      const resolvedPid = pid || detectProjectId(projectRoot)
+      if (!resolvedPid) {
+        result = { error: '无法检测项目 ID，请使用 --project-id 指定' }
+        process.exitCode = 1
+      } else if (ledgerCommand === 'append') {
+        const knownIssuesRaw = option(args, '--known-issues', '')
+        result = appendProgressLedger(resolvedPid, {
+          task_id: option(args, '--task-id', ''),
+          status: option(args, '--status', 'completed'),
+          commits: option(args, '--commits', ''),
+          review: option(args, '--review', 'clean'),
+          known_issues: knownIssuesRaw ? knownIssuesRaw.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        })
+      } else if (ledgerCommand === 'read') {
+        result = { entries: readProgressLedger(resolvedPid) }
+      } else {
+        process.stderr.write('Usage: node workflow_cli.js progress-ledger <append|read> ...\n')
         process.exitCode = 1
         return
       }

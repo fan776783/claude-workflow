@@ -13,6 +13,8 @@ const {
   getTaskJsonPath,
   getCurrentTask,
   getTaskVerificationCommands,
+  getTaskGlobalConstraints,
+  getTaskInterfaces,
   getSpecContent,
   getContractDigest,
   expandContextPack,
@@ -183,6 +185,32 @@ function buildTaskContext(runtime, kind, role) {
       const verificationCommands = getTaskVerificationCommands(task)
       if (verificationCommands.length) {
         parts.push(`<verification-commands>\n${verificationCommands.map((item) => `- ${item}`).join('\n')}\n</verification-commands>`)
+      }
+      // <global-constraints>（参照 superpowers 6.0）：workflow 级全局约束逐字注入每个 implementer/reviewer。
+      // 与 task.md 内的 per-task constraints 同源同信任级（planner 写入），保持与 verification-commands 同样的直注风格。
+      const globalConstraints = getTaskGlobalConstraints(task)
+      if (globalConstraints.length) {
+        parts.push(`<global-constraints>\n（workflow 级全局约束，适用所有 task，逐字遵守、勿摘要、勿转述）\n${globalConstraints.map((item) => `- ${item}`).join('\n')}\n</global-constraints>`)
+      }
+      // <task-interfaces>（参照 superpowers 6.0）：本 task 消费/生产的跨 task 接口契约，
+      // implementer 据此对接邻居 task 而不必读其源码，reviewer 据此校验接口一致性。
+      const interfaces = getTaskInterfaces(task)
+      if (interfaces) {
+        const lines = []
+        if (interfaces.consumes.length) {
+          lines.push('consumes（本 task 依赖的邻居接口）:')
+          for (const c of interfaces.consumes) {
+            const from = c.from_task ? ` (from ${c.from_task})` : ''
+            lines.push(`- ${c.name}${from}: ${c.contract || '(契约未声明)'}`)
+          }
+        }
+        if (interfaces.produces.length) {
+          lines.push('produces（本 task 对外提供的接口）:')
+          for (const p of interfaces.produces) {
+            lines.push(`- ${p.name}: ${p.contract || '(契约未声明)'}`)
+          }
+        }
+        parts.push(`<task-interfaces>\n本 task 的跨 task 接口契约（勿读邻居源码即知形态；改动须与下列契约一致）：\n${lines.join('\n')}\n</task-interfaces>`)
       }
     }
   }

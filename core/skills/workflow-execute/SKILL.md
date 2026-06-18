@@ -56,11 +56,42 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 - plan.md 在新模型下退化为**可选人类可读叙述**(front matter + 锚点),非机器 task 源——execute 不依赖它解析 task。
 - **legacy 兼容**:存量 plan.md 格式旧 workflow(无 task-dir)由 `LegacyPlanMdSource` 兜底,经 `parseTasksV2` 从 plan.md 读 task 序列(C-7),切片来源等价,执行路径不变。`TaskSource` 工厂按 state 自动选 adapter。
 
+## Step 1.5: Pre-Flight Plan Review（首次执行时，一次性）
+
+**触发条件**：仅首次从 `planned` 进入 `running` 时执行一次（`status_transition: "planned->running"`）。resume 场景（`running` / `halted`）跳过本步——计划已上过路。
+
+**目的**：在执行 Task 1 之前，一次性扫描 task-dir 中的计划内部冲突，批量提问用户，而非逐 task 执行到一半才发现矛盾。参照 superpowers 6.0 Pre-Flight Plan Review。
+
+**检查项**（controller 从 Step 1 持有的全 task 切片扫描，不调 CLI、不读源码）：
+
+1. **任务间文件冲突**：T2 `depends: [T1]` 但 T1.files 与 T2.files 有交集且无 merge_candidates 信号 → T2 可能在 T1 未完成时改同一文件
+2. **依赖缺失**：T2 `depends: [T3]` 但 T3 不在 task 集中（孤儿依赖）
+3. **验证命令缺失**：某 task 的 `verification.commands` 为空或非 string[] → execute 期 Step 5 验证会失败
+4. **acceptance 空缺**：某 task 的 `acceptance` 为空数组 → reviewer Phase 1 无 AC 可对照
+5. **fan-out 风险**：同一 file 被 ≥3 个 task 触及但无收敛 task（`plan-review` 的 `shared_file.fan_out` lint 本应挡，此处二次确认）
+
+**执行方式**：
+- 全部检查通过 → 静默继续 Step 2，不打印任何 banner
+- 发现冲突 → **一次性** `AskUserQuestion` 列出全部冲突项，options：
+  - `proceed`（用户确认接受风险，继续执行）
+  - `fix`（用户回 `/workflow-plan` 修计划，execute 暂停在 Step 1.5 不进 Step 2）
+  - `skip-check`（跳过 pre-flight，直接执行——降级路径，不推荐）
+
+> 本步是 advisory gate，不阻断执行——用户可选择 proceed 接受风险。目的是把"执行到第 3 个 task 才发现 T2 依赖写错"的延迟反馈提前到执行前。
+
 ## Step 2: 读取状态(state-first)
 
 **铁律**:在确认 state.status / state.current_tasks 之前,不得读取 task 源、源码或展开 Patterns to Mirror。
 
 **resume 三元组**:resume 锚点 = `current_tasks[0]` + `status` + **task 源**(task-dir,legacy 则 plan.md)三者(C-1)。`/clear` 后从 disk 重建靠这三者:`current_tasks[0]` = task 源 `firstTaskId()`,`status ∈ {planned,running,halted}` 决定可恢复性,task 源给全部 task。`status=planned ⟹ task 源存在` 由 `assertTaskSourcePresent` 单点守门,缺失统一报 `task_source_missing` 阻断 execute 入口。
+
+**Progress Ledger 恢复（compaction 后）**：`/clear` 后，除了 resume 三元组，还需读 progress ledger 恢复 per-task review 结论与已知问题（Step 7 final-review 的排除清单）：
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js progress-ledger read
+```
+
+返回 `{ entries: [...] }`，每条含 `task_id` / `status` / `commits` / `review` / `known_issues`。controller 把已记录的 minor + concerns 装配为 Step 7 final-review 的**已知问题排除清单**——清单内条目按原 severity 免重报，只报清单外的新发现（升级例外不变）。文件不存在时返回空数组（行为不变，向后兼容）。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js status
@@ -180,7 +211,7 @@ Implementer 返回 4 种状态（**严格 JSON-only**）:
 
 按 [`prompts/reviewer.md`](prompts/reviewer.md) 构造单 subagent prompt，单 context 内顺序执行两 phase。**reviewer dispatch 的 `subagent_type` 名须含 `review`/`reviewer`/`check`**,使 `pre-execute-inject` hook 路由到 `kind='check'`（full-layer code-specs digest）;否则 fall-through `implement`（`<current-task>` 仍注入、AC/constraints 不丢,仅 code-specs 退 scoped digest）:
 
-- **Phase 1 — Acceptance Compliance**：覆盖性 / 超额 / 关键约束。Phase 1 REVISE → 直接返回，不进 Phase 2。
+- **Phase 1 — Acceptance Compliance**：覆盖性 / 超额 / 关键约束。Phase 1 REVISE → 直接返回，不进 Phase 2。**cannot_verify**：AC 要求的行为在 diff 未触碰代码中时，reviewer 标注 `cannot_verify[]`（不等于 REVISE），controller 收到后必须自行 grep/Read 核实或回派 implementer 补实现，不得忽略。**Calibration**：plan-mandated 的缺陷也必须按实际严重度报告，不得因"plan 要求这么写"放行。
 - **Phase 2 — Code Quality**：critical / important / minor 三档。critical/important 必修；minor 记录于本 task journal 不阻塞。
 
 Controller 注入约束:
@@ -188,6 +219,7 @@ Controller 注入约束:
 - **不预读整文件正文**：只注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **allowed-write-scope 仍由 controller 装配**：task.md tail 可能被 hook 截断丢失,此块是 Phase 1 overage 检测的可靠文件清单来源。
 - **diff base 锁 prior-commit**（O5）：`diff-base-commit` = Step 4.1 派发前捕获的 `git rev-parse HEAD`,**禁** `state.initial_head_commit`。
+- **控制器权力约束**：派发 reviewer 时禁止 ①告诉 reviewer 忽略某项发现 ②预判严重度 ③粘贴累积历史摘要 ④自行放行 plan-mandated 缺陷。详见 [`prompts/reviewer.md`](prompts/reviewer.md)「控制器权力约束」+ [`references/subagent-driven.md`](references/subagent-driven.md)「审阅器只读 + 控制器权力约束」。
 
 Reviewer 返回**严格 JSON-only**。schema 非法 → controller 重派 1 次；仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure）。
 
@@ -221,7 +253,7 @@ implementer ↔ reviewer loop 进行到 **第 2 次仍 REVISE** 时，controller
 
 ### Degraded mode(无 subagent 平台)
 
-opencode / antigravity / droid 等无 subagent 平台 → controller 主会话直接执行 implementer 角色,完成后走单段 self-review(按 `prompts/reviewer.md` 两 phase 顺序 self-check,不起 reviewer subagent)。**质量上限低于 claude-code/cursor/codex 模式。**
+无 subagent 派发能力的平台(如 github-copilot,或受限环境/`WORKFLOW_HOOKS=0`) → controller 主会话直接执行 implementer 角色,完成后走单段 self-review(按 `prompts/reviewer.md` 两 phase 顺序 self-check,不起 reviewer subagent)。**质量上限低于支持 subagent 的平台。**（opencode / droid / antigravity / qoder 均支持 subagent,走默认全套,不降级——见 `references/subagent-driven.md` 平台矩阵）
 
 ## Step 5: Post-Execution（per task）
 
@@ -269,6 +301,24 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js advance {taskI
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --title "完成 {tasks}" --tasks-completed "{ids}" --summary "{摘要}"
 ```
+
+### ④ Progress Ledger（per task，必选）
+
+每 task reviewer PASS + 验证通过后，追加一行到 progress ledger（参照 superpowers 6.0）。`/clear` 后 controller 读此文件恢复 per-task review 结论与已知问题（known-issues 排除清单），避免从零重建。
+
+```bash
+node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js progress-ledger append \
+  --task-id T1 --status completed \
+  --commits "<base7>..<head7>" \
+  --review clean \
+  --known-issues "minor:file.ts:42 unused import,minor:utils.ts:10 magic number"
+```
+
+- `--commits`：该 task 改动的 commit range（Step 4.1 捕获的 diff base 到 HEAD）
+- `--review`：`clean`（无 critical/important）或 `issues`（有 minor 记录）
+- `--known-issues`：逗号分隔的 per-task review 已记录的 minor + concerns（Step 7 final-review 的排除清单数据源）。**单项描述内勿含逗号**——CLI 按逗号切项，描述含逗号会被误切成多条
+- 文件落点：`~/.claude/workflows/{pid}/progress.md`（追加写，每行一个 JSON）
+- **不替代** resume 三元组（`current_tasks[0]` + `status` + task 源），补充其缺失的 per-task review 上下文
 
 ## Step 6: 完成本 task → 直接取下一 task（controller 内联循环）
 
@@ -340,7 +390,7 @@ CLI 自动标记 `skipped` + 更新 task-dir(task.json) + state.json + 找下一
 2. **controller 注入纪律**(同 per-task reviewer):
    - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`),reviewer 自跑 `git diff` 取整 branch diff,**不预读整文件正文**。
    - `<code-specs-context>` 按本 branch 触及的 pkg/layer 摘取适用段落;空则降级通用质量启发式。
-   - **Degraded 平台(无 subagent)**:opencode / antigravity / droid 等无 subagent 平台,controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),reviewer.md 占位映射照样自渲染自执行。
+   - **Degraded 平台(无 subagent)**:无 subagent 派发能力的平台(如 github-copilot / 受限环境),controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),reviewer.md 占位映射照样自渲染自执行。
 3. **终审结论分流**(reviewer 返回严格 JSON,`decision: REVISE | PASS`,语义同 per-task,PASS 条件 `critical: []` 且 `important: []`):
    - **整体 PASS** → 宣告 workflow 完成,进入收尾(**无需再调 CLI**:最后一个 task 的 `advance {taskId}` 已自动把 status 落 `completed`;HARD-GATE #4 是终审 PASS 前不得宣告/收尾的 LLM 纪律门)。
    - **发现跨 task 集成问题**(contract 不一致 / 重复实现 / task 间接缝遗漏) → **不自动回退、不自动 revert、不擅改 state**;controller 把 issues 清单**展示给用户** + 走**用户决策**:`另起修复回合`(用户拍板后另开 task / `--retry` 路径修)或 `accept`(用户接受残留问题后继续推进 `completed`)。由用户拍板,controller 不替用户决策。
@@ -371,6 +421,8 @@ HARD-GATE 已覆盖的违规不在此重复。下列行为同样违规:
 
 ## CLI 参考
 
+- `workflow_cli.js progress-ledger append --task-id <id> --status <status> --commits <range> --review <clean|issues> --known-issues <csv>` — Progress Ledger 追写（Step 5 ④）
+- `workflow_cli.js progress-ledger read` — Progress Ledger 读取（Step 2 compaction 恢复）
 - `workflow_cli.js triage --result <job-id> [--strict]` — 特殊模式 codex 回归 triage（仅 codex implementer 路径）
 - `workflow_cli.js verify-readiness` — TDD red 起不来前的预检(可选;项目 `workflow.readiness` 声明启用 check 时调)
 - `verification.js create ... --require-files <csv>` — Step 5 ① 强化
