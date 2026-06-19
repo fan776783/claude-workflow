@@ -82,18 +82,13 @@ ${expected_files}
 
 - **task 正文单通道 = hook 注入**：`pre-execute-inject` hook 在 Task 派发时自动把当前 task 的 task.md 渲染正文注入 `<current-task>`；controller **不重复粘贴 task 正文**、不调 bundle CLI、不回头读 plan.md。hook 注入不可用（平台无 PreToolUse hook / `WORKFLOW_HOOKS=0`）→ controller 兜底把 Step 1 内存切片的 task 正文以 `<current-task>` 块粘进 prompt,内容等价;task 若声明 `constraints_global` / `interfaces`,同理兜底粘 `<global-constraints>` / `<task-interfaces>` 两段
 - **Report file 装配 + files_changed 权威源**（O4 扩展，参照 superpowers file-handoff）：dispatch 骨架第一行区加 `Report file: <task-dir>/implementer-report.json`（`<task-dir>` = `~/.claude/workflows/{pid}/tasks/{taskId}/`，controller 已持有）。implementer 把完整 JSON 写该文件 + transcript 只回 thin 回执。报告文件是 `files_changed` 等结构化字段的**权威源**:controller 装配 reviewer dispatch（`<implementer-output>` 的 files_changed + diff scope）时**读报告文件取 `files_changed`**——thin 回执**不含**此字段（只作路由信号），故 **normal path 也读报告文件**（读小 JSON 字段,非 transcript 历史,不污染上下文）
-- **回执丢失恢复**：**transcript 回执丢失 / 被后台进程 stdout 覆盖时**,controller **Read 报告文件**取 status + `git diff --stat <diff-base>..HEAD` 自验改动是否落盘 → 落盘则照常进 reviewer，未落盘则 fresh 重派。**禁 SendMessage / transcript-resume**——resume 重放整段 agent 历史 ≈2× input（实测一次 ≈315k）
+- **回执丢失恢复**：**transcript 回执丢失 / 被后台进程 stdout 覆盖时**,controller **Read 报告文件**取 status + `git diff --stat <diff-base>..HEAD` 自验改动是否落盘 → 落盘则照常进 reviewer，未落盘则 fresh 重派。**禁 SendMessage / transcript-resume**——resume 重放整段 agent 历史 ≈2× input（详见 [`../references/subagent-driven.md`](../references/subagent-driven.md)「不允许的行为」O4）
 - **controller 不 Read 源码补行号**：patterns / mandatory-reading 的行号可选,重读取留给 implementer 在它的抛弃式上下文里做，不污染 controller。粘指令、不粘代码
 - **`${expected_files}`**：渲染该 task 在 plan 中声明的修改/创建文件清单（每条一行 `- ` bullet）；plan 未声明 → 写 "未声明 — 按 task 描述的创建/修改/测试文件推断,尽量不扩大"
 - **第一行 `Active task:` 必须**：hook 失效时的锚定兜底，详见 [`../../dispatching-parallel-agents/SKILL.md#dispatch-prompt-contract`](../../dispatching-parallel-agents/SKILL.md)
 - **TDD 手动开启命中**：仅当入口 `tdd_enabled: true` 且任务满足 workflow-execute 的 TDD 条件时,在 `<protocols>` 中引用 `../tdd/SKILL.md` 而非粘贴 TDD 全文;默认写 "本任务不强制 TDD"
 - **HITL task**：在 `<protocols>` 中加入强制反问条款，不依赖 implementer 自觉
-- **[MODEL] 分级提示**（参照 superpowers 6.0，强制指定防静默继承会话最贵模型）：
-  - **机械实现**（1-2 文件、完整规格、转录+测试）→ 廉价/快速模型（如 haiku-class）
-  - **集成/判断**（跨文件、需理解 contract、有边界条件）→ 标准模型（如 sonnet-class）
-  - **架构/设计**（新模块、复杂算法、跨服务 contract 设计）→ 最强模型（如 opus-class）
-  - **「Turn count beats token price」**：廉价模型常需 2-3 倍轮次修正，反而更贵。implementer 写散文描述/多步推理时至少用中档模型。plan 文本含完整代码（转录+测试）时可用最廉价模型。
-  - 平台不支持指定模型时忽略此占位符（degraded 平台 controller 主会话即 implementer）
+- **[MODEL] 分级提示**（强制显式指定防静默继承会话最贵模型）：按 [`../SKILL.md`](../SKILL.md) § 模型分级选档（机械→廉价 / 集成→标准 / 架构→最强）；Turn count beats token price——implementer 写散文/多步推理至少中档，plan 含完整代码（转录+测试）才用最廉价；平台不支持指定 model 时忽略（degraded 平台 controller 主会话即 implementer）
 
 > Degraded 平台（无 subagent）：controller 主会话扮 implementer——无 Task 派发即无 hook 注入,直接以 Step 1 内存切片为 task 上下文（自渲染自执行）。
 

@@ -1026,7 +1026,7 @@ function cmdSpecReview(specChoice, projectId = null, projectRoot = null) {
   const specContent = fs.readFileSync(specPath, 'utf8')
 
   // approve 占位门（CLI 化）：spec 正文仍含模板占位/未渲染 token 时拒绝 approve。
-  // 原先该防线散在 workflow-spec Step 6 / workflow-plan Step 1 两处 prose（已漂移），收敛到此单点。
+  // 原先该防线散在 workflow-spec Step 5 / workflow-plan Step 1 两处 prose（已漂移），收敛到此单点。
   const specPlaceholders = lintPlaceholder(specContent)
   if (specPlaceholders.hits.length > 0) {
     return {

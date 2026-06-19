@@ -61,22 +61,18 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 
 **触发条件**：仅首次从 `planned` 进入 `running` 时执行一次（`status_transition: "planned->running"`）。resume 场景（`running` / `halted`）跳过本步——计划已上过路。
 
-**目的**：在执行 Task 1 之前，一次性扫描 task-dir 中的计划内部冲突，批量提问用户，而非逐 task 执行到一半才发现矛盾。参照 superpowers 6.0 Pre-Flight Plan Review。
+**目的**：执行 Task 1 前一次性扫 **plan-review 未 hard-block 的项**（warnings 不挡 `ready` 门 / advisory），把"计划残缺执行到一半才暴露"的延迟反馈提前。参照 superpowers 6.0 Pre-Flight Plan Review。
 
 **检查项**（controller 从 Step 1 持有的全 task 切片扫描，不调 CLI、不读源码）：
 
-1. **任务间文件冲突**：T2 `depends: [T1]` 但 T1.files 与 T2.files 有交集且无 merge_candidates 信号 → T2 可能在 T1 未完成时改同一文件
-2. **依赖缺失**：T2 `depends: [T3]` 但 T3 不在 task 集中（孤儿依赖）
-3. **验证命令缺失**：某 task 的 `verification.commands` 为空或非 string[] → execute 期 Step 5 验证会失败
-4. **acceptance 空缺**：某 task 的 `acceptance` 为空数组 → reviewer Phase 1 无 AC 可对照
-5. **fan-out 风险**：同一 file 被 ≥3 个 task 触及但无收敛 task（`plan-review` 的 `shared_file.fan_out` lint 本应挡，此处二次确认）
+1. **孤儿依赖**：T2 `depends: [T3]` 但 T3 不在 task 集中——**CLI 无覆盖**（`lintTaskSchema` 只查 corruption、`findOrphanedAnchors` 只查 `current_tasks` 锚点，均不验 `depends[]` 跨 task 引用），此处是唯一门
+2. **验证命令缺失**：某 task 的 `verification.commands` 为空或非 string[]——plan-review 仅计入 confidence verification 维度（降分 + hint，不挡 ready），否则 Step 5 验证时才暴露
+3. **acceptance 空缺**：某 task 的 `acceptance` 为空数组——plan-review 仅进 warnings（不挡 ready），否则 reviewer Phase 1 无 AC 可对照才暴露
+4. **任务间文件冲突（INFO）**：T1.files ∩ T2.files 非空且无 merge_candidates 信号 → 仅打印一行 INFO 提示核对顺序（顺序执行无并发写竞争，**不进 AskUserQuestion**）
 
 **执行方式**：
-- 全部检查通过 → 静默继续 Step 2，不打印任何 banner
-- 发现冲突 → **一次性** `AskUserQuestion` 列出全部冲突项，options：
-  - `proceed`（用户确认接受风险，继续执行）
-  - `fix`（用户回 `/workflow-plan` 修计划，execute 暂停在 Step 1.5 不进 Step 2）
-  - `skip-check`（跳过 pre-flight，直接执行——降级路径，不推荐）
+- 全部通过 → 静默继续 Step 2（#4 命中打一行 INFO，不阻断）
+- #1/#2/#3 命中 → **一次性** `AskUserQuestion` 列全部项，options：`proceed`（接受风险继续）/ `fix`（回 `/workflow-plan` 修计划，暂停在 Step 1.5）/ `skip-check`（跳过，降级不推荐）
 
 > 本步是 advisory gate，不阻断执行——用户可选择 proceed 接受风险。目的是把"执行到第 3 个 task 才发现 T2 依赖写错"的延迟反馈提前到执行前。
 
@@ -118,10 +114,8 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 > **语义边界(handoff 不重复)**:handoff 装本阶段决策/取舍 + 指针;contract(既有代码复用面,contract-digest.md 经 hook 注入 implementer/reviewer)、spec(需求)、code-specs(项目规范)各有落点,handoff 不复写其正文。
 
 **状态预检查**:
-- `planned` → 首次调 `advance` 时 CLI 自动升为 `running`(返回 `status_transition: "planned->running"`),无需手动转换
-- `halted` (`halt_reason: 'failure'`) → 提示 `--retry` 或 `--skip`
-- `halted` (`halt_reason: 'dependency'`) → 提示 `node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js unblock <dep>`
-- `halted` (`halt_reason: 'failure'`，`failure_reason` 记 review-loop 上限) → 展示 reviewer 累计 issues,等用户介入
+- `planned` → 首次 `advance` 时 CLI 自动升 `running`,无需手动转换
+- `halted` → 按 CLI 返回 message 分流:`failure` 提示 `--retry`/`--skip`(review-loop 上限则展示累计 issues 等介入);`dependency` 提示 `unblock <dep>`
 - 渐进式 workflow:检查是否所有任务都被阻塞
 
 **Git 分支检测**(建议性):检测是否在 main/master,建议创建 feature branch。不阻塞执行。
@@ -132,10 +126,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 **自愈失败 → fail-fast**:权限不足、磁盘满、task-dir 与 plan.md 皆无时终止执行并提示用户检查后重试。**不得静默继续**。
 
-**自愈审批状态**:重建状态文件时,`user_spec_review` 根据 spec 文件存在性差异化处理:
-- `spec_file` 存在 → `user_spec_review` 恢复为 `approved`(reviewer: `system-recovery`)
-- `spec_file` 不存在 → `user_spec_review` 标记为 `skipped`
-- 自愈后首次执行时,Step 3 显示 `⚠️ 状态已自愈恢复,spec 审批标记为 system-recovery`
+**自愈审批状态**:重建时 `user_spec_review` 按 spec 文件存在性差异化——`spec_file` 在 → `approved`(reviewer `system-recovery`,Step 3 显示 `⚠️ 状态已自愈恢复`);不在 → `skipped`。
 
 **路径安全校验**:用 `resolveUnder` 校验 `plan_file` / `spec_file` 在允许范围内。参见 [`../../specs/workflow-runtime/shared-utils.md`](../../specs/workflow-runtime/shared-utils.md)。
 
@@ -166,24 +157,11 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 **默认行为(fresh-subagent-per-task)**：每个 task **必须**起一个 fresh implementer subagent 完成实现，再起**单 reviewer subagent**（合并 AC + 代码质量两 phase，AC→质量顺序，见 [`prompts/reviewer.md`](prompts/reviewer.md)）。controller(主会话) 只做编排，不直接写代码。
 
-> **Controller 上下文纪律(铁律)**:controller 全程**不读业务源码 / plan.md / spec.md 全文**(任何通道,含 `cat/grep/sed/rg` bash),只持 contract-digest + Step 1 task 切片;`workflow_cli status/context`、`git diff/log` 等诊断输出取字段不全量 dump;源码/diff 读取与验证一律下放 subagent。**测试运行也下放**(implementer 跑 + 报告,reviewer 裁决);controller 仅在死锁/疑难诊断的 focused 例外下亲自跑命令,此时**串行、one-shot(不 watch)、不并发同一 test runner**,且**先排除自身并发/watch 再下「真 hang/死锁」结论**(实测并发 vitest 污染 vite dep cache + stray 进程 → 制造 4 次假 hang)。详见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」——违反是单会话上下文膨胀主因。
+> **Controller 上下文纪律(铁律)**:controller 全程**不读业务源码 / plan.md / spec.md 全文**(任何通道,含 `cat/grep/sed/rg` bash),只持 contract-digest + Step 1 task 切片;`workflow_cli status/context`、`git diff/log` 等诊断输出取字段不全量 dump;源码/diff 读取与验证一律下放 subagent。**测试运行也下放**(implementer 跑 + 报告,reviewer 裁决);controller 仅在死锁/疑难诊断的 focused 例外下亲自跑命令,此时**串行、one-shot(不 watch)、不并发同一 test runner**,且**先排除自身并发/watch 再下「真 hang/死锁」结论**(并发 vitest 污染 vite dep cache + stray 进程 → 假 hang)。详见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」——违反是单会话上下文膨胀主因。
 
-> **机器 review 显式开启(FR-6)**：**codex 自动 review** 默认关闭,需显式开启。降级的是「自动触发」,不是删除能力——开启后完整恢复。
->
-> **降级对象(默认关,显式开)**:
-> - **codex spec/plan review**(`planning_gates.shouldRunCodex*Review` + `codex_review_runner.triggerCodexReview`):spec/plan 审批时默认**不**自动 spawn codex job;`review_status.codex_spec_review` / `codex_plan_review` / `plan_review` 子对象默认**不**实例化。
-> - **codex oracle/enhanced 回灌**(Step 4.2 第 2 次 REVISE 后的 `--oracle-review`、末尾 codex 增强终审):本就声明式 opt-in,保持显式。
->
-> **开启方式**(任一即恢复 codex 自动 review):
-> - **config 开关**:`project-config.json` 设 `workflow.review.codex = true`(或整体 `workflow.review = true`)。
-> - **命令 flag**:`planning_gates.js codex-spec-review/codex-plan-review` 传 `--review-enabled`(供上游命令层透传)。
->
-> **不在降级范围(始终保留的核心质量门)**:
-> - **per-task reviewer**(Step 4.2 合并 AC+质量单 reviewer subagent)——HARD-GATE,每 task 必跑。
-> - **末尾 final reviewer**(Step 7 整 branch 终审)——HARD-GATE #4,宣告完成前的唯一纪律门。
-> - **`user_spec_review`** 人工 gate(C-1)——始终实例化,不受 review flag 影响。
->
-> OQ-3 silent-done 补偿:review 默认关后,「execute 末仍可显式触发终审」即为补偿路径(Step 7 final reviewer 本就是无条件 HARD-GATE,不依赖 codex flag),未额外引入 `passes && reviewed` 双字段判定。
+> **机器 review 显式开启(FR-6)**：**codex 自动 review**（spec/plan review + Step 4.2 oracle / 末尾 enhanced 回灌）默认关闭,降级的是「自动触发」非删能力。
+> **开启**(任一恢复)：`project-config.json` 设 `workflow.review.codex = true`(或 `workflow.review = true`);或 `planning_gates.js codex-spec-review/codex-plan-review` 传 `--review-enabled`。
+> **不在降级范围(始终保留的核心质量门)**：per-task reviewer(Step 4.2,HARD-GATE 每 task 必跑) / 末尾 final reviewer(Step 7,HARD-GATE #4) / `user_spec_review` 人工 gate(C-1,不受 review flag 影响)。
 
 平台支持矩阵 + 降级规则 + Implementer 4 状态分流见 [`references/subagent-driven.md`](references/subagent-driven.md)。本节只给最小操作流。
 
@@ -212,14 +190,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 > 当前 task 在 Step 1 切片中找不到(state/plan 不一致)→ 走 Step 2 状态自愈,不要手工切片绕过。
 
-Implementer 返回 4 种状态（**报告文件 + thin 回执**，见 [`prompts/implementer.md`](prompts/implementer.md) output-schema；回执丢失 → Read 报告文件，禁 resume）:
-
-| 状态 | 处理 |
-|------|------|
-| `DONE` | 进入 4.2 reviewer（合并） |
-| `DONE_WITH_CONCERNS` | 读 concerns;correctness 类先修后再 review;observation 类记录后 review |
-| `NEEDS_CONTEXT` | controller 通过 `AskUserQuestion` 收集回答后重派 implementer |
-| `BLOCKED` | 评估根因:context 缺失 → 补 context 重派;reasoning 不足 → 升级 model;task 过大 → 拆 task;plan 错 → escalate user |
+Implementer 返回 4 种状态（`DONE` / `DONE_WITH_CONCERNS` / `NEEDS_CONTEXT` / `BLOCKED`，**报告文件 + thin 回执**，见 [`prompts/implementer.md`](prompts/implementer.md) output-schema；回执丢失 → Read 报告文件，禁 resume）。controller 分流见 [`references/subagent-driven.md`](references/subagent-driven.md) § Implementer 状态分流（含 `concerns[].type`/`severity` 分支，唯一权威）。
 
 ### 4.2 派发 reviewer subagent（合并 AC + 质量）
 
@@ -232,31 +203,16 @@ Controller 注入约束:
 - **AC / constraints / code-specs 走 hook 单通道**（同 implementer，O1）：`pre-execute-inject` hook 在 reviewer dispatch 时注入 `<current-task>`（AC + constraints,task.md HEAD）+ `<project-code-specs>`;controller **不重复粘贴**这三者。hook 不可用平台兜底 + final-review 例外见 [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」。
 - **不预读整文件正文**：只注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **allowed-write-scope 仍由 controller 装配**：task.md tail 可能被 hook 截断丢失,此块是 Phase 1 overage 检测的可靠文件清单来源。
-- **diff base 锁 prior-commit**（O5）：`diff-base-commit` = Step 4.1 派发前捕获的 `git rev-parse HEAD`,**禁** `state.initial_head_commit`。
+- **diff base 锁 prior-commit**（O5）：见 Step 4.1 / [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」（**禁** `state.initial_head_commit`,动机：传错 base 读进往期 task 全量 diff）。
 - **控制器权力约束**：派发 reviewer 时禁止 ①告诉 reviewer 忽略某项发现 ②预判严重度 ③粘贴累积历史摘要 ④自行放行 plan-mandated 缺陷。详见 [`prompts/reviewer.md`](prompts/reviewer.md)「控制器权力约束」+ [`references/subagent-driven.md`](references/subagent-driven.md)「审阅器只读 + 控制器权力约束」。
 
 Reviewer 返回**严格 JSON-only**。schema 非法 → controller 重派 1 次；仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure）。
 
-判定:
-
-| `decision` | controller 动作 |
-|------|---------|
-| `PASS` | 进入 Step 5 post-execution |
-| `REVISE` (phase1) | `revise_instructions` 塞回 implementer → **fresh 重派 implementer + fresh reviewer**（禁 SendMessage/transcript-resume）→ 重 review；trivial 机械修复（i18n key / 删重复 key / 删残留 tag）走 controller 自验例外,不重派 reviewer |
-| `REVISE` (phase2 critical/important 非空) | 同上；phase2.minor 记录入 task journal 不阻塞 |
-
-循环上限 3 轮（implementer ↔ reviewer）：第 3 轮重派（含 oracle 增强）仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop），等用户介入。
+判定（PASS → Step 5 post-execution；REVISE → `revise_instructions` 塞回 → **fresh 重派 implementer + fresh reviewer**,禁 SendMessage/resume,trivial 机械修复走 controller 自验例外；phase2.minor 不阻塞、记 journal）+ **循环上限 3 轮 → halt**：完整决策表见 [`prompts/reviewer.md`](prompts/reviewer.md) § Decision 处理;**3 轮上限 + `halt_reason: failure`(review-loop) 语义见 [`references/subagent-driven.md`](references/subagent-driven.md) § Reviewer 状态分流**（reviewer.md 不载 loop 上限,勿只指它）。
 
 > **3 轮是安全网,非升级时机**：thrashing（连续 2 轮 reviewer findings 冒出上轮未标的新 `file:line` 且原 issue 未收敛——controller 可机械算的近似启发式,非因果断言）应**前置升级**到设计简化 `AskUserQuestion`,不等撞硬上限——判据 + 动作见 [`references/subagent-driven.md`](references/subagent-driven.md) § Reviewer 状态分流「Thrashing 早升级」。
 
-### Stuck 触发 oracle 回灌（loop = 2）
-
-implementer ↔ reviewer loop 进行到 **第 2 次仍 REVISE** 时，controller(主会话) 在 runtime task state 上程序化标 `stuck_or_looping`(随 task 生命周期持有,不入 state.json 持久层),按 `core/specs/shared/codex-routing.md` § Decision Table + § Invocation Contract 调 `collaborating-with-codex` `--oracle-review`（声明式 opt-in,`risk_signals: stuck_or_looping`,字段填法以该 contract 为准、此处不复写映射）。**只有 controller 触发 codex,不下放给 implementer / reviewer subagent**。
-
-- 输出（alternative POV / 根因分析 / 推荐方向,read-only）作 **第 3 次重派的 `revise_instructions` 增强输入**;第 3 次 implementer **仍按 Step 4.1 派发路径**,实现完成后照常进 Step 4.2 reviewer。oracle 不接管实现
-- 预算：codex 调用**不消耗** loop 预算,第 3 次循环按原节奏跑,仍失败 → 上面 halt 不变
-- 降级：codex 不可用 → controller 跳过 oracle 回灌直接第 3 次重派,journal 写 `codex-status: codex_degraded` + 降级原因
-- **oracle-skip 判据收敛**（codex-routing.md step 5）：loop=2 **不得仅因「根因已知」跳 oracle**——根因已知 ≠ 修复收敛。症状若是 **thrashing**（连续 2 轮 findings 冒新 `file:line`、原 issue 未收敛）→ oracle 的 alternative-design POV 正是所需,或直接走设计简化 `AskUserQuestion`（前置于 3 轮上限）。仅 localized 单根因 correctness 补丁、根因+修复路径已锁定才可标 degraded-by-choice 跳过
+loop=2 仍 REVISE 时,controller 触发 codex oracle 回灌增强第 3 次重派(声明式 opt-in,默认关 FR-6) → 见「Stuck 触发 oracle 回灌（loop=2，codex stuck 路径）」。
 
 ### TDD 手动开启条件
 
@@ -295,7 +251,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/verification.js create \
 
 `validation.valid === true` 才能进入 ② Checkpoint(advance)。
 
-> **为何不 controller 自跑**:在 controller 自身 context 跑测试 = 把 test runner 请进主会话 → 诱发并发/缓存自伤(实测并发 vitest 污染 vite dep cache + stray 进程 → 4 次假 hang)。trust-but-verify 的"verify"放在 **reviewer subagent**(隔离 context、对照 diff、有疑点跑 focused 单测),不在 controller。
+> **为何不 controller 自跑**:在 controller 自身 context 跑测试 = 把 test runner 请进主会话 → 诱发并发/缓存自伤(并发 vitest 污染 vite dep cache + stray 进程 → 假 hang)。trust-but-verify 的"verify"放在 **reviewer subagent**(隔离 context、对照 diff、有疑点跑 focused 单测),不在 controller。
 
 若 task 验收项要求某些产物文件必须存在,append `--require-files <csv>`(纯文件存在检查,廉价、确定、不跑测试):
 
@@ -375,6 +331,15 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js triage --resul
 
 triage 不替代 git diff 内容检查,但替代了文件级越界识别。
 
+### Stuck 触发 oracle 回灌（loop=2，codex stuck 路径）
+
+implementer ↔ reviewer loop 进行到 **第 2 次仍 REVISE** 时，controller(主会话) 在 runtime task state 上程序化标 `stuck_or_looping`(随 task 生命周期持有,不入 state.json 持久层),按 `core/specs/shared/codex-routing.md` § Decision Table + § Invocation Contract 调 `collaborating-with-codex` `--oracle-review`（声明式 opt-in,`risk_signals: stuck_or_looping`,字段填法以该 contract 为准、此处不复写映射）。**只有 controller 触发 codex,不下放给 implementer / reviewer subagent**。
+
+- 输出（alternative POV / 根因分析 / 推荐方向,read-only）作 **第 3 次重派的 `revise_instructions` 增强输入**;第 3 次 implementer **仍按 Step 4.1 派发路径**,实现完成后照常进 Step 4.2 reviewer。oracle 不接管实现
+- 预算：codex 调用**不消耗** loop 预算,第 3 次循环按原节奏跑,仍失败 → 上面 halt 不变
+- 降级：codex 不可用 → controller 跳过 oracle 回灌直接第 3 次重派,journal 写 `codex-status: codex_degraded` + 降级原因
+- **oracle-skip 判据收敛**（codex-routing.md step 5）：loop=2 **不得仅因「根因已知」跳 oracle**——根因已知 ≠ 修复收敛。症状若是 **thrashing**（连续 2 轮 findings 冒新 `file:line`、原 issue 未收敛）→ oracle 的 alternative-design POV 正是所需,或直接走设计简化 `AskUserQuestion`（前置于 3 轮上限）。仅 localized 单根因 correctness 补丁、根因+修复路径已锁定才可标 degraded-by-choice 跳过
+
 ### 重试模式(`--retry`)
 
 ```bash
@@ -435,12 +400,8 @@ HARD-GATE 已覆盖的违规不在此重复。下列行为同样违规:
 - 多个 task 攒到最后批量回写 task-dir / state.json（每个 task 立即 advance）
 - 手动编辑 plan.md / state.json 推进任务状态（状态推进只走 `advance` CLI;仅 legacy plan.md workflow 由 CLI 回写 plan.md）
 - 发现 projectId 不匹配时覆写其他 workflow 的 `workflow-state.json`
-- 已失败 ≥ 3 次仍"再试一次"而不走 diagnose 四阶段（CLI hard-stop 在 `retry_count >= 3` 时触发）
-- 末尾终审未跑就标 `completed`,或终审发现跨 task 问题却自动回退 / 擅改 state（须展示给用户决策）
-- controller 自读业务源码 / plan / spec 全文,或全量 dump diff·CLI 输出回灌上下文(任何通道,含 bash `cat/grep`;见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」)
-- REVISE recheck **或 implementer 回执丢失**时用 `SendMessage` / transcript-resume 复用既有 subagent（应 fresh 重派 / Read 报告文件恢复——resume 重放整段历史 ≈2× input，实测一次 ≈315k；见 4.1 / 4.2 / O4）
-- per-task reviewer 用 `state.initial_head_commit` 作 diff base（应取 implementer 派发前捕获的 prior-commit；`initial_head_commit` 仅 final-review 整 branch 用；见 4.1 / O5）
-- controller 为 per-task reviewer 重复粘贴 AC / constraints / code-specs（hook `kind='check'` 已注入 `<current-task>` + `<project-code-specs>`；只在 hook 不可用平台兜底；见 4.2 / O1）
+- 终审发现跨 task 问题却自动回退 / 擅改 state（须展示给用户决策）
+- 其余违规见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」（controller 自读源码 / 全量 dump diff·CLI、`SendMessage`/transcript-resume 复用 subagent（O4，应 fresh 重派 / Read 报告文件）、per-task reviewer 用 `state.initial_head_commit` 作 diff base（O5）、为 reviewer 重复粘贴 AC/constraints/code-specs（O1））+ 失败 ≥3 次仍重试不走 diagnose（CLI `retry_count>=3` hard-stop）+ 末尾终审未跑就标 `completed`（HARD-GATE #4）
 
 ## CLI 参考
 

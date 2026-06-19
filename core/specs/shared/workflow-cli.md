@@ -109,7 +109,7 @@ node workflow_cli.js read-handoff --from <spec|plan|execute>
 
 **不变量(C-4)**:`fresh:false` 是正常回退(下游按 `fallback` 读全文),**绝非错误**——任何分支不抛异常、不置 exitCode。skill 侧误把 `fresh:false` 当报错阻断属违反本 contract。
 
-现役衔接对仅两段:`spec→plan`(workflow-spec Step 6 写,workflow-plan Step 1 读)、`plan→execute`(workflow-plan Step 3 写,workflow-execute Step 2 读)。execute 末尾终审为同会话 inline 派发,决策蒸馏直接拼进 final reviewer prompt,**不走 handoff 文件**。
+现役衔接对仅两段:`spec→plan`(workflow-spec Step 5 写,workflow-plan Step 1 读)、`plan→execute`(workflow-plan Step 3 写,workflow-execute Step 2 读)。execute 末尾终审为同会话 inline 派发,决策蒸馏直接拼进 final reviewer prompt,**不走 handoff 文件**。
 
 ## fail
 
