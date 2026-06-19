@@ -1,6 +1,7 @@
 ---
 name: workflow-execute
 description: "Use when 用户调用 /workflow-execute, or 已有 workflow 需要继续推进任务, or 用户说「继续/接着跑/继续执行/下一个 task/resume workflow/把剩下的任务跑完」要恢复已有 workflow 执行。"
+argument-hint: "[--phase] [--tdd] [继续]"
 disable-model-invocation: true
 ---
 
@@ -68,7 +69,7 @@ CLI 返回 `entry_action` / `resolved_mode` / `tdd_enabled` / `state_status` / `
 1. **孤儿依赖**：T2 `depends: [T3]` 但 T3 不在 task 集中——**CLI 无覆盖**（`lintTaskSchema` 只查 corruption、`findOrphanedAnchors` 只查 `current_tasks` 锚点，均不验 `depends[]` 跨 task 引用），此处是唯一门
 2. **验证命令缺失**：某 task 的 `verification.commands` 为空或非 string[]——plan-review 仅计入 confidence verification 维度（降分 + hint，不挡 ready），否则 Step 5 验证时才暴露
 3. **acceptance 空缺**：某 task 的 `acceptance` 为空数组——plan-review 仅进 warnings（不挡 ready），否则 reviewer Phase 1 无 AC 可对照才暴露
-4. **任务间文件冲突（INFO）**：T1.files ∩ T2.files 非空且无 merge_candidates 信号 → 仅打印一行 INFO 提示核对顺序（顺序执行无并发写竞争，**不进 AskUserQuestion**）
+4. **共享文件信号（INFO）**：① T1.files ∩ T2.files 非空且无 merge_candidates 信号 → 提示核对顺序；② 同一 file 被 ≥3 个 task 触及且无收敛 task（fan-out）——plan-review 的 `shared_file.fan_out` 仅 advisory 报告、**不挡 ready**（不在 `ready` 布尔内），plan 期可能被略过，故此处补打 INFO 二次提醒。两者均顺序执行无并发写竞争，**仅打印一行 INFO，不进 AskUserQuestion**
 
 **执行方式**：
 - 全部通过 → 静默继续 Step 2（#4 命中打一行 INFO，不阻断）

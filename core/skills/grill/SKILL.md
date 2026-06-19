@@ -1,6 +1,7 @@
 ---
 name: grill
 description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me' / 「帮我理清」「先别写」「我想想怎么做」「需求不清楚」。"
+argument-hint: <待质询的计划/设计>
 ---
 
 <CONTEXT>

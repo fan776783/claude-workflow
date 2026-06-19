@@ -1,6 +1,7 @@
 ---
 name: scan
 description: "Use when 用户调用 /scan, or 首次使用 workflow 前需要初始化项目配置, or 项目架构 delta 后需要更新 project-config.json / repo-context.md。"
+argument-hint: "[--init | --config-only | --context-only | --migrate] [--force]"
 ---
 
 <CONTEXT>

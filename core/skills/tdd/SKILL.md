@@ -1,6 +1,7 @@
 ---
 name: tdd
 description: "Test-driven development with a red-green-refactor loop, built one vertical slice at a time. Use when user wants to build features or fix bugs with TDD, mentions 'red-green-refactor' / '测试驱动' / 'TDD' / '先写测试', or asks for integration tests. Refuses horizontal slicing (write all tests first then all code) as an anti-pattern."
+argument-hint: <需求描述>
 ---
 
 <CONTEXT>

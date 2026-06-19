@@ -88,7 +88,7 @@ ${expected_files}
 - **第一行 `Active task:` 必须**：hook 失效时的锚定兜底，详见 [`../../dispatching-parallel-agents/SKILL.md#dispatch-prompt-contract`](../../dispatching-parallel-agents/SKILL.md)
 - **TDD 手动开启命中**：仅当入口 `tdd_enabled: true` 且任务满足 workflow-execute 的 TDD 条件时,在 `<protocols>` 中引用 `../tdd/SKILL.md` 而非粘贴 TDD 全文;默认写 "本任务不强制 TDD"
 - **HITL task**：在 `<protocols>` 中加入强制反问条款，不依赖 implementer 自觉
-- **[MODEL] 分级提示**（强制显式指定防静默继承会话最贵模型）：按 [`../SKILL.md`](../SKILL.md) § 模型分级选档（机械→廉价 / 集成→标准 / 架构→最强）；Turn count beats token price——implementer 写散文/多步推理至少中档，plan 含完整代码（转录+测试）才用最廉价；平台不支持指定 model 时忽略（degraded 平台 controller 主会话即 implementer）
+- **[MODEL] 分级提示**（强制显式指定防静默继承会话最贵模型）：按 [`../SKILL.md`](../SKILL.md) § 模型分级（机械→廉价 / 集成→标准 / 架构→最强）；Turn count beats token price——implementer 写散文/多步推理至少中档，plan 含完整代码（转录+测试）才用最廉价；平台不支持指定 model 时忽略（degraded 平台 controller 主会话即 implementer）
 
 > Degraded 平台（无 subagent）：controller 主会话扮 implementer——无 Task 派发即无 hook 注入,直接以 Step 1 内存切片为 task 上下文（自渲染自执行）。
 

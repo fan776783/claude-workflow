@@ -1,6 +1,7 @@
 ---
 name: collaborating-with-codex
 description: Proactively use when Claude Code is stuck, wants a second implementation or diagnosis pass, needs a deeper root-cause investigation, or should hand a substantial coding task to Codex through the native App Server runtime. Supports multi-turn sessions via --session-id.
+argument-hint: <待委托给 Codex 的任务/问题>
 ---
 
 <CONTEXT>

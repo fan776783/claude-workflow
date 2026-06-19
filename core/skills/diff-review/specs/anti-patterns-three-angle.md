@@ -1,7 +1,7 @@
 # 三角度反模式清单（Reuse / Quality / Efficiency）
 
 > 代码审查共享锚点。参照 Claude Code 内置 `simplify` skill 的三角度分类，适用于本仓库的所有 review skill：
-> - `diff-review`（含 `--session` 模式）：当前模型自审（`review-pipeline.md` Layer C）读取本清单作为反模式锚点
+> - `diff-review`（含 `session` 模式）：当前模型自审（`review-pipeline.md` Layer C）读取本清单作为反模式锚点
 > - `workflow-execute` Step 5.2 reviewer Phase 2：per-task 代码质量审查（单 reviewer subagent）使用本清单
 
 ## Reuse 角度

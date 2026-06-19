@@ -1,7 +1,7 @@
 ---
 name: teach
 description: "Stateful multi-session teaching: 把当前目录当作 teaching workspace（MISSION / GLOSSARY / RESOURCES / learning-records），按 Knowledge-Skills-Wisdom 三要素 + zone of proximal development 教用户一门技能或概念。Use when 用户说「教我 X」「我想系统学 X」「teach me」「继续上次的学习」, or 在已有 teaching workspace 目录中继续学习。一次性技术答疑不触发——直接回答即可。"
-argument-hint: "想学什么?"
+argument-hint: "<想学什么>"
 disable-model-invocation: true
 ---
 

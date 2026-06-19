@@ -1,6 +1,7 @@
 ---
 name: design-plan
 description: "Use when 用户调用 /design-plan, or 需要为复杂跨服务需求(多服务改动 / 数据库 DDL / 新增对外接口 / 架构调整)产出可评审的技术方案文档,典型用户是技术主管 / 资深研发。简单单服务改动走 /workflow-spec,Bug 修复走 /fix-bug。"
+argument-hint: "<需求标题或 PRD 链接> | --revise <slug>-<YYYYMMDD>"
 ---
 
 <CONTEXT>

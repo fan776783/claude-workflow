@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: "Compact the current conversation into a handoff document for another agent or session to continue. Use when user says 'handoff' / '交接' / '总结给下一个' / 'wrap up for next session' / 'session summary', or context is about to be lost and work needs continuation."
-argument-hint: "下一个 session 的工作重点(可选)"
+argument-hint: "<下一个 session 的工作重点>"
 disable-model-invocation: true
 ---
 

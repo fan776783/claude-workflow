@@ -1,6 +1,7 @@
 ---
 name: workflow-delta
 description: "Use when 用户调用 /workflow-delta, or 已有 workflow 出现需求/PRD/API 变化需要影响分析与并入。"
+argument-hint: "[<变更来源: PRD/API 文件路径或需求描述>]"
 disable-model-invocation: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: spec-bootstrap
 description: "Use when 用户调用 /spec-bootstrap, or 项目尚未建立 .claude/code-specs/ 骨架且需要初始化 code-specs 体系。"
+argument-hint: "[--stack <name> | --no-stack] [--full | --minimal] [--force] [--reset]"
 disable-model-invocation: true
 ---
 

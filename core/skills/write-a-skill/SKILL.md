@@ -44,6 +44,7 @@ skill-name/
 ---
 name: skill-name
 description: "一句话说能力 + 'Use when <具体触发词>'. 1024 字符内,第三人称,中英混合触发词都带。"
+argument-hint: "[<target>]"   # 可选;带参数才加,语法按功能分(见 Argument-hint 规范)
 ---
 
 <CONTEXT>
@@ -91,6 +92,24 @@ Helps with documents.
 ```
 没法和其他 skill 区分。
 
+## Argument-hint 规范(可选)
+
+`argument-hint` 是可选 frontmatter 字段,输入 `/skill ` 后灰显在命令名后提示参数。**纯文档,不解析**——真正取值靠 body 内 `$ARGUMENTS` / `$1` `$2`。不带参数的 skill 不加。
+
+**核心原则:语法按功能分**(参 Claude Code 内置 `code-review`:`[low|medium|high|xhigh|max|ultra] [--fix] [--comment] [<target>]`)
+
+| 参数功能 | 语法 | 例 |
+|---|---|---|
+| 互斥模式枚举(选 1) | 裸词,无 `--` | `low\|medium\|high`、`session`、`branch <base>` |
+| 正交布尔开关(可叠加) | `--flag` | `--fix` `--comment` |
+| 位置目标 | `<positional>` | `<target>` `<paths>...` |
+
+**分层只在轴正交可组合时做**。互斥单轴(scope 三选一这类)→ 统一裸词,别给互斥项切 `--`/裸词混排。多根正交轴(模式 × 开关 × 目标)才按上表分层并存。
+
+**两个坑**:
+- **YAML**:值以 `[` 开头必须加引号 → `argument-hint: "[branch <base> | session]"`,否则被当 flow sequence 解析失败。
+- **别加违背 skill 契约的参数**:如「审完默认停下、等用户显式确认才改」的 skill 不该加 launch `--fix`(启动即改)——破坏安全契约。功能差异不是对齐项,别为"像某个内置 skill"硬抄。
+
 ## 何时加脚本
 
 - 操作是确定性的(校验 / 格式化)
@@ -117,6 +136,7 @@ Helps with documents.
 - [ ] references / scripts 只拆一级深度
 - [ ] 没有和其他 skill 重复的协议模板(Hard Stop / Manual Intervention / Codex 路由等走 `core/specs/shared/`)
 - [ ] 有 `<CONTEXT>` 块声明需要读什么（glossary / code-specs），不引用已废弃的 pre-flight 协议
+- [ ] 若带参数:`argument-hint` 语法按功能分（枚举裸词 / 开关 `--` / 目标 `<>`），值以 `[` 开头已加引号，未抄违背契约的参数
 
 ## 元理论审计（对照 `core/specs/shared/skill-craft.md`）
 

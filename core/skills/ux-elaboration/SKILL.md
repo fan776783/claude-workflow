@@ -1,6 +1,7 @@
 ---
 name: ux-elaboration
 description: "Use when 用户说「补充前端设计」「UX 深化」「页面 flowchart」「布局提取」「补 §4.4」, or workflow-spec Step 5 确认需要前端设计深化, or 已有 Spec 需要补充 User Flow / Page Hierarchy / Layout Anchors。"
+argument-hint: "[<spec.md>] [--design <dir>]"
 disable-model-invocation: true
 ---
 
@@ -117,7 +118,7 @@ Edit 写入 spec.md § 4.4.2。
 
 ux-elaboration 是一次性 priming，设计源**由用户在本 Step 显式提供**——不自动扫 PRD/对话上下文（PRD 中的图片不一定是布局参考，需人筛选）。
 
-> 单 frame Figma URL 通过 `figma-data screenshot` 命令只取 PNG，**不解 designContext**（designContext 是 `/figma-ui` 的活）。顶层文件 URL + 自动 frame 匹配路径不支持——真实 frame 名（如 "Dashboard v3 final"、"[WIP] Screen 2"）与 Page Hierarchy 页面名 fuzzy match 命中率低，失败回退成本大于直接贴单 frame URL。三种输入（单 frame URL / 附件 / 路径）最终统一走主会话 vision over PNG。
+> 单 frame Figma URL 通过 `figma-data` 的 `screenshot` + `get_metadata` 命令取 PNG + 区域几何，**不解 designContext**（designContext 是 `/figma-ui` 的活）。顶层文件 URL + 自动 frame 匹配路径不支持——真实 frame 名（如 "Dashboard v3 final"、"[WIP] Screen 2"）与 Page Hierarchy 页面名 fuzzy match 命中率低，失败回退成本大于直接贴单 frame URL。三种输入（单 frame URL / 附件 / 路径）最终统一走主会话 vision；Figma 路的几何尺寸另取 metadata 实测值。
 
 **不调 AskUserQuestion**（同 `/workflow-spec` Step 5、`/quick-plan` 风格）。展示 Page Hierarchy 后等用户一次性贴入设计源，AI 归一化。
 
@@ -177,11 +178,11 @@ type DesignSource =
   | { type: 'infer' };
 ```
 
-> `figma_screenshot` 类型标示"只取单 frame 截图，不解 designContext"——上下文成本降 10-100×，designContext 留给 `/figma-ui`。
+> `figma_screenshot` 类型标示"取单 frame 截图 + metadata 区域几何，不解 designContext"——designContext 留给 `/figma-ui`。
 
 ## Step 5: § 4.4.3 布局锚点提取（主会话 vision）
 
-**关键原则**：本 skill 只需要区域级布局信息（< 2KB JSON / 页），主会话 vision 直接读截图即可。**不走子 Agent、不解 designContext**——designContext 是 `/figma-ui` 的活，对本 skill 是 10-100× 上下文浪费。
+**关键原则**：本 skill 只需要区域级布局信息（< 2KB JSON / 页），主会话 vision 直接读截图即可。**不走子 Agent、不解 designContext**——designContext 生成整套框架代码 + 资源，对本 skill 是 10-100× 上下文浪费；`get_metadata` 是只读稀疏 XML（~80 字节/节点）仅取区域几何，不在此列，Figma 路可调。
 
 **Skip 条件**：Page Hierarchy 中 `existing` 页面跳过，只对 `new` 和 `modify` 跑提取。`existing` 在 §4.4.3 表格写一行 `existing — see code (<path>)`，不展开区域。
 
@@ -189,7 +190,7 @@ type DesignSource =
 
 | sourceType | 主会话动作 |
 |---|---|
-| `figma_screenshot` | 调 `node <figma-cli> screenshot --url <url>` 拿单 frame PNG → `Read` → vision 识别 |
+| `figma_screenshot` | 调 `node <figma-cli> screenshot --url <url>` 拿 PNG **+** `node <figma-cli> get_metadata --url <url>` 拿稀疏 XML（per-node width/height/层级）→ `Read` → vision 识别布局+语义，**几何尺寸用 metadata 实测值** |
 | `screenshot` | `Read` 路径或消费消息附件 → vision 识别 |
 | `infer` | 凭 §4.1 Primary Flow 和 §5.1 推断，标 `confidence: low` |
 
@@ -211,6 +212,14 @@ type DesignSource =
 }
 ```
 
+**几何来源约定（复用 `sourceType`，不另加字段）**：
+
+- `figma_screenshot` 路：`width`/`height`/`maxWidth` 取 `get_metadata` **实测 px**（如上例）
+- `screenshot` 路：尺寸用**比例/约值**（`"width": "~20%"`、`≈1/4 宽`），不冒充绝对像素；仅当用户给了参照总宽（如「1440 桌面」）才回绝对 px
+- 两条路的 `layout`(flex/grid)、`gap`/`padding`、`responsive`、`keyComponents` **均 vision 估算**——`get_metadata` 不直接给这些，且 x/y 坐标系不定，**不从 bounds 算术推导间距**
+
+> 上例 `gap`/`padding`/`breakpoint` 虽与 `width`/`height` 同写 px，仍属 vision 估算（非 metadata 实测）——px 格式不表来源，来源由 `sourceType` + 本约定界定。
+
 `confidence` 由主会话 AI 自评：
 - `high`：vision 识别清晰、区域边界明确
 - `low`：截图模糊 / 区域不确定 / `infer` 路径
@@ -225,15 +234,17 @@ type DesignSource =
 ```markdown
 | 页面 | 变更 | 主要区域 | 布局模式 | 关键组件 | 来源 | 置信 |
 |------|------|---------|---------|---------|------|------|
-| DashboardPage | new | Header + Sidebar(280px) + Content(grid-3col) | Flex | StatCard, ChartPanel | Figma 截图 | high |
+| DashboardPage | new | Header + Sidebar(280px) + Content(grid-3col) | Flex | StatCard, ChartPanel | Figma+meta | high |
 | DetailPanel | modify | Header + 三栏 | Grid | DataTable | 截图 | low ⚠️ |
 | EmptyState | new | — | — | — | pending | — |
 | LegacyPage | existing | see code (apps/x/Legacy.vue) | — | — | — | — |
 ```
 
+> 尺寸单位随「来源」列：`Figma+meta` = metadata 实测 px；`截图` = 比例/约值；`pending`/`existing` 无尺寸。
+
 **ASCII wireframe**：表后逐行追加，仅 `new` / `modify` 行必须，`existing` / `pending` 跳过。主会话 vision 已读过截图，输出 box-drawing 草图近零成本。规则：
 
-- 用 `┌─┐ │ └─┘ ├─┤ ┬ ┴` 字符；标 width/height 仅在 sidebar / header 等约束区
+- 用 `┌─┐ │ └─┘ ├─┤ ┬ ┴` 字符；标尺寸仅在 sidebar / header 等约束区，单位随 `来源`（Figma+meta 实测 px / 截图比例 `~20%`）
 - 区域名与布局表第 3 列一致，便于人眼对照
 - 不画细节（按钮文案、图标），只表达**形状 + 比例**
 
@@ -265,6 +276,7 @@ type DesignSource =
 ### 降级
 
 - `figma-data` CLI 不可用（`doctor` 失败）→ 提示用户改贴截图；**不静默 fallback 到 infer**
+- `get_metadata` 返回非「`<node … width/height>`」结构（见 Figma bug 50126：偶发返回指令文本）→ 该页几何按 `estimated` 走 vision，**不盲信 CLI 透传文本**
 - 主会话 vision 失败 → 标 pending（同上），**不编造**布局
 
 ## Step 6: Self-Review（UX 一致性）
@@ -279,6 +291,7 @@ type DesignSource =
 - **布局对齐** — § 4.4.3 Page Layout 与 § 4.4.2 Page Hierarchy 页面一一对应
 - **wireframe 覆盖** — § 4.4.3 每个 `new`/`modify` 行附 ASCII wireframe；`existing`/`pending` 跳过
 - **截图引用** — DesignSourceMap 有 `figma_screenshot`/`screenshot` 源的行附 `![]()`
+- **几何来源一致** — § 4.4.3 几何单位与 `sourceType` 一致：`figma_screenshot` 实测 px / `screenshot` 比例（用户给参照总宽时可绝对 px，见上「几何来源约定」），不跨源混用
 - **关键交互填写** — § 4.4.2 每行有"关键交互"列内容或显式 `—`
 - **与架构一致** — § 4.4 涉及的页面在 § 6 File Structure 有对应文件
 

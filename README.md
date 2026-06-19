@@ -33,7 +33,7 @@
 | 简单到中等、一次性规划可完成 | `/quick-plan` |
 | 跨 ≥2 服务 / 含 DDL / 对外接口的技术方案（三阶段研发流程） | `/design-plan`（实施后 `/plan-archive` 回写） |
 | 单 Bug 修复 | `/fix-bug`（批量走 `/bug-batch`，根因定位走 `/diagnose`） |
-| 代码审查 | `/diff-review`（staged / `--branch` / `--session` 三模式） |
+| 代码审查 | `/diff-review`（staged / `branch` / `session` 三模式） |
 | 需求模糊、先对齐再动手 | `/grill` |
 | 多个互相独立的并行边界 | `/team`（Claude Code 原生 Agent Teams，需 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`，仅用户显式输入时生效） |
 
@@ -99,7 +99,7 @@ agent-workflow sync --project -y     # 项目级安装（写当前仓库 .agents
 | `/workflow-status` | 查看进度、阻塞点与下一步建议（只读） |
 | `/workflow-archive` | 归档已完成工作流 |
 
-> 独立的 `/workflow-review` 已下线，终审折叠进 execute Step 7；需要独立整 branch 复核走 `/diff-review --branch <base>`。
+> 独立的 `/workflow-review` 已下线，终审折叠进 execute Step 7；需要独立整 branch 复核走 `/diff-review branch <base>`。
 
 ### 3.2 状态机
 

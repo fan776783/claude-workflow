@@ -1,6 +1,7 @@
 ---
 name: spec-review
 description: "Use when 用户调用 /spec-review, or 需要检查 .claude/code-specs/ 库内容是否过期、冲突或模板漂移。"
+argument-hint: "[--check-upgrade]"
 ---
 
 <CONTEXT>

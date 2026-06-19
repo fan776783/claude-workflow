@@ -1,6 +1,7 @@
 ---
 name: api-smoke
 description: "API smoke validation for backend contracts from user curl/HAR/.http, OpenAPI/Swagger/Apifox/Postman exports, YApi autogen, workflow spec, backend routes, and frontend call sites; supports quick live curl probes and suite script generation. Use when 用户说「接口冒烟」「生成接口测试脚本」「联调前验接口」「api smoke」「验一下后端」「验一下」「通不通」「可重复跑」「回归」, or 前端想在 UI 成型前先验后端 contract。登录态由用户 cookie 注入,skill 不做登录。"
+argument-hint: "[quick | suite] <接口源>"
 ---
 
 <CONTEXT>

@@ -1,6 +1,7 @@
 ---
 name: figma-ui
 description: "Use when 用户提供 Figma URL 并有明确的代码实现意图（实现/还原/构建/写/改/调/做/convert/implement/restore/build/match/create code）; or 引用现有文件说「按设计稿还原/调整/检查还原度」「和设计不一致」; or 要求换 icon/资源为设计稿里的。仅提供 URL 而无实现动作词（读取/查看/提取/导出/分析）时不触发,走 figma-data。Figma 画布操作(create/edit/delete nodes)走 figma-use。"
+argument-hint: <Figma URL>
 ---
 
 <CONTEXT>

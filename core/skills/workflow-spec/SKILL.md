@@ -1,6 +1,7 @@
 ---
 name: workflow-spec
 description: "Use when 用户调用 /workflow-spec, or 提出新需求要走完整 spec → plan → execute workflow, or 用户描述\"完整需求规格 / spec → plan → execute / 跨 module 新需求\"等场景。简单任务请用 /quick-plan。"
+argument-hint: "[-f] <需求描述 | 文件路径 | URL>"
 disable-model-invocation: true
 ---
 
@@ -282,7 +283,7 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 
 委托完成后,深化 Self-Review 由各独立 skill 内部执行。执行完毕**重新输出 Step 5 指针**,等用户再次回复 → 进入 approve / revise / split 分支。
 
-二次输出**复用首轮模板**:标题换「Spec 第二轮审批 — 深化已并入 §4.4」,提示行指向 spec.md §4.4 与首轮版本对照(首轮章节未变更)。深化章节为 §4.4;「展开摘要」兜底只展示本轮新增/修改章节,首轮折叠为一行 "未变更"。若需像素级 UI 还原 → 走 /figma-ui(执行期)。
+二次输出**复用首轮模板**:标题换「Spec 第二轮审批 — 深化已并入 §4.4」,提示行指向 spec.md §4.4 与首轮版本对照(首轮章节未变更)。**二轮回复选项收窄为 通过 / 改 §4.4 / 拆范围——不再提供「先做前端深化」(深化已完成,避免循环),「改 Spec」收窄为「改 §4.4」**。深化章节为 §4.4;「展开摘要」兜底只展示本轮新增/修改章节,首轮折叠为一行 "未变更"。若需像素级 UI 还原 → 走 /figma-ui(执行期)。
 
 ### CLI 调用(approve / revise / split 时)
 

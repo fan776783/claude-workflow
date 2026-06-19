@@ -1,6 +1,6 @@
 # Session Context Capture
 
-> `--session` 模式不依赖 `git diff` 或文件系统扫描；review范围来自**当前对话上下文**里模型自己写入/编辑过的文件与改动意图。这是 `--session` 区别于默认 staged / `--branch` 模式的核心点。
+> `session` 模式不依赖 `git diff` 或文件系统扫描；review范围来自**当前对话上下文**里模型自己写入/编辑过的文件与改动意图。这是 `session` 区别于默认 staged / `branch` 模式的核心点。
 >
 > 相应地，只要上下文不完整——被压缩、被清空、或 skill 在"跨 session 恢复"后运行——就无法可靠界定本会话的改动。此时必须硬停，不得降级为"尽量回忆"。
 
@@ -20,7 +20,7 @@
 
 ```
 ⚠️ 检测到本会话上下文已被压缩或清空，会话变更信息不完整。
-/diff-review --session 不能在此状态下执行，否则会遗漏或误报改动。
+/diff-review session 不能在此状态下执行，否则会遗漏或误报改动。
 
 建议改用：
 - /diff-review                 —— 基于 git diff，不依赖会话记忆
@@ -97,4 +97,4 @@
 Review ONLY these N files. Ignore all other modified or untracked files in the working tree.
 ```
 
-这是 `--session` 模式必备的范围限定——否则 Codex 会扫到 git working-tree 里的上游改动，产出大量范围外 finding。
+这是 `session` 模式必备的范围限定——否则 Codex 会扫到 git working-tree 里的上游改动，产出大量范围外 finding。

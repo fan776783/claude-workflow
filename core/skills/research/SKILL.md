@@ -1,6 +1,7 @@
 ---
 name: research
 description: "Use when 用户说「先搜一下」「有没有现成库 / 工具 / MCP」「查一下 X 最佳实践」「技术选型」「调研 X」「先搜后写」「deep research」, or 在动手实现前需要把能复用的方案找出来,or 做技术决策前需要拉齐外部证据。"
+argument-hint: "[--internal | --external] <需求 / 研究主题>"
 ---
 
 <CONTEXT>

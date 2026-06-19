@@ -1,6 +1,7 @@
 ---
 name: prototype
 description: "Build throwaway prototypes to flush out design questions before committing. Routes between Logic (terminal TUI for state/data validation) and UI (multiple radically different variants on one route). Use when user says 'prototype this' / '原型' / '试一下' / 'let me play with it' / 'try a few designs' / '验证一下这个设计', or needs to answer a question only running code can answer."
+argument-hint: <要验证的设计问题>
 ---
 
 <CONTEXT>

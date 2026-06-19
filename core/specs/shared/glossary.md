@@ -115,7 +115,7 @@ If a specific occurrence is intentional (e.g. quoting an external source, histor
 **See**: `core/skills/workflow-archive/SKILL.md`
 
 ### review
-**Definition**: The quality audit step — either the per-task / final whole-branch reviewer folded into execute (`workflow-execute` SKILL Step 7 final review) or PR-scoped (`diff-review`, including its `--session` mode).
+**Definition**: The quality audit step — either the per-task / final whole-branch reviewer folded into execute (`workflow-execute` SKILL Step 7 final review) or PR-scoped (`diff-review`, including its `session` mode).
 **Forbidden synonyms**: `审查` (in normative sections only)
 **See**: `core/skills/workflow-execute/SKILL.md` (Step 7 final review) / `core/skills/diff-review/SKILL.md`
 

@@ -24,7 +24,7 @@ Codex 协作review。不是把 Codex 意见直接展示给用户，而是将 Cod
 
 1. 确定review范围：
    - 默认：已暂存delta（`git diff --staged`）
-   - `--branch <base>`：分支差异（`git diff <base>...HEAD`）
+   - `branch <base>`：分支差异（`git diff <base>...HEAD`）
 2. 获取 diff 与状态
 3. 统计delta文件、+/- 行数
 

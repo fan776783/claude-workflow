@@ -1,6 +1,7 @@
 ---
 name: plan-archive
 description: "Use when 用户调用 /plan-archive, or 三阶段研发流程的阶段三:在所有模块研发上线后,根据实际代码改动回写阶段一技术方案 + 项目级架构文档(docs/architecture / docs/contracts / docs/assets/概要设计 等)。"
+argument-hint: "--design <path> --since <commit|branch|tag> [--services <list>]"
 disable-model-invocation: true
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: figma-data
 description: "Use when 用户提供 Figma URL 但只是要读取/查看/提取设计数据而不写代码; or 说「读取设计稿」「看下设计」「提取 token」「导出资源」「设计稿结构」「节点分析」; or 被 figma-ui 委托执行 Phase A 数据获取。当无法判断用户是否需要代码实现时,默认先触发本 skill 完成数据获取。不要在用户明确要求实现/还原/写代码时使用——那属于 figma-ui。"
+argument-hint: <Figma URL>
 ---
 
 # Figma Data — 设计数据获取 + 资源分诊

@@ -1,6 +1,7 @@
 ---
 name: diff-review
-description: "Use when asked to review a diff, do a pre-commit code review, or review staged/branch changes. Supports staged diffs, branch diffs, and --session mode that reviews only files edited in the current conversation context."
+description: "Use when asked to review a diff, do a pre-commit code review, or review staged/branch changes. Supports staged diffs, branch diffs, and session mode that reviews only files edited in the current conversation context."
+argument-hint: "[branch <base> | session]"
 ---
 
 <CONTEXT>
@@ -23,7 +24,7 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 进入 skill 后先完成以下步骤：
 
 1. 解析 `$ARGUMENTS`，确定review范围（已暂存delta / 分支差异 / 会话delta）
-2. 若 `--session` → 按 [references/context-capture.md](references/context-capture.md) 完成 compaction 硬停检测 + 会话delta集盘点
+2. 若 `session` → 按 [references/context-capture.md](references/context-capture.md) 完成 compaction 硬停检测 + 会话delta集盘点
 3. 读取共享规范：`specs/impact-analysis.md` 与 `specs/report-schema.md`
 4. 读取 [references/deep-mode.md](references/deep-mode.md) 并严格执行其workflow
 
@@ -31,13 +32,13 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 
 ## 用法
 
-`/diff-review [OPTIONS]`
+`/diff-review [SCOPE]`
 
-| 参数              | 说明 |
-| ----------------- | ---- |
-| (无)              | review已暂存delta（默认） |
-| `--branch <base>` | review相对 base 分支的delta |
-| `--session`       | 只review当前会话 Edit/Write 修改过的文件（compaction 时硬停，不降级到 git） |
+| 参数            | 说明 |
+| --------------- | ---- |
+| (无)            | review已暂存delta（默认 staged） |
+| `branch <base>` | review相对 base 分支的delta |
+| `session`       | 只review当前会话 Edit/Write 修改过的文件（compaction 时硬停，不降级到 git） |
 
 ## review管线
 
@@ -66,10 +67,10 @@ Read `core/specs/shared/glossary.md`。架构相关 finding 参考 `core/specs/s
 # 默认
 git diff --staged
 
-# --branch <base>
+# branch <base>
 git diff <base>...HEAD
 
-# --session（不跑 git）
+# session（不跑 git）
 # 从当前对话上下文里本模型的 Edit / Write / NotebookEdit tool call 盘出文件清单
 # 详见 references/context-capture.md Step 2
 ```
@@ -79,12 +80,12 @@ git diff <base>...HEAD
 报告 Summary 中的review范围用自然语言描述：
 
 - 默认：`已暂存的 3 个文件变更（用户认证模块重构）`
-- `--branch <base>`：`feature/auth 分支相对 main 的 12 个提交变更`
-- `--session`：`本会话上下文提取的 N 个改动文件（来源：Edit/Write tool calls）`——信息源是关键区别
+- `branch <base>`：`feature/auth 分支相对 main 的 12 个提交变更`
+- `session`：`本会话上下文提取的 N 个改动文件（来源：Edit/Write tool calls）`——信息源是关键区别
 
 禁止在未说明范围的情况下输出结论；禁止把"最近的改动"等含糊表述当作 session 模式。
 
-## --session 模式的额外约束
+## session 模式的额外约束
 
 1. **Compaction 硬停** — 命中 compaction 信号立即返回，不降级到 git。完整判定见 `references/context-capture.md § Step 1`。
 2. **delta集来源** — 必须来自会话上下文的 Edit / Write / NotebookEdit（含 Bash 间接写入）记录，不得从 git 推断。
