@@ -35,7 +35,7 @@ controller (主会话)
 
 不支持 subagent 的平台**自动**降级；不需要 config flag 开关。
 
-**模型分级（强制显式指定）**：每次 dispatch 必须显式给 model——省略 = 静默继承会话最贵模型（mechanical 任务也跑最贵档，是单 workflow 最大未察觉浪费）。tiers（机械→廉价 / 集成+reviewer→标准 / 架构+final-review→最强）见 [`../SKILL.md`](../SKILL.md) § 模型分级 + `../prompts/{implementer,reviewer}.md` 的 `[MODEL]` 段。
+**模型分级**：每次 dispatch 必须显式指定 model（省略 = 静默继承会话最贵档）；tiers + 理由见 [`../SKILL.md`](../SKILL.md) § 模型分级。
 
 > 本表是 fresh-subagent-per-task 平台支持的 single source。`workflow-execute/SKILL.md` 和 `dispatching-parallel-agents/SKILL.md` 都指向此处。
 >
@@ -59,7 +59,7 @@ controller (主会话)
 单 reviewer subagent 在一个 context 内顺序执行两 phase：
 
 - **Phase 1 — Acceptance Compliance**：AC 覆盖 / 超额 / 关键约束。`phase1.decision = REVISE` → 直接返回，**不执行 Phase 2**（gate-rule）。clean PASS 用 `ac_ids_covered`（AC ID 枚举,不回 evidence 长串）;REVISE/gap 才回完整 `ac_coverage`+evidence（O2a,schema 以 reviewer.md 为权威）。**cannot_verify**：AC 要求的行为在 diff 未触碰代码中时，reviewer 标注 `cannot_verify[]`（不等于 REVISE），controller 收到后必须自行核实或回派 implementer 补实现，不得忽略。
-- **Phase 2 — Code Quality**：三档语义与 PASS 条件以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。**Calibration 纪律**：plan-mandated 的缺陷也必须按实际严重度报告（critical/important），不得因"plan 要求这么写"放行。
+- **Phase 2 — Code Quality**：三档语义、PASS 条件、Calibration 纪律（plan-mandated 缺陷照实定级）均以 [`../prompts/reviewer.md`](../prompts/reviewer.md) 为唯一权威。
 
 `decision: REVISE` → controller 把 `revise_instructions` 塞回 implementer prompt → **fresh 重派 implementer + fresh reviewer subagent**（O4,禁 SendMessage/transcript-resume）→ 重 review。trivial 无逻辑机械修复走 controller 自验例外,不重派 reviewer。循环上限 **3 轮**（合并 phase1+phase2 共享）：第 3 轮重派仍 REVISE → `halted` + `halt_reason: 'failure'`（`failure_reason`: review-loop）。
 
@@ -99,10 +99,7 @@ controller (主会话)
 ### 审阅器只读 + 控制器权力约束（参照 superpowers 6.0 纪律门）
 
 - ❌ **reviewer 触碰工作树**：reviewer 是只读审阅员，禁止运行 `git checkout` / `git reset` / `git stash` / 任何写操作 / 修改文件。验证需求改用 grep/Read 在调用方定位，不动代码。reviewer 越权改码会导致后续提交孤立
-- ❌ **controller 告诉 reviewer 忽略某项发现**："don't flag X" / "skip the Y check"——reviewer 的发现由其专业判断决定，controller 不得事前指示不报。误报由 controller 在 reviewer 返回后裁决
-- ❌ **controller 预判严重度**："Minor at most" / "just a nit"——严重度由缺陷的 failure_scenario 决定，事前降级 = 剥夺 reviewer 定级权
-- ❌ **controller 粘贴累积历史摘要进 reviewer prompt**：前几轮发现 / implementer excuses / controller 分析不得整段粘贴（实测案例：dispatch 达 42k 字符，99% 是粘贴历史）。历史通过 `cannot_verify` / `revise_instructions` 结构化传递
-- ❌ **controller 自行放行 plan-mandated 缺陷**：reviewer 报告 plan 描述本身的缺陷时，controller 不得自行放行——展示给用户决定改 plan 还是改实现
+- ❌ **controller 权力约束 4 条**（告诉 reviewer 忽略发现 / 预判严重度 / 粘贴累积历史摘要 / 自行放行 plan-mandated 缺陷）：完整展开 + 42k 实测案例见 [`../prompts/reviewer.md`](../prompts/reviewer.md)「控制器权力约束」（canonical）
 
 ## 与其它 skill 的边界
 

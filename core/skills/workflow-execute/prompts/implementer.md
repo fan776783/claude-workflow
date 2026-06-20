@@ -74,7 +74,7 @@ ${expected_files}
 
 **回执必须是输出的最后一件事**：其后**不得**有任何后台进程 stdout——验证命令必须在写报告文件之前跑完、进程已退出（vitest watch 的事件行会覆盖 / 截断回执，这是 controller 被迫 resume 的根因）。
 
-> **为何分两段**：transcript 回执可能被后台进程 stdout 覆盖或在 compaction 中丢失；报告文件是 durable 权威源。controller 在回执丢失时 **Read 报告文件**恢复，**绝不** SendMessage / transcript-resume（重放整段历史 ≈2× 成本）。
+> **为何分两段**：transcript 回执可能被后台进程 stdout 覆盖或在 compaction 中丢失；报告文件是 durable 权威源。controller 在回执丢失时 **Read 报告文件**恢复，**绝不** SendMessage / transcript-resume。
 </output-schema>
 ```
 

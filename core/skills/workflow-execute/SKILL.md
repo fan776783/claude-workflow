@@ -21,10 +21,11 @@ disable-model-invocation: true
 ## Checklist
 
 1. ☐ 解析执行模式 + 一次性持全 task 切片
+1.5. ☐ Pre-Flight Plan Review(首次 planned→running 时,一次性)
 2. ☐ 读取 workflow 状态(state-first)
 3. ☐ 显示当前 task 上下文 + HITL 门槛
 4. ☐ 执行任务动作
-5. ☐ Post-Execution(验证 + checkpoint + journal)
+5. ☐ Post-Execution(验证 + checkpoint + journal + progress ledger)
 6. ☐ 完成本 task → 直接取下一 task(controller 内联循环)
 7. ☐ 所有 task 完成 → inline 终审 + 状态推进 completed
 
@@ -158,7 +159,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 **默认行为(fresh-subagent-per-task)**：每个 task **必须**起一个 fresh implementer subagent 完成实现，再起**单 reviewer subagent**（合并 AC + 代码质量两 phase，AC→质量顺序，见 [`prompts/reviewer.md`](prompts/reviewer.md)）。controller(主会话) 只做编排，不直接写代码。
 
-> **Controller 上下文纪律(铁律)**:controller 全程**不读业务源码 / plan.md / spec.md 全文**(任何通道,含 `cat/grep/sed/rg` bash),只持 contract-digest + Step 1 task 切片;`workflow_cli status/context`、`git diff/log` 等诊断输出取字段不全量 dump;源码/diff 读取与验证一律下放 subagent。**测试运行也下放**(implementer 跑 + 报告,reviewer 裁决);controller 仅在死锁/疑难诊断的 focused 例外下亲自跑命令,此时**串行、one-shot(不 watch)、不并发同一 test runner**,且**先排除自身并发/watch 再下「真 hang/死锁」结论**(并发 vitest 污染 vite dep cache + stray 进程 → 假 hang)。详见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」——违反是单会话上下文膨胀主因。
+> **Controller 上下文纪律(铁律)**:controller 全程**不读业务源码 / plan.md / spec.md 全文**(任何通道含 bash)、**不全量 dump 诊断输出**(`status/context`、`git diff/log` 取字段),只持 contract-digest + Step 1 task 切片;源码/diff 读取与验证一律下放 subagent。**测试运行也下放**(implementer 跑 + 报告,reviewer 裁决);仅死锁/疑难诊断的 focused 例外下 controller 亲跑,此时**串行 one-shot、先排除自身并发/watch 再下「真 hang/死锁」结论**(为何不自跑见 Step 5①)。完整禁止清单 + 129k 实测见 [`references/subagent-driven.md`](references/subagent-driven.md)「不允许的行为」——违反是单会话上下文膨胀主因。
 
 > **机器 review 显式开启(FR-6)**：**codex 自动 review**（spec/plan review + Step 4.2 oracle / 末尾 enhanced 回灌）默认关闭,降级的是「自动触发」非删能力。
 > **开启**(任一恢复)：`project-config.json` 设 `workflow.review.codex = true`(或 `workflow.review = true`);或 `planning_gates.js codex-spec-review/codex-plan-review` 传 `--review-enabled`。
@@ -180,7 +181,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js read-handoff -
 
 ### 4.1 派发 implementer subagent
 
-按 [`prompts/implementer.md`](prompts/implementer.md) 模板装配 prompt。**task 正文单通道 = hook 注入**:`pre-execute-inject` hook 在派发时自动把当前 task 的 task.md 渲染正文注入 `<current-task>`,controller **不重复粘贴 task 正文**,只装配编排骨架:
+按 [`prompts/implementer.md`](prompts/implementer.md) 模板装配 prompt。**task 正文单通道 = hook 注入 `<current-task>`**,controller **不重复粘贴 task 正文**,只装配编排骨架(注入机制 + hook 不可用兜底详见 implementer.md「Controller 责任」):
 
 - **第一行必须**：`Active task: <task_id>`(可选附加 `Spec: <path>` / `Plan: <path>`)
 - **`Report file: <task-dir>/implementer-report.json`**：implementer 把完整结构化报告写该文件(权威通道),transcript 只回 thin 回执;回执丢失/被后台进程 stdout 覆盖 → controller **Read 报告文件**恢复,**禁** SendMessage/resume(O4,见 `prompts/implementer.md`)
@@ -197,15 +198,15 @@ Implementer 返回 4 种状态（`DONE` / `DONE_WITH_CONCERNS` / `NEEDS_CONTEXT`
 
 按 [`prompts/reviewer.md`](prompts/reviewer.md) 构造单 subagent prompt，单 context 内顺序执行两 phase。**reviewer dispatch 的 `subagent_type` 名须含 `review`/`reviewer`/`check`**,使 `pre-execute-inject` hook 路由到 `kind='check'`（full-layer code-specs digest）;否则 fall-through `implement`（`<current-task>` 仍注入、AC/constraints 不丢,仅 code-specs 退 scoped digest）:
 
-- **Phase 1 — Acceptance Compliance**：覆盖性 / 超额 / 关键约束。Phase 1 REVISE → 直接返回，不进 Phase 2。**cannot_verify**：AC 要求的行为在 diff 未触碰代码中时，reviewer 标注 `cannot_verify[]`（不等于 REVISE），controller 收到后必须自行 grep/Read 核实或回派 implementer 补实现，不得忽略。**Calibration**：plan-mandated 的缺陷也必须按实际严重度报告，不得因"plan 要求这么写"放行。
+- **Phase 1 — Acceptance Compliance**：覆盖性 / 超额 / 关键约束。Phase 1 REVISE → 直接返回，不进 Phase 2。**cannot_verify**：AC 要求的行为在 diff 未触碰代码中时，reviewer 标注 `cannot_verify[]`（不等于 REVISE），controller 收到后必须自行 grep/Read 核实或回派 implementer 补实现，不得忽略。**Calibration**：plan-mandated 缺陷照实定级（权威见 [`prompts/reviewer.md`](prompts/reviewer.md)）。
 - **Phase 2 — Code Quality**：critical / important / minor 三档。critical/important 必修；minor 记录于本 task journal 不阻塞。
 
 Controller 注入约束:
-- **AC / constraints / code-specs 走 hook 单通道**（同 implementer，O1）：`pre-execute-inject` hook 在 reviewer dispatch 时注入 `<current-task>`（AC + constraints,task.md HEAD）+ `<project-code-specs>`;controller **不重复粘贴**这三者。hook 不可用平台兜底 + final-review 例外见 [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」。
+- **AC / constraints / code-specs 走 hook 单通道**（同 implementer，O1）：hook 注入 `<current-task>` + `<project-code-specs>`,controller **不重复粘贴**这三者。注入机制 / hook 不可用兜底 / final-review 例外见 [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」。
 - **不预读整文件正文**：只注入 `files_changed` 路径 + `diff-base-commit` SHA，reviewer 自跑 `git diff`。
 - **allowed-write-scope 仍由 controller 装配**：task.md tail 可能被 hook 截断丢失,此块是 Phase 1 overage 检测的可靠文件清单来源。
-- **diff base 锁 prior-commit**（O5）：见 Step 4.1 / [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」（**禁** `state.initial_head_commit`,动机：传错 base 读进往期 task 全量 diff）。
-- **控制器权力约束**：派发 reviewer 时禁止 ①告诉 reviewer 忽略某项发现 ②预判严重度 ③粘贴累积历史摘要 ④自行放行 plan-mandated 缺陷。详见 [`prompts/reviewer.md`](prompts/reviewer.md)「控制器权力约束」+ [`references/subagent-driven.md`](references/subagent-driven.md)「审阅器只读 + 控制器权力约束」。
+- **diff base 锁 prior-commit**（O5，**禁** `state.initial_head_commit`）：见 Step 4.1 / [`prompts/reviewer.md`](prompts/reviewer.md)「Controller 责任」。
+- **控制器权力约束**：派发 reviewer 时禁止 ①告诉 reviewer 忽略某项发现 ②预判严重度 ③粘贴累积历史摘要 ④自行放行 plan-mandated 缺陷。详见 [`prompts/reviewer.md`](prompts/reviewer.md)「控制器权力约束」（canonical）。
 
 Reviewer 返回**严格 JSON-only**。schema 非法 → controller 重派 1 次；仍失败 → halt + `halt_reason: 'failure'`（`failure_reason`: reviewer-schema-failure）。
 
@@ -236,6 +237,7 @@ loop=2 仍 REVISE 时,controller 触发 codex oracle 回灌增强第 3 次重派
 | ① 验证 | **必选** | 记录 implementer 报告的验证证据(reviewer 已确认) → `verification.js create`；controller **不重跑测试命令**。`valid !== true` → mark failed，停止 |
 | ② Checkpoint | **必选** | `advance {taskId}` 更新 task-dir(task.json) + state.json |
 | ③ Journal | 暂停/workflow 完成时 | `workflow_cli.js journal add` |
+| ④ Progress Ledger | **必选** | reviewer PASS + 验证通过后 `progress-ledger append`(--task-id/--status/--commits/--review/--known-issues);/clear 后供 Step 2 读回 known-issues 排除清单 |
 
 > Step 4.2 reviewer PASS（critical/important 为 0）且 Step 5.① 验证通过后,**内存确认即继续**(不再落 per-task quality_gate 持久化记录,见 ADR 0004),直接 advance。本表即权威 checklist,顺序不可换:验证必须在 advance 之前。
 
@@ -284,7 +286,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js journal add --
 
 ### ④ Progress Ledger（per task，必选）
 
-每 task reviewer PASS + 验证通过后，追加一行到 progress ledger（参照 superpowers 6.0）。`/clear` 后 controller 读此文件恢复 per-task review 结论与已知问题（known-issues 排除清单），避免从零重建。
+每 task reviewer PASS + 验证通过后，追加一行到 progress ledger（参照 superpowers 6.0）：持久化 per-task review 结论 + known-issues 排除清单（`/clear` 后恢复链见 Step 2）。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js progress-ledger append \
@@ -314,9 +316,7 @@ node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js progress-ledge
 
 ### context 压力 checkpoint（task 边界计数，无 CLI、无落盘）
 
-无可靠 in-session token 计数 → 改用 **task 边界计数**（确定性触发,替代"感知偏满"自判,后者实测不可靠）：controller 记本会话已 advance 的 task 数,每 **N（默认 5）** 个 task 边界（**Step 6 取下一 task 处,非** REVISE 循环中途）打一行 banner,建议用户本批结束后 `/clear` 开新会话续跑,附精确 resume 命令(`/workflow-execute` 或裸"继续")。resume 三元组(state + task-dir)重建无损(见 Step 2);计数在 `/clear` 后归零(刚 clear,无需跨会话记忆)。Known-issues 排除清单由 progress ledger 持久化(Step 5 ④ `--known-issues`),`/clear` 后 Step 2 `progress-ledger read` 读回,无损恢复。**不阻塞、不写盘**,用户可忽略。
-
-> O1（reviewer prompt 去双重注入）+ O2a（compact PASS 返回）落地后,per-task controller 每轮上下文增长已大降,本 checkpoint 退为安全网而非主力。复用现有 `clear`/`compact` SessionStart hook（`hooks.json`,workflow-context 无损重注入）,无需新 hook。
+无可靠 in-session token 计数 → 改用 **task 边界计数**（确定性触发,替代"感知偏满"自判,后者实测不可靠）：controller 记本会话已 advance 的 task 数,每 **N（默认 5）** 个 task 边界（**Step 6 取下一 task 处,非** REVISE 循环中途）打一行 banner,建议用户本批结束后 `/clear` 开新会话续跑,附精确 resume 命令(`/workflow-execute` 或裸"继续")。resume 三元组(state + task-dir)重建无损(见 Step 2);计数在 `/clear` 后归零(刚 clear,无需跨会话记忆)。known-issues 排除清单经 progress ledger 跨 `/clear` 无损恢复(见 Step 2)。**不阻塞、不写盘**,用户可忽略。
 
 ## 特殊模式（条件路径——默认 fresh-subagent 主路径不触发，按命中场景查阅）
 
@@ -377,7 +377,7 @@ CLI 自动标记 `skipped` + 更新 task-dir(task.json) + state.json + 找下一
 1. **构造 final reviewer prompt**:复用 [`prompts/reviewer.md`](prompts/reviewer.md) 的「末尾 final-review 形态」段(与 per-task 同模板、同 output schema),由 controller 按该模板的「Prompt 占位 → 数据来源映射」final-review 列自行装配(C-001:不引入新机制)。scope / phase 语义、占位映射、refute 框架、排除清单与升级规则**均以 reviewer.md 该段为唯一权威,此处不复写**。execute 侧唯一自有职责:
    - **执行决策蒸馏**(构造 prompt 前,controller 从本会话内存蒸馏):`## Decisions`(实现偏离 spec 处+理由)/ `## Rejected`(放弃的实现路径)/ `## Risks`(终审重点核对的跨 task contract)三段合计 ≤20 行(超出时按重要性裁剪:优先保留影响跨 task contract 的条目,丢低优先 Rejected 路径;与 Known-issues 不同,这三段可安全截断,不影响 phase2 排除逻辑);`## Known-issues`(per-task review 已记录的 minor + concerns,作 phase2 排除清单)**不占该预算,每条一行,不截断**——排除清单只有完整才有效,截断会让 final reviewer 把已知项当新发现重报。该清单由 progress ledger 持久化(Step 5 ④ `--known-issues`),/clear 后 Step 2 `progress-ledger read` 读回装配。四段随已完成 task 清单一并注入 `<implementer-output>` 段。final reviewer 与 controller 同会话 inline 派发,蒸馏直接进 prompt,**不走 handoff 文件中转**(跨会话 handoff 仅存在于 spec→plan / plan→execute 两段,execute 无下游读者)。
 2. **controller 注入纪律**(同 per-task reviewer):
-   - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`),reviewer 自跑 `git diff` 取整 branch diff,**不预读整文件正文**。
+   - 注入 `spec_file` 路径 + diff base commit(`state.initial_head_commit`，整 branch)；**不预读纪律同 per-task（见 4.2）**，reviewer 自跑 `git diff` 取整 branch diff。
    - `<code-specs-context>` 按本 branch 触及的 pkg/layer 摘取适用段落;空则降级通用质量启发式。
    - **Degraded 平台(无 subagent)**:无 subagent 派发能力的平台(如 github-copilot / 受限环境),controller 主会话扮 final reviewer 走单段 self-review(与 per-task 降级一致,C-004),reviewer.md 占位映射照样自渲染自执行。
 3. **终审结论分流**(reviewer 返回严格 JSON,`decision: REVISE | PASS`,语义同 per-task,PASS 条件 `critical: []` 且 `important: []`):
