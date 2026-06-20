@@ -26,7 +26,7 @@ import {
 } from "./lib/state.mjs";
 import { pruneBucket } from "./lib/gc.mjs";
 import { captureTurn, emitLogLine, collectTouchedFiles } from "./lib/capture.mjs";
-import { loadJob, renderBrief, renderDetail, renderResult, waitForTerminal } from "./lib/result.mjs";
+import { classifyTurnOutcome, loadJob, renderBrief, renderDetail, renderResult, waitForTerminal } from "./lib/result.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = path.resolve(__dirname, "..");
@@ -548,8 +548,9 @@ async function runForeground() {
       const finalAnswer = state.reviewText || state.lastAgentMessage || "Review completed without text.";
       const touchedFiles = collectTouchedFiles(state.fileChanges);
 
+      const { success, fatalError, recovered } = classifyTurnOutcome(state);
       const resultObj = {
-        success: !state.error,
+        success,
         command,
         sessionId: threadId,
         threadId,
@@ -569,7 +570,8 @@ async function runForeground() {
         touchedFiles,
         fileChanges: state.fileChanges,
         commandExecutions: state.commandExecutions,
-        ...(state.error ? { error: state.error } : {}),
+        ...(fatalError ? { error: fatalError } : {}),
+        ...(recovered ? { recovered: { from: "responseStreamDisconnected", lastEvent: recovered.message } } : {}),
         ...(client.stderr ? { stderr: client.stderr.slice(-2000) } : {}),
       };
 
@@ -617,8 +619,9 @@ async function runForeground() {
       const finalAnswer = state.lastAgentMessage || "Turn completed without agent message.";
       const touchedFiles = collectTouchedFiles(state.fileChanges);
 
+      const { success, fatalError, recovered } = classifyTurnOutcome(state);
       const resultObj = {
-        success: !state.error,
+        success,
         command: "task",
         sessionId: threadId,
         threadId,
@@ -628,7 +631,8 @@ async function runForeground() {
         touchedFiles,
         fileChanges: state.fileChanges,
         commandExecutions: state.commandExecutions,
-        ...(state.error ? { error: state.error } : {}),
+        ...(fatalError ? { error: fatalError } : {}),
+        ...(recovered ? { recovered: { from: "responseStreamDisconnected", lastEvent: recovered.message } } : {}),
         ...(client.stderr ? { stderr: client.stderr.slice(-2000) } : {}),
       };
 

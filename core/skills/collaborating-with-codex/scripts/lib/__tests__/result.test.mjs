@@ -4,7 +4,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { resolveBucketDir, writeJobJson, jobLogPath } from "../state.mjs";
-import { resolveJobId, renderBrief, renderDetail, renderResult, formatElapsedDuration } from "../result.mjs";
+import { resolveJobId, renderBrief, renderDetail, renderResult, formatElapsedDuration, classifyTurnOutcome } from "../result.mjs";
 
 async function makeBucket(name) {
   const ws = await fsp.mkdtemp(path.join(os.tmpdir(), `cb-res-${name}-`));
@@ -90,4 +90,42 @@ test("renderResult aggregates terminal fields", () => {
 test("formatElapsedDuration handles invalid input gracefully", () => {
   assert.equal(formatElapsedDuration(null), null);
   assert.equal(formatElapsedDuration("not-a-date"), null);
+});
+
+test("classifyTurnOutcome: clean completion is success", () => {
+  const out = classifyTurnOutcome({ completed: true, error: null });
+  assert.deepEqual(out, { success: true, fatalError: null, recovered: null });
+});
+
+test("classifyTurnOutcome: recovered stream disconnect is success, not failure", () => {
+  // Real shape: codex reconnected and the turn reached completion despite the drop.
+  const error = {
+    message: "Reconnecting... 5/5",
+    codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } },
+    additionalDetails: "request timed out",
+  };
+  const out = classifyTurnOutcome({ completed: true, error });
+  assert.equal(out.success, true);
+  assert.equal(out.fatalError, null);
+  assert.equal(out.recovered, error);
+});
+
+test("classifyTurnOutcome: auth/unauthorized stays fatal even when turn completed", () => {
+  // Real shape: codexErrorInfo is the string "unauthorized"; turn/completed still fired.
+  const error = {
+    message: "Your access token could not be refreshed because your refresh token was revoked.",
+    codexErrorInfo: "unauthorized",
+  };
+  const out = classifyTurnOutcome({ completed: true, error });
+  assert.equal(out.success, false);
+  assert.equal(out.fatalError, error);
+  assert.equal(out.recovered, null);
+});
+
+test("classifyTurnOutcome: a stream disconnect that never completed is a failure", () => {
+  const error = { message: "Reconnecting... 5/5", codexErrorInfo: { responseStreamDisconnected: {} } };
+  const out = classifyTurnOutcome({ completed: false, error });
+  assert.equal(out.success, false);
+  assert.equal(out.fatalError, error);
+  assert.equal(out.recovered, null);
 });

@@ -75,6 +75,22 @@ export function renderDetail(job) {
   };
 }
 
+// Classify a turn's terminal outcome. Reaching this point already implies the turn
+// completed (a non-completed app-server exit throws into the bridge's catch path).
+// A response-stream disconnect codex recovered from is transient, not a failure;
+// auth/unauthorized and every other error class stays fatal.
+export function classifyTurnOutcome(state) {
+  const error = state?.error ?? null;
+  const completed = Boolean(state?.completed);
+  const info = error?.codexErrorInfo;
+  const recoverableStream = Boolean(
+    info && typeof info === "object" && "responseStreamDisconnected" in info
+  );
+  const recovered = completed && error && recoverableStream ? error : null;
+  const fatalError = error && !recovered ? error : null;
+  return { success: completed && !fatalError, fatalError, recovered };
+}
+
 export function renderResult(job) {
   if (!TERMINAL_STATES.has(job.status)) {
     const phase = job.phase ?? job.status;
@@ -95,6 +111,7 @@ export function renderResult(job) {
     fileChanges: job.fileChanges ?? [],
     commandExecutions: job.commandExecutions ?? [],
     error: job.error ?? null,
+    recovered: job.recovered ?? null,
     elapsed: formatElapsedDuration(job.startedAt ?? job.createdAt, job.completedAt ?? null),
   };
 }
