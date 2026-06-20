@@ -11,7 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **CodeBuddy 工具支持（第 9 个 AI 编码工具，installer-mount）**：CodeBuddy（腾讯云，Claude Code 同源克隆，CLI binary `codebuddy` / `cbc`）走 installer-mount，与 Qoder 同族——skills→`~/.codebuddy/skills`、commands→`~/.codebuddy/commands`（顶层 `.md`）、subagents→`~/.codebuddy/agents`、hooks 注入 `~/.codebuddy/settings.json`（Claude 同 schema，merge-safe）、memory 写 `~/.codebuddy/CODEBUDDY.md`（源用 canonical `AGENTS.md`）。CodeBuddy 虽有 Claude-Code 同源插件机制（`.codebuddy-plugin/plugin.json` + 应用内 `/plugin install`），但无确认的非交互 CLI 安装命令，故走 installer-mount 而非 Plugin 分发。新增 `lib/agents.js` 配置、`core/hooks/agent-templates/codebuddy.hooks.json`、`core/specs/harness-tools/codebuddy-tools.md`，partition 逻辑无需改动（自动归入 installer-mount 路径）。CodeBuddy IDE 的独立配置目录文档未给出，当前 `detectInstalled` 仅探测 `~/.codebuddy/`（CLI 与 IDE 若共用该 config home 则一并覆盖）。
+- **superpowers 6.0 落地**（commit c1c27bd）：`progress-ledger` CLI（`append` / `read`）+ `journal.js` 后端——per-task review 结论 / known-issues 台账，`/clear` 后 Step 2 读回恢复。task-dir v2 新增 `constraints_global` / `interfaces` 字段，`task_store` 归一化 + `pre-execute-inject` 注入 `<global-constraints>` / `<task-interfaces>`，implementer / reviewer 真正消费（reviewer Phase1 加接口一致性 + 全局约束校验）。execute 补 Step 1.5 pre-flight plan review、`[MODEL]` 分级、`cannot_verify`、控制器权力约束、reviewer 只读铁律。新增 `docs/porting-to-a-new-harness.md`；`progress-ledger` 注册进 `TOP_LEVEL_USAGE` / `SUBCOMMAND_HELP`。
+- **skill 元理论 + 两个新 skill**（commit 4b51c84）：新增 `skill-craft.md`（skill 设计元理论词汇 + failure modes 诊断清单，`write-a-skill` 接入审计清单）与 `domain-modeling-protocol.md`（消除 `grill` / `improve-architecture` / `workflow-spec` 三处术语挑战 + ADR 提议 inline 重复）。新增 `ask-workflow`（skill 路由地图，`disable-model-invocation`）与 `resolve-merge-conflicts`（逐 hunk 解决 git merge/rebase/cherry-pick 冲突，保留双方意图，禁 `--abort`）。`teach` 补 Assets 复用组件库段。glossary 对齐：契约→contract / 插件→Plugin / 审查→审阅，glossary-drift 归零。skill 数 34 → 35（删 `zoom-out` 后净 +1）。
+- **CodeBuddy 工具支持（第 9 个 AI 编码工具，installer-mount）**（commit 1ca891b）：CodeBuddy（腾讯云，Claude Code 同源克隆，CLI binary `codebuddy` / `cbc`）走 installer-mount，与 Qoder 同族——skills→`~/.codebuddy/skills`、commands→`~/.codebuddy/commands`（顶层 `.md`）、subagents→`~/.codebuddy/agents`、hooks 注入 `~/.codebuddy/settings.json`（Claude 同 schema，merge-safe）、memory 写 `~/.codebuddy/CODEBUDDY.md`（源用 canonical `AGENTS.md`）。CodeBuddy 虽有 Claude-Code 同源插件机制（`.codebuddy-plugin/plugin.json` + 应用内 `/plugin install`），但无确认的非交互 CLI 安装命令，故走 installer-mount 而非 Plugin 分发。新增 `lib/agents.js` 配置、`core/hooks/agent-templates/codebuddy.hooks.json`、`core/specs/harness-tools/codebuddy-tools.md`，partition 逻辑无需改动（自动归入 installer-mount 路径）。CodeBuddy IDE 的独立配置目录文档未给出，当前 `detectInstalled` 仅探测 `~/.codebuddy/`（CLI 与 IDE 若共用该 config home 则一并覆盖）。
+
+### Changed
+
+- **平台 subagent 支持事实修正**（commit c1c27bd）：搜索 ground-truth 后确认 opencode / droid（Task tool）、antigravity（orchestrator 自动编排）、qoder（`~/.qoder/agents`）均支持 subagent；修正 `subagent-driven` 平台矩阵 + `dispatching-parallel-agents` fan-out 矩阵 + 8 个 `harness-tools` 映射文件 + 衍生文档，degraded 例子改指 github-copilot / 受限环境。新增 `task_store` round-trip 与端到端注入断言（implementer / reviewer 收到、research 不收、空字段不注入）。
+- **入口 / 编排类 skill 转 user-invoked**（commit 4b51c84）：`workflow-*` / `spec-bootstrap` / `quick-plan` / `handoff` / `bug-batch` / `plan-archive` / `ux-elaboration` 加 `disable-model-invocation`，description 砍 no-op，防模型自动误触发编排入口。
+- **`workflow-execute` 对照 superpowers 收敛过度设计三处**（commit dff98b3）：① implementer 返回通道从 strict-JSON-in-transcript 改为写 `tasks/{id}/implementer-report.json`（权威）+ thin ≤8 行回执，回执丢失时 Read 报告文件恢复，禁 SendMessage / transcript-resume（消除 ≈315k 重放）。② 验证 actor 移走 controller——implementer 产证据 + reviewer 裁决，controller 不在自身 context 重跑测试（并发 vitest 污染 vite dep cache 是"假 hang"主因）；仅诊断例外串行 one-shot。③ review-loop 3 轮硬上限降为安全网，新增 thrashing 早升级（前置于上限）；`codex-routing` oracle-skip 判据修正（根因已知 ≠ 修复收敛）。codex oracle 复核补 3 个机械门：F1 `files_changed` 权威源统一到报告文件；F2 reviewer 加必填 `verification_review` 三布尔门（补回移走 controller 自跑后丢失的 HARD-GATE #2 anti-fabrication 机械性）；F3 thrashing 重定义为 controller 可机械算的 `file:line` 启发式（不 claim 因果），用户裁决。附带 implementer 测试卫生（one-shot / condition-based-waiting / 禁忙等）；模型分级提到 SKILL.md controller 纪律层。
+- **`workflow-execute` / `workflow-plan` 跨文件 rationale 重述收敛**（commit 03d3ab5）：`workflow-execute` 压缩 controller 纪律 / reviewer 注入 / 权力约束的跨文件重述，指向 canonical 单源；checklist 显式补 1.5 Pre-Flight + Step 5④ Progress Ledger。`workflow-plan` 折叠 No Placeholders / Confidence Score / Exact Commands 等冗余子节进 Self-Review 与任务结构，`shared_file` / `atomicity` 文案精简。
+- **多 skill `argument-hint` 统一**（commit 20a64ae）：`diff-review` / `workflow-execute` 等 skill 的 `argument-hint` 更新，提升清晰度与一致性。
+
+### Fixed
+
+- **Codex stream-disconnect 不再误报失败**（commit 42b1f2d）：新增 `classifyTurnOutcome`——turn 已 `completed` 且 error 为 `responseStreamDisconnected`（codex 已重连恢复）判定 success，记 `recovered` 字段而非 error；auth / unauthorized 等其余错误类保持 fatal。foreground review / task 两路统一走该分类，result 透传 `recovered`。
+- **Progress Ledger 矛盾文案 4 处**（commit 17743f8）：`known_issues` 实际由 `journal.js` `appendProgressLedger` 持久化到 `progress.md` 并经 Step 2 `progress-ledger read` 在 `/clear` 后读回；但 `SKILL.md` / `reviewer.md` 仍写「仅存会话内存 / 为空属预期」（加 Ledger 时漏改）。4 处同步改正为「progress ledger 持久化，Step 2 读回」，保留截断警告 + 升级例外。
+- **`workflow-spec` 步骤编号**（commit 82b6e1c）：`ux-elaboration` 委托步骤编号从 6 更正为 5，对齐工作流一致性；委托时不传设计源参数的说明同步修正。
+- **`--session` → `session` 引用**（commit 20a64ae）：多 skill 文档中 session mode 引用从 `--session` 更正为 `session`，对齐当前命令结构。
+
+### Removed
+
+- **删除 `zoom-out` skill**（commit 4b51c84）：功能由 `ask-workflow` 路由地图 + 各 skill 内联导航覆盖；清理 routing-table / README / CLAUDE / 指南 / aipe 引用。
 
 ## [6.6.14] - 2026-06-15
 
