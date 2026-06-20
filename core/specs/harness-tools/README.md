@@ -8,6 +8,7 @@
 | Harness | 映射文件 | 分发方式 |
 |---------|----------|----------|
 | Claude Code | `claude-code-tools.md` | 原生 Plugin |
+| CodeBuddy | `codebuddy-tools.md` | installer-mount |
 | Cursor | `cursor-tools.md` | installer-mount |
 | Codex | `codex-tools.md` | installer-mount |
 | Antigravity (`agy`) | `antigravity-tools.md` | 原生 Plugin |

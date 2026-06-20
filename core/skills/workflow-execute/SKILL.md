@@ -228,7 +228,7 @@ loop=2 仍 REVISE 时,controller 触发 codex oracle 回灌增强第 3 次重派
 
 ### Degraded mode(无 subagent 平台)
 
-无 subagent 派发能力的平台(如 github-copilot,或受限环境/`WORKFLOW_HOOKS=0`) → controller 主会话直接执行 implementer 角色,完成后走单段 self-review(按 `prompts/reviewer.md` 两 phase 顺序 self-check,不起 reviewer subagent)。**质量上限低于支持 subagent 的平台。**（opencode / droid / antigravity / qoder 均支持 subagent,走默认全套,不降级——见 `references/subagent-driven.md` 平台矩阵）
+无 subagent 派发能力的平台(如 github-copilot,或受限环境/`WORKFLOW_HOOKS=0`) → controller 主会话直接执行 implementer 角色,完成后走单段 self-review(按 `prompts/reviewer.md` 两 phase 顺序 self-check,不起 reviewer subagent)。**质量上限低于支持 subagent 的平台。**（opencode / droid / antigravity / qoder / codebuddy 均支持 subagent,走默认全套,不降级——见 `references/subagent-driven.md` 平台矩阵）
 
 ## Step 5: Post-Execution（per task）
 

@@ -1,6 +1,6 @@
 # @justinfan/agent-workflow
 
-以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集：把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，支持 Claude Code、Qoder、Antigravity、Cursor、Codex、GitHub Copilot、OpenCode、Droid 共 8 个工具。
+以模块化 workflow skills 为核心的多 AI 编码工具工作流工具集：把需求从"自然语言描述"推进到"Spec / Plan / 可执行任务"，支持 Claude Code、Qoder、CodeBuddy、Antigravity、Cursor、Codex、GitHub Copilot、OpenCode、Droid 共 9 个工具。
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 2. 安装与同步
 
-### 2.1 安装（全局，覆盖全部 8 个工具）
+### 2.1 安装（全局，覆盖全部 9 个工具）
 
 ```bash
 npm i -g --registry <private-registry-url> @justinfan/agent-workflow
@@ -49,7 +49,7 @@ agent-workflow sync -y
 ```
 
 - `npm i -g` 会**记住 registry**（供 `update` 复用），并为 installer-mount 类工具复制模板
-- `sync -y` 安装 Claude Code / Antigravity 的原生 Plugin、按目录 mount 其余 6 个工具（含 Qoder）、清理旧版残留；`claude` CLI 不在 PATH 时降级为直接写 Plugin 配置
+- `sync -y` 安装 Claude Code / Antigravity 的原生 Plugin、按目录 mount 其余 7 个工具（含 Qoder / CodeBuddy）、清理旧版残留；`claude` CLI 不在 PATH 时降级为直接写 Plugin 配置
 
 ### 2.2 更新与验证
 
@@ -220,12 +220,12 @@ docs/workflows/specs/{slug}-MMDD.md      ~/.claude/workflows/{projectId}/
 
 ## 7. 支持的 AI 编码工具
 
-当前支持 **8 个**：
+当前支持 **9 个**：
 
 | 分发方式 | 工具 |
 |----------|------|
 | 原生 Plugin | Claude Code、Antigravity（`agy plugin install`） |
-| installer 逐 skill mount | Qoder、Cursor、Codex、GitHub Copilot、OpenCode、Droid |
+| installer 逐 skill mount | Qoder、CodeBuddy、Cursor、Codex、GitHub Copilot、OpenCode、Droid |
 
 > Gemini CLI 已于 2026-06-18 停服并入 Antigravity CLI（`agy`），原支持已移除。
 

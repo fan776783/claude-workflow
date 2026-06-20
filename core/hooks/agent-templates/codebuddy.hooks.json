@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/session-start.js"
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/session-start.js"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/session-start.js"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/pre-execute-inject.js"
+          }
+        ]
+      },
+      {
+        "matcher": "ToolSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/skill-routing.js"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Bash|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/guard-engine-source.js"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node {{HOOKS_DIR}}/skill-routing.js"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -31,6 +31,7 @@ controller (主会话)
 | opencode / droid | `Task`（`subagent_type`） | ✅ | ✅ | 默认全套（Task tool 派发，与 claude-code 同族） |
 | antigravity | orchestrator 自动派发 / async subagent | ✅ | ✅ | 默认全套（2.0 自动编排 + CLI async subagent；精确 tool 名 + 自动编排语义见 harness-tools） |
 | qoder | subagent（`~/.qoder/agents`） | ✅ | ✅ | 默认全套（Chat panel + Quest，`/agent-name` 或自动） |
+| codebuddy | subagent（`~/.codebuddy/agents`） | ✅ | ✅ | 默认全套（Claude Code 同源克隆，`/agent-name` 或自动） |
 | 不支持 subagent 的平台 | 主会话 direct | ❌ | ❌ | degraded：主会话扮 implementer + 单段 self-review（按 reviewer.md 两 phase 顺序自检） |
 
 不支持 subagent 的平台**自动**降级；不需要 config flag 开关。

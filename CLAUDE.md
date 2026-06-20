@@ -106,9 +106,10 @@ Notes:
 
 **Supported Agents:**
 
-- Claude Code, Cursor, Codex, Antigravity, Droid, GitHub Copilot, OpenCode, Qoder
-- **Plugin-managed**（原生 Plugin 机制，非 installer mount）：Claude Code（`lib/claude-code-plugin.js`）、Antigravity（`lib/antigravity-plugin.js`，`agy plugin install`）。其余 6 个工具走 installer 逐 skill mount。
+- Claude Code, Cursor, Codex, Antigravity, Droid, GitHub Copilot, OpenCode, Qoder, CodeBuddy
+- **Plugin-managed**（原生 Plugin 机制，非 installer mount）：Claude Code（`lib/claude-code-plugin.js`）、Antigravity（`lib/antigravity-plugin.js`，`agy plugin install`）。其余 7 个工具走 installer 逐 skill mount。
 - **Qoder**（VS Code 内核）主体验按目录加载，走 installer-mount：skills→`~/.qoder/skills`、commands→`~/.qoder/commands`（顶层 `.md`）、subagents→`~/.qoder/agents`、hooks→`~/.qoder/settings.json`（Claude 同 schema，merge-safe 注入）。其 `.qoder-plugin`/`installed_plugins` 插件机制仅 Quest agents-window 生效，不覆盖主体验，故不走 Plugin 分发（v6 早期曾误用不存在的 `qodercli plugins install`）。
+- **CodeBuddy**（腾讯云，Claude Code 同源克隆，CLI binary `codebuddy`/`cbc`）走 installer-mount：skills→`~/.codebuddy/skills`、commands→`~/.codebuddy/commands`（顶层 `.md`）、subagents→`~/.codebuddy/agents`、hooks→`~/.codebuddy/settings.json`（Claude 同 schema）、memory→`~/.codebuddy/CODEBUDDY.md`（源用 `AGENTS.md`）。其插件机制（`.codebuddy-plugin/plugin.json` + 应用内 `/plugin install`）无确认的非交互 CLI 安装命令，故同 Qoder 走 installer-mount 而非 Plugin 分发。详见 `core/specs/harness-tools/codebuddy-tools.md`。
 - **Gemini CLI 已于 2026-06-18 停服**，合并进 Antigravity CLI（`agy`）。原 gemini-cli agent 已移除，Antigravity 从 installer-mount 改为 Plugin-managed。
 
 **Template Directories:** `core/{skills,commands,utils,specs,hooks,docs}`, with Agent-visible projections limited to `skills/`, `commands/agent-workflow/`, and `.agent-workflow/`

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CodeBuddy 工具支持（第 9 个 AI 编码工具，installer-mount）**：CodeBuddy（腾讯云，Claude Code 同源克隆，CLI binary `codebuddy` / `cbc`）走 installer-mount，与 Qoder 同族——skills→`~/.codebuddy/skills`、commands→`~/.codebuddy/commands`（顶层 `.md`）、subagents→`~/.codebuddy/agents`、hooks 注入 `~/.codebuddy/settings.json`（Claude 同 schema，merge-safe）、memory 写 `~/.codebuddy/CODEBUDDY.md`（源用 canonical `AGENTS.md`）。CodeBuddy 虽有 Claude-Code 同源插件机制（`.codebuddy-plugin/plugin.json` + 应用内 `/plugin install`），但无确认的非交互 CLI 安装命令，故走 installer-mount 而非 Plugin 分发。新增 `lib/agents.js` 配置、`core/hooks/agent-templates/codebuddy.hooks.json`、`core/specs/harness-tools/codebuddy-tools.md`，partition 逻辑无需改动（自动归入 installer-mount 路径）。CodeBuddy IDE 的独立配置目录文档未给出，当前 `detectInstalled` 仅探测 `~/.codebuddy/`（CLI 与 IDE 若共用该 config home 则一并覆盖）。
+
 ## [6.6.14] - 2026-06-15
 
 ### Changed

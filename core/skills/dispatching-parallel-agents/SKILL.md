@@ -46,7 +46,7 @@ description: "Use when 同阶段存在 2+ 可证明独立的问题域：独立 b
 | Claude Code / Cursor | `Task` | `TaskOutput` | 无需显式清理 |
 | Codex | `spawn_agent` | `wait` | `close_agent` |
 | OpenCode / Droid | `Task`（`subagent_type`） | 自动 | 无需显式清理 |
-| Antigravity / Qoder | subagent（自动编排 / `~/.qoder/agents`） | 平台原生 | 自动 |
+| Antigravity / Qoder / CodeBuddy | subagent（自动编排 / `~/.qoder/agents` / `~/.codebuddy/agents`） | 平台原生 | 自动 |
 | 无 subagent 平台（如 github-copilot / 受限环境） | direct | direct | 主会话顺序执行，无 fan-out |
 
 > 本表覆盖两种 fan-out（只读 + writable）的分派。workflow-execute plan 执行的 fresh-subagent-per-task 主路径（implementer + reviewer subagent，顺序）平台支持矩阵见 [`../workflow-execute/references/subagent-driven.md#平台-fallback-矩阵canonical`](../workflow-execute/references/subagent-driven.md)。
