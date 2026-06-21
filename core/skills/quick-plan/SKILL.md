@@ -25,10 +25,10 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 - 信心 < 5 → 建议切 `/workflow-spec`,不硬塞
 - 复杂度评估见 [references/complexity-scoring.md](references/complexity-scoring.md)
 - XL 级(跨 module / 新子系统) → 建议切 `/workflow-spec`
-- 产出后不自动执行,告诉用户下一步选项,带编号便于快速回复:
+- 产出后不自动执行,告诉用户下一步选项,可直接确认的带编号便于快速回复:
   - `1` 直接实施(人工 / `/tdd`)
-  - `2` 修改 plan → 回复反馈
-  - `3` 升级完整 workflow → `/workflow-spec`
+  - `2` 升级完整 workflow → `/workflow-spec`
+  - 改 plan → 直接说改哪里(自由文本,不编号)
 - 不调 AskUserQuestion。用户直接回复编号或内容即可。
 
 ## 与其他 skill 的关系

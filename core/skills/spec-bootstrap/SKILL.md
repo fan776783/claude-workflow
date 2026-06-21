@@ -75,11 +75,11 @@ Read `.claude/config/project-config.json` + `core/specs/shared/glossary.md`。re
      - `multiSelect: true`（每个包是独立决策，不能被压成单选）
      - 每个候选包一个 option，`label` 为包名 + 标签（`✓ 建议纳管` / `✗ 自动过滤`），`description` 写过滤理由（如"匹配 *-config 模式"/"在 archivedApps 列表"）
      - 用户确认后的列表写回 `project-config.json.codeSpecs.packages.include`，以免下次再次命中自动过滤逻辑
-   - 包数 > 8 时 `AskUserQuestion` 体感会差（modal 太长），改纯文本模式：原样输出"建议纳管 / 自动过滤"清单 + 编号反馈块：
+   - 包数 > 8 时 `AskUserQuestion` 体感会差（modal 太长），改纯文本模式：原样输出"建议纳管 / 自动过滤"清单 + 反馈块：
      ```
      反馈方式：
      1. 接受全部建议 → 回「1」或「OK」
-     2. 调整 → 直接说"也纳管 X / 排除 Y"，按反馈写回 include
+     - 要调整 → 直接说"也纳管 X / 排除 Y"，按反馈写回 include
      ```
 4. 决定 layer（v2.2 bootstrap 期）：
    - `--stack <name>` 且栈模板的 `manifest.json` 声明了 layers → 用栈模板声明

@@ -15,7 +15,7 @@ disable-model-invocation: true
 3. 禁止 Write 全量覆盖 spec.md / plan.md;禁止删除/重命名 YAML front matter 字段
 </HARD-GATE>
 
-> 🔧 自愈例外:会话丢失重建 state 时,CLI `init` 按 spec 文件存在性推断审批状态(`system-recovery` 标记,非用户主权审批)。仅限执行期,规划期不得触发。
+> 🔧 自愈例外:`system-recovery` 审批状态推断仅限执行期,规划期不得触发(机制见 workflow-execute / state-machine.md;规划期对应 Step 1「不得改用 `init`」)。
 
 ## Checklist
 
@@ -73,7 +73,7 @@ CLI 此刻会落盘:
 
 **文件命名**:落盘格式 `<slug>-<MMDD>.md`。每次必须传 `--task-name "<需求中文名>"`——主会话从需求拟一个 4-20 字的中文名词短语(如 `项目所属成员组与迁移`),禁止 hash 文件名。
 
-**spec approve 落点(task 源)**:Step 5 approve 时 CLI 落 task-dir 元数据壳(`tasks/{taskId}/` 下 task.json,**无占位 body**)+ 推 `status=planned`;`current_tasks[0]=firstTaskId` 作 resume 起点。**最终 task 粒度/ID 不在此预定**,留给 `/workflow-plan` 现写阶段按 implementation slice 定(详见 Step 5 CLI 调用 + workflow-plan Hard Gate #3)。
+**spec approve 落点(task 源)**:task-dir 元数据壳在 **Step 5 approve 时**才落(不在本 `plan` 调用),最终 task 粒度/ID 留给 `/workflow-plan` 现写阶段按 implementation slice 定。落壳 + `current_tasks[0]=firstTaskId` resume 锚机制详见 Step 5 CLI 调用 + workflow-plan Hard Gate #3。
 
 **spec.md 落点**:默认 `<project-root>/docs/workflows/specs/<slug>-MMDD.md`(team 可见,可入 git)。`project-config.json` `workflow.specDocsRoot` 可改根目录;`workflow.legacySpecLocation: true` 时回退 `~/.claude/workflows/{pid}/specs/`。plan.md / state / 其它工件仍在 user 级 `~/.claude/workflows/{pid}/`。
 
@@ -185,8 +185,6 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 **宣告**:`📘 Phase 1: Spec 扩写`
 
-> **仅 revise 回环重入本 Step 时**(审批后改 Spec 再回来)跑一次 `workflow_cli.js status` 确认 `workflow_status=spec_review`,异常回 Step 1 调 `plan` 重建骨架。前向路径无中间状态变更,不另做健康检查。
-
 **扩写硬约束**:
 - 不得改动模板章节标题或锚点;只在正文内 Edit 扩展
 - **§ 4.4 UX & UI Design 不在本 Step 填写**,留给 Step 5 前端设计深化
@@ -198,7 +196,7 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 ### Self-Review(生成后立即执行)
 
-发现问题直接修复,无需重审。必须输出执行摘要:覆盖率 + 空章节扫描 + 一致性结果。
+发现问题直接修复,无需重审。必须输出执行摘要:覆盖率 + 内部一致性 + 讨论源向落位 + 空章节扫描。
 
 > **上下文纪律**:spec 正文在 Step 4 Edit 时已进主上下文,self-review 与 Step 5 审批对照**不再 Read spec.md 全文**;需复查具体章节按 anchor / offset 局部读,省主上下文。
 
@@ -210,13 +208,13 @@ Explore/代码分析报告**不整篇进主会话**:主会话只持落盘确认 
 
 未覆盖的精确值/否定约束/联动关系/改造指令段落追加到 §9 Open Questions。不计算百分比。
 
-**2. 空章节扫描** — 空的章节或未填写的模板变量替换为实际内容。占位硬门(TBD/TODO/中文占位/未渲染 `{{}}`)由 CLI `spec-review` 的 `lintPlaceholder` 兜底(见 Step 5),**不要**人工扫 `待确认`——CLI 故意排除它(spec §9 open question 合法使用)。
+**2. 内部一致性** — Architecture 章节的 module 划分是否与 User-facing Behavior 的操作路径一致;File Structure 是否与 Architecture 的 module 对应。
 
-**3. 内部一致性** — Architecture 章节的 module 划分是否与 User-facing Behavior 的操作路径一致;File Structure 是否与 Architecture 的 module 对应。
+**3. 讨论源向落位** — 需求/讨论确认的硬约束(字段名、数量限制、条件分支等)是否都进 §3 Constraints;**§9.2 讨论确认的技术决策是否回填进 Architecture**。此项守"讨论派生约束漏写":这类不在 PRD 原文里,第 1 项(PRD 回溯)与下游 plan-review / `lintPlaceholder` 都接不住,本 Step 是唯一守卫,**勿并入第 1 项**。
 
-**4. 约束完整性** — 需求中的硬约束(字段名、数量限制、条件分支等)是否都在 § 3 Constraints 出现;讨论确认的技术决策是否体现在 Architecture 中。
+**4. 空章节扫描** — 逐章节过一遍,空章节 / 未渲染模板变量 → 填实。占位 token(TBD/TODO/中文占位/`{{}}`)由 CLI `spec-review` 的 `lintPlaceholder` 兜底(见 Step 5),但**空而无占位 token 的章节 lintPlaceholder 抓不到,本扫描是审批前唯一守卫,不得跳过**;**不要**人工扫 `待确认`——CLI 故意排除(spec §9 open question 合法使用)。
 
-**5. 首次使用体验** — 涉及工作区/初始化/应用安装等概念时,是否有首次使用引导描述。
+**(条件)首次使用体验** — 涉及工作区/初始化/应用安装等概念时,确认有首次使用引导描述。
 
 > §4.4 一致性由 `/ux-elaboration` 内部 Self-Review 覆盖(仅 Step 5 选前端深化时触发),本 Step 不涉及。覆盖率即时计算不持久化。
 
@@ -239,10 +237,9 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 设计深化推荐: <前端 | 无需> (尚未执行)
 
 请打开 spec.md 与需求原文逐段对照后回复:
-- 通过 → 「生成 Plan」/「OK」
-- 通过 + 先做设计深化 → 「先做前端深化」
-- 改 Spec → 直接说改哪里(如「§5.2 拆细」)
-- 拆范围 → 「拆」
+1. 通过,生成 Plan
+2. 通过 + 先做前端深化
+改 Spec / 拆范围 → 直接说改哪里或怎么拆(如「§5.2 拆细」「太大,拆成 A/B」)
 
 (若不便切文件回复「展开摘要」获取完整 Scope/Constraints/Acceptance 摘要)
 ```
@@ -255,25 +252,29 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 - Scope 段使用文本标签 `[in]` / `[out]` / `[blocked]`(**不**用 ✅/❌,避免与覆盖率符号双义)
 - Constraints 摘要(逐条列硬约束)
 - Acceptance Criteria 摘要(逐条列验收条件)
-- Self-Review 执行摘要(覆盖率 / 空章节 / 一致性结果)
+- Self-Review 执行摘要(覆盖率 / 内部一致性 / 讨论源向落位 / 空章节)
 
 **review 时必须将 spec.md 与需求原文逐段对照**,不能只依据摘要判断。「展开摘要」是 fallback,不是决策依据。
 
 ### 用户回复归一化
 
-| 用户回复(示例) | 归一化路径 |
-|---|---|
-| "OK" / "通过" / "生成 Plan" | approve 分支,canonical `Spec 正确，生成 Plan` |
-| "改 §X" / "再扩一下" / "Spec 要改" | revise 分支,canonical `需要修改 Spec`(细节缺失走 `缺少需求细节`) |
-| "页面结构不对" / "页面层级要调整" / "§4.4 重排" | revise 分支,canonical `页面分层需要调整` |
-| "缺用户流程" / "没有 user flow" / "补流程图" | revise 分支,canonical `缺少用户流程` |
-| "拆" / "范围太大" / "拆开" | split 分支,canonical `需要拆分范围` |
-| "先做前端深化" | elaborate-then-approve,委托 `/ux-elaboration` 后回到 Step 5 |
-| 直接调用 `/workflow-plan`(无文字回复) | **隐式 approve**:先输出一行 "未见显式回复,按 `/workflow-plan` 调用视为通过 spec 审批",再走 approve 分支 |
+把自由回复归一到 `planning_gates.js` `mapSpecReviewChoice` 的 canonical key(完整 7-key 表见 workflow-cli.md)。**禁止把用户原话直接塞给 `--choice`**——非 canonical 串被 `spec-review` 拒绝(返回 `无法识别的 Spec Review 选择` 错误,不写 state),workflow 停在 `spec_review` 不前进。
 
-**模糊回复**(如"看着办" / "你决定")→ 不归一化,反问用户具体走哪条。
+快捷编号(首轮,仅无附加内容的两项设编号,回裸数字 1-2 即命中):
+- `1` 通过 → approve `Spec 正确，生成 Plan`
+- `2` 先做前端深化 → elaborate-then-approve(见非直查分支)
 
-> 归一化目标字符串**以 `planning_gates.js` `mapSpecReviewChoice` 为准**(共 7 个 key,快速参考见 workflow-cli.md)。**禁止把用户原话直接塞给 `--choice`**。
+> 改 Spec / 拆范围需带具体内容(改哪里 / 怎么拆),不设编号,直接走下方直查 key 归一化。
+
+直查 key(用户措辞 → canonical):
+- approve → `Spec 正确，生成 Plan`
+- revise:再扩一下 → `需要修改 Spec`;细节缺失 → `缺少需求细节`;§4.4 重排 → `页面分层需要调整`;补流程图 → `缺少用户流程`
+- split:范围太大 → `需要拆分范围`
+
+非直查分支:
+- **"先做前端深化"** → elaborate-then-approve,委托 `/ux-elaboration` 后回到 Step 5
+- **直接调用 `/workflow-plan`(无文字回复)** → **隐式 approve**:先输出一行 "未见显式回复,按 `/workflow-plan` 调用视为通过 spec 审批",再走 approve 分支
+- **模糊回复**("看着办" / "你决定")→ 不归一化,反问用户具体走哪条
 
 ### 设计深化分支(仅 elaborate-then-approve)
 
@@ -283,11 +284,11 @@ PRD 覆盖率: <✅ 完整 | ⚠️ 待补 §9.X | ❌ 缺 §9.Y>
 
 委托完成后,深化 Self-Review 由各独立 skill 内部执行。执行完毕**重新输出 Step 5 指针**,等用户再次回复 → 进入 approve / revise / split 分支。
 
-二次输出**复用首轮模板**:标题换「Spec 第二轮审批 — 深化已并入 §4.4」,提示行指向 spec.md §4.4 与首轮版本对照(首轮章节未变更)。**二轮回复选项收窄为 通过 / 改 §4.4 / 拆范围——不再提供「先做前端深化」(深化已完成,避免循环),「改 Spec」收窄为「改 §4.4」**。深化章节为 §4.4;「展开摘要」兜底只展示本轮新增/修改章节,首轮折叠为一行 "未变更"。若需像素级 UI 还原 → 走 /figma-ui(执行期)。
+二次输出**复用首轮模板**:标题换「Spec 第二轮审批 — 深化已并入 §4.4」,提示行指向 spec.md §4.4 与首轮版本对照(首轮章节未变更)。**二轮选项收窄为 `1` 通过 / 改 §4.4 / 拆范围——不再提供「先做前端深化」(深化已完成,避免循环),「改 Spec」收窄为「改 §4.4」;同首轮,改/拆带内容直接说,仅 `1` 通过设编号**。深化章节为 §4.4;「展开摘要」兜底只展示本轮新增/修改章节,首轮折叠为一行 "未变更"。若需像素级 UI 还原 → 走 /figma-ui(执行期)。
 
 ### CLI 调用(approve / revise / split 时)
 
-**approve 占位防线已 CLI 化**:`spec-review` approve 自带 spec 占位校验(机制见 workflow-cli.md),命中返回 `reason: spec_placeholder` + `placeholder_hits` 并拒绝 approve——skill 层无需重扫,按 `placeholder_hits` 回 Step 4 补全后重调。核心章节内容质量(非占位但过简)仍由 Step 4 Self-Review 人工把关。
+**approve 占位防线在 CLI**:`spec-review` approve 命中占位返回 `reason: spec_placeholder` + `placeholder_hits` 并拒绝——按 `placeholder_hits` 回 Step 4 补全后重调。核心章节内容质量(非占位但过简)仍由 Step 4 Self-Review 把关。
 
 ```bash
 node ~/.agents/agent-workflow/core/utils/workflow/workflow_cli.js \

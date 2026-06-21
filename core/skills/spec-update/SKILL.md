@@ -93,7 +93,7 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
      - `terminated === true` → 展示 reason（`unknown_baseline` / `manifest_not_published` / `chain_not_reachable`），要求用户手工指定基准或更新 agent-workflow 后重跑
      - 否则展示预览：`chain` / `apply` 条数 / `skip` 条数 / `conflicts` 条数
      - 若 `conflicts` 非空 → 默认终止（不迁移），要求用户手工清理冲突后重跑
-     - 否则询问用户：`立即升级 / 跳过本次 / 查看 changelog / 终止`
+     - 否则询问用户（可回数字快捷确认）：`1. 立即升级 / 2. 跳过本次 / 3. 查看 changelog / 4. 终止`
        - 用户选"立即升级" → 调用 `applyMigration(plan, { projectRoot })`
          - 返回 `status === 'ok'` → 把 `.template-hashes.json.version` 更新到目标版本，继续 Step 1
          - 返回 `status === 'failed_partial'` → 把 `.template-hashes.json.migrationStatus` 写为 `failed_partial`、`version` 不改，输出 rollback 路径，终止
@@ -135,7 +135,7 @@ Read `.claude/code-specs/{pkg}/{layer}/index.md`（按涉及文件映射）+ `co
 
 1. 读每个文件的 H1 + Overview 首段
 2. 对用户输入的主题做子串/关键词模糊匹配
-3. 若命中候选：询问"追加到 `existing.md` 还是新建？"
+3. 若命中候选：询问"1. 追加到 `existing.md` / 2. 新建？"（可回数字）
 4. 若新建：建议文件名（kebab-case，对齐已存在命名风格）
 5. **防冗余检查**（命中即提示，不强制阻断）：
    - **兄弟文件 / index.md 重叠**（防 R2）：要写的 Overview / 段落与同层 `index.md` 或兄弟 convention 文件已有内容在讲同一件事 → 提示"已有相近内容，改为指针而非复制？"

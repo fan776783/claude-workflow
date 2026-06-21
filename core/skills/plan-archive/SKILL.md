@@ -173,8 +173,8 @@ git diff <since>..HEAD -- \
 ```
 反馈方式:
 1. 全部回写按预览执行 → 回「1」/「继续」/「OK」
-2. 部分回写 → 直接说改哪些(如"先不写 ADR,等下次","glossary 那条术语换个名")
-3. 终止(回写计划不对) → 回「3」/「终止」
+2. 终止(回写计划不对) → 回「2」/「终止」
+- 部分回写 → 直接说改哪些(如"先不写 ADR,等下次","glossary 那条术语换个名")
 ```
 
 **用户回复归一化**:
@@ -182,8 +182,8 @@ git diff <since>..HEAD -- \
 | 用户回复 | 归一化路径 |
 |---|---|
 | `1` / `继续` / `OK` | `confirm` → Step 5 |
-| `2` / 自由文本指出修改 | `revise` → 调整回写计划后重新输出 Step 4 |
-| `3` / `终止` / `reject` | `manual_intervention` → 不落盘 |
+| `2` / `终止` / `reject` | `manual_intervention` → 不落盘 |
+| 自由文本指出修改 | `revise` → 调整回写计划后重新输出 Step 4 |
 
 模糊回复 → 反问。**立即停止,等用户明确输入**。
 
@@ -203,7 +203,7 @@ git diff <since>..HEAD -- \
 
 - 行数:对照 `AGENTS.md § Documentation Budget` 表,超出则:
   - 暂停,提示用户:"`docs/X.md` 超 limit Y 行,把冷细节拆 ADR / 服务本地文档?"
-  - 用户回 `继续` 才硬写超出
+  - 用户回 `1` / `继续` → 硬写超出;否则直接说怎么拆(拆 ADR / 服务本地文档)
 - 溯源注释:在被改文件末尾加(若已有则更新):
   ```
   <!-- archived from docs/designs/{slug}-{YYYYMMDD}.md @ {since}..HEAD -->
